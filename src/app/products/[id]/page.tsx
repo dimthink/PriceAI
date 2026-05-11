@@ -1,20 +1,27 @@
 import {
-  AlertTriangle,
   ArrowLeft,
   Clock3,
   ExternalLink,
   Layers3,
-  Store,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BrandIcon } from "@/components/BrandIcon";
-import { collectOfferFlags, getOfferPriceMeta } from "@/lib/catalog";
 import { getProductGroup } from "@/lib/data";
 import type { RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+const productTypeLabels: Record<string, string> = {
+  会员充值: "订阅/会员",
+  成品号: "成品账号",
+  "共享/镜像": "共享/镜像",
+  "卡密/CDK": "卡密/CDK",
+  "邮箱/账号": "邮箱/账号",
+  API额度: "API额度",
+  其他: "其他",
+};
 
 export default async function ProductDetail({
   params,
@@ -46,10 +53,10 @@ export default async function ProductDetail({
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge>{platformIcon(product.platform)} {product.platform}</Badge>
-                <Badge>{product.productType}</Badge>
+                <Badge>{productTypeLabel(product.productType)}</Badge>
                 <Badge>{product.spec}</Badge>
               </div>
-              <h1 className="mt-5 font-serif text-4xl font-bold tracking-normal text-[#202829] md:text-5xl">
+              <h1 className="mt-5 font-serif text-3xl font-bold tracking-normal text-[#202829] sm:text-4xl md:text-5xl">
                 {product.displayName}
               </h1>
               <p className="mt-4 text-sm leading-7 text-[#5a6061]">{product.summary}</p>
@@ -64,17 +71,10 @@ export default async function ProductDetail({
           </div>
         </section>
 
-        {product.anomalyFlags.length ? (
-          <div className="mt-5 flex items-start gap-3 rounded-lg bg-[#fff7e8] px-5 py-4 text-sm leading-6 text-[#70511d] shadow-[0_12px_40px_rgba(45,52,53,0.035)]">
-            <AlertTriangle size={17} className="mt-0.5 shrink-0" />
-            <span>提示：{product.anomalyFlags.join(" / ")}。价格、库存与售后请以原平台为准。</span>
-          </div>
-        ) : null}
-
         <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="font-serif text-3xl font-semibold tracking-normal text-[#202829]">来源报价</h2>
-            <p className="mt-2 text-[0.72rem] font-medium uppercase tracking-[0.18em] text-[#5a6061]">
+            <h2 className="font-serif text-3xl font-semibold tracking-normal text-[#202829]">渠道报价表</h2>
+            <p className="mt-2 text-sm text-[#5a6061]">
               {product.offers.length} 条报价 · 只区分有货和缺货
             </p>
           </div>
@@ -84,9 +84,10 @@ export default async function ProductDetail({
           </div>
         </div>
 
-        <section className="mt-6 grid gap-5 lg:grid-cols-2">
+        <OfferTable offers={product.offers} />
+        <section className="mt-5 grid gap-3 md:hidden">
           {product.offers.map((offer) => (
-            <OfferCard key={offer.id} offer={offer} />
+            <OfferListItem key={offer.id} offer={offer} />
           ))}
         </section>
 
@@ -98,64 +99,126 @@ export default async function ProductDetail({
   );
 }
 
-function OfferCard({ offer }: { offer: RawOffer }) {
-  const flags = collectOfferFlags(offer);
-  const priceMeta = getOfferPriceMeta(offer);
-  const isOutOfStock = offer.status === "out_of_stock";
+function OfferTable({ offers }: { offers: RawOffer[] }) {
+  return (
+    <section className="mt-6 hidden overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 md:block">
+      <div className="overflow-x-auto">
+        <table className="min-w-[920px] w-full border-collapse text-left text-sm">
+          <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
+            <tr>
+              <TableHead>状态</TableHead>
+              <TableHead>渠道</TableHead>
+              <TableHead>原始商品名</TableHead>
+              <TableHead>价格</TableHead>
+              <TableHead>更新时间</TableHead>
+              <TableHead>操作</TableHead>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#edf0f1]">
+            {offers.map((offer) => {
+              const available = isOfferAvailable(offer);
+
+              return (
+                <tr key={offer.id} className={`transition hover:bg-[#f7f9f9] ${available ? "" : "bg-[#fbf7f6]"}`}>
+                  <td className="px-5 py-4">
+                    <OfferStatusBadge available={available} />
+                  </td>
+                  <td className="max-w-[210px] px-5 py-4">
+                    <span className="block truncate font-semibold text-[#202829]">
+                      {sourceLabel(offer)}
+                    </span>
+                    {sourceSecondaryLabel(offer) ? (
+                      <span className="mt-1 block truncate text-xs text-[#5a6061]">{sourceSecondaryLabel(offer)}</span>
+                    ) : null}
+                  </td>
+                  <td className="max-w-[380px] px-5 py-4">
+                    <span className="block truncate text-[#2d3435]">{offer.sourceTitle}</span>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className={`text-lg font-bold ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
+                      {formatCurrency(offer.price, offer.currency)}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-[#5a6061]">{formatRelativeTime(offerTimestamp(offer))}</td>
+                  <td className="px-5 py-4">
+                    <OfferLink offer={offer} available={available} compact />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function OfferListItem({ offer }: { offer: RawOffer }) {
+  const available = isOfferAvailable(offer);
 
   return (
-    <article
-      className={`relative overflow-hidden rounded-lg p-6 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ${
-        isOutOfStock ? "bg-[#f6f2f1] ring-[#e8b8b1]" : "bg-white ring-[#adb3b4]/15"
+    <article className={`rounded-lg p-4 shadow-[0_16px_45px_rgba(45,52,53,0.04)] ring-1 ${available ? "bg-white ring-[#adb3b4]/15" : "bg-[#fbf7f6] ring-[#ead8d5]"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-[#202829]">{sourceLabel(offer)}</p>
+          <p className="mt-1 line-clamp-2 text-sm leading-6 text-[#5a6061]">{offer.sourceTitle}</p>
+        </div>
+        <OfferStatusBadge available={available} />
+      </div>
+      <div className="mt-4 flex items-end justify-between gap-4">
+        <div>
+          <p className={`text-2xl font-bold tracking-normal ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
+            {formatCurrency(offer.price, offer.currency)}
+          </p>
+          <p className="mt-1 text-xs text-[#5a6061]">{formatRelativeTime(offerTimestamp(offer))}</p>
+        </div>
+        <OfferLink offer={offer} available={available} compact />
+      </div>
+    </article>
+  );
+}
+
+function TableHead({ children }: { children: React.ReactNode }) {
+  return <th className="px-5 py-3 font-semibold">{children}</th>;
+}
+
+function OfferStatusBadge({ available }: { available: boolean }) {
+  return (
+    <span
+      className={`inline-flex shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${
+        available ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-[#fbe9e7] text-[#9b3328]"
       }`}
     >
-      {isOutOfStock ? <div className="absolute inset-x-0 top-0 h-1 bg-[#c75042]" /> : null}
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5e5e5e]">
-            <Store size={17} />
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-[#202829]">{offer.sourceStoreName || offer.sourceName}</p>
-            <p className="mt-0.5 truncate text-[0.68rem] uppercase tracking-[0.14em] text-[#5a6061]">
-              {isOutOfStock ? "缺货" : "有货"} · {formatRelativeTime(offer.verifiedAt || offer.lastSeenAt || offer.capturedAt || offer.sourceUpdatedAt)}
-            </p>
-          </div>
-        </div>
-        <StatusPill label={priceMeta.label} tone={priceMeta.tone} />
-      </div>
+      {available ? "有货" : "缺货"}
+    </span>
+  );
+}
 
-      <h3 className={`font-serif text-2xl font-semibold leading-tight tracking-normal ${isOutOfStock ? "text-[#8f2f24]" : "text-[#202829]"}`}>
-        {formatCurrency(offer.price, offer.currency)}
-      </h3>
-      <p className="mt-4 line-clamp-3 text-sm leading-6 text-[#5a6061]">{offer.sourceTitle}</p>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        <SourceStatus status={offer.status} stockCount={offer.stockCount} />
-        <span className="rounded-full bg-[#f2f4f4] px-3 py-1.5 text-xs font-medium text-[#5a6061]">
-          {formatRelativeTime(offer.verifiedAt || offer.lastSeenAt || offer.capturedAt || offer.sourceUpdatedAt)}
-        </span>
-        {flags.map((flag) => (
-          <span key={flag} className="rounded-full bg-[#fff7e8] px-3 py-1.5 text-xs font-medium text-[#7a541b]">
-            {flag}
-          </span>
-        ))}
-      </div>
-
-      <a
-        href={offer.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`mt-7 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition hover:opacity-90 ${
-          isOutOfStock
-            ? "bg-[#ead8d5] text-[#8f2f24]"
-            : "bg-gradient-to-br from-[#5e5e5e] to-[#525252] text-[#f8f8f8]"
-        }`}
-      >
-        {isOutOfStock ? "查看原页面" : "前往购买"}
-        <ExternalLink size={16} />
-      </a>
-    </article>
+function OfferLink({
+  offer,
+  available,
+  compact = false,
+}: {
+  offer: RawOffer;
+  available: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <a
+      href={offer.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex items-center justify-center gap-1.5 rounded-full text-sm font-semibold transition hover:opacity-90 ${
+        compact ? "h-9 px-3" : "h-11 px-5"
+      } ${
+        available
+          ? "bg-[#2d3435] text-[#f8f8f8]"
+          : "bg-[#ead8d5] text-[#8f2f24]"
+      }`}
+    >
+      {available ? "前往购买" : "查看"}
+      <ExternalLink size={compact ? 14 : 16} />
+    </a>
   );
 }
 
@@ -176,59 +239,30 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
-function StatusPill({
-  label,
-  tone,
-}: {
-  label: string;
-  tone?: "good" | "warn" | "info" | "muted" | "danger";
-}) {
-  const toneClass = tone
-    ? {
-        good: "bg-[#e8f3ec] text-[#2f7a4b]",
-        warn: "bg-[#fff7e8] text-[#7a541b]",
-        info: "bg-[#eef3f8] text-[#47657a]",
-        muted: "bg-[#e4e9ea] text-[#5a6061]",
-        danger: "bg-[#fbe9e7] text-[#9b3328]",
-      }[tone]
-    : null;
-
-  return (
-    <span
-      className={`shrink-0 rounded-full px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.14em] ${
-        toneClass || "bg-[#eef3f8] text-[#47657a]"
-      }`}
-    >
-      {label}
-    </span>
-  );
-}
-
-function SourceStatus({ status, stockCount }: { status: string; stockCount?: number | null }) {
-  const className: Record<string, string> = {
-    in_stock: "bg-[#e8f3ec] text-[#2f7a4b]",
-    low_stock: "bg-[#e8f3ec] text-[#2f7a4b]",
-    out_of_stock: "bg-[#f2f4f4] text-[#5a6061]",
-    unknown: "bg-[#e8f3ec] text-[#2f7a4b]",
-  };
-  const label: Record<string, string> = {
-    in_stock: "有货",
-    low_stock: "有货",
-    out_of_stock: "缺货",
-    unknown: "有货",
-  };
-
-  return (
-    <span className={`rounded-full px-3 py-1.5 text-xs font-medium ${className[status] || className.unknown}`}>
-      {label[status] || label.unknown}
-      {typeof stockCount === "number" ? ` · ${stockCount}` : ""}
-    </span>
-  );
-}
-
 function platformIcon(platform: string) {
   const className = "h-[15px] w-[15px]";
 
   if (platform !== "其他") return <BrandIcon platform={platform} className={className} />;
   return <Layers3 className={`${className} text-[#5a6061]`} />;
+}
+
+function isOfferAvailable(offer: RawOffer): boolean {
+  return offer.status !== "out_of_stock";
+}
+
+function offerTimestamp(offer: RawOffer): string | null | undefined {
+  return offer.verifiedAt || offer.lastSeenAt || offer.capturedAt || offer.sourceUpdatedAt;
+}
+
+function sourceLabel(offer: RawOffer): string {
+  return offer.sourceStoreName || offer.sourceName || "未记录渠道";
+}
+
+function sourceSecondaryLabel(offer: RawOffer): string | null {
+  if (!offer.sourceName || offer.sourceName === sourceLabel(offer)) return null;
+  return offer.sourceName;
+}
+
+function productTypeLabel(productType: string): string {
+  return productTypeLabels[productType] || productType;
 }
