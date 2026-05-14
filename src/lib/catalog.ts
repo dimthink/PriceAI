@@ -221,12 +221,14 @@ export function resolveOfferProduct(
   canonicalProducts: CanonicalProduct[] = canonicalCatalog,
 ): CanonicalProduct {
   const canonicalMap = new Map(canonicalProducts.map((product) => [product.id, product]));
+  const classified = classifyOffer(offer.sourceTitle, { tags: offer.tags, categorySlug: offer.categorySlug });
   const mappedId = offer.canonicalProductId ? legacyCanonicalIdMap[offer.canonicalProductId] || offer.canonicalProductId : null;
 
+  if (classified.id !== "other-product") return classified;
   if (mappedId && catalogById.has(mappedId)) return getCanonicalProduct(mappedId);
   if (mappedId && canonicalMap.has(mappedId)) return canonicalMap.get(mappedId)!;
 
-  return classifyOffer(offer.sourceTitle, { tags: offer.tags, categorySlug: offer.categorySlug });
+  return classified;
 }
 
 export function classifyOffer(
