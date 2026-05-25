@@ -22,13 +22,11 @@ import { AppLogo } from "@/components/AppLogo";
 import { BrandIcon } from "@/components/BrandIcon";
 import {
   collectOfferFlags,
-  compareOffers,
   isAvailable,
   platformOptions,
   productTypeOptions,
-  resolveOfferProduct,
 } from "@/lib/catalog";
-import type { CanonicalProduct, DashboardData, ProductGroup, RawOffer } from "@/lib/types";
+import type { CanonicalProduct, ExplorerData, ExplorerProductSummary, RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 type SortMode = "available_price" | "price" | "updated" | "channels";
@@ -52,6 +50,13 @@ type PlatformOfferRow = {
   product: CanonicalProduct;
 };
 
+type OfferListResponse = {
+  rows: PlatformOfferRow[];
+  total: number;
+  limited: boolean;
+  generatedAt: string;
+};
+
 const productTypeLabels: Record<string, string> = {
   全部: "全部",
   "订阅/会员": "订阅/会员",
@@ -64,11 +69,16 @@ const productTypeLabels: Record<string, string> = {
   其他: "其他",
 };
 
+const stockOptions = ["all", "available", "out_of_stock"] as const;
+const sortOptions = ["available_price", "price", "updated", "channels"] as const;
+const viewOptions = ["cards", "table"] as const;
+const scopeOptions = ["products", "offers"] as const;
+
 export function PriceExplorer({
   data,
   initialState = {},
 }: {
-  data: DashboardData;
+  data: ExplorerData;
   initialState?: ExplorerInitialState;
 }) {
   const [query, setQuery] = useState(initialState.query ?? "");
@@ -81,6 +91,26 @@ export function PriceExplorer({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(initialState.viewMode ?? "table");
   const [scopeMode, setScopeMode] = useState<ScopeMode>(initialState.scopeMode ?? "products");
+  const [offerResponse, setOfferResponse] = useState<OfferListResponse | null>(null);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [offersError, setOffersError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (window.location.pathname !== "/") return;
+
+    const nextState = parseExplorerInitialState(new URLSearchParams(window.location.search));
+    window.queueMicrotask(() => {
+      setQuery(nextState.query ?? "");
+      setPlatform(nextState.platform ?? "全部");
+      setProductType(nextState.productType ?? "全部");
+      setStock(nextState.stock ?? "all");
+      setSort(nextState.sort ?? "available_price");
+      setMinPrice(nextState.minPrice ?? "");
+      setMaxPrice(nextState.maxPrice ?? "");
+      setViewMode(nextState.viewMode ?? "table");
+      setScopeMode(nextState.scopeMode ?? "products");
+    });
+  }, []);
 
   const products = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -95,11 +125,7 @@ export function PriceExplorer({
         product.spec,
         product.summary,
         ...product.aliases,
-        ...product.offers.flatMap((offer) => [
-          offer.sourceTitle,
-          offer.sourceName,
-          offer.sourceStoreName || "",
-        ]),
+        product.offerSearchText,
       ]
         .join(" ")
         .toLowerCase();
@@ -111,14 +137,9 @@ export function PriceExplorer({
       if (stock === "out_of_stock" && product.outOfStockCount === 0) return false;
 
       if (min !== null || max !== null) {
-        const hasPrice = product.offers.some((offer) => {
-          if (offer.price === null) return false;
-          if (min !== null && offer.price < min) return false;
-          if (max !== null && offer.price > max) return false;
-          return true;
-        });
-
-        if (!hasPrice) return false;
+        if (product.lowestPrice === null) return false;
+        if (min !== null && product.lowestPrice < min) return false;
+        if (max !== null && product.lowestPrice > max) return false;
       }
 
       return true;
@@ -141,59 +162,13 @@ export function PriceExplorer({
     });
   }, [data.products, maxPrice, minPrice, platform, productType, query, sort, stock]);
 
-  const platformOffers = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const min = minPrice ? Number(minPrice) : null;
-    const max = maxPrice ? Number(maxPrice) : null;
-
-    const rows = data.rawOffers
-      .filter((offer) => !offer.hidden)
-      .map((offer) => ({
-        offer,
-        product: resolveOfferProduct(offer, data.products),
-      }))
-      .filter(({ offer, product }) => {
-        const haystack = [
-          offer.sourceTitle,
-          offer.sourceName,
-          offer.sourceStoreName || "",
-          product.displayName,
-          product.platform,
-          product.productType,
-          product.spec,
-        ]
-          .join(" ")
-          .toLowerCase();
-
-        if (normalizedQuery && !haystack.includes(normalizedQuery)) return false;
-        if (platform !== "全部" && product.platform !== platform) return false;
-        if (productType !== "全部" && product.productType !== productType) return false;
-        if (stock === "available" && !isAvailable(offer)) return false;
-        if (stock === "out_of_stock" && isAvailable(offer)) return false;
-        if (offer.price === null && (min !== null || max !== null)) return false;
-        if (offer.price !== null && min !== null && offer.price < min) return false;
-        if (offer.price !== null && max !== null && offer.price > max) return false;
-
-        return true;
-      });
-
-    return rows.sort((a, b) => {
-      if (sort === "updated") return (offerTimestamp(b.offer) || "").localeCompare(offerTimestamp(a.offer) || "");
-      if (sort === "channels") return sourceLabel(a.offer).localeCompare(sourceLabel(b.offer), "zh-CN");
-      if (sort === "price") {
-        return (a.offer.price ?? Number.MAX_SAFE_INTEGER) - (b.offer.price ?? Number.MAX_SAFE_INTEGER);
-      }
-
-      return compareOffers(a.offer, b.offer);
-    });
-  }, [data.products, data.rawOffers, maxPrice, minPrice, platform, productType, query, sort, stock]);
-
   const totalAvailable = data.products.reduce((sum, product) => sum + product.inStockCount, 0);
   const totalOutOfStock = data.products.reduce((sum, product) => sum + product.outOfStockCount, 0);
   const showingOffers = scopeMode === "offers";
   const title = buildTitle(platform, productType, showingOffers);
   const activeFilters = buildActiveFilters({ platform, productType, stock, minPrice, maxPrice });
-  const resultCount = showingOffers ? platformOffers.length : products.length;
+  const platformOffers = offerResponse?.rows ?? [];
+  const resultCount = showingOffers ? offerResponse?.total ?? 0 : products.length;
   const explorerQueryString = useMemo(
     () =>
       buildExplorerSearchParams({
@@ -221,6 +196,37 @@ export function PriceExplorer({
     }
   }, [explorerQueryString]);
 
+  useEffect(() => {
+    if (!showingOffers) return;
+
+    const controller = new AbortController();
+
+    async function loadOffers() {
+      setOffersLoading(true);
+      setOffersError(null);
+
+      try {
+        const response = await fetch(`/api/offers?${explorerQueryString}`, {
+          signal: controller.signal,
+        });
+
+        if (!response.ok) throw new Error("报价加载失败");
+
+        setOfferResponse((await response.json()) as OfferListResponse);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setOffersError(error instanceof Error ? error.message : "报价加载失败");
+        setOfferResponse(null);
+      } finally {
+        if (!controller.signal.aborted) setOffersLoading(false);
+      }
+    }
+
+    loadOffers();
+
+    return () => controller.abort();
+  }, [explorerQueryString, showingOffers]);
+
   return (
     <div className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
       <header className="sticky top-0 z-30 bg-[#f9f9f9]/85 backdrop-blur-xl">
@@ -230,7 +236,7 @@ export function PriceExplorer({
           </Link>
           <div className="hidden items-center gap-3 lg:flex">
             <Metric label="标准商品" value={data.products.length.toString()} icon={<PackageCheck size={15} />} />
-            <Metric label="报价" value={data.rawOffers.length.toString()} icon={<Database size={15} />} />
+            <Metric label="报价" value={data.offerTotal.toString()} icon={<Database size={15} />} />
             <Metric label="有货" value={totalAvailable.toString()} icon={<CheckCircle2 size={15} />} />
             <Metric label="缺货" value={totalOutOfStock.toString()} icon={<Store size={15} />} />
           </div>
@@ -433,8 +439,19 @@ export function PriceExplorer({
         ) : null}
 
         {showingOffers ? (
-          platformOffers.length ? (
-            <PlatformOfferTable rows={platformOffers} />
+          offersLoading ? (
+            <EmptyState text="正在加载报价" />
+          ) : offersError ? (
+            <EmptyState text={offersError} />
+          ) : platformOffers.length ? (
+            <>
+              {offerResponse?.limited ? (
+                <div className="mb-4 rounded-lg bg-[#fff7e8] px-4 py-3 text-sm text-[#6a4b16]">
+                  当前筛选命中 {offerResponse.total} 条报价，先展示前 {platformOffers.length} 条。可继续缩小筛选范围。
+                </div>
+              ) : null}
+              <PlatformOfferTable rows={platformOffers} />
+            </>
           ) : (
             <EmptyState text="没有符合条件的报价" />
           )
@@ -471,7 +488,7 @@ function ProductTable({
   products,
   returnQuery,
 }: {
-  products: ProductGroup[];
+  products: ExplorerProductSummary[];
   returnQuery: string;
 }) {
   return (
@@ -493,7 +510,7 @@ function ProductTable({
           </thead>
           <tbody className="divide-y divide-[#edf0f1]">
             {products.map((product) => {
-              const previewOffer = product.lowestOffer || product.offers[0];
+              const previewOffer = product.lowestOffer;
               const isAvailable = product.inStockCount > 0;
               const productHref = productDetailHref(product.slug, returnQuery);
 
@@ -714,10 +731,10 @@ function ProductCard({
   product,
   returnQuery,
 }: {
-  product: ProductGroup;
+  product: ExplorerProductSummary;
   returnQuery: string;
 }) {
-  const previewOffer = product.lowestOffer || product.offers[0];
+  const previewOffer = product.lowestOffer;
   const flags = previewOffer ? collectOfferFlags(previewOffer).slice(0, 2) : [];
   const productHref = productDetailHref(product.slug, returnQuery);
 
@@ -922,7 +939,7 @@ function StatusPill({
   tone,
 }: {
   label: string;
-  tone?: ProductGroup["lowestPriceTone"];
+  tone?: ExplorerProductSummary["lowestPriceTone"];
 }) {
   const toneClass = tone
     ? {
@@ -963,7 +980,7 @@ function CountBadge({
   return <span className={`rounded-full px-2.5 py-1 font-medium ${className}`}>{children}</span>;
 }
 
-function pricePanelClass(tone: ProductGroup["lowestPriceTone"]): string {
+function pricePanelClass(tone: ExplorerProductSummary["lowestPriceTone"]): string {
   return {
     good: "bg-[#e8f3ec] text-[#244f36]",
     warn: "bg-[#fff7e8] text-[#70511d]",
@@ -1009,7 +1026,7 @@ function buildExplorerSearchParams({
   return params;
 }
 
-function productSortPenalty(product: ProductGroup): number {
+function productSortPenalty(product: ExplorerProductSummary): number {
   let penalty = 0;
   const text = `${product.displayName} ${product.platform} ${product.productType} ${product.spec}`.toLowerCase();
 
@@ -1064,6 +1081,32 @@ function buildTitle(platform: string, productType: string, showingOffers = false
   }
 
   return `${platformName} ${typeName}报价`;
+}
+
+function parseExplorerInitialState(params: URLSearchParams): ExplorerInitialState {
+  return {
+    query: params.get("q") || "",
+    platform: pickParam(params.get("platform"), ["全部", ...platformOptions], "全部"),
+    productType: pickParam(params.get("type"), ["全部", ...productTypeOptions], "全部"),
+    stock: pickParam(params.get("stock"), stockOptions, "all"),
+    sort: pickParam(params.get("sort"), sortOptions, "available_price"),
+    minPrice: numericParam(params.get("min")),
+    maxPrice: numericParam(params.get("max")),
+    viewMode: pickParam(params.get("view"), viewOptions, "table"),
+    scopeMode: pickParam(params.get("scope"), scopeOptions, "products"),
+  };
+}
+
+function pickParam<T extends string>(value: string | null, options: readonly T[], fallback: T): T {
+  if (!value) return fallback;
+  return options.includes(value as T) ? (value as T) : fallback;
+}
+
+function numericParam(value: string | null): string {
+  if (!value) return "";
+  const normalized = value.trim();
+  if (!normalized || Number.isNaN(Number(normalized))) return "";
+  return Number(normalized) >= 0 ? normalized : "";
 }
 
 function platformIcon(platform: string): ReactNode {

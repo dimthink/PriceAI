@@ -1,7 +1,8 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
 import { listSubmissions } from "./admin";
-import { buildProductGroups, canonicalCatalog } from "./catalog";
+import { buildProductGroups, canonicalCatalog, resolveOfferProduct } from "./catalog";
 import { isSupabaseConfigured } from "./env";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
@@ -10,11 +11,30 @@ import type {
   CanonicalProduct,
   CrawlRun,
   DashboardData,
+  ExplorerData,
+  ExplorerProductSummary,
   RawOffer,
   Source,
 } from "./types";
 
+const PUBLIC_OFFER_LIMIT = 1200;
+
+type OfferListFilters = {
+  platform?: string | null;
+  productType?: string | null;
+  stock?: string | null;
+  query?: string | null;
+  minPrice?: number | null;
+  maxPrice?: number | null;
+  sort?: string | null;
+  limit?: number;
+};
+
 export async function getDashboardData(): Promise<DashboardData> {
+  return readDashboardData();
+}
+
+async function readDashboardData(): Promise<DashboardData> {
   const supabase = getSupabaseServerClient();
 
   if (!supabase) {
@@ -46,6 +66,22 @@ export async function getDashboardData(): Promise<DashboardData> {
     console.warn("Falling back to seed data because Supabase read failed:", error);
     return buildDashboard(seedRawOffers, seedSources, canonicalCatalog, isSupabaseConfigured());
   }
+}
+
+const getCachedDashboardData = unstable_cache(readDashboardData, ["priceai-dashboard-data"], {
+  revalidate: 300,
+});
+
+export async function getExplorerData(): Promise<ExplorerData> {
+  const dashboard = await getCachedDashboardData();
+
+  return {
+    generatedAt: dashboard.generatedAt,
+    configured: dashboard.configured,
+    products: dashboard.products.map(toExplorerProductSummary),
+    sources: dashboard.sources,
+    offerTotal: dashboard.rawOffers.length,
+  };
 }
 
 export async function getAdminSummary(): Promise<AdminSummary> {
@@ -89,6 +125,67 @@ export async function getProductGroup(id: string) {
   return dashboard.products.find((product) => product.id === id || product.slug === id) || null;
 }
 
+export async function listPublicOffers(filters: OfferListFilters = {}) {
+  const dashboard = await getCachedDashboardData();
+  const products = dashboard.products.map(toExplorerProductSummary);
+  const normalizedQuery = (filters.query || "").trim().toLowerCase();
+  const limit = Math.min(Math.max(filters.limit || PUBLIC_OFFER_LIMIT, 1), PUBLIC_OFFER_LIMIT);
+
+  let rows = dashboard.rawOffers
+    .filter((offer) => !offer.hidden)
+    .map((offer) => {
+      const product = resolveExplorerProduct(offer, products);
+      return { offer, product };
+    })
+    .filter(({ offer, product }) => {
+      const haystack = [
+        offer.sourceTitle,
+        offer.sourceName,
+        offer.sourceStoreName || "",
+        product.displayName,
+        product.platform,
+        product.productType,
+        product.spec,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      if (normalizedQuery && !haystack.includes(normalizedQuery)) return false;
+      if (filters.platform && filters.platform !== "全部" && product.platform !== filters.platform) return false;
+      if (filters.productType && filters.productType !== "全部" && product.productType !== filters.productType) return false;
+      if (filters.stock === "available" && !isOfferAvailableForPublicList(offer)) return false;
+      if (filters.stock === "out_of_stock" && isOfferAvailableForPublicList(offer)) return false;
+      if (offer.price === null && (filters.minPrice != null || filters.maxPrice != null)) return false;
+      if (offer.price !== null && filters.minPrice !== null && filters.minPrice !== undefined && offer.price < filters.minPrice) return false;
+      if (offer.price !== null && filters.maxPrice !== null && filters.maxPrice !== undefined && offer.price > filters.maxPrice) return false;
+
+      return true;
+    });
+
+  rows = rows.sort((a, b) => {
+    if (filters.sort === "updated") {
+      return (offerTimestamp(b.offer) || "").localeCompare(offerTimestamp(a.offer) || "");
+    }
+
+    if (filters.sort === "channels") {
+      return sourceLabel(a.offer).localeCompare(sourceLabel(b.offer), "zh-CN");
+    }
+
+    if (filters.sort === "price") {
+      return (a.offer.price ?? Number.MAX_SAFE_INTEGER) - (b.offer.price ?? Number.MAX_SAFE_INTEGER);
+    }
+
+    return comparePublicOffers(a.offer, b.offer);
+  });
+
+  return {
+    rows: rows.slice(0, limit),
+    total: rows.length,
+    limited: rows.length > limit,
+    generatedAt: dashboard.generatedAt,
+  };
+}
+
 function buildDashboard(
   offers: RawOffer[],
   sources: Source[],
@@ -102,6 +199,83 @@ function buildDashboard(
     sources,
     rawOffers: offers,
   };
+}
+
+function toExplorerProductSummary(product: DashboardData["products"][number]): ExplorerProductSummary {
+  return {
+    id: product.id,
+    slug: product.slug,
+    displayName: product.displayName,
+    platform: product.platform,
+    productType: product.productType,
+    spec: product.spec,
+    summary: product.summary,
+    aliases: product.aliases,
+    updatedAt: product.updatedAt,
+    offerCount: product.offerCount,
+    inStockCount: product.inStockCount,
+    outOfStockCount: product.outOfStockCount,
+    lowestPrice: product.lowestPrice,
+    lowestPriceLabel: product.lowestPriceLabel,
+    lowestPriceTone: product.lowestPriceTone,
+    lowestOffer: product.lowestOffer,
+    latestSeenAt: product.latestSeenAt,
+    anomalyFlags: product.anomalyFlags,
+    offerSearchText: buildOfferSearchText(product.offers),
+  };
+}
+
+function buildOfferSearchText(offers: RawOffer[]): string {
+  const parts = new Set<string>();
+
+  for (const offer of offers) {
+    if (parts.size >= 24) break;
+    [offer.sourceTitle, offer.sourceName, offer.sourceStoreName || ""]
+      .filter(Boolean)
+      .forEach((value) => parts.add(value));
+  }
+
+  return Array.from(parts).join(" ").slice(0, 3000);
+}
+
+function resolveExplorerProduct(
+  offer: RawOffer,
+  products: ExplorerProductSummary[],
+): ExplorerProductSummary {
+  const classified = resolveOfferProduct(offer, products);
+  return products.find((item) => item.id === classified.id) || products.find((item) => item.id === "other-product") || products[0];
+}
+
+function isOfferAvailableForPublicList(offer: RawOffer): boolean {
+  if (offer.status === "out_of_stock") return false;
+  if (typeof offer.price !== "number" || !Number.isFinite(offer.price)) return false;
+  if (!offer.url) return false;
+  if (offer.effectiveStatus && ["unavailable", "stale", "failed"].includes(offer.effectiveStatus)) return false;
+  if (offer.freshnessStatus && ["expired", "failed"].includes(offer.freshnessStatus)) return false;
+  if (offer.expiresAt) {
+    const timestamp = new Date(offer.expiresAt).getTime();
+    if (Number.isFinite(timestamp) && timestamp <= Date.now()) return false;
+  }
+
+  return true;
+}
+
+function comparePublicOffers(a: RawOffer, b: RawOffer): number {
+  const availableDelta = Number(isOfferAvailableForPublicList(b)) - Number(isOfferAvailableForPublicList(a));
+  if (availableDelta !== 0) return availableDelta;
+
+  const priceDelta = (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER);
+  if (priceDelta !== 0) return priceDelta;
+
+  return (offerTimestamp(b) || "").localeCompare(offerTimestamp(a) || "");
+}
+
+function offerTimestamp(offer: RawOffer): string | null | undefined {
+  return offer.verifiedAt || offer.lastSeenAt || offer.capturedAt || offer.sourceUpdatedAt;
+}
+
+function sourceLabel(offer: RawOffer): string {
+  return offer.sourceStoreName || offer.sourceName || "未记录渠道";
 }
 
 export function mapSource(row: Record<string, unknown>): Source {

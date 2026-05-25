@@ -95,6 +95,18 @@ export type ProductGroup = CanonicalProduct & {
   anomalyFlags: string[];
 };
 
+export type ExplorerProductSummary = Omit<ProductGroup, "offers"> & {
+  offerSearchText: string;
+};
+
+export type ExplorerData = {
+  generatedAt: string;
+  configured: boolean;
+  products: ExplorerProductSummary[];
+  sources: Source[];
+  offerTotal: number;
+};
+
 export type DashboardData = {
   generatedAt: string;
   configured: boolean;
