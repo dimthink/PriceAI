@@ -1,3 +1,32 @@
 {
-  "crons": []
+  "crons": [
+    {
+      "path": "/api/cron/collect-prices",
+      "schedule": "0 2 * * *"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "ai-price-hub.vercel.app"
+        }
+      ],
+      "destination": "https://priceai.cc/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "priceai.tider.cc"
+        }
+      ],
+      "destination": "https://priceai.cc/$1",
+      "permanent": true
+    }
+  ]
 }
