@@ -18,7 +18,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppLogo } from "@/components/AppLogo";
 import { BrandIcon } from "@/components/BrandIcon";
 import { FeedbackLink } from "@/components/FeedbackLink";
@@ -74,10 +74,7 @@ const productTypeLabels: Record<string, string> = {
   其他: "其他",
 };
 
-const stockOptions = ["all", "available", "out_of_stock"] as const;
-const sortOptions = ["available_price", "price", "updated", "channels"] as const;
-const viewOptions = ["cards", "table"] as const;
-const scopeOptions = ["products", "offers"] as const;
+const OFFER_PAGE_SIZE = 80;
 
 export function PriceExplorer({
   data,
@@ -99,24 +96,9 @@ export function PriceExplorer({
   const [scopeMode, setScopeMode] = useState<ScopeMode>(initialState.scopeMode ?? "products");
   const [offerResponse, setOfferResponse] = useState<OfferListResponse | null>(null);
   const [offersLoading, setOffersLoading] = useState(false);
+  const [offersPaging, setOffersPaging] = useState(false);
   const [offersError, setOffersError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (window.location.pathname !== "/") return;
-
-    const nextState = parseExplorerInitialState(new URLSearchParams(window.location.search));
-    window.queueMicrotask(() => {
-      setQuery(nextState.query ?? "");
-      setPlatform(nextState.platform ?? "全部");
-      setProductType(nextState.productType ?? "全部");
-      setStock(nextState.stock ?? "all");
-      setSort(nextState.sort ?? "available_price");
-      setMinPrice(nextState.minPrice ?? "");
-      setMaxPrice(nextState.maxPrice ?? "");
-      setViewMode(nextState.viewMode ?? "table");
-      setScopeMode(nextState.scopeMode ?? "products");
-    });
-  }, []);
+  const offerLoadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const products = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -175,6 +157,7 @@ export function PriceExplorer({
   const activeFilters = buildActiveFilters({ platform, productType, stock, minPrice, maxPrice });
   const platformOffers = offerResponse?.rows ?? [];
   const resultCount = showingOffers ? offerResponse?.total ?? 0 : products.length;
+  const hasMoreOffers = showingOffers && Boolean(offerResponse) && platformOffers.length < (offerResponse?.total ?? 0);
   const explorerQueryString = useMemo(
     () =>
       buildExplorerSearchParams({
@@ -237,16 +220,11 @@ export function PriceExplorer({
 
     async function loadOffers() {
       setOffersLoading(true);
+      setOffersPaging(false);
       setOffersError(null);
 
       try {
-        const response = await fetch(`/api/offers?${explorerQueryString}`, {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) throw new Error("报价加载失败");
-
-        setOfferResponse((await response.json()) as OfferListResponse);
+        setOfferResponse(await fetchOfferPage(explorerQueryString, 0, controller.signal));
       } catch (error) {
         if (controller.signal.aborted) return;
         setOffersError(error instanceof Error ? error.message : "报价加载失败");
@@ -260,6 +238,54 @@ export function PriceExplorer({
 
     return () => controller.abort();
   }, [explorerQueryString, showingOffers]);
+
+  const loadMoreOffers = useCallback(async () => {
+    if (!showingOffers || !offerResponse || offersLoading || offersPaging) return;
+    if (platformOffers.length >= offerResponse.total) return;
+
+    setOffersPaging(true);
+
+    try {
+      const nextPage = await fetchOfferPage(explorerQueryString, platformOffers.length);
+      setOfferResponse((current) => {
+        if (!current) return nextPage;
+
+        const seen = new Set(current.rows.map((row) => row.offer.id));
+        const nextRows = nextPage.rows.filter((row) => !seen.has(row.offer.id));
+
+        return {
+          ...nextPage,
+          rows: [...current.rows, ...nextRows],
+          total: nextPage.total,
+          limited: nextPage.limited,
+        };
+      });
+    } catch (error) {
+      setOffersError(error instanceof Error ? error.message : "报价加载失败");
+    } finally {
+      setOffersPaging(false);
+    }
+  }, [explorerQueryString, offerResponse, offersLoading, offersPaging, platformOffers.length, showingOffers]);
+
+  useEffect(() => {
+    if (!hasMoreOffers) return;
+
+    const node = offerLoadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadMoreOffers();
+        }
+      },
+      { rootMargin: "640px 0px" },
+    );
+
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [hasMoreOffers, loadMoreOffers]);
 
   return (
     <div className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
@@ -474,10 +500,22 @@ export function PriceExplorer({
             <>
               {offerResponse?.limited ? (
                 <div className="mb-4 rounded-lg bg-[#fff7e8] px-4 py-3 text-sm text-[#6a4b16]">
-                  当前筛选命中 {offerResponse.total} 条报价，先展示前 {platformOffers.length} 条。可继续缩小筛选范围。
+                  当前筛选命中 {offerResponse.total} 条报价，已显示 {platformOffers.length} 条。
                 </div>
               ) : null}
               <PlatformOfferTable rows={platformOffers} />
+              {hasMoreOffers ? (
+                <div ref={offerLoadMoreRef} className="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={loadMoreOffers}
+                    disabled={offersPaging}
+                    className="inline-flex h-10 items-center justify-center rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5] disabled:opacity-60"
+                  >
+                    {offersPaging ? "正在加载更多报价..." : `继续加载报价 (${platformOffers.length}/${offerResponse?.total ?? 0})`}
+                  </button>
+                </div>
+              ) : null}
             </>
           ) : (
             <EmptyState text="没有符合条件的报价" />
@@ -490,7 +528,7 @@ export function PriceExplorer({
               }`}
             >
               {products.map((product) => (
-              <ProductCard key={product.id} product={product} returnQuery={explorerQueryString} onIntent={router.prefetch} />
+                <ProductCard key={product.id} product={product} returnQuery={explorerQueryString} onIntent={router.prefetch} />
               ))}
             </div>
             {viewMode === "table" ? (
@@ -548,6 +586,7 @@ function ProductTable({
                   <td className="max-w-[310px] px-5 py-4">
                     <Link
                       href={productHref}
+                      prefetch={false}
                       onMouseEnter={() => onIntent(productHref)}
                       onFocus={() => onIntent(productHref)}
                       onClick={() => trackProductDetailOpen(product)}
@@ -599,6 +638,7 @@ function ProductTable({
                   <td className="px-5 py-4">
                     <Link
                       href={productHref}
+                      prefetch={false}
                       onMouseEnter={() => onIntent(productHref)}
                       onFocus={() => onIntent(productHref)}
                       onClick={() => trackProductDetailOpen(product)}
@@ -797,7 +837,14 @@ function ProductCard({
         />
       </div>
 
-      <Link href={productHref} onMouseEnter={() => onIntent(productHref)} onFocus={() => onIntent(productHref)} onClick={() => trackProductDetailOpen(product)} className="block">
+      <Link
+        href={productHref}
+        prefetch={false}
+        onMouseEnter={() => onIntent(productHref)}
+        onFocus={() => onIntent(productHref)}
+        onClick={() => trackProductDetailOpen(product)}
+        className="block"
+      >
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-normal text-[#202829] transition group-hover:text-[#5e5e5e]">
           {product.displayName}
         </h2>
@@ -837,6 +884,7 @@ function ProductCard({
       <div className="mt-auto pt-6">
         <Link
           href={productHref}
+          prefetch={false}
           onMouseEnter={() => onIntent(productHref)}
           onFocus={() => onIntent(productHref)}
           onClick={() => trackProductDetailOpen(product)}
@@ -1043,6 +1091,21 @@ function productDetailHref(slug: string, returnQuery: string): string {
   return returnQuery ? `${path}?back=${encodeURIComponent(returnQuery)}` : path;
 }
 
+async function fetchOfferPage(
+  queryString: string,
+  offset: number,
+  signal?: AbortSignal,
+): Promise<OfferListResponse> {
+  const params = new URLSearchParams(queryString);
+  params.set("limit", String(OFFER_PAGE_SIZE));
+  params.set("offset", String(offset));
+
+  const response = await fetch(`/api/offers?${params.toString()}`, { signal });
+  if (!response.ok) throw new Error("报价加载失败");
+
+  return (await response.json()) as OfferListResponse;
+}
+
 function buildExplorerSearchParams({
   query,
   platform,
@@ -1140,32 +1203,6 @@ function buildTitle(platform: string, productType: string, showingOffers = false
   }
 
   return `${platformName} ${typeName}报价`;
-}
-
-function parseExplorerInitialState(params: URLSearchParams): ExplorerInitialState {
-  return {
-    query: params.get("q") || "",
-    platform: pickParam(params.get("platform"), ["全部", ...platformOptions], "全部"),
-    productType: pickParam(params.get("type"), ["全部", ...productTypeOptions], "全部"),
-    stock: pickParam(params.get("stock"), stockOptions, "all"),
-    sort: pickParam(params.get("sort"), sortOptions, "available_price"),
-    minPrice: numericParam(params.get("min")),
-    maxPrice: numericParam(params.get("max")),
-    viewMode: pickParam(params.get("view"), viewOptions, "table"),
-    scopeMode: pickParam(params.get("scope"), scopeOptions, "products"),
-  };
-}
-
-function pickParam<T extends string>(value: string | null, options: readonly T[], fallback: T): T {
-  if (!value) return fallback;
-  return options.includes(value as T) ? (value as T) : fallback;
-}
-
-function numericParam(value: string | null): string {
-  if (!value) return "";
-  const normalized = value.trim();
-  if (!normalized || Number.isNaN(Number(normalized))) return "";
-  return Number(normalized) >= 0 ? normalized : "";
 }
 
 function platformIcon(platform: string): ReactNode {

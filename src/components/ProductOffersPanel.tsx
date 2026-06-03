@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { isAvailable } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import type { RawOffer } from "@/lib/types";
@@ -10,8 +10,11 @@ import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 type ProductOffersResponse = {
   offers: RawOffer[];
   total: number;
+  limited?: boolean;
   generatedAt: string;
 };
+
+const OFFER_PAGE_SIZE = 80;
 
 export function ProductOffersPanel({
   productId,
@@ -22,7 +25,9 @@ export function ProductOffersPanel({
 }) {
   const [data, setData] = useState<ProductOffersResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [paging, setPaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -32,13 +37,7 @@ export function ProductOffersPanel({
       setError(null);
 
       try {
-        const response = await fetch(`/api/products/${encodeURIComponent(productId)}/offers`, {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) throw new Error("报价加载失败");
-
-        setData((await response.json()) as ProductOffersResponse);
+        setData(await fetchProductOfferPage(productId, 0, controller.signal));
       } catch (currentError) {
         if (controller.signal.aborted) return;
         setError(currentError instanceof Error ? currentError.message : "报价加载失败");
@@ -51,6 +50,58 @@ export function ProductOffersPanel({
 
     return () => controller.abort();
   }, [productId]);
+
+  const offers = data?.offers ?? [];
+  const total = data?.total ?? initialCount;
+  const hasMore = Boolean(data) && offers.length < total;
+
+  const loadMoreOffers = useCallback(async () => {
+    if (!data || paging || offers.length >= total) return;
+
+    setPaging(true);
+    setError(null);
+
+    try {
+      const nextPage = await fetchProductOfferPage(productId, offers.length);
+      setData((current) => {
+        if (!current) return nextPage;
+
+        const seen = new Set(current.offers.map((offer) => offer.id));
+        const nextOffers = nextPage.offers.filter((offer) => !seen.has(offer.id));
+
+        return {
+          ...nextPage,
+          offers: [...current.offers, ...nextOffers],
+          total: nextPage.total,
+          limited: nextPage.limited,
+        };
+      });
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "报价加载失败");
+    } finally {
+      setPaging(false);
+    }
+  }, [data, offers.length, paging, productId, total]);
+
+  useEffect(() => {
+    if (!hasMore) return;
+
+    const node = loadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadMoreOffers();
+        }
+      },
+      { rootMargin: "640px 0px" },
+    );
+
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [hasMore, loadMoreOffers]);
 
   if (loading) {
     return (
@@ -80,18 +131,51 @@ export function ProductOffersPanel({
     );
   }
 
-  const offers = data?.offers ?? [];
-
   return (
     <>
+      {total > offers.length ? (
+        <div className="mt-6 rounded-lg bg-[#fff7e8] px-4 py-3 text-sm text-[#6a4b16]">
+          当前商品共有 {total} 条报价，已显示 {offers.length} 条。
+        </div>
+      ) : null}
       <OfferTable offers={offers} />
       <section className="mt-5 grid gap-3 md:hidden">
         {offers.map((offer) => (
           <OfferListItem key={offer.id} offer={offer} />
         ))}
       </section>
+      {hasMore ? (
+        <div ref={loadMoreRef} className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={loadMoreOffers}
+            disabled={paging}
+            className="inline-flex h-10 items-center justify-center rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5] disabled:opacity-60"
+          >
+            {paging ? "正在加载更多报价..." : `继续加载报价 (${offers.length}/${total})`}
+          </button>
+        </div>
+      ) : null}
     </>
   );
+}
+
+async function fetchProductOfferPage(
+  productId: string,
+  offset: number,
+  signal?: AbortSignal,
+): Promise<ProductOffersResponse> {
+  const params = new URLSearchParams({
+    limit: String(OFFER_PAGE_SIZE),
+    offset: String(offset),
+  });
+  const response = await fetch(`/api/products/${encodeURIComponent(productId)}/offers?${params.toString()}`, {
+    signal,
+  });
+
+  if (!response.ok) throw new Error("报价加载失败");
+
+  return (await response.json()) as ProductOffersResponse;
 }
 
 function OfferTable({ offers }: { offers: RawOffer[] }) {

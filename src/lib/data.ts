@@ -19,6 +19,44 @@ import type {
 
 const PUBLIC_OFFER_LIMIT = 1200;
 const SUPABASE_PAGE_SIZE = 1000;
+const PUBLIC_DATA_CACHE_TTL_MS = 10_000;
+const RAW_OFFER_PUBLIC_SELECT = [
+  "id",
+  "source_id",
+  "source_name",
+  "source_store_name",
+  "source_title",
+  "price",
+  "currency",
+  "status",
+  "url",
+  "tags",
+  "stock_count",
+  "hidden",
+  "canonical_product_id",
+  "category_slug",
+  "captured_at",
+  "source_updated_at",
+  "last_seen_at",
+  "verified_at",
+  "expires_at",
+  "source_priority",
+  "confidence",
+  "effective_status",
+  "freshness_status",
+  "last_failed_at",
+  "failure_reason",
+].join(",");
+
+type PublicOfferData = {
+  configured: boolean;
+  generatedAt: string;
+  offers: RawOffer[];
+  products: CanonicalProduct[];
+};
+
+let publicOfferDataCache: { expiresAt: number; value: PublicOfferData } | null = null;
+let publicOfferDataPromise: Promise<PublicOfferData> | null = null;
 
 type OfferListFilters = {
   platform?: string | null;
@@ -29,6 +67,12 @@ type OfferListFilters = {
   maxPrice?: number | null;
   sort?: string | null;
   limit?: number;
+  offset?: number;
+};
+
+type ProductOfferListFilters = {
+  limit?: number;
+  offset?: number;
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
@@ -74,29 +118,89 @@ async function listVisibleRawOfferRows(): Promise<Record<string, unknown>[]> {
     const to = from + SUPABASE_PAGE_SIZE - 1;
     const { data, error } = await supabase
       .from("raw_offers")
-      .select("*")
+      .select(RAW_OFFER_PUBLIC_SELECT)
       .eq("hidden", false)
       .order("captured_at", { ascending: false })
       .range(from, to);
 
     if (error) throw error;
 
-    rows.push(...(data || []));
-    if (!data || data.length < SUPABASE_PAGE_SIZE) break;
+    const batch = (data || []) as unknown as Record<string, unknown>[];
+    rows.push(...batch);
+    if (batch.length < SUPABASE_PAGE_SIZE) break;
   }
 
   return rows;
 }
 
+async function readPublicOfferData(): Promise<PublicOfferData> {
+  const now = Date.now();
+  if (publicOfferDataCache && publicOfferDataCache.expiresAt > now) {
+    return publicOfferDataCache.value;
+  }
+
+  if (publicOfferDataPromise) return publicOfferDataPromise;
+
+  publicOfferDataPromise = loadPublicOfferData()
+    .then((value) => {
+      publicOfferDataCache = {
+        expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
+        value,
+      };
+      return value;
+    })
+    .finally(() => {
+      publicOfferDataPromise = null;
+    });
+
+  return publicOfferDataPromise;
+}
+
+async function loadPublicOfferData(): Promise<PublicOfferData> {
+  const supabase = getSupabaseServerClient();
+
+  if (!supabase) {
+    return {
+      configured: false,
+      generatedAt: new Date().toISOString(),
+      offers: seedRawOffers.filter((offer) => !offer.hidden),
+      products: canonicalCatalog,
+    };
+  }
+
+  try {
+    const [offerRows, products] = await Promise.all([
+      listVisibleRawOfferRows(),
+      listActiveCanonicalProducts(),
+    ]);
+
+    return {
+      configured: true,
+      generatedAt: new Date().toISOString(),
+      offers: offerRows.map(mapRawOffer),
+      products: products.length ? products : canonicalCatalog,
+    };
+  } catch (error) {
+    console.warn("Falling back to seed public offers because Supabase read failed:", error);
+    return {
+      configured: isSupabaseConfigured(),
+      generatedAt: new Date().toISOString(),
+      offers: seedRawOffers.filter((offer) => !offer.hidden),
+      products: canonicalCatalog,
+    };
+  }
+}
+
 export async function getExplorerData(): Promise<ExplorerData> {
-  const dashboard = await readDashboardData();
+  const publicData = await readPublicOfferData();
+  const products = buildProductGroups(publicData.offers, publicData.products);
 
   return {
-    generatedAt: dashboard.generatedAt,
-    configured: dashboard.configured,
-    products: dashboard.products.map(toExplorerProductSummary),
-    sources: dashboard.sources,
-    offerTotal: dashboard.rawOffers.length,
+    generatedAt: publicData.generatedAt,
+    configured: publicData.configured,
+    products: products.map(toExplorerProductSummary),
+    sources: [],
+    offerTotal: publicData.offers.length,
   };
 }
 
@@ -231,22 +335,49 @@ export async function getPublicProductGroup(id: string) {
 }
 
 export async function getPublicProductSummary(id: string) {
-  const product = await getPublicProductGroup(id);
-  return product ? toExplorerProductSummary(product) : null;
-}
-
-export async function listPublicProductOffers(id: string) {
   const supabase = getSupabaseServerClient();
 
   if (supabase) {
     try {
-      const { data: productRows, error: productError } = await supabase
-        .from("canonical_products")
-        .select("*")
-        .eq("is_active", true);
-      if (productError) throw productError;
+      const products = await listActiveCanonicalProducts();
+      const product =
+        products.find((item) => item.id === id || item.slug === id) ||
+        canonicalCatalog.find((item) => item.id === id || item.slug === id);
 
-      const products = (productRows || []).map(mapCanonicalProduct);
+      if (!product) return null;
+
+      const { data: offerRows, error: offerError } = await supabase
+        .from("raw_offers")
+        .select(RAW_OFFER_PUBLIC_SELECT)
+        .eq("hidden", false)
+        .eq("canonical_product_id", product.id)
+        .order("price", { ascending: true, nullsFirst: false })
+        .limit(PUBLIC_OFFER_LIMIT);
+      if (offerError) throw offerError;
+
+      const offers = ((offerRows || []) as unknown as Record<string, unknown>[])
+        .map(mapRawOffer)
+        .filter((offer) => resolveOfferProduct(offer, products.length ? products : canonicalCatalog).id === product.id);
+      const [group] = buildProductGroups(offers, [product]);
+
+      if (group) return toExplorerProductSummary(group);
+    } catch (error) {
+      console.warn("Falling back to cached product summary because Supabase read failed:", error);
+    }
+  }
+
+  const product = await getPublicProductGroup(id);
+  return product ? toExplorerProductSummary(product) : null;
+}
+
+export async function listPublicProductOffers(id: string, filters: ProductOfferListFilters = {}) {
+  const supabase = getSupabaseServerClient();
+  const limit = Math.min(Math.max(filters.limit || 80, 1), PUBLIC_OFFER_LIMIT);
+  const offset = Math.max(filters.offset || 0, 0);
+
+  if (supabase) {
+    try {
+      const products = await listActiveCanonicalProducts();
       const product =
         products.find((item) => item.id === id || item.slug === id) ||
         canonicalCatalog.find((item) => item.id === id || item.slug === id);
@@ -259,23 +390,26 @@ export async function listPublicProductOffers(id: string) {
         };
       }
 
-      const { data: offerRows, error: offerError } = await supabase
+      const { data: offerRows, error: offerError, count } = await supabase
         .from("raw_offers")
-        .select("*")
+        .select(RAW_OFFER_PUBLIC_SELECT, { count: "exact" })
         .eq("hidden", false)
         .eq("canonical_product_id", product.id)
+        .order("status", { ascending: true })
         .order("price", { ascending: true, nullsFirst: false })
-        .limit(PUBLIC_OFFER_LIMIT);
+        .order("verified_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + limit - 1);
       if (offerError) throw offerError;
 
-      const offers = (offerRows || [])
+      const offers = ((offerRows || []) as unknown as Record<string, unknown>[])
         .map(mapRawOffer)
         .filter((offer) => resolveOfferProduct(offer, products.length ? products : canonicalCatalog).id === product.id)
         .sort(comparePublicOffers);
 
       return {
         offers,
-        total: offers.length,
+        total: count ?? offset + offers.length,
+        limited: (count ?? 0) > offset + limit,
         generatedAt: new Date().toISOString(),
       };
     } catch (error) {
@@ -287,24 +421,28 @@ export async function listPublicProductOffers(id: string) {
   const offers = (product?.offers ?? []).filter(
     (offer) => product && resolveOfferProduct(offer, canonicalCatalog).id === product.id,
   );
+  const total = offers.length;
+  const page = offers.slice(offset, offset + limit);
 
   return {
-    offers,
-    total: offers.length,
+    offers: page,
+    total,
+    limited: total > offset + limit,
     generatedAt: new Date().toISOString(),
   };
 }
 
 export async function listPublicOffers(filters: OfferListFilters = {}) {
-  const dashboard = await readDashboardData();
-  const products = dashboard.products.map(toExplorerProductSummary);
+  const publicData = await readPublicOfferData();
+  const productGroups = buildProductGroups(publicData.offers, publicData.products).map(toExplorerProductSummary);
   const normalizedQuery = (filters.query || "").trim().toLowerCase();
-  const limit = Math.min(Math.max(filters.limit || PUBLIC_OFFER_LIMIT, 1), PUBLIC_OFFER_LIMIT);
+  const limit = Math.min(Math.max(filters.limit || 80, 1), PUBLIC_OFFER_LIMIT);
+  const offset = Math.max(filters.offset || 0, 0);
 
-  let rows = dashboard.rawOffers
+  let rows = publicData.offers
     .filter((offer) => !offer.hidden)
     .map((offer) => {
-      const product = resolveExplorerProduct(offer, products);
+      const product = resolveExplorerProduct(offer, productGroups);
       return { offer, product };
     })
     .filter(({ offer, product }) => {
@@ -349,11 +487,25 @@ export async function listPublicOffers(filters: OfferListFilters = {}) {
   });
 
   return {
-    rows: rows.slice(0, limit),
+    rows: rows.slice(offset, offset + limit),
     total: rows.length,
-    limited: rows.length > limit,
-    generatedAt: dashboard.generatedAt,
+    limited: rows.length > offset + limit,
+    generatedAt: publicData.generatedAt,
   };
+}
+
+async function listActiveCanonicalProducts(): Promise<CanonicalProduct[]> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("canonical_products")
+    .select("*")
+    .eq("is_active", true);
+
+  if (error) throw error;
+
+  return (data || []).map(mapCanonicalProduct);
 }
 
 function buildDashboard(
