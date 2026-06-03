@@ -1279,6 +1279,56 @@ export async function listSubmissions(status: SubmissionStatus = "pending"): Pro
   return (data || []).map(mapSubmissionRow);
 }
 
+export async function reparseSubmission(id: string): Promise<ChannelSubmission> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) throw new Error("Supabase 尚未配置。");
+
+  const { data: row, error } = await supabase
+    .from("channel_submissions")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) throw new Error("提交记录不存在。");
+  if (row.status !== "pending") throw new Error("该提交已被处理。");
+
+  const submission = mapSubmissionRow(row);
+  let parsedTitle: string | null = null;
+  let parsedMeta: Record<string, unknown> = {};
+  try {
+    const parsed = await parseSubmissionMetadata(submission.url);
+    parsedTitle = parsed.parsedTitle;
+    parsedMeta = parsed.parsedMeta;
+  } catch (parseError) {
+    parsedMeta = buildFallbackSubmissionMeta(submission.url, parseError);
+  }
+
+  const previousMeta = submission.parsedMeta || {};
+  const nextMeta = {
+    ...parsedMeta,
+    probe_result: previousMeta.probe_result,
+    probe_checked_at: previousMeta.probe_checked_at,
+    reparsed_at: new Date().toISOString(),
+  };
+  if (!nextMeta.probe_result) delete nextMeta.probe_result;
+  if (!nextMeta.probe_checked_at) delete nextMeta.probe_checked_at;
+
+  const { data: updated, error: updateError } = await supabase
+    .from("channel_submissions")
+    .update({
+      parsed_title: parsedTitle,
+      parsed_meta: nextMeta,
+    })
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("*")
+    .maybeSingle();
+  if (updateError) throw updateError;
+  if (!updated) throw new Error("提交记录不存在或已被处理。");
+
+  return mapSubmissionRow(updated);
+}
+
 export async function recordSubmissionProbeResult(
   id: string,
   result: SubmissionProbeResult,

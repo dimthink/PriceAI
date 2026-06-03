@@ -808,6 +808,40 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
   }
 
+  async function reparseSubmission(submission: ChannelSubmission) {
+    setLoadingAction(`reparse-${submission.id}`);
+    showRowFeedback(submission.id, "info", "正在重新解析渠道入口...");
+    const result = await request("/api/admin/submissions/reparse", password, {
+      id: submission.id,
+    });
+    setLoadingAction(null);
+    if (result.ok && result.submission) {
+      setSubmissions((prev) => replaceSubmission(prev, result.submission as ChannelSubmission));
+      showRowFeedback(submission.id, "success", "已重新解析该提交，旧的未反查状态已刷新。");
+    } else {
+      showRowFeedback(submission.id, "error", result.message || "重新解析失败。");
+    }
+  }
+
+  async function reparseFilteredReview() {
+    const items = filteredReview;
+    if (!items.length) return;
+    setLoadingAction("batch-reparse");
+    let successCount = 0;
+    for (const item of items) {
+      const result = await request("/api/admin/submissions/reparse", password, { id: item.id });
+      if (result.ok && result.submission) {
+        successCount++;
+        setSubmissions((prev) => replaceSubmission(prev, result.submission as ChannelSubmission));
+      }
+    }
+    setLoadingAction(null);
+    setGlobalMessage({
+      type: successCount === items.length ? "success" : "info",
+      text: `重新解析完成：${successCount}/${items.length} 条成功。`,
+    });
+  }
+
   async function todoSubmission(submission: ChannelSubmission, note: string) {
     setLoadingAction(`todo-${submission.id}`);
     const result = await request("/api/admin/submissions/todo", password, {
@@ -1095,6 +1129,17 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       {filteredReview.every((s) => selectedIds.has(s.id)) ? "取消当前" : `全选当前 (${filteredReview.length})`}
                     </button>
                   )}
+                  {filteredReview.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={reparseFilteredReview}
+                      disabled={loadingAction === "batch-reparse"}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-60"
+                    >
+                      {loadingAction === "batch-reparse" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
+                      重解析当前 ({filteredReview.length})
+                    </button>
+                  )}
                   {selectedIds.size > 0 && (
                     <button
                       type="button"
@@ -1146,6 +1191,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         onToggleSelect={() => toggleSelect(submission.id)}
                         onApprove={approveSubmission}
                         onProbe={probeSubmission}
+                        onReparse={reparseSubmission}
                         onTodo={todoSubmission}
                         onReject={rejectSubmission}
                       />
@@ -1604,6 +1650,7 @@ function SubmissionCard({
   onToggleSelect,
   onApprove,
   onProbe,
+  onReparse,
   onTodo,
   onReject,
 }: {
@@ -1620,6 +1667,7 @@ function SubmissionCard({
   onToggleSelect: () => void;
   onApprove: (submission: ChannelSubmission, overrides: { name?: string; sourceUrl?: string; collectionMethod?: CollectionMethod; collectorKind?: CollectorKind }) => void;
   onProbe: (submission: ChannelSubmission) => void;
+  onReparse: (submission: ChannelSubmission) => void;
   onTodo: (submission: ChannelSubmission, note: string) => void;
   onReject: (submission: ChannelSubmission, note: string) => void;
 }) {
@@ -1658,6 +1706,7 @@ function SubmissionCard({
     : collectorKind || "auto";
   const approveLoading = loadingAction === `approve-${submission.id}`;
   const probeLoading = loadingAction === `probe-${submission.id}`;
+  const reparseLoading = loadingAction === `reparse-${submission.id}`;
   const todoLoading = loadingAction === `todo-${submission.id}`;
   const rejectLoading = loadingAction === `reject-${submission.id}`;
 
@@ -1860,6 +1909,15 @@ function SubmissionCard({
                   试采集
                 </button>
               )}
+              <button
+                type="button"
+                disabled={reparseLoading}
+                onClick={() => onReparse(submission)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-60"
+              >
+                {reparseLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
+                重新解析
+              </button>
               {currentProbe && !canApprove && (
                 <button
                   type="button"
