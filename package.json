@@ -12,6 +12,7 @@
     "lint": "node_modules/node/bin/node node_modules/eslint/bin/eslint.js",
     "collect:prices": "node_modules/node/bin/node scripts/collect-prices.mjs",
     "collect:browser": "node_modules/node/bin/node scripts/collect-browser.mjs",
+    "reparse:submissions": "node_modules/node/bin/node scripts/reparse-submissions-local.mjs",
     "migrate:remote:freshness": "node_modules/node/bin/node scripts/apply-remote-migration.mjs",
     "setup:ga4": "node_modules/node/bin/node scripts/setup-ga4.mjs"
   },
