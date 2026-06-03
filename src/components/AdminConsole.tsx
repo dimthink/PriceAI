@@ -912,6 +912,34 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     });
   }
 
+  async function batchTodo() {
+    const items = filteredReview.filter((s) => selectedIds.has(s.id));
+    if (!items.length) return;
+    setLoadingAction("batch-todo");
+    let successCount = 0;
+    for (const item of items) {
+      const result = await request("/api/admin/submissions/todo", password, {
+        id: item.id,
+        note: "批量转入采集器待办",
+      });
+      if (result.ok && result.submission) {
+        successCount++;
+        setSubmissions((prev) => replaceSubmission(prev, result.submission as ChannelSubmission));
+        setProbeResults((prev) => omitKey(prev, item.id));
+      } else if (isAlreadyHandled(result.message)) {
+        successCount++;
+        setSubmissions((prev) => prev.filter((s) => s.id !== item.id));
+        setProbeResults((prev) => omitKey(prev, item.id));
+      }
+    }
+    setLoadingAction(null);
+    setSelectedIds(new Set());
+    setGlobalMessage({
+      type: successCount === items.length ? "success" : "info",
+      text: `批量转待办完成：${successCount}/${items.length} 条成功。`,
+    });
+  }
+
   async function batchReject() {
     const items = filteredReview.filter((s) => selectedIds.has(s.id));
     if (!items.length) return;
@@ -1149,6 +1177,17 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     >
                       {loadingAction === "batch-approve" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                       批量通过 ({filteredReview.filter((s) => selectedIds.has(s.id) && approvableSubmissionIds.has(s.id)).length})
+                    </button>
+                  )}
+                  {selectedIds.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={batchTodo}
+                      disabled={loadingAction === "batch-todo"}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 text-xs font-medium text-[#7a541b] transition-colors hover:bg-[#fff7e8] disabled:opacity-60"
+                    >
+                      {loadingAction === "batch-todo" ? <Loader2 size={14} className="animate-spin" /> : <TerminalSquare size={14} />}
+                      批量转待办 ({filteredReview.filter((s) => selectedIds.has(s.id)).length})
                     </button>
                   )}
                   {selectedIds.size > 0 && (
