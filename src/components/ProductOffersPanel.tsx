@@ -3,6 +3,7 @@
 import { ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { isAvailable } from "@/lib/catalog";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 import type { RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -202,6 +203,10 @@ function OfferLink({
       href={offer.url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={() => trackAnalyticsEvent("purchase_link_click", {
+        source_id: offer.sourceId || "unknown",
+        available,
+      })}
       className={`inline-flex items-center justify-center gap-1.5 rounded-full text-sm font-semibold transition hover:opacity-90 ${
         compact ? "h-9 px-3" : "h-11 px-5"
       } ${

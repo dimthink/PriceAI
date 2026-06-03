@@ -28,6 +28,7 @@ import {
   platformOptions,
   productTypeOptions,
 } from "@/lib/catalog";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 import type { CanonicalProduct, ExplorerData, ExplorerProductSummary, RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -190,6 +191,34 @@ export function PriceExplorer({
     [maxPrice, minPrice, platform, productType, query, scopeMode, sort, stock, viewMode],
   );
 
+  function changePlatform(nextPlatform: string) {
+    setPlatform(nextPlatform);
+    trackAnalyticsEvent("platform_filter_change", { platform: nextPlatform });
+  }
+
+  function changeScope(nextScope: ScopeMode) {
+    setScopeMode(nextScope);
+    trackAnalyticsEvent("scope_change", { scope: nextScope, platform });
+  }
+
+  function openSubmission() {
+    trackAnalyticsEvent("submit_channel_open", { source: "home" });
+    window.dispatchEvent(new Event("open-submission-floater"));
+  }
+
+  function resetFilters() {
+    setQuery("");
+    setPlatform("全部");
+    setProductType("全部");
+    setStock("all");
+    setSort("available_price");
+    setMinPrice("");
+    setMaxPrice("");
+    setViewMode("table");
+    setScopeMode("products");
+    trackAnalyticsEvent("filters_reset");
+  }
+
   useEffect(() => {
     if (window.location.pathname !== "/") return;
 
@@ -260,7 +289,7 @@ export function PriceExplorer({
                 active={platform === item}
                 icon={platformIcon(item)}
                 label={item}
-                onClick={() => setPlatform(item)}
+                onClick={() => changePlatform(item)}
               />
             ))}
           </div>
@@ -290,7 +319,7 @@ export function PriceExplorer({
             </div>
             <button
               type="button"
-              onClick={() => window.dispatchEvent(new Event("open-submission-floater"))}
+              onClick={openSubmission}
               className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] shadow-[0_14px_40px_rgba(45,52,53,0.16)] md:hidden"
             >
               <Plus size={16} />
@@ -321,13 +350,13 @@ export function PriceExplorer({
                 active={scopeMode === "products"}
                 icon={<PackageCheck size={16} />}
                 label="标准"
-                onClick={() => setScopeMode("products")}
+                onClick={() => changeScope("products")}
               />
               <ViewToggleButton
                 active={scopeMode === "offers"}
                 icon={<Database size={16} />}
                 label="报价"
-                onClick={() => setScopeMode("offers")}
+                onClick={() => changeScope("offers")}
               />
             </div>
             <div className="hidden h-11 shrink-0 items-center rounded-full bg-[#e4e9ea] p-1 md:inline-flex">
@@ -335,13 +364,13 @@ export function PriceExplorer({
                 active={scopeMode === "products"}
                 icon={<PackageCheck size={16} />}
                 label="标准商品"
-                onClick={() => setScopeMode("products")}
+                onClick={() => changeScope("products")}
               />
               <ViewToggleButton
                 active={scopeMode === "offers"}
                 icon={<Database size={16} />}
                 label="全部报价"
-                onClick={() => setScopeMode("offers")}
+                onClick={() => changeScope("offers")}
               />
             </div>
             {scopeMode === "products" ? (
@@ -375,7 +404,7 @@ export function PriceExplorer({
             </label>
             <button
               type="button"
-              onClick={() => window.dispatchEvent(new Event("open-submission-floater"))}
+              onClick={openSubmission}
               className="hidden h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[#2d3435] px-5 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526] md:inline-flex"
             >
               <Plus size={16} />
@@ -402,7 +431,7 @@ export function PriceExplorer({
               <FilterSelect
                 label="平台"
                 value={platform}
-                onChange={setPlatform}
+                onChange={changePlatform}
                 options={["全部", ...platformOptions]}
               />
             </div>
@@ -428,17 +457,7 @@ export function PriceExplorer({
             <PriceInput label="最高价" value={maxPrice} onChange={setMaxPrice} />
             <button
               type="button"
-              onClick={() => {
-                setQuery("");
-                setPlatform("全部");
-                setProductType("全部");
-                setStock("all");
-                setSort("available_price");
-                setMinPrice("");
-                setMaxPrice("");
-                setViewMode("table");
-                setScopeMode("products");
-              }}
+              onClick={resetFilters}
               className="h-12 self-end rounded-full bg-white px-4 text-sm font-semibold text-[#2d3435] shadow-[0_12px_35px_rgba(45,52,53,0.04)] ring-1 ring-[#adb3b4]/15 transition hover:bg-[#dde4e5]"
             >
               重置筛选
@@ -531,6 +550,7 @@ function ProductTable({
                       href={productHref}
                       onMouseEnter={() => onIntent(productHref)}
                       onFocus={() => onIntent(productHref)}
+                      onClick={() => trackProductDetailOpen(product)}
                       className="group flex min-w-0 items-center gap-3"
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5e5e5e]">
@@ -581,6 +601,7 @@ function ProductTable({
                       href={productHref}
                       onMouseEnter={() => onIntent(productHref)}
                       onFocus={() => onIntent(productHref)}
+                      onClick={() => trackProductDetailOpen(product)}
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
                     >
                       查看
@@ -721,6 +742,7 @@ function OfferAction({ offer, available }: { offer: RawOffer; available: boolean
       href={offer.url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={() => trackOfferClick(offer, available)}
       className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-xs font-semibold transition hover:opacity-90 ${
         available ? "bg-[#2d3435] text-[#f8f8f8]" : "bg-[#ead8d5] text-[#8f2f24]"
       }`}
@@ -775,7 +797,7 @@ function ProductCard({
         />
       </div>
 
-      <Link href={productHref} onMouseEnter={() => onIntent(productHref)} onFocus={() => onIntent(productHref)} className="block">
+      <Link href={productHref} onMouseEnter={() => onIntent(productHref)} onFocus={() => onIntent(productHref)} onClick={() => trackProductDetailOpen(product)} className="block">
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-normal text-[#202829] transition group-hover:text-[#5e5e5e]">
           {product.displayName}
         </h2>
@@ -817,6 +839,7 @@ function ProductCard({
           href={productHref}
           onMouseEnter={() => onIntent(productHref)}
           onFocus={() => onIntent(productHref)}
+          onClick={() => trackProductDetailOpen(product)}
           className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-[#5e5e5e] to-[#525252] px-5 text-sm font-semibold text-[#f8f8f8] transition hover:opacity-90"
         >
           查看对比
@@ -1069,6 +1092,21 @@ function sourceLabel(offer: RawOffer): string {
 function sourceSecondaryLabel(offer: RawOffer): string | null {
   if (!offer.sourceName || offer.sourceName === sourceLabel(offer)) return null;
   return offer.sourceName;
+}
+
+function trackProductDetailOpen(product: Pick<CanonicalProduct, "id" | "platform" | "productType">) {
+  trackAnalyticsEvent("product_detail_open", {
+    product_id: product.id,
+    platform: product.platform,
+    product_type: product.productType,
+  });
+}
+
+function trackOfferClick(offer: RawOffer, available: boolean) {
+  trackAnalyticsEvent("purchase_link_click", {
+    source_id: offer.sourceId || "unknown",
+    available,
+  });
 }
 
 function buildActiveFilters({

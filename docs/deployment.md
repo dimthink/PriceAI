@@ -13,6 +13,8 @@ PriceAI 推荐使用 Vercel 部署前台和 API，Supabase 保存数据，GitHub
 - `CRON_SECRET`
 - `CRON_PUBLIC_BASE_URL`
 - `NEXT_PUBLIC_GA_MEASUREMENT_ID`
+- `NEXT_PUBLIC_UMAMI_WEBSITE_ID`
+- `NEXT_PUBLIC_UMAMI_SCRIPT_URL`
 
 部署命令：
 
@@ -21,6 +23,8 @@ vercel deploy --prod --yes
 ```
 
 `CRON_PUBLIC_BASE_URL` 建议填写正式域名，例如 `https://priceai.cc`。
+
+`NEXT_PUBLIC_UMAMI_WEBSITE_ID` 为可选项。使用 Umami Cloud 时，在 Umami 后台新增 Website 后复制 Website ID；`NEXT_PUBLIC_UMAMI_SCRIPT_URL` 可不填，默认使用 `https://cloud.umami.is/script.js`。
 
 ## GitHub Actions 定时采集
 

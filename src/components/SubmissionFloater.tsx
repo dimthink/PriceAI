@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Loader2, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { trackAnalyticsEvent } from "@/lib/analytics";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
@@ -72,6 +73,10 @@ export function SubmissionFloater() {
       const summary = json.summary as { accepted?: number; failed?: number } | undefined;
       const accepted = summary?.accepted ?? parsed.urls.length;
       const failed = summary?.failed ?? 0;
+      trackAnalyticsEvent("submit_source_success", {
+        accepted,
+        failed,
+      });
       setMessage(
         failed > 0
           ? `已收到 ${accepted} 条，${failed} 条未提交成功。系统会先解析链接，采集成功并审核后进入比价。`
