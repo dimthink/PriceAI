@@ -29,6 +29,7 @@ import {
   productTypeOptions,
 } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
+import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import type { CanonicalProduct, ExplorerData, ExplorerProductSummary, RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -76,6 +77,9 @@ const productTypeLabels: Record<string, string> = {
 
 const OFFER_PAGE_SIZE = 80;
 const PRODUCT_SKELETON_ROWS = [0, 1, 2];
+const EXPLORER_CACHE_KEY = "priceai:explorer:v1";
+const EXPLORER_CACHE_TTL_MS = 5 * 60 * 1000;
+const OFFER_LIST_CACHE_TTL_MS = 2 * 60 * 1000;
 
 const EMPTY_EXPLORER_DATA: ExplorerData = {
   generatedAt: "",
@@ -85,6 +89,9 @@ const EMPTY_EXPLORER_DATA: ExplorerData = {
   offerTotal: 0,
 };
 
+let explorerMemoryCache: ExplorerData | null = null;
+const offerListMemoryCache = new Map<string, OfferListResponse>();
+
 export function PriceExplorer({
   data,
   initialState = {},
@@ -93,8 +100,10 @@ export function PriceExplorer({
   initialState?: ExplorerInitialState;
 }) {
   const router = useRouter();
-  const [explorerData, setExplorerData] = useState<ExplorerData>(data ?? EMPTY_EXPLORER_DATA);
-  const [dataLoading, setDataLoading] = useState(!data);
+  const [explorerData, setExplorerData] = useState<ExplorerData>(
+    data ?? explorerMemoryCache ?? EMPTY_EXPLORER_DATA,
+  );
+  const [dataLoading, setDataLoading] = useState(!data && !explorerMemoryCache);
   const [dataError, setDataError] = useState<string | null>(null);
   const [query, setQuery] = useState(initialState.query ?? "");
   const [platform, setPlatform] = useState(initialState.platform ?? "全部");
@@ -187,16 +196,34 @@ export function PriceExplorer({
   );
 
   useEffect(() => {
+    if (!data) return;
+
+    explorerMemoryCache = data;
+    writeSessionCache(EXPLORER_CACHE_KEY, data);
+  }, [data]);
+
+  useEffect(() => {
     if (data) return;
 
     const controller = new AbortController();
 
     async function loadExplorerData() {
-      setDataLoading(true);
+      const cachedData = explorerMemoryCache ?? readSessionCache<ExplorerData>(EXPLORER_CACHE_KEY, EXPLORER_CACHE_TTL_MS);
+
+      if (cachedData) {
+        explorerMemoryCache = cachedData;
+        setExplorerData(cachedData);
+        setDataLoading(false);
+      } else {
+        setDataLoading(true);
+      }
+
       setDataError(null);
 
       try {
         const nextData = await fetchExplorerData(controller.signal);
+        explorerMemoryCache = nextData;
+        writeSessionCache(EXPLORER_CACHE_KEY, nextData);
         setExplorerData(nextData);
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -254,18 +281,33 @@ export function PriceExplorer({
     if (!showingOffers) return;
 
     const controller = new AbortController();
+    const cacheKey = offerListCacheKey(explorerQueryString, 0);
 
     async function loadOffers() {
-      setOffersLoading(true);
+      const cachedOffers =
+        offerListMemoryCache.get(cacheKey) ??
+        readSessionCache<OfferListResponse>(cacheKey, OFFER_LIST_CACHE_TTL_MS);
+
+      if (cachedOffers) {
+        offerListMemoryCache.set(cacheKey, cachedOffers);
+        setOfferResponse(cachedOffers);
+        setOffersLoading(false);
+      } else {
+        setOffersLoading(true);
+      }
+
       setOffersPaging(false);
       setOffersError(null);
 
       try {
-        setOfferResponse(await fetchOfferPage(explorerQueryString, 0, controller.signal));
+        const nextResponse = await fetchOfferPage(explorerQueryString, 0, controller.signal);
+        offerListMemoryCache.set(cacheKey, nextResponse);
+        writeSessionCache(cacheKey, nextResponse);
+        setOfferResponse(nextResponse);
       } catch (error) {
         if (controller.signal.aborted) return;
         setOffersError(error instanceof Error ? error.message : "报价加载失败");
-        setOfferResponse(null);
+        if (!cachedOffers) setOfferResponse(null);
       } finally {
         if (!controller.signal.aborted) setOffersLoading(false);
       }
@@ -290,12 +332,18 @@ export function PriceExplorer({
         const seen = new Set(current.rows.map((row) => row.offer.id));
         const nextRows = nextPage.rows.filter((row) => !seen.has(row.offer.id));
 
-        return {
+        const mergedResponse = {
           ...nextPage,
           rows: [...current.rows, ...nextRows],
           total: nextPage.total,
           limited: nextPage.limited,
         };
+
+        const cacheKey = offerListCacheKey(explorerQueryString, 0);
+        offerListMemoryCache.set(cacheKey, mergedResponse);
+        writeSessionCache(cacheKey, mergedResponse);
+
+        return mergedResponse;
       });
     } catch (error) {
       setOffersError(error instanceof Error ? error.message : "报价加载失败");
@@ -1220,6 +1268,10 @@ async function fetchExplorerData(signal?: AbortSignal): Promise<ExplorerData> {
   if (!response.ok) throw new Error("商品数据加载失败");
 
   return (await response.json()) as ExplorerData;
+}
+
+function offerListCacheKey(queryString: string, offset: number): string {
+  return `priceai:offers:v1:${queryString || "all"}:${offset}:${OFFER_PAGE_SIZE}`;
 }
 
 function metricValue(value: number, loading: boolean): string {

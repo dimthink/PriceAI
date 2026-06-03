@@ -5,6 +5,7 @@ import {
   upsertRawOffers,
   upsertSource,
 } from "@/lib/admin";
+import { clearPublicDataCache } from "@/lib/data";
 import { requireAdminOrCronPassword } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { stableId } from "@/lib/utils";
@@ -85,6 +86,7 @@ export async function POST(request: Request) {
     });
 
     if (error) throw error;
+    clearPublicDataCache();
 
     return Response.json({ ok: true, successCount });
   } catch (error) {

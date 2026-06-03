@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { approveSubmission, getAdminPasswordFromRequest } from "@/lib/admin";
+import { clearPublicDataCache } from "@/lib/data";
 import { requireAdminPassword } from "@/lib/env";
 
 const collectorKindSchema = z.enum([
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
       collectionMethod: payload.collectionMethod,
       collectorKind: payload.collectorKind,
     });
+    clearPublicDataCache();
     return Response.json({ ok: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "审核失败。";

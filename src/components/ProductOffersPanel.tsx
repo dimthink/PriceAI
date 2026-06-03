@@ -4,6 +4,7 @@ import { ExternalLink } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAvailable } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
+import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import type { RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -15,6 +16,8 @@ type ProductOffersResponse = {
 };
 
 const OFFER_PAGE_SIZE = 80;
+const PRODUCT_OFFERS_CACHE_TTL_MS = 2 * 60 * 1000;
+const productOffersMemoryCache = new Map<string, ProductOffersResponse>();
 
 export function ProductOffersPanel({
   productId,
@@ -23,21 +26,38 @@ export function ProductOffersPanel({
   productId: string;
   initialCount: number;
 }) {
-  const [data, setData] = useState<ProductOffersResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const initialCacheKey = productOffersCacheKey(productId, 0);
+  const cachedInitialData = productOffersMemoryCache.get(initialCacheKey) ?? null;
+  const [data, setData] = useState<ProductOffersResponse | null>(cachedInitialData);
+  const [loading, setLoading] = useState(!cachedInitialData);
   const [paging, setPaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
+    const cacheKey = productOffersCacheKey(productId, 0);
 
     async function loadOffers() {
-      setLoading(true);
+      const cachedData =
+        productOffersMemoryCache.get(cacheKey) ??
+        readSessionCache<ProductOffersResponse>(cacheKey, PRODUCT_OFFERS_CACHE_TTL_MS);
+
+      if (cachedData) {
+        productOffersMemoryCache.set(cacheKey, cachedData);
+        setData(cachedData);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
       setError(null);
 
       try {
-        setData(await fetchProductOfferPage(productId, 0, controller.signal));
+        const nextData = await fetchProductOfferPage(productId, 0, controller.signal);
+        productOffersMemoryCache.set(cacheKey, nextData);
+        writeSessionCache(cacheKey, nextData);
+        setData(nextData);
       } catch (currentError) {
         if (controller.signal.aborted) return;
         setError(currentError instanceof Error ? currentError.message : "报价加载失败");
@@ -69,12 +89,18 @@ export function ProductOffersPanel({
         const seen = new Set(current.offers.map((offer) => offer.id));
         const nextOffers = nextPage.offers.filter((offer) => !seen.has(offer.id));
 
-        return {
+        const mergedData = {
           ...nextPage,
           offers: [...current.offers, ...nextOffers],
           total: nextPage.total,
           limited: nextPage.limited,
         };
+
+        const cacheKey = productOffersCacheKey(productId, 0);
+        productOffersMemoryCache.set(cacheKey, mergedData);
+        writeSessionCache(cacheKey, mergedData);
+
+        return mergedData;
       });
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "报价加载失败");
@@ -176,6 +202,10 @@ async function fetchProductOfferPage(
   if (!response.ok) throw new Error("报价加载失败");
 
   return (await response.json()) as ProductOffersResponse;
+}
+
+function productOffersCacheKey(productId: string, offset: number): string {
+  return `priceai:product-offers:v1:${productId}:${offset}:${OFFER_PAGE_SIZE}`;
 }
 
 function OfferTable({ offers }: { offers: RawOffer[] }) {

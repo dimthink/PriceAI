@@ -1,4 +1,5 @@
 import { getAdminPasswordFromRequest, upsertRawOffer } from "@/lib/admin";
+import { clearPublicDataCache } from "@/lib/data";
 import { requireAdminPassword } from "@/lib/env";
 import { z } from "zod";
 
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
     requireAdminPassword(getAdminPasswordFromRequest(request));
     const payload = schema.parse(await request.json());
     const offer = await upsertRawOffer(payload);
+    clearPublicDataCache();
 
     return Response.json({ ok: true, offer });
   } catch (error) {

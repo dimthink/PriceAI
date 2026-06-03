@@ -19,7 +19,9 @@ import type {
 
 const PUBLIC_OFFER_LIMIT = 1200;
 const SUPABASE_PAGE_SIZE = 1000;
-const PUBLIC_DATA_CACHE_TTL_MS = 10_000;
+const PUBLIC_DATA_CACHE_TTL_MS = 30_000;
+const EXPLORER_DATA_CACHE_TTL_MS = 30_000;
+const PRODUCT_OFFERS_CACHE_TTL_MS = 30_000;
 const RAW_OFFER_PUBLIC_SELECT = [
   "id",
   "source_id",
@@ -57,6 +59,9 @@ type PublicOfferData = {
 
 let publicOfferDataCache: { expiresAt: number; value: PublicOfferData } | null = null;
 let publicOfferDataPromise: Promise<PublicOfferData> | null = null;
+let explorerDataCache: { expiresAt: number; value: ExplorerData } | null = null;
+let explorerDataPromise: Promise<ExplorerData> | null = null;
+const productOffersCache = new Map<string, { expiresAt: number; value: Awaited<ReturnType<typeof loadPublicProductOffers>> }>();
 
 type OfferListFilters = {
   platform?: string | null;
@@ -74,6 +79,14 @@ type ProductOfferListFilters = {
   limit?: number;
   offset?: number;
 };
+
+export function clearPublicDataCache(): void {
+  publicOfferDataCache = null;
+  publicOfferDataPromise = null;
+  explorerDataCache = null;
+  explorerDataPromise = null;
+  productOffersCache.clear();
+}
 
 export async function getDashboardData(): Promise<DashboardData> {
   return readDashboardData();
@@ -192,6 +205,29 @@ async function loadPublicOfferData(): Promise<PublicOfferData> {
 }
 
 export async function getExplorerData(): Promise<ExplorerData> {
+  const now = Date.now();
+  if (explorerDataCache && explorerDataCache.expiresAt > now) {
+    return explorerDataCache.value;
+  }
+
+  if (explorerDataPromise) return explorerDataPromise;
+
+  explorerDataPromise = buildExplorerData()
+    .then((value) => {
+      explorerDataCache = {
+        expiresAt: Date.now() + EXPLORER_DATA_CACHE_TTL_MS,
+        value,
+      };
+      return value;
+    })
+    .finally(() => {
+      explorerDataPromise = null;
+    });
+
+  return explorerDataPromise;
+}
+
+async function buildExplorerData(): Promise<ExplorerData> {
   const publicData = await readPublicOfferData();
   const products = buildProductGroups(publicData.offers, publicData.products);
 
@@ -371,9 +407,40 @@ export async function getPublicProductSummary(id: string) {
 }
 
 export async function listPublicProductOffers(id: string, filters: ProductOfferListFilters = {}) {
-  const supabase = getSupabaseServerClient();
   const limit = Math.min(Math.max(filters.limit || 80, 1), PUBLIC_OFFER_LIMIT);
   const offset = Math.max(filters.offset || 0, 0);
+  const cacheKey = `${id}:${limit}:${offset}`;
+  const now = Date.now();
+  const cached = productOffersCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const value = await loadPublicProductOffers(id, { limit, offset });
+  productOffersCache.set(cacheKey, {
+    expiresAt: Date.now() + PRODUCT_OFFERS_CACHE_TTL_MS,
+    value,
+  });
+
+  if (productOffersCache.size > 120) {
+    const expiredAt = Date.now();
+    for (const [key, entry] of productOffersCache) {
+      if (entry.expiresAt <= expiredAt || productOffersCache.size > 120) {
+        productOffersCache.delete(key);
+      }
+    }
+  }
+
+  return value;
+}
+
+async function loadPublicProductOffers(
+  id: string,
+  filters: Required<Pick<ProductOfferListFilters, "limit" | "offset">>,
+) {
+  const supabase = getSupabaseServerClient();
+  const { limit, offset } = filters;
 
   if (supabase) {
     try {

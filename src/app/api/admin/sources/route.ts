@@ -1,4 +1,5 @@
 import { deleteSource, getAdminPasswordFromRequest, setSourceOffersHidden, updateSourceState, upsertSource } from "@/lib/admin";
+import { clearPublicDataCache } from "@/lib/data";
 import { requireAdminPassword } from "@/lib/env";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
     requireAdminPassword(getAdminPasswordFromRequest(request));
     const payload = createSchema.parse(await request.json());
     const source = await upsertSource(payload);
+    clearPublicDataCache();
 
     return Response.json({ ok: true, source });
   } catch (error) {
@@ -69,6 +71,7 @@ export async function PATCH(request: Request) {
         hidden: payload.offersHidden,
         reason: payload.reason,
       });
+      clearPublicDataCache();
       revalidatePath("/");
       revalidatePath("/products/[id]", "page");
 
@@ -82,6 +85,7 @@ export async function PATCH(request: Request) {
       collectorKind: payload.collectorKind,
       notes: payload.notes,
     });
+    clearPublicDataCache();
 
     return Response.json({ ok: true, source });
   } catch (error) {
@@ -97,6 +101,7 @@ export async function DELETE(request: Request) {
     requireAdminPassword(getAdminPasswordFromRequest(request));
     const payload = deleteSchema.parse(await request.json());
     const result = await deleteSource(payload);
+    clearPublicDataCache();
 
     return Response.json({ ok: true, ...result });
   } catch (error) {

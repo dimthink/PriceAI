@@ -1,5 +1,6 @@
 import { canonicalCatalog, classifyOffer } from "@/lib/catalog";
 import { getAdminPasswordFromRequest } from "@/lib/admin";
+import { clearPublicDataCache } from "@/lib/data";
 import { requireAdminPassword } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase";
 
@@ -86,6 +87,8 @@ export async function POST(request: Request) {
         updatedCount += ids.length;
       }
     }
+
+    clearPublicDataCache();
 
     return Response.json({
       ok: true,
