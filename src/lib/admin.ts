@@ -1317,7 +1317,7 @@ export async function listSubmissions(status: SubmissionStatus = "pending"): Pro
     .select("*")
     .eq("status", status)
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(300);
   if (error) throw error;
   return (data || []).map(mapSubmissionRow);
 }
