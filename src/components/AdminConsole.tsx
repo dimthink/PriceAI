@@ -878,6 +878,32 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     });
   }
 
+  async function batchReject() {
+    const items = filteredReview.filter((s) => selectedIds.has(s.id));
+    if (!items.length) return;
+    if (!window.confirm(`确认拒绝选中的 ${items.length} 条提交吗？`)) return;
+
+    setLoadingAction("batch-reject");
+    let successCount = 0;
+    for (const item of items) {
+      const result = await request("/api/admin/submissions/reject", password, {
+        id: item.id,
+        reviewerNote: "批量拒绝",
+      });
+      if (result.ok || isAlreadyHandled(result.message)) {
+        successCount++;
+        setSubmissions((prev) => prev.filter((s) => s.id !== item.id));
+        setProbeResults((prev) => omitKey(prev, item.id));
+      }
+    }
+    setLoadingAction(null);
+    setSelectedIds(new Set());
+    setGlobalMessage({
+      type: successCount === items.length ? "success" : "info",
+      text: `批量拒绝完成：${successCount}/${items.length} 条成功。`,
+    });
+  }
+
   /* ─── Render ─── */
 
   const toggleSelect = (id: string) => {
@@ -895,6 +921,22 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     } else {
       setSelectedIds(new Set(approvableSubmissionIds));
     }
+  };
+
+  const selectAllReview = () => {
+    const reviewIds = filteredReview.map((submission) => submission.id);
+    if (reviewIds.length > 0 && reviewIds.every((id) => selectedIds.has(id))) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(reviewIds));
+    }
+  };
+
+  const copyAllTodoContexts = () => {
+    if (!filteredTodo.length) return;
+    const text = filteredTodo.map(buildCollectorContext).join("\n\n---\n\n");
+    void navigator.clipboard.writeText(text);
+    setGlobalMessage({ type: "success", text: `已复制 ${filteredTodo.length} 条采集器待办上下文。` });
   };
 
   const toggleSourceSelect = (id: string) => {
@@ -1043,15 +1085,36 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       {selectedIds.size > 0 ? "取消全选" : `全选可通过 (${approvableSubmissionIds.size})`}
                     </button>
                   )}
+                  {filteredReview.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={selectAllReview}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#2d3435] transition-colors hover:bg-[#f2f4f4]"
+                    >
+                      <ClipboardList size={14} />
+                      {filteredReview.every((s) => selectedIds.has(s.id)) ? "取消当前" : `全选当前 (${filteredReview.length})`}
+                    </button>
+                  )}
                   {selectedIds.size > 0 && (
                     <button
                       type="button"
                       onClick={batchApprove}
-                      disabled={loadingAction === "batch-approve"}
+                      disabled={loadingAction === "batch-approve" || !filteredReview.some((s) => selectedIds.has(s.id) && approvableSubmissionIds.has(s.id))}
                       className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2f7a4b] px-4 text-xs font-medium text-white transition-colors hover:bg-[#256a3d] disabled:opacity-60"
                     >
                       {loadingAction === "batch-approve" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                      批量通过 ({selectedIds.size})
+                      批量通过 ({filteredReview.filter((s) => selectedIds.has(s.id) && approvableSubmissionIds.has(s.id)).length})
+                    </button>
+                  )}
+                  {selectedIds.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={batchReject}
+                      disabled={loadingAction === "batch-reject"}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#9b3328]/25 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-60"
+                    >
+                      {loadingAction === "batch-reject" ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                      批量拒绝 ({filteredReview.filter((s) => selectedIds.has(s.id)).length})
                     </button>
                   )}
                   <button
@@ -1077,7 +1140,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         expanded={expandedId === submission.id}
                         focused={focusedIndex === index}
                         selected={selectedIds.has(submission.id)}
-                        selectable={approvableSubmissionIds.has(submission.id)}
+                        selectable
                         feedback={rowFeedback?.id === submission.id ? rowFeedback : null}
                         onToggleExpand={() => setExpandedId((prev) => (prev === submission.id ? null : submission.id))}
                         onToggleSelect={() => toggleSelect(submission.id)}
@@ -1110,8 +1173,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
             {/* Todo tab */}
             {activeTab === "todo" && (
               <div role="tabpanel" id="tabpanel-todo">
-                <div className="mb-4">
-                  <div className="relative max-w-md">
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <div className="relative min-w-[240px] flex-1 max-w-md">
                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#adb3b4]" />
                     <input
                       value={searchQuery}
@@ -1121,6 +1184,16 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       className="h-9 w-full rounded-lg border border-[#adb3b4]/30 bg-white pl-9 pr-3 text-sm outline-none transition-colors focus:border-[#2d3435]"
                     />
                   </div>
+                  {filteredTodo.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={copyAllTodoContexts}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 text-xs font-medium text-[#7a541b] transition-colors hover:bg-[#fff7e8]"
+                    >
+                      <Copy size={14} />
+                      一键复制上下文 ({filteredTodo.length})
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {filteredTodo.length ? (

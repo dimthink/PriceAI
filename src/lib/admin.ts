@@ -58,7 +58,8 @@ export async function upsertSource(input: {
   const supabase = getSupabaseServerClient();
   if (!supabase) throw new Error("Supabase 尚未配置，无法保存来源。");
 
-  const id = input.id || slugify(input.name || input.entryUrl);
+  const normalizedEntryUrl = normalizeSourceEntryUrl(input.entryUrl) || input.entryUrl;
+  let id = input.id || slugify(input.name || normalizedEntryUrl);
   const { data: existing, error: existingError } = await supabase
     .from("sources")
     .select("*")
@@ -66,15 +67,25 @@ export async function upsertSource(input: {
     .maybeSingle();
   if (existingError) throw existingError;
 
+  let matchedExisting = existing;
+  const matchedByEntryUrl = !matchedExisting;
+  if (!matchedExisting) {
+    matchedExisting = await findSourceRowByEntryUrl(normalizedEntryUrl);
+    if (matchedExisting?.id) id = String(matchedExisting.id);
+  }
+  const sourceName = matchedByEntryUrl && matchedExisting?.name
+    ? String(matchedExisting.name)
+    : input.name;
+
   const source: Source = {
     id,
-    name: input.name,
-    baseUrl: input.baseUrl || deriveBaseUrl(input.entryUrl),
-    entryUrl: input.entryUrl,
-    collectionMethod: input.collectionMethod || String(existing?.collection_method || "manual") as CollectionMethod,
-    collectorKind: input.collectorKind ?? normalizeCollectorKind(existing?.collector_kind),
-    enabled: input.enabled ?? (existing ? Boolean(existing.enabled) : true),
-    notes: input.notes || (existing?.notes ? String(existing.notes) : null),
+    name: sourceName,
+    baseUrl: input.baseUrl || deriveBaseUrl(normalizedEntryUrl),
+    entryUrl: normalizedEntryUrl,
+    collectionMethod: input.collectionMethod || String(matchedExisting?.collection_method || "manual") as CollectionMethod,
+    collectorKind: input.collectorKind ?? normalizeCollectorKind(matchedExisting?.collector_kind),
+    enabled: input.enabled ?? (matchedExisting ? Boolean(matchedExisting.enabled) : true),
+    notes: input.notes || (matchedExisting?.notes ? String(matchedExisting.notes) : null),
     updatedAt: new Date().toISOString(),
   };
 
@@ -304,6 +315,11 @@ export async function upsertRawOffers(
       collectionMethod,
       notes: collectionMethod === "http" ? "由自动价格采集脚本维护。" : "由半自动浏览器采集助手创建。",
     });
+    const normalizedOffer = {
+      ...offer,
+      sourceName: source.name,
+      sourceStoreName: offer.sourceStoreName || source.name,
+    };
     const now = new Date().toISOString();
     const status = normalizeStatus(offer.status || "");
     const tags = parseTags(offer.tags || "");
@@ -312,10 +328,10 @@ export async function upsertRawOffers(
 
     rows.push(
       toRawOfferRow({
-        id: rawOfferInputId(offer),
+        id: rawOfferInputId(normalizedOffer),
         sourceId: source.id,
-        sourceName: offer.sourceName,
-        sourceStoreName: offer.sourceStoreName || offer.sourceName,
+        sourceName: source.name,
+        sourceStoreName: normalizedOffer.sourceStoreName,
         sourceTitle: offer.sourceTitle,
         price: offer.price ?? null,
         currency: offer.currency || "CNY",
@@ -628,6 +644,49 @@ function deriveBaseUrl(url: string): string | null {
   }
 }
 
+function normalizeSourceEntryUrl(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    parsed.hash = "";
+    parsed.search = "";
+    parsed.hostname = normalizeHostname(parsed.hostname);
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return parsed.toString().replace(/\/$/, parsed.pathname === "/" ? "/" : "");
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function sourceEntryUrlCandidates(value: string | null | undefined): string[] {
+  const normalized = normalizeSourceEntryUrl(value);
+  if (!normalized) return [];
+
+  const candidates = new Set<string>([normalized]);
+  if (normalized.endsWith("/")) candidates.add(normalized.replace(/\/+$/, ""));
+  else candidates.add(`${normalized}/`);
+  return [...candidates].filter(Boolean);
+}
+
+async function findSourceRowByEntryUrl(entryUrl: string | null | undefined): Promise<Record<string, unknown> | null> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+
+  const candidates = sourceEntryUrlCandidates(entryUrl);
+  if (!candidates.length) return null;
+
+  const { data, error } = await supabase
+    .from("sources")
+    .select("*")
+    .in("entry_url", candidates)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
 function mapSubmissionRow(row: Record<string, unknown>): ChannelSubmission {
   return {
     id: String(row.id),
@@ -866,12 +925,15 @@ async function resolveSubmittedSource(
   html: string | null = null,
 ): Promise<Record<string, unknown>> {
   const host = normalizeHostname(parsed.hostname);
+  const baseMeta = analyzeSubmissionUrl(parsed, parsedTitle);
+  const knownSourceMeta = await resolveSourceFromKnownOffer(parsed, parsedTitle, baseMeta);
+  if (knownSourceMeta) return knownSourceMeta;
+
   if ((host !== "pay.ldxp.cn" && host !== "pay.qxvx.cn") || !getGoodsKey(parsed.pathname) || getShopToken(parsed.pathname)) {
-    return analyzeSubmissionUrl(parsed, parsedTitle);
+    return baseMeta;
   }
 
   const baseUrl = `${parsed.protocol}//${parsed.host}`;
-  const baseMeta = analyzeSubmissionUrl(parsed, parsedTitle);
   const tokenFromHtml = getShopTokenFromHtml(html);
   const tokenFromApi = tokenFromHtml || await fetchShopTokenFromGoods(baseUrl, parsed.toString(), getGoodsKey(parsed.pathname) || "");
   if (!tokenFromApi) {
@@ -894,6 +956,35 @@ async function resolveSubmittedSource(
     shop_token: tokenFromApi,
     suggested_source_name: suggestedName,
     suggested_source_id: inferSubmittedSourceId(host, suggestedName, tokenFromApi),
+  };
+}
+
+async function resolveSourceFromKnownOffer(
+  parsed: URL,
+  parsedTitle: string | null,
+  baseMeta: Record<string, unknown>,
+): Promise<Record<string, unknown> | null> {
+  if (getSubmittedUrlType(parsed) !== "product") return null;
+
+  const source = await findSourceFromKnownOfferUrl(parsed.toString());
+  if (!source) return null;
+
+  const canonicalSourceUrl = normalizeSourceEntryUrl(source.entryUrl) || source.entryUrl;
+  const sourceUrl = safeUrl(canonicalSourceUrl);
+  const sourceHost = sourceUrl ? normalizeHostname(sourceUrl.hostname) : normalizeHostname(parsed.hostname);
+  const shopToken = sourceUrl ? getShopToken(sourceUrl.pathname) : null;
+
+  return {
+    ...baseMeta,
+    submitted_url_type: "product",
+    canonical_source_status: "resolved",
+    canonical_source_reason: "已从历史报价反查到店铺入口，审核通过时会合并到已有渠道。",
+    canonical_source_url: canonicalSourceUrl,
+    shop_token: shopToken,
+    suggested_source_name: source.name || inferSubmittedSourceName(sourceHost, parsedTitle, shopToken),
+    suggested_source_id: source.id,
+    suggested_collection_method: source.collectionMethod,
+    suggested_collector_kind: source.collectorKind || inferCollectorKind(sourceHost),
   };
 }
 
@@ -982,6 +1073,64 @@ async function fetchShopTokenFromGoods(baseUrl: string, itemUrl: string, goodsKe
     const payload = await response.json().catch(() => null) as { data?: { user?: { token?: unknown } } } | null;
     const token = payload?.data?.user?.token;
     return typeof token === "string" && token.trim() ? token.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function findSourceFromKnownOfferUrl(itemUrl: string): Promise<Source | null> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+
+  const candidates = knownOfferUrlCandidates(itemUrl);
+  if (!candidates.length) return null;
+
+  const { data: exactRows, error: exactError } = await supabase
+    .from("raw_offers")
+    .select("source_id,url,last_seen_at,captured_at")
+    .in("url", candidates)
+    .not("source_id", "is", null)
+    .order("last_seen_at", { ascending: false })
+    .limit(1);
+  if (exactError) throw exactError;
+
+  const exactSourceId = exactRows?.[0]?.source_id ? String(exactRows[0].source_id) : null;
+  if (exactSourceId) return getSourceById(exactSourceId);
+
+  const parsed = safeUrl(itemUrl);
+  if (!parsed) return null;
+
+  const pathPattern = `%://${parsed.host}${parsed.pathname}%`;
+  const { data: pathRows, error: pathError } = await supabase
+    .from("raw_offers")
+    .select("source_id,url,last_seen_at,captured_at")
+    .ilike("url", pathPattern)
+    .not("source_id", "is", null)
+    .order("last_seen_at", { ascending: false })
+    .limit(1);
+  if (pathError) throw pathError;
+
+  const pathSourceId = pathRows?.[0]?.source_id ? String(pathRows[0].source_id) : null;
+  return pathSourceId ? getSourceById(pathSourceId) : null;
+}
+
+function knownOfferUrlCandidates(value: string): string[] {
+  const parsed = safeUrl(value);
+  if (!parsed) return [value];
+
+  const candidates = new Set<string>([parsed.toString()]);
+  parsed.hash = "";
+  candidates.add(parsed.toString());
+  parsed.search = "";
+  candidates.add(parsed.toString());
+  return [...candidates].filter(Boolean);
+}
+
+function safeUrl(value: string | null | undefined): URL | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed);
   } catch {
     return null;
   }
@@ -1257,7 +1406,7 @@ export async function approveSubmission(
   const suggestedCollectorKind = getSuggestedCollectorKind(submission.parsedMeta);
   const selectedCollectorKind = overrides.collectorKind || suggestedCollectorKind;
   const suggestedId = getSuggestedSourceId(submission.parsedMeta);
-  const existingSource = suggestedId ? await getSourceById(suggestedId) : null;
+  const existingSource = await findExistingSourceForApproval(suggestedId, canonicalSourceUrl);
   const fallbackName =
     overrides.name?.trim() ||
     submission.name ||
@@ -1392,6 +1541,14 @@ async function getSourceById(id: string): Promise<Source | null> {
     .maybeSingle();
   if (error) throw error;
   return data ? mapSourceRow(data) : null;
+}
+
+async function findExistingSourceForApproval(suggestedId: string | null, sourceUrl: string): Promise<Source | null> {
+  const byId = suggestedId ? await getSourceById(suggestedId) : null;
+  if (byId) return byId;
+
+  const byEntryUrl = await findSourceRowByEntryUrl(sourceUrl);
+  return byEntryUrl ? mapSourceRow(byEntryUrl) : null;
 }
 
 function getProbeOffersForImport(
