@@ -1,19 +1,30 @@
 "use client";
 
 import {
+  AtSign,
   ArrowUpDown,
+  Bot,
   CheckCircle2,
   ChevronRight,
+  Code2,
+  CreditCard,
   Database,
   ExternalLink,
   Filter,
+  GraduationCap,
+  KeyRound,
   LayoutGrid,
   Layers3,
+  Mail,
+  Music2,
   PackageCheck,
+  PhoneCall,
   Plus,
   Search,
+  Sparkles,
   Store,
   Table2,
+  Terminal,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -723,7 +734,7 @@ function ProductTable({
                       className="group flex min-w-0 items-center gap-3"
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5e5e5e]">
-                        {platformIcon(product.platform)}
+                        {productIcon(product)}
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate font-semibold text-[#202829] group-hover:text-[#5e5e5e]">
@@ -817,7 +828,7 @@ function PlatformOfferTable({ rows }: { rows: PlatformOfferRow[] }) {
                     <td className="max-w-[190px] px-5 py-4">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5a6061]">
-                          {platformIcon(product.platform)}
+                          {productIcon(product)}
                         </span>
                         <span className="min-w-0">
                           <span className="block truncate font-semibold text-[#202829]">{product.platform}</span>
@@ -871,7 +882,7 @@ function PlatformOfferCard({ offer, product }: { offer: RawOffer; product: Canon
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#5a6061]">
-            {platformIcon(product.platform)}
+            {productIcon(product)}
             <span className="truncate">{product.platform} · {product.displayName}</span>
           </div>
           <p className="truncate font-semibold text-[#202829]">{sourceLabel(offer)}</p>
@@ -1018,7 +1029,7 @@ function ProductCard({
       <div className="mb-5 flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5e5e5e]">
-            {platformIcon(product.platform)}
+            {productIcon(product)}
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-[#202829]">{previewOffer?.sourceStoreName || previewOffer?.sourceName || product.platform}</p>
@@ -1420,4 +1431,35 @@ function platformIcon(platform: string): ReactNode {
   if (platform !== "全部" && platform !== "其他") return <BrandIcon platform={platform} className={className} />;
   if (platform === "其他") return <Layers3 className={`${className} text-[#5a6061]`} />;
   return <Layers3 className={`${className} text-[#5a6061]`} />;
+}
+
+function productIcon(product: Pick<CanonicalProduct, "id" | "platform" | "productType" | "displayName">): ReactNode {
+  const className = "h-[18px] w-[18px]";
+  const text = `${product.id} ${product.displayName}`.toLowerCase();
+
+  if (product.platform === "接码") {
+    if (text.includes("paypal")) return <KeyRound className={`${className} text-[#5a6061]`} />;
+    if (text.includes("google") || text.includes("gemini")) return <PhoneCall className={`${className} text-[#5a6061]`} />;
+    if (text.includes("openai") || text.includes("chatgpt")) return <Bot className={`${className} text-[#5a6061]`} />;
+    return <PhoneCall className={`${className} text-[#5a6061]`} />;
+  }
+
+  if (product.platform === "邮箱") {
+    if (text.includes("education") || text.includes("教育")) return <GraduationCap className={`${className} text-[#5a6061]`} />;
+    if (text.includes("outlook") || text.includes("hotmail")) return <AtSign className={`${className} text-[#5a6061]`} />;
+    return <Mail className={`${className} text-[#5a6061]`} />;
+  }
+
+  if (product.productType === "虚拟卡") return <CreditCard className={`${className} text-[#5a6061]`} />;
+
+  if (product.productType === "工具账号") {
+    if (text.includes("cursor")) return <Code2 className={`${className} text-[#5a6061]`} />;
+    if (text.includes("kiro")) return <Terminal className={`${className} text-[#5a6061]`} />;
+    if (text.includes("windsurf")) return <Sparkles className={`${className} text-[#5a6061]`} />;
+    if (text.includes("perplexity")) return <Bot className={`${className} text-[#5a6061]`} />;
+    if (text.includes("suno")) return <Music2 className={`${className} text-[#5a6061]`} />;
+    return <Code2 className={`${className} text-[#5a6061]`} />;
+  }
+
+  return platformIcon(product.platform);
 }

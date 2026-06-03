@@ -46,31 +46,28 @@ export async function POST(request: Request) {
       if (error) throw error;
     }
 
-    const { data: offers, error: offerError } = await supabase
-      .from("raw_offers")
-      .select("id,source_title,tags,category_slug");
-    if (offerError) throw offerError;
-
     let updatedCount = 0;
     const distribution = new Map<string, number>();
 
     const groupedOfferIds = new Map<string, { canonicalProductId: string; categorySlug: string; ids: string[] }>();
 
-    for (const row of offers || []) {
-      const canonical = classifyOffer(String(row.source_title || ""), {
-        tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
-        categorySlug: row.category_slug ? String(row.category_slug) : null,
-      });
-      distribution.set(canonical.id, (distribution.get(canonical.id) || 0) + 1);
-      const key = `${canonical.id}\u0000${canonical.platform}`;
-      const group = groupedOfferIds.get(key) || {
-        canonicalProductId: canonical.id,
-        categorySlug: canonical.platform,
-        ids: [],
-      };
-      group.ids.push(String(row.id));
-      groupedOfferIds.set(key, group);
-    }
+    await forEachRawOfferPage(supabase, (rows) => {
+      for (const row of rows) {
+        const canonical = classifyOffer(String(row.source_title || ""), {
+          tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+          categorySlug: row.category_slug ? String(row.category_slug) : null,
+        });
+        distribution.set(canonical.id, (distribution.get(canonical.id) || 0) + 1);
+        const key = `${canonical.id}\u0000${canonical.platform}`;
+        const group = groupedOfferIds.get(key) || {
+          canonicalProductId: canonical.id,
+          categorySlug: canonical.platform,
+          ids: [],
+        };
+        group.ids.push(String(row.id));
+        groupedOfferIds.set(key, group);
+      }
+    });
 
     for (const group of groupedOfferIds.values()) {
       for (const ids of chunks(group.ids, 100)) {
@@ -111,6 +108,37 @@ function chunks<T>(items: T[], size: number): T[][] {
     output.push(items.slice(index, index + size));
   }
   return output;
+}
+
+type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseServerClient>>;
+type ReclassifyOfferRow = {
+  id: unknown;
+  source_title: unknown;
+  tags: unknown;
+  category_slug: unknown;
+};
+
+async function forEachRawOfferPage(
+  supabase: SupabaseClient,
+  onPage: (rows: ReclassifyOfferRow[]) => void,
+): Promise<void> {
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("raw_offers")
+      .select("id,source_title,tags,category_slug")
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+
+    const rows = (data || []) as ReclassifyOfferRow[];
+    if (!rows.length) break;
+
+    onPage(rows);
+    if (rows.length < pageSize) break;
+  }
 }
 
 function errorMessage(error: unknown): string {
