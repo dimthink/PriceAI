@@ -212,7 +212,6 @@ async function collectTarget(target) {
   if (target.kind === "makerichHtml") return collectMakerichHtml(target);
   if (target.kind === "beibeiHtml") return collectBeibeiHtml(target);
   if (target.kind === "ikunloveApi") return collectIkunloveApi(target);
-  if (target.kind === "humktApi") return collectHumktApi(target);
   if (target.kind === "getgptApi") return collectGetgptApi(target);
 
   throw new Error(`Unsupported collector kind: ${target.kind}`);
@@ -609,35 +608,6 @@ async function collectIkunloveApi(target) {
   return offers;
 }
 
-async function collectHumktApi(target) {
-  const payload = await fetchJson(`${target.baseUrl}/api/goods`);
-  const items = Array.isArray(payload.data) ? payload.data : [];
-  const offers = [];
-
-  for (const item of items) {
-    const title = cleanText(item.name);
-    const price = numberOrNull(item.price);
-    if (!title || price === null || isNonComparableTitle(title)) continue;
-
-    const stockCount = stockCountFromHumkt(item);
-    offers.push(
-      makeOffer(target, {
-        title,
-        price,
-        status: statusFromStock(stockCount),
-        stockCount,
-        url: `${target.baseUrl}/product/${encodeURIComponent(String(item.id))}`,
-        tags: compact([
-          item.min_qty ? `最小购买 ${item.min_qty}` : null,
-          item.max_qty ? `最大购买 ${item.max_qty}` : null,
-        ]),
-      }),
-    );
-  }
-
-  return offers;
-}
-
 async function collectGetgptApi(target) {
   const payload = await fetchJson("https://gpt.how2cs.cn/api/order/prices");
   const products = [
@@ -941,7 +911,6 @@ function inferCollectorKind(host, text = "") {
   if (host === "makerich.club") return "makerichHtml";
   if (host === "bei-bei.shop") return "beibeiHtml";
   if (host === "ikunlove.best") return "ikunloveApi";
-  if (host === "humkt.com") return "humktApi";
   if (host === "getgpt.pro") return "getgptApi";
   if (text.includes("burstpro")) return "dujiao";
   return null;
@@ -959,7 +928,6 @@ function normalizeCollectorKind(value) {
     "makerichHtml",
     "beibeiHtml",
     "ikunloveApi",
-    "humktApi",
     "getgptApi",
     "browser",
     "unsupported",
@@ -1128,14 +1096,6 @@ function numberOrNull(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(String(value).replace(/[^\d.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function stockCountFromHumkt(item) {
-  const inStock = numberOrNull(item?.in_stock);
-  if (inStock !== null && inStock <= 0) return 0;
-  const maxQty = numberOrNull(item?.max_qty);
-  if (maxQty !== null && maxQty < 999_999) return maxQty;
-  return null;
 }
 
 function compact(values) {

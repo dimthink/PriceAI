@@ -95,7 +95,6 @@ const collectorKindOptions: Array<[CollectorKind, string]> = [
   ["makerichHtml", "Makerich HTML"],
   ["beibeiHtml", "贝贝 HTML"],
   ["ikunloveApi", "IkunLove API"],
-  ["humktApi", "Humkt API"],
   ["getgptApi", "GetGPT API"],
   ["browser", "本机浏览器"],
   ["unsupported", "暂不支持"],
@@ -2899,7 +2898,6 @@ const knownAutoCollectorHosts = new Set([
   "faka.redeemgpt.com",
   "feifei.shop",
   "getgpt.pro",
-  "humkt.com",
   "ikunlove.best",
   "kapay.shop",
   "ldxp.cn",
@@ -2933,7 +2931,6 @@ function inferCollectorKindFromSource(source: Source): CollectorKind | null {
   if (host === "makerich.club") return "makerichHtml";
   if (host === "bei-bei.shop") return "beibeiHtml";
   if (host === "ikunlove.best") return "ikunloveApi";
-  if (host === "humkt.com") return "humktApi";
   if (host === "getgpt.pro") return "getgptApi";
   if (text.includes("burstpro")) return "dujiao";
   return null;

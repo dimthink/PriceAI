@@ -23,7 +23,6 @@ export type CollectorKind =
   | "makerichHtml"
   | "beibeiHtml"
   | "ikunloveApi"
-  | "humktApi"
   | "getgptApi"
   | "browser"
   | "unsupported";

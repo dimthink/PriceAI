@@ -999,7 +999,6 @@ function inferCollectorKind(host: string): string {
   if (host === "makerich.club") return "makerichHtml";
   if (host === "bei-bei.shop") return "beibeiHtml";
   if (host === "ikunlove.best") return "ikunloveApi";
-  if (host === "humkt.com") return "humktApi";
   if (host === "getgpt.pro") return "getgptApi";
   if (host.includes("burstpro")) return "dujiao";
   return "browser";
@@ -1013,7 +1012,6 @@ function inferSubmittedSourceName(host: string, parsedTitle: string | null, shop
   if (host === "shop.auto-subscribe.com") return "Auto Subscribe";
   if (host === "zhang520.store") return "zhang520.store";
   if (host === "shopcardai.click") return "购物 - DN发卡网";
-  if (host === "humkt.com") return "humkt.com";
   if (host === "ldxp.cn" && shopToken) return `LDXP / ${shopToken}`;
   if (host === "ldxp.cn") return "ldxp.cn";
   if (host === "ikunlove.best") return "AI 商品站";
@@ -1041,7 +1039,6 @@ function inferSubmittedSourceId(host: string, sourceName: string, shopToken: str
   if (host === "shop.auto-subscribe.com") return "auto-subscribe";
   if (host === "zhang520.store") return "zhang520-store";
   if (host === "shopcardai.click") return "购物-dn发卡网";
-  if (host === "humkt.com") return "humkt-com";
   if (host === "ldxp.cn") return "ldxp-cn";
   if (host === "ikunlove.best") return "ai-商品站";
   if (host === "getgpt.pro") return "chatgpt-plus-充值服务-gpt-pro官方充值-gpt5代充-codex充值";
@@ -1197,7 +1194,6 @@ function normalizeCollectorKind(value: unknown): CollectorKind | null {
     normalized === "makerichHtml" ||
     normalized === "beibeiHtml" ||
     normalized === "ikunloveApi" ||
-    normalized === "humktApi" ||
     normalized === "getgptApi" ||
     normalized === "browser" ||
     normalized === "unsupported"

@@ -13,7 +13,6 @@ const collectorKindSchema = z.enum([
   "makerichHtml",
   "beibeiHtml",
   "ikunloveApi",
-  "humktApi",
   "getgptApi",
   "browser",
   "unsupported",

@@ -107,7 +107,6 @@ function collectorKindFromDetails(details: Record<string, unknown> | undefined) 
     value === "makerichHtml" ||
     value === "beibeiHtml" ||
     value === "ikunloveApi" ||
-    value === "humktApi" ||
     value === "getgptApi" ||
     value === "browser" ||
     value === "unsupported"
