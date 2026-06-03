@@ -1,6 +1,6 @@
 import "server-only";
 
-import { listSubmissions } from "./admin";
+import { ADMIN_MANUAL_HIDE_REASON_PREFIX, listSubmissions } from "./admin";
 import { buildProductGroups, canonicalCatalog, resolveOfferProduct } from "./catalog";
 import { isSupabaseConfigured } from "./env";
 import { seedRawOffers, seedSources } from "./sample-data";
@@ -14,6 +14,7 @@ import type {
   ExplorerProductSummary,
   RawOffer,
   Source,
+  SourceOfferStats,
 } from "./types";
 
 const PUBLIC_OFFER_LIMIT = 1200;
@@ -108,16 +109,20 @@ export async function getAdminSummary(): Promise<AdminSummary> {
       ...dashboard,
       crawlRuns: [],
       pendingSubmissions: [],
+      sourceOfferStats: [],
+      hiddenRawOffers: [],
     };
   }
 
-  const [{ data, error }, pendingSubmissions] = await Promise.all([
+  const [{ data, error }, pendingSubmissions, sourceOfferStats, hiddenRawOffers] = await Promise.all([
     supabase
       .from("crawl_runs")
       .select("*")
       .order("started_at", { ascending: false })
       .limit(30),
     listSubmissions("pending").catch(() => []),
+    listSourceOfferStats().catch(() => []),
+    listAdminHiddenRawOfferRows().then((rows) => rows.map(mapRawOffer)).catch(() => []),
   ]);
 
   if (error) {
@@ -125,6 +130,8 @@ export async function getAdminSummary(): Promise<AdminSummary> {
       ...dashboard,
       crawlRuns: [],
       pendingSubmissions,
+      sourceOfferStats,
+      hiddenRawOffers,
     };
   }
 
@@ -132,7 +139,85 @@ export async function getAdminSummary(): Promise<AdminSummary> {
     ...dashboard,
     crawlRuns: (data || []).map(mapCrawlRun),
     pendingSubmissions,
+    sourceOfferStats,
+    hiddenRawOffers,
   };
+}
+
+async function listSourceOfferStats(): Promise<SourceOfferStats[]> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+
+  const rows: Array<Pick<RawOffer, "sourceId" | "hidden" | "failureReason">> = [];
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from("raw_offers")
+      .select("source_id,hidden,failure_reason")
+      .range(from, to);
+
+    if (error) throw error;
+
+    rows.push(
+      ...(data || []).map((row) => ({
+        sourceId: row.source_id ? String(row.source_id) : null,
+        hidden: Boolean(row.hidden),
+        failureReason: row.failure_reason ? String(row.failure_reason) : null,
+      })),
+    );
+    if (!data || data.length < SUPABASE_PAGE_SIZE) break;
+  }
+
+  const map = new Map<string, SourceOfferStats>();
+  for (const row of rows) {
+    if (!row.sourceId) continue;
+    const current = map.get(row.sourceId) || {
+      sourceId: row.sourceId,
+      visibleCount: 0,
+      hiddenCount: 0,
+      manuallyHiddenCount: 0,
+      totalCount: 0,
+    };
+
+    current.totalCount++;
+    if (row.hidden) {
+      current.hiddenCount++;
+      if (row.failureReason?.startsWith(ADMIN_MANUAL_HIDE_REASON_PREFIX)) {
+        current.manuallyHiddenCount++;
+      }
+    } else {
+      current.visibleCount++;
+    }
+
+    map.set(row.sourceId, current);
+  }
+
+  return Array.from(map.values());
+}
+
+async function listAdminHiddenRawOfferRows(): Promise<Record<string, unknown>[]> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from("raw_offers")
+      .select("*")
+      .eq("hidden", true)
+      .ilike("failure_reason", `${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`)
+      .order("updated_at", { ascending: false })
+      .range(from, to);
+
+    if (error) throw error;
+
+    rows.push(...(data || []));
+    if (!data || data.length < SUPABASE_PAGE_SIZE) break;
+  }
+
+  return rows;
 }
 
 export async function getProductGroup(id: string) {

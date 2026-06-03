@@ -17,6 +17,10 @@ import type {
 } from "./types";
 import { normalizeStatus, parseTags, slugify, stableId } from "./utils";
 
+export const ADMIN_SOURCE_HIDE_REASON_PREFIX = "管理员手动下架渠道";
+export const ADMIN_OFFER_HIDE_REASON_PREFIX = "管理员手动下架报价";
+export const ADMIN_MANUAL_HIDE_REASON_PREFIX = "管理员手动下架";
+
 type SubmissionProbeResult = {
   sourceId?: string;
   sourceName?: string;
@@ -54,15 +58,23 @@ export async function upsertSource(input: {
   const supabase = getSupabaseServerClient();
   if (!supabase) throw new Error("Supabase 尚未配置，无法保存来源。");
 
+  const id = input.id || slugify(input.name || input.entryUrl);
+  const { data: existing, error: existingError } = await supabase
+    .from("sources")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
   const source: Source = {
-    id: input.id || slugify(input.name || input.entryUrl),
+    id,
     name: input.name,
     baseUrl: input.baseUrl || deriveBaseUrl(input.entryUrl),
     entryUrl: input.entryUrl,
-    collectionMethod: input.collectionMethod || "manual",
-    collectorKind: input.collectorKind ?? null,
-    enabled: input.enabled ?? true,
-    notes: input.notes || null,
+    collectionMethod: input.collectionMethod || String(existing?.collection_method || "manual") as CollectionMethod,
+    collectorKind: input.collectorKind ?? normalizeCollectorKind(existing?.collector_kind),
+    enabled: input.enabled ?? (existing ? Boolean(existing.enabled) : true),
+    notes: input.notes || (existing?.notes ? String(existing.notes) : null),
     updatedAt: new Date().toISOString(),
   };
 
@@ -137,6 +149,86 @@ export async function deleteSource(input: {
   return { deletedOfferCount };
 }
 
+export async function setSourceOffersHidden(input: {
+  sourceId: string;
+  hidden: boolean;
+  reason?: string | null;
+}): Promise<{ source: Source; updatedOfferCount: number }> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) throw new Error("Supabase 尚未配置，无法更新渠道报价。");
+
+  const now = new Date().toISOString();
+  const source = await updateSourceState({ id: input.sourceId, enabled: !input.hidden });
+
+  if (input.hidden) {
+    const reason = `${ADMIN_SOURCE_HIDE_REASON_PREFIX}：${input.reason?.trim() || "线上反馈/临时处理"}`;
+    const { count, error } = await supabase
+      .from("raw_offers")
+      .update({
+        hidden: true,
+        failure_reason: reason,
+        last_failed_at: now,
+        updated_at: now,
+      }, { count: "exact" })
+      .eq("source_id", input.sourceId)
+      .eq("hidden", false);
+
+    if (error) throw error;
+    return { source, updatedOfferCount: count || 0 };
+  }
+
+  const { count, error } = await supabase
+    .from("raw_offers")
+    .update({
+      hidden: false,
+      failure_reason: null,
+      last_failed_at: null,
+      updated_at: now,
+    }, { count: "exact" })
+    .eq("source_id", input.sourceId)
+    .eq("hidden", true)
+    .ilike("failure_reason", `${ADMIN_SOURCE_HIDE_REASON_PREFIX}%`);
+
+  if (error) throw error;
+  return { source, updatedOfferCount: count || 0 };
+}
+
+export async function setRawOfferHidden(input: {
+  id: string;
+  hidden: boolean;
+  reason?: string | null;
+}): Promise<{ updatedOfferCount: number }> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) throw new Error("Supabase 尚未配置，无法更新报价。");
+
+  const now = new Date().toISOString();
+  const row = input.hidden
+    ? {
+        hidden: true,
+        failure_reason: `${ADMIN_OFFER_HIDE_REASON_PREFIX}：${input.reason?.trim() || "线上反馈/临时处理"}`,
+        last_failed_at: now,
+        updated_at: now,
+      }
+    : {
+        hidden: false,
+        failure_reason: null,
+        last_failed_at: null,
+        updated_at: now,
+      };
+
+  let query = supabase
+    .from("raw_offers")
+    .update(row, { count: "exact" })
+    .eq("id", input.id);
+  if (!input.hidden) {
+    query = query.ilike("failure_reason", `${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`);
+  }
+  const { count, error } = await query;
+
+  if (error) throw error;
+  return { updatedOfferCount: count || 0 };
+}
+
 export async function upsertRawOffer(input: OfferInput & { sourceId?: string | null }): Promise<RawOffer> {
   const supabase = getSupabaseServerClient();
   if (!supabase) throw new Error("Supabase 尚未配置，无法保存报价。");
@@ -157,6 +249,7 @@ export async function upsertRawOffer(input: OfferInput & { sourceId?: string | n
   const status = normalizeStatus(input.status || "");
   const trustFields = freshnessFields({ method: "manual", status, verifiedAt: now });
   const canonical = classifyOffer(input.sourceTitle, { tags });
+  const existingManualHidden = await getManualHiddenOffer(rawOfferInputId(input));
   const offer: RawOffer = {
     id: rawOfferInputId(input),
     sourceId: sourceId || source.id,
@@ -169,7 +262,7 @@ export async function upsertRawOffer(input: OfferInput & { sourceId?: string | n
     url: input.url,
     tags,
     stockCount: input.stockCount ?? null,
-    hidden: false,
+    hidden: Boolean(existingManualHidden),
     canonicalProductId: canonical.id,
     categorySlug: canonical.platform,
     capturedAt: now,
@@ -181,6 +274,8 @@ export async function upsertRawOffer(input: OfferInput & { sourceId?: string | n
     confidence: trustFields.confidence,
     effectiveStatus: trustFields.effective_status,
     freshnessStatus: trustFields.freshness_status,
+    lastFailedAt: existingManualHidden?.lastFailedAt,
+    failureReason: existingManualHidden?.failureReason,
   };
 
   const { error } = await supabase.from("raw_offers").upsert(toRawOfferRow(offer));
@@ -246,10 +341,65 @@ export async function upsertRawOffers(
 
   if (!rows.length) return 0;
 
+  const manualHiddenById = await getManualHiddenOffersById(rows.map((row) => String(row.id)));
+  for (const row of rows) {
+    const existing = manualHiddenById.get(String(row.id));
+    if (!existing) continue;
+    row.hidden = true;
+    row.failure_reason = existing.failureReason;
+    row.last_failed_at = existing.lastFailedAt;
+  }
+
   const { error } = await supabase.from("raw_offers").upsert(rows);
   if (error) throw error;
 
   return rows.length;
+}
+
+async function getManualHiddenOffer(id: string): Promise<{ lastFailedAt?: string | null; failureReason?: string | null } | null> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("raw_offers")
+    .select("last_failed_at,failure_reason")
+    .eq("id", id)
+    .eq("hidden", true)
+    .ilike("failure_reason", `${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data
+    ? {
+        lastFailedAt: data.last_failed_at ? String(data.last_failed_at) : null,
+        failureReason: data.failure_reason ? String(data.failure_reason) : null,
+      }
+    : null;
+}
+
+async function getManualHiddenOffersById(ids: string[]): Promise<Map<string, { lastFailedAt?: string | null; failureReason?: string | null }>> {
+  const supabase = getSupabaseServerClient();
+  const output = new Map<string, { lastFailedAt?: string | null; failureReason?: string | null }>();
+  if (!supabase || !ids.length) return output;
+
+  for (const idChunk of chunks(Array.from(new Set(ids)), 100)) {
+    const { data, error } = await supabase
+      .from("raw_offers")
+      .select("id,last_failed_at,failure_reason")
+      .in("id", idChunk)
+      .eq("hidden", true)
+      .ilike("failure_reason", `${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`);
+
+    if (error) throw error;
+    for (const row of data || []) {
+      output.set(String(row.id), {
+        lastFailedAt: row.last_failed_at ? String(row.last_failed_at) : null,
+        failureReason: row.failure_reason ? String(row.failure_reason) : null,
+      });
+    }
+  }
+
+  return output;
 }
 
 async function ensureCanonicalProducts(supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>) {
@@ -352,7 +502,8 @@ async function recordOfferCollectionFailure(
       failure_reason: failureReason,
       updated_at: failedAt,
     })
-    .eq("source_id", sourceId);
+    .eq("source_id", sourceId)
+    .or(`failure_reason.is.null,failure_reason.not.ilike.${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`);
 
   if (markError) throw markError;
 
@@ -369,6 +520,7 @@ async function recordOfferCollectionFailure(
       updated_at: failedAt,
     })
     .eq("source_id", sourceId)
+    .or(`failure_reason.is.null,failure_reason.not.ilike.${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`)
     .or(`verified_at.is.null,verified_at.lt.${staleBefore}`);
 
   if (expireError) throw expireError;
@@ -384,7 +536,8 @@ async function clearOfferCollectionFailure(sourceId: string) {
       last_failed_at: null,
       failure_reason: null,
     })
-    .eq("source_id", sourceId);
+    .eq("source_id", sourceId)
+    .or(`failure_reason.is.null,failure_reason.not.ilike.${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`);
 
   if (error) throw error;
 }

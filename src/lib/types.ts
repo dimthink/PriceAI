@@ -118,6 +118,16 @@ export type DashboardData = {
 export type AdminSummary = DashboardData & {
   crawlRuns: CrawlRun[];
   pendingSubmissions: ChannelSubmission[];
+  sourceOfferStats: SourceOfferStats[];
+  hiddenRawOffers: RawOffer[];
+};
+
+export type SourceOfferStats = {
+  sourceId: string;
+  visibleCount: number;
+  hiddenCount: number;
+  manuallyHiddenCount: number;
+  totalCount: number;
 };
 
 export type CrawlRun = {

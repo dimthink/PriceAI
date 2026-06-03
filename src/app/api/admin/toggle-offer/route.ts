@@ -1,29 +1,21 @@
-import { getAdminPasswordFromRequest } from "@/lib/admin";
+import { getAdminPasswordFromRequest, setRawOfferHidden } from "@/lib/admin";
 import { requireAdminPassword } from "@/lib/env";
-import { getSupabaseServerClient } from "@/lib/supabase";
 import { z } from "zod";
 
 const schema = z.object({
   id: z.string().min(1),
   hidden: z.boolean(),
+  reason: z.string().max(500).nullable().optional(),
 });
 
 export async function POST(request: Request) {
   try {
     requireAdminPassword(getAdminPasswordFromRequest(request));
 
-    const supabase = getSupabaseServerClient();
-    if (!supabase) throw new Error("Supabase 尚未配置，无法更新报价。");
-
     const payload = schema.parse(await request.json());
-    const { error } = await supabase
-      .from("raw_offers")
-      .update({ hidden: payload.hidden, updated_at: new Date().toISOString() })
-      .eq("id", payload.id);
+    const result = await setRawOfferHidden(payload);
 
-    if (error) throw error;
-
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, ...result });
   } catch (error) {
     return Response.json(
       { ok: false, message: error instanceof Error ? error.message : "更新失败。" },

@@ -1,4 +1,4 @@
-import { deleteSource, getAdminPasswordFromRequest, updateSourceState, upsertSource } from "@/lib/admin";
+import { deleteSource, getAdminPasswordFromRequest, setSourceOffersHidden, updateSourceState, upsertSource } from "@/lib/admin";
 import { requireAdminPassword } from "@/lib/env";
 import { z } from "zod";
 
@@ -18,6 +18,8 @@ const patchSchema = z.object({
   collectionMethod: z.enum(["public_json", "browser", "http", "manual"]).optional(),
   collectorKind: z.enum(["auto", "kami", "dujiao", "shopApi", "xiaoheiwan", "opensoraHtml", "makerichHtml", "beibeiHtml", "browser", "unsupported"]).nullable().optional(),
   notes: z.string().nullable().optional(),
+  offersHidden: z.boolean().optional(),
+  reason: z.string().max(500).nullable().optional(),
 });
 
 const deleteSchema = z.object({
@@ -44,7 +46,23 @@ export async function PATCH(request: Request) {
   try {
     requireAdminPassword(getAdminPasswordFromRequest(request));
     const payload = patchSchema.parse(await request.json());
-    const source = await updateSourceState(payload);
+    if (typeof payload.offersHidden === "boolean") {
+      const result = await setSourceOffersHidden({
+        sourceId: payload.id,
+        hidden: payload.offersHidden,
+        reason: payload.reason,
+      });
+
+      return Response.json({ ok: true, ...result });
+    }
+
+    const source = await updateSourceState({
+      id: payload.id,
+      enabled: payload.enabled,
+      collectionMethod: payload.collectionMethod,
+      collectorKind: payload.collectorKind,
+      notes: payload.notes,
+    });
 
     return Response.json({ ok: true, source });
   } catch (error) {

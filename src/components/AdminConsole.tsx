@@ -34,7 +34,9 @@ import type {
   CollectorKind,
   CrawlRun,
   OfferStatus,
+  RawOffer,
   Source,
+  SourceOfferStats,
 } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -117,6 +119,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [sourcePatches, setSourcePatches] = useState<Record<string, Partial<Source>>>({});
   const [deletedSourceIds, setDeletedSourceIds] = useState<Set<string>>(new Set());
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
+  const [offerSearchQuery, setOfferSearchQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
   const reviewSubmissions = useMemo(
@@ -207,14 +210,30 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     ],
     [collectorTodoSubmissions.length, data.products.length, data.rawOffers.length, reviewSubmissions.length, sources.length],
   );
+  const sourceStatsById = useMemo(
+    () => new Map((data.sourceOfferStats || []).map((stats) => [stats.sourceId, stats])),
+    [data.sourceOfferStats],
+  );
   const offerCountBySource = useMemo(() => {
     const map = new Map<string, number>();
+    for (const source of sources) {
+      const stats = sourceStatsById.get(source.id);
+      if (stats) map.set(source.id, stats.visibleCount);
+    }
     for (const offer of data.rawOffers) {
-      if (!offer.sourceId) continue;
+      if (!offer.sourceId || map.has(offer.sourceId)) continue;
       map.set(offer.sourceId, (map.get(offer.sourceId) || 0) + 1);
     }
     return map;
-  }, [data.rawOffers]);
+  }, [data.rawOffers, sourceStatsById, sources]);
+  const filteredVisibleOffers = useMemo(
+    () => filterAdminOffers(data.rawOffers, offerSearchQuery).slice(0, 30),
+    [data.rawOffers, offerSearchQuery],
+  );
+  const filteredHiddenOffers = useMemo(
+    () => filterAdminOffers(data.hiddenRawOffers || [], offerSearchQuery).slice(0, 30),
+    [data.hiddenRawOffers, offerSearchQuery],
+  );
   const sourceGroups = useMemo(() => groupSources(sources), [sources]);
   const selectedSources = useMemo(
     () => sources.filter((source) => selectedSourceIds.has(source.id)),
@@ -489,6 +508,100 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       text: `${enabled ? "启用" : "停用"}完成：${success}/${selectedSources.length} 个渠道成功。`,
     });
     router.refresh();
+  }
+
+  async function toggleSourceOffersVisibility(source: Source, hidden: boolean) {
+    const stats = sourceStatsById.get(source.id);
+    const affectedCount = hidden ? stats?.visibleCount || 0 : stats?.manuallyHiddenCount || 0;
+    const confirmed = hidden
+      ? window.confirm(`确定下架「${source.name}」的 ${affectedCount} 条可见报价吗？该渠道会同时停用采集，前台会立即隐藏这些报价。`)
+      : window.confirm(`确定恢复「${source.name}」的 ${affectedCount} 条手动下架报价吗？该渠道会同时启用采集。`);
+    if (!confirmed) return;
+
+    setLoadingAction(`${hidden ? "hide" : "restore"}-source-offers-${source.id}`);
+    const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
+      id: source.id,
+      offersHidden: hidden,
+      reason: "线上反馈/临时处理",
+    });
+    setLoadingAction(null);
+
+    if (result.ok && result.source) {
+      setSourcePatches((prev) => ({ ...prev, [source.id]: result.source as Source }));
+      showRowFeedback(
+        source.id,
+        "success",
+        hidden
+          ? `已下架 ${result.updatedOfferCount || 0} 条报价，并停用该渠道采集。`
+          : `已恢复 ${result.updatedOfferCount || 0} 条报价，并启用该渠道采集。`,
+      );
+      router.refresh();
+    } else {
+      showRowFeedback(source.id, "error", result.message || (hidden ? "下架报价失败。" : "恢复报价失败。"));
+    }
+  }
+
+  async function batchToggleSelectedSourceOffers(hidden: boolean) {
+    if (!selectedSources.length) return;
+    const total = selectedSources.reduce((sum, source) => {
+      const stats = sourceStatsById.get(source.id);
+      return sum + (hidden ? stats?.visibleCount || 0 : stats?.manuallyHiddenCount || 0);
+    }, 0);
+    const confirmed = hidden
+      ? window.confirm(`确定批量下架 ${selectedSources.length} 个渠道的 ${total} 条可见报价吗？这些渠道会同时停用采集。`)
+      : window.confirm(`确定批量恢复 ${selectedSources.length} 个渠道的 ${total} 条手动下架报价吗？这些渠道会同时启用采集。`);
+    if (!confirmed) return;
+
+    setLoadingAction(hidden ? "batch-hide-source-offers" : "batch-restore-source-offers");
+    let success = 0;
+    let updatedOfferCount = 0;
+    const updates: Record<string, Source> = {};
+
+    for (const source of selectedSources) {
+      const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
+        id: source.id,
+        offersHidden: hidden,
+        reason: "线上反馈/临时处理",
+      });
+      if (result.ok && result.source) {
+        success++;
+        updatedOfferCount += Number(result.updatedOfferCount || 0);
+        updates[source.id] = result.source as Source;
+      }
+    }
+
+    setSourcePatches((prev) => ({ ...prev, ...updates }));
+    setLoadingAction(null);
+    setGlobalMessage({
+      type: success === selectedSources.length ? "success" : "info",
+      text: `${hidden ? "批量下架" : "批量恢复"}完成：${success}/${selectedSources.length} 个渠道成功，处理 ${updatedOfferCount} 条报价。`,
+    });
+    router.refresh();
+  }
+
+  async function toggleOfferHidden(offer: RawOffer, hidden: boolean) {
+    const confirmed = hidden
+      ? window.confirm(`确定下架这条报价吗？\n${offer.sourceTitle}`)
+      : window.confirm(`确定恢复这条报价吗？\n${offer.sourceTitle}`);
+    if (!confirmed) return;
+
+    setLoadingAction(`${hidden ? "hide" : "restore"}-offer-${offer.id}`);
+    const result = await request("/api/admin/toggle-offer", password, {
+      id: offer.id,
+      hidden,
+      reason: "线上反馈/临时处理",
+    });
+    setLoadingAction(null);
+
+    if (result.ok) {
+      setGlobalMessage({
+        type: "success",
+        text: hidden ? "报价已下架，前台会立即隐藏。" : "报价已恢复，前台可重新展示。",
+      });
+      router.refresh();
+    } else {
+      setGlobalMessage({ type: "error", text: result.message || (hidden ? "下架报价失败。" : "恢复报价失败。") });
+    }
   }
 
   async function deleteSourceRow(source: Source) {
@@ -1227,6 +1340,22 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     </button>
                     <button
                       type="button"
+                      onClick={() => batchToggleSelectedSourceOffers(true)}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-hide-source-offers"}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
+                    >
+                      下架报价
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => batchToggleSelectedSourceOffers(false)}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-restore-source-offers"}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2f7a4b]/20 bg-white px-3 text-xs font-medium text-[#2f7a4b] transition-colors hover:bg-[#e8f3ec] disabled:opacity-50"
+                    >
+                      恢复报价
+                    </button>
+                    <button
+                      type="button"
                       onClick={batchDeleteSelectedSources}
                       disabled={!selectedSourceIds.size || loadingAction === "batch-delete-sources"}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
@@ -1241,6 +1370,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   <SourceTable
                     groups={sourceGroups}
                     offerCountBySource={offerCountBySource}
+                    sourceStatsById={sourceStatsById}
                     loadingAction={loadingAction}
                     feedback={rowFeedback}
                     selectedIds={selectedSourceIds}
@@ -1249,6 +1379,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     onCopyBrowserCommand={copyBrowserCommand}
                     onCopyCollectorContext={copySourceCollectorContext}
                     onToggleEnabled={toggleSourceEnabled}
+                    onToggleOffersVisibility={toggleSourceOffersVisibility}
                     onDeleteSource={deleteSourceRow}
                   />
                 </Panel>
@@ -1309,6 +1440,47 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <SubmitButton loading={loadingAction === "manual-offer"} label="保存报价" />
                   </form>
                 </Panel>
+
+                <div className="lg:col-span-2">
+                  <Panel title="报价应急处置" icon={<AlertTriangle size={17} />}>
+                    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-sm leading-6 text-[#5a6061]">
+                        可临时下架单条异常报价；下架后前台立即隐藏，后续采集不会自动恢复。恢复只影响管理员手动下架的报价。
+                      </div>
+                      <div className="relative w-full sm:w-80">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#adb3b4]" />
+                        <input
+                          value={offerSearchQuery}
+                          onChange={(event) => setOfferSearchQuery(event.target.value)}
+                          placeholder="搜索商品、渠道或链接"
+                          className="h-9 w-full rounded-lg border border-[#adb3b4]/30 bg-white pl-9 pr-3 text-sm outline-none transition-colors focus:border-[#2d3435]"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <OfferEmergencyList
+                        title="当前可见报价"
+                        emptyText="没有匹配的可见报价。"
+                        offers={filteredVisibleOffers}
+                        loadingAction={loadingAction}
+                        actionLabel="下架"
+                        actionTone="danger"
+                        hiddenAction
+                        onToggleHidden={toggleOfferHidden}
+                      />
+                      <OfferEmergencyList
+                        title="手动下架报价"
+                        emptyText="没有匹配的手动下架报价。"
+                        offers={filteredHiddenOffers}
+                        loadingAction={loadingAction}
+                        actionLabel="恢复"
+                        actionTone="success"
+                        hiddenAction={false}
+                        onToggleHidden={toggleOfferHidden}
+                      />
+                    </div>
+                  </Panel>
+                </div>
               </div>
             )}
 
@@ -1941,6 +2113,7 @@ function UrlLine({ label, href, tone = "muted" }: { label: string; href: string;
 function SourceTable({
   groups,
   offerCountBySource,
+  sourceStatsById,
   loadingAction,
   feedback,
   selectedIds,
@@ -1949,10 +2122,12 @@ function SourceTable({
   onCopyBrowserCommand,
   onCopyCollectorContext,
   onToggleEnabled,
+  onToggleOffersVisibility,
   onDeleteSource,
 }: {
   groups: Array<{ label: string; sources: Source[] }>;
   offerCountBySource: Map<string, number>;
+  sourceStatsById: Map<string, SourceOfferStats>;
   loadingAction: string | null;
   feedback: RowFeedback | null;
   selectedIds: Set<string>;
@@ -1961,6 +2136,7 @@ function SourceTable({
   onCopyBrowserCommand: (source: Source) => void;
   onCopyCollectorContext: (source: Source) => void;
   onToggleEnabled: (source: Source, enabled?: boolean) => void;
+  onToggleOffersVisibility: (source: Source, hidden: boolean) => void;
   onDeleteSource: (source: Source) => void;
 }) {
   return (
@@ -1985,8 +2161,11 @@ function SourceTable({
                 key={source.id}
                 source={source}
                 offerCount={offerCountBySource.get(source.id) || 0}
+                stats={sourceStatsById.get(source.id)}
                 loading={loadingAction === `collect-source-${source.id}` || loadingAction === "batch-collect-sources"}
                 toggleLoading={loadingAction === `toggle-source-${source.id}`}
+                hideLoading={loadingAction === `hide-source-offers-${source.id}`}
+                restoreLoading={loadingAction === `restore-source-offers-${source.id}`}
                 deleteLoading={loadingAction === `delete-source-${source.id}`}
                 feedback={feedback?.id === source.id ? feedback : null}
                 selected={selectedIds.has(source.id)}
@@ -1995,6 +2174,7 @@ function SourceTable({
                 onCopyBrowserCommand={onCopyBrowserCommand}
                 onCopyCollectorContext={onCopyCollectorContext}
                 onToggleEnabled={onToggleEnabled}
+                onToggleOffersVisibility={onToggleOffersVisibility}
                 onDeleteSource={onDeleteSource}
               />
             ))}
@@ -2008,8 +2188,11 @@ function SourceTable({
 function SourceTableRow({
   source,
   offerCount,
+  stats,
   loading,
   toggleLoading,
+  hideLoading,
+  restoreLoading,
   deleteLoading,
   feedback,
   selected,
@@ -2018,12 +2201,16 @@ function SourceTableRow({
   onCopyBrowserCommand,
   onCopyCollectorContext,
   onToggleEnabled,
+  onToggleOffersVisibility,
   onDeleteSource,
 }: {
   source: Source;
   offerCount: number;
+  stats?: SourceOfferStats;
   loading: boolean;
   toggleLoading: boolean;
+  hideLoading: boolean;
+  restoreLoading: boolean;
   deleteLoading: boolean;
   feedback: RowFeedback | null;
   selected: boolean;
@@ -2032,6 +2219,7 @@ function SourceTableRow({
   onCopyBrowserCommand: (source: Source) => void;
   onCopyCollectorContext: (source: Source) => void;
   onToggleEnabled: (source: Source, enabled?: boolean) => void;
+  onToggleOffersVisibility: (source: Source, hidden: boolean) => void;
   onDeleteSource: (source: Source) => void;
 }) {
   const displayMethod = resolvedCollectionMethod(source);
@@ -2073,6 +2261,12 @@ function SourceTableRow({
         <span className="text-sm font-medium text-[#5a6061]">
           <span className="mr-1 text-xs text-[#adb3b4] md:hidden">报价</span>
           {offerCount}
+          {stats?.manuallyHiddenCount ? (
+            <span className="mt-0.5 block text-xs font-normal text-[#9b3328]">下架 {stats.manuallyHiddenCount}</span>
+          ) : null}
+          {stats?.hiddenCount && stats.hiddenCount !== stats.manuallyHiddenCount ? (
+            <span className="mt-0.5 block text-xs font-normal text-[#adb3b4]">隐藏 {stats.hiddenCount}</span>
+          ) : null}
         </span>
         <span className="text-xs leading-5 text-[#5a6061]">
           <span className="block text-sm">{collectionMethodLabel(displayMethod)}</span>
@@ -2135,6 +2329,24 @@ function SourceTableRow({
           </button>
           <button
             type="button"
+            disabled={hideLoading || offerCount <= 0}
+            onClick={() => onToggleOffersVisibility(source, true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
+          >
+            {hideLoading ? <Loader2 size={14} className="animate-spin" /> : null}
+            下架报价
+          </button>
+          <button
+            type="button"
+            disabled={restoreLoading || !stats?.manuallyHiddenCount}
+            onClick={() => onToggleOffersVisibility(source, false)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2f7a4b]/20 bg-white px-3 text-xs font-medium text-[#2f7a4b] transition-colors hover:bg-[#e8f3ec] disabled:opacity-50"
+          >
+            {restoreLoading ? <Loader2 size={14} className="animate-spin" /> : null}
+            恢复报价
+          </button>
+          <button
+            type="button"
             disabled={deleteLoading}
             onClick={() => onDeleteSource(source)}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-60"
@@ -2182,6 +2394,82 @@ function RecentRunsPanel({ runs }: { runs: CrawlRun[] }) {
         />
       )}
     </Panel>
+  );
+}
+
+function OfferEmergencyList({
+  title,
+  emptyText,
+  offers,
+  loadingAction,
+  actionLabel,
+  actionTone,
+  hiddenAction,
+  onToggleHidden,
+}: {
+  title: string;
+  emptyText: string;
+  offers: RawOffer[];
+  loadingAction: string | null;
+  actionLabel: string;
+  actionTone: "danger" | "success";
+  hiddenAction: boolean;
+  onToggleHidden: (offer: RawOffer, hidden: boolean) => void;
+}) {
+  const actionClass =
+    actionTone === "danger"
+      ? "border-[#9b3328]/20 text-[#9b3328] hover:bg-[#fbe9e7]"
+      : "border-[#2f7a4b]/20 text-[#2f7a4b] hover:bg-[#e8f3ec]";
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#adb3b4]/20">
+      <div className="flex items-center justify-between border-b border-[#adb3b4]/15 bg-[#f2f4f4] px-3 py-2.5">
+        <span className="text-xs font-semibold text-[#5a6061]">{title}</span>
+        <span className="text-xs text-[#adb3b4]">{offers.length} 条</span>
+      </div>
+      {offers.length ? (
+        <div className="max-h-[520px] divide-y divide-[#adb3b4]/15 overflow-auto">
+          {offers.map((offer) => {
+            const actionLoading = loadingAction === `${hiddenAction ? "hide" : "restore"}-offer-${offer.id}`;
+            return (
+              <div key={offer.id} className="grid gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_92px] sm:items-center">
+                <div className="min-w-0">
+                  <p className="line-clamp-2 text-sm font-medium text-[#2d3435]">{offer.sourceTitle}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[#adb3b4]">
+                    <span>{offer.sourceStoreName || offer.sourceName || "未记录渠道"}</span>
+                    <span>{formatCurrency(offer.price, offer.currency)}</span>
+                    <span>{offer.status === "out_of_stock" ? "缺货" : "有货"}</span>
+                    {offer.verifiedAt && <span>{formatRelativeTime(offer.verifiedAt)}</span>}
+                  </div>
+                  <a
+                    href={offer.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 block truncate text-xs text-[#47657a] transition-colors hover:text-[#2d3435]"
+                  >
+                    {offer.url}
+                  </a>
+                  {offer.failureReason && (
+                    <p className="mt-1 line-clamp-2 text-xs text-[#9b3328]">{offer.failureReason}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => onToggleHidden(offer, hiddenAction)}
+                  className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-white px-3 text-xs font-medium transition-colors disabled:opacity-60 ${actionClass}`}
+                >
+                  {actionLoading ? <Loader2 size={14} className="animate-spin" /> : null}
+                  {actionLabel}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="px-3 py-10 text-center text-sm text-[#adb3b4]">{emptyText}</div>
+      )}
+    </div>
   );
 }
 
@@ -2278,6 +2566,26 @@ function rowFeedbackClass(value: RowFeedback["type"]): string {
   if (value === "success") return "bg-[#e8f3ec] text-[#2f7a4b]";
   if (value === "info") return "bg-[#eef3f8] text-[#47657a]";
   return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
+function filterAdminOffers(offers: RawOffer[], query: string): RawOffer[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return offers;
+
+  return offers.filter((offer) => {
+    const haystack = [
+      offer.sourceTitle,
+      offer.sourceName,
+      offer.sourceStoreName || "",
+      offer.url,
+      offer.failureReason || "",
+      offer.tags.join(" "),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(normalized);
+  });
 }
 
 function safeDomain(url: string): string | null {
