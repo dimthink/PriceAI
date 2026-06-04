@@ -8,6 +8,7 @@ import { getSupabaseServerClient } from "./supabase";
 import type {
   AdminSummary,
   CanonicalProduct,
+  CollectionJob,
   CrawlRun,
   DashboardData,
   ExplorerData,
@@ -274,6 +275,7 @@ export async function getAdminSummary(): Promise<AdminSummary> {
     return {
       ...dashboard,
       crawlRuns: [],
+      collectionJobs: [],
       pendingSubmissions: [],
       pendingOfferFeedback: [],
       pendingSiteFeedback: [],
@@ -282,12 +284,21 @@ export async function getAdminSummary(): Promise<AdminSummary> {
     };
   }
 
-  const [{ data, error }, pendingSubmissions, pendingOfferFeedback, pendingSiteFeedback, sourceOfferStats, hiddenRawOffers] = await Promise.all([
+  const [
+    { data, error },
+    collectionJobs,
+    pendingSubmissions,
+    pendingOfferFeedback,
+    pendingSiteFeedback,
+    sourceOfferStats,
+    hiddenRawOffers,
+  ] = await Promise.all([
     supabase
       .from("crawl_runs")
       .select("*")
       .order("started_at", { ascending: false })
       .limit(30),
+    listCollectionJobs().catch(() => []),
     listSubmissions("pending").catch(() => []),
     listOfferFeedback("pending").catch(() => []),
     listSiteFeedback("pending").catch(() => []),
@@ -299,6 +310,7 @@ export async function getAdminSummary(): Promise<AdminSummary> {
     return {
       ...dashboard,
       crawlRuns: [],
+      collectionJobs,
       pendingSubmissions,
       pendingOfferFeedback,
       pendingSiteFeedback,
@@ -310,12 +322,27 @@ export async function getAdminSummary(): Promise<AdminSummary> {
   return {
     ...dashboard,
     crawlRuns: (data || []).map(mapCrawlRun),
+    collectionJobs,
     pendingSubmissions,
     pendingOfferFeedback,
     pendingSiteFeedback,
     sourceOfferStats,
     hiddenRawOffers,
   };
+}
+
+async function listCollectionJobs(): Promise<CollectionJob[]> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("collection_jobs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  if (error) throw error;
+  return (data || []).map(mapCollectionJob);
 }
 
 async function listSourceOfferStats(): Promise<SourceOfferStats[]> {
@@ -783,5 +810,30 @@ function mapCrawlRun(row: Record<string, unknown>): CrawlRun {
       row.details && typeof row.details === "object"
         ? (row.details as Record<string, unknown>)
         : null,
+  };
+}
+
+function mapCollectionJob(row: Record<string, unknown>): CollectionJob {
+  return {
+    id: String(row.id),
+    jobType: String(row.job_type || "source") as CollectionJob["jobType"],
+    sourceId: row.source_id ? String(row.source_id) : null,
+    sourceName: row.source_name ? String(row.source_name) : null,
+    status: String(row.status || "pending") as CollectionJob["status"],
+    priority: Number(row.priority || 0),
+    attempts: Number(row.attempts || 0),
+    maxAttempts: Number(row.max_attempts || 1),
+    requestedBy: row.requested_by ? String(row.requested_by) : null,
+    lockedBy: row.locked_by ? String(row.locked_by) : null,
+    lockedUntil: row.locked_until ? String(row.locked_until) : null,
+    startedAt: row.started_at ? String(row.started_at) : null,
+    finishedAt: row.finished_at ? String(row.finished_at) : null,
+    lastError: row.last_error ? String(row.last_error) : null,
+    result:
+      row.result && typeof row.result === "object"
+        ? (row.result as Record<string, unknown>)
+        : null,
+    createdAt: String(row.created_at || new Date().toISOString()),
+    updatedAt: row.updated_at ? String(row.updated_at) : null,
   };
 }

@@ -120,6 +120,7 @@ export type DashboardData = {
 
 export type AdminSummary = DashboardData & {
   crawlRuns: CrawlRun[];
+  collectionJobs: CollectionJob[];
   pendingSubmissions: ChannelSubmission[];
   pendingOfferFeedback: OfferFeedback[];
   pendingSiteFeedback: SiteFeedback[];
@@ -147,6 +148,26 @@ export type CrawlRun = {
   failureCount: number;
   message?: string | null;
   details?: Record<string, unknown> | null;
+};
+
+export type CollectionJob = {
+  id: string;
+  jobType: "all" | "source";
+  sourceId?: string | null;
+  sourceName?: string | null;
+  status: "pending" | "running" | "success" | "failed" | "cancelled";
+  priority: number;
+  attempts: number;
+  maxAttempts: number;
+  requestedBy?: string | null;
+  lockedBy?: string | null;
+  lockedUntil?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastError?: string | null;
+  result?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt?: string | null;
 };
 
 export type OfferInput = {

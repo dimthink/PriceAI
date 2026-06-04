@@ -32,6 +32,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AdminSummary,
   ChannelSubmission,
+  CollectionJob,
   CollectionMethod,
   CollectorKind,
   CrawlRun,
@@ -378,25 +379,21 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
 
   async function collectPrices() {
     setLoadingAction("collect-prices");
-    setGlobalMessage({ type: "info", text: "正在采集所有卡网最新价格，请稍候..." });
+    setGlobalMessage({ type: "info", text: "正在创建全量采集任务..." });
     try {
-      const response = await fetch("/api/cron/collect-prices", {
-        method: "POST",
-        headers: { "x-admin-password": password },
+      const result = await request("/api/admin/collection-jobs", password, {
+        jobType: "all",
+        priority: 20,
+        maxAttempts: 2,
       });
-      const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
-      if (response.ok && json.ok) {
-        const summaries: Array<{ source?: string; status?: string; offers?: number }> =
-          Array.isArray(json.summary) ? json.summary : [];
-        const success = summaries.filter((item) => item.status === "success").length;
-        const failed = summaries.length - success;
-        const totalOffers = summaries.reduce((sum, item) => sum + (item.offers || 0), 0);
+      if (result.ok) {
         setGlobalMessage({
-          type: failed ? "info" : "success",
-          text: `采集完成：${success}/${summaries.length} 个来源成功，共 ${totalOffers} 条报价。${failed ? `失败 ${failed} 个，可在日志查看原因。` : ""}`,
+          type: "success",
+          text: `已创建全量采集任务，等待国内 VPS 执行器领取。`,
         });
+        router.refresh();
       } else {
-        setGlobalMessage({ type: "error", text: json.message || "采集失败。" });
+        setGlobalMessage({ type: "error", text: result.message || "创建采集任务失败。" });
       }
     } catch (error) {
       setGlobalMessage({ type: "error", text: error instanceof Error ? error.message : "网络错误。" });
@@ -405,35 +402,29 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
   }
 
-  async function runSourceCollection(source: Source): Promise<{ ok: boolean; offers?: number; message?: string }> {
-    const response = await fetch(`/api/cron/collect-prices?source=${encodeURIComponent(source.id)}`, {
-      method: "POST",
-      headers: { "x-admin-password": password },
+  async function enqueueSourceCollection(source: Source): Promise<{ ok: boolean; jobCount?: number; message?: string }> {
+    const result = await request("/api/admin/collection-jobs", password, {
+      jobType: "source",
+      sourceIds: [source.id],
+      priority: 30,
+      maxAttempts: 2,
     });
-    const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
-    const summary = Array.isArray(json.summary) ? json.summary[0] : null;
-
-    if (response.ok && json.ok && summary?.status === "success") {
-      return { ok: true, offers: summary.offers || 0 };
-    }
-
-    return {
-      ok: false,
-      message: summary?.message || json.message || `HTTP ${response.status}`,
-    };
+    return result.ok
+      ? { ok: true, jobCount: Number(result.jobCount || 1) }
+      : { ok: false, message: result.message || "创建采集任务失败。" };
   }
 
   async function collectSource(source: Source) {
     setLoadingAction(`collect-source-${source.id}`);
-    showRowFeedback(source.id, "info", `正在重采「${source.name}」...`);
+    showRowFeedback(source.id, "info", `正在创建「${source.name}」重采任务...`);
 
     try {
-      const result = await runSourceCollection(source);
+      const result = await enqueueSourceCollection(source);
       if (result.ok) {
-        showRowFeedback(source.id, "success", `重采成功：采集到 ${result.offers || 0} 条报价。`);
+        showRowFeedback(source.id, "success", "已加入采集队列，等待国内 VPS 执行器领取。");
         router.refresh();
       } else {
-        showRowFeedback(source.id, "error", result.message || "重采失败。");
+        showRowFeedback(source.id, "error", result.message || "创建采集任务失败。");
         router.refresh();
       }
     } catch (error) {
@@ -456,27 +447,20 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
 
     setLoadingAction("batch-collect-sources");
-    setGlobalMessage({ type: "info", text: `正在重采 ${targets.length} 个渠道...` });
-
-    let success = 0;
-    let totalOffers = 0;
-    const failures: string[] = [];
-
-    for (const source of targets) {
-      const result = await runSourceCollection(source);
-      if (result.ok) {
-        success++;
-        totalOffers += result.offers || 0;
-      } else {
-        failures.push(`${source.name}: ${result.message || "失败"}`);
-      }
-    }
-
-    setLoadingAction(null);
-    setGlobalMessage({
-      type: failures.length ? "info" : "success",
-      text: `批量重采完成：${success}/${targets.length} 个成功，共 ${totalOffers} 条报价。${failures.length ? `失败 ${failures.length} 个。` : ""}`,
+    setGlobalMessage({ type: "info", text: `正在创建 ${targets.length} 个渠道重采任务...` });
+    const result = await request("/api/admin/collection-jobs", password, {
+      jobType: "source",
+      sourceIds: targets.map((source) => source.id),
+      priority: 30,
+      maxAttempts: 2,
     });
+    setLoadingAction(null);
+    setGlobalMessage(result.ok
+      ? {
+          type: "success",
+          text: `已创建 ${result.jobCount || targets.length} 个采集任务，等待国内 VPS 执行器领取。`,
+        }
+      : { type: "error", text: result.message || "创建采集任务失败。" });
     router.refresh();
   }
 
@@ -1736,8 +1720,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <Divider />
                     <ActionRow
                       title="立即采集所有卡网"
-                      description="手动触发跟 Vercel Cron 相同的采集流程。"
-                      buttonLabel="立即采集"
+                      description="创建全量采集任务，由国内 VPS 执行器领取并执行。"
+                      buttonLabel="加入队列"
                       buttonIcon={<RefreshCcw size={15} />}
                       loading={loadingAction === "collect-prices"}
                       onClick={collectPrices}
@@ -1747,11 +1731,11 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
 
                   <Panel title="自动采集与浏览器兜底" icon={<TerminalSquare size={17} />}>
                     <p className="text-sm leading-6 text-[#5a6061]">
-                      部署后由 `/api/cron/collect-prices` 定时采集真实价格和库存；接口失败、WAF 或登录页才切换到本机浏览器半自动采集。
+                      后台按钮只创建采集任务；国内 VPS worker 定时领取 pending 任务并执行。`/api/cron/collect-prices` 保留为调试或特殊备用入口。
                     </p>
                     <div className="mt-3 space-y-2">
                       <code className="block overflow-x-auto rounded-lg bg-[#202829] px-3 py-2.5 font-mono text-xs leading-6 text-[#f2f4f4]">
-                        GET /api/cron/collect-prices
+                        npm run collect:worker
                       </code>
                       <code className="block overflow-x-auto rounded-lg bg-[#202829] px-3 py-2.5 font-mono text-xs leading-6 text-[#f2f4f4]">
                         {"npm run collect:browser -- --url https://aisou.pro/ --password <后台密码> --post"}
@@ -1763,7 +1747,10 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   </Panel>
                 </section>
 
-                <RecentRunsPanel runs={data.crawlRuns.slice(0, 8)} />
+                <div className="space-y-5">
+                  <CollectionJobsPanel jobs={data.collectionJobs.slice(0, 8)} />
+                  <RecentRunsPanel runs={data.crawlRuns.slice(0, 8)} />
+                </div>
               </div>
             )}
 
@@ -3202,6 +3189,45 @@ function SourceTableRow({
   );
 }
 
+function CollectionJobsPanel({ jobs }: { jobs: CollectionJob[] }) {
+  return (
+    <Panel title="采集任务队列" icon={<ClipboardList size={17} />}>
+      {jobs.length ? (
+        <div className="divide-y divide-[#adb3b4]/15 rounded-lg border border-[#adb3b4]/20">
+          {jobs.map((job) => (
+            <div key={job.id} className="px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-[#2d3435]">
+                  {job.jobType === "all" ? "全部渠道" : job.sourceName || job.sourceId || "未知渠道"}
+                </span>
+                <Badge>{job.jobType === "all" ? "全量" : "单渠道"}</Badge>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${collectionJobStatusClass(job.status)}`}>
+                  {collectionJobStatusLabel(job.status)}
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-[#5a6061]">
+                尝试 {job.attempts}/{job.maxAttempts} 次 · 创建 {formatRelativeTime(job.createdAt)}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[#adb3b4]">
+                {job.lockedBy ? `执行器 ${job.lockedBy}` : "等待执行器领取"}
+                {job.startedAt ? ` · 开始 ${formatRelativeTime(job.startedAt)}` : ""}
+                {job.finishedAt ? ` · 完成 ${formatRelativeTime(job.finishedAt)}` : ""}
+              </p>
+              {job.lastError && <p className="mt-1 break-words text-xs leading-5 text-[#9b3328]">{job.lastError}</p>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={<ClipboardList size={32} className="text-[#adb3b4]" />}
+          title="暂无采集任务"
+          description="后台创建的重采任务会出现在这里，由国内 VPS 执行器领取。"
+        />
+      )}
+    </Panel>
+  );
+}
+
 function RecentRunsPanel({ runs }: { runs: CrawlRun[] }) {
   return (
     <Panel title="最近采集记录" icon={<RefreshCcw size={17} />}>
@@ -3560,6 +3586,25 @@ function crawlStatusClass(value: CrawlRun["status"]): string {
   return "bg-[#fbe9e7] text-[#9b3328]";
 }
 
+function collectionJobStatusLabel(value: CollectionJob["status"]): string {
+  const labels: Record<CollectionJob["status"], string> = {
+    pending: "待执行",
+    running: "执行中",
+    success: "成功",
+    failed: "失败",
+    cancelled: "已取消",
+  };
+  return labels[value] || value;
+}
+
+function collectionJobStatusClass(value: CollectionJob["status"]): string {
+  if (value === "success") return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (value === "running") return "bg-[#eef3f8] text-[#47657a]";
+  if (value === "pending") return "bg-[#fff7e8] text-[#7a541b]";
+  if (value === "cancelled") return "bg-[#f2f4f4] text-[#5a6061]";
+  return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
 type CollectorNodeInfo = {
   id: string;
   name: string;
@@ -3625,6 +3670,7 @@ function collectorNodeRuntimeLabel(value: string): string {
     launchd: "launchd",
     manual: "手动",
     "vercel-cron": "Vercel Cron",
+    worker: "Worker",
   };
   return labels[value] || value;
 }
