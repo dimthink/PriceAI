@@ -24,6 +24,11 @@ export function ProductDetailHeader() {
         </Link>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <div className="hidden sm:block">
+            <Link href="/about" className="inline-flex h-10 shrink-0 items-center rounded-full bg-white px-3.5 text-sm font-semibold text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:-translate-y-0.5 hover:bg-[#f5f7f7] hover:text-[#202829]">
+              关于
+            </Link>
+          </div>
+          <div className="hidden sm:block">
             <FeedbackLink compact />
           </div>
           <div className="hidden sm:block">

@@ -500,6 +500,12 @@ export function PriceExplorer({
                 <Metric label="有货" value={metricValue(totalAvailable, dataLoading)} icon={<CheckCircle2 size={15} />} />
                 <Metric label="缺货" value={metricValue(totalOutOfStock, dataLoading)} icon={<Store size={15} />} />
               </div>
+              <Link
+                href="/about"
+                className="hidden h-10 shrink-0 items-center rounded-full bg-white px-3.5 text-sm font-semibold text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:-translate-y-0.5 hover:bg-[#f5f7f7] hover:text-[#202829] sm:inline-flex"
+              >
+                关于
+              </Link>
               <FeedbackLink compact />
               <GitHubLink compact />
             </div>

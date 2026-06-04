@@ -34,6 +34,13 @@ export function SubmissionFloater() {
     return () => window.removeEventListener("open-submission-floater", onOpen);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("submit") !== "channel") return;
+
+    setOpen(true);
+  }, []);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus("submitting");
