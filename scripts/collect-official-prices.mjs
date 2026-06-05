@@ -786,6 +786,18 @@ function chooseCandidate(candidates) {
   const ambiguous = sorted.filter((candidate) => candidate.score.score === best.score.score && candidate.score.inBand === best.score.inBand);
 
   if (ambiguous.length > 1) {
+    const byPrice = ambiguous
+      .filter((candidate) => Number.isFinite(candidate.score.usdValue))
+      .toSorted((a, b) => a.score.usdValue - b.score.usdValue);
+
+    if (byPrice.length) {
+      const cheapest = byPrice[0];
+      const second = byPrice[1];
+      if (!second || cheapest.score.usdValue < second.score.usdValue) {
+        return { status: "available", candidate: cheapest };
+      }
+    }
+
     return { status: "needs_review", candidates: ambiguous };
   }
 
@@ -915,14 +927,25 @@ function convertCurrency(value, fromCurrency, toCurrency, fx) {
   return usd == null ? null : convertCurrency(usd, "USD", toCurrency, fx);
 }
 
-function parsePriceValue(text) {
+export function parsePriceValue(text) {
   if (!text) return null;
+  const multiplier = localizedPriceMultiplier(text);
   const normalized = text
     .replace(/\u00a0/g, " ")
     .replace(/[^\d,.\s]/g, "")
     .trim()
     .replace(/\s+/g, "");
   if (!normalized) return null;
+
+  if (multiplier) {
+    const separatorIndex = Math.max(normalized.lastIndexOf(","), normalized.lastIndexOf("."));
+    const numberText =
+      separatorIndex > -1
+        ? `${normalized.slice(0, separatorIndex).replace(/[,.]/g, "")}.${normalized.slice(separatorIndex + 1).replace(/[,.]/g, "")}`
+        : normalized.replace(/[,.]/g, "");
+    const value = Number(numberText);
+    return Number.isFinite(value) ? value * multiplier : null;
+  }
 
   const lastComma = normalized.lastIndexOf(",");
   const lastDot = normalized.lastIndexOf(".");
@@ -949,6 +972,13 @@ function parsePriceValue(text) {
   return Number.isFinite(value) ? value : null;
 }
 
+function localizedPriceMultiplier(text) {
+  const normalized = String(text || "").toLowerCase();
+  if (normalized.includes("juta")) return 1_000_000;
+  if (normalized.includes("ribu")) return 1_000;
+  return null;
+}
+
 function normalizePriceText(text) {
   return text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -956,7 +986,7 @@ function normalizePriceText(text) {
 function looksLikePrice(text) {
   return (
     parsePriceValue(text) != null &&
-    /(?:[A-Z]{3}|[$€£¥₺₱₩₹₪₦₫]|HK\$|S\$|CA\$|A\$|NT\$|S\/|Rs\.?)\s*\d|\d[\d\s,.]*\s*(?:[A-Z]{3}|[$€£¥₺₱₩₹₪₦₫]|đ)/i.test(text)
+    /(?:[A-Z]{3}|[$€£¥₺₱₩￦₹₪₦₫฿]|HK\$|S\$|CA\$|A\$|NT\$|S\/|Rs\.?|RM|Rp)\s*\d|\d[\d\s,.]*\s*(?:[A-Z]{3}|[$€£¥₺₱₩￦₹₪₦₫฿]|đ|ribu|juta)/i.test(text)
   );
 }
 

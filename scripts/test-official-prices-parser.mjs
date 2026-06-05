@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { extractInAppPurchasePairs, loadFallbackFxSnapshot } from "./collect-official-prices.mjs";
+import { extractInAppPurchasePairs, loadFallbackFxSnapshot, parsePriceValue } from "./collect-official-prices.mjs";
 
 const html = `
   <div class="text-pair svelte-1gyt6l2"><span>ChatGPT Plus</span> <span>₺499,99</span></div>
@@ -15,12 +15,17 @@ const html = `
   <div class="text-pair svelte-1gyt6l2"><span>Claude Pro - Monthly</span> <span>Rs 4,900.00</span> </div>
   <div class="text-pair svelte-1gyt6l2"><span>Claude Pro - Monthly</span> <span>499.000đ</span> </div>
   <div class="text-pair svelte-1gyt6l2"><span>Claude Pro - Monthly</span> <span>S/ 69.90</span> </div>
+  <div class="text-pair svelte-1gyt6l2"><span>ChatGPT Plus</span> <span>￦29,000</span> </div>
+  <div class="text-pair svelte-1gyt6l2"><span>ChatGPT Plus</span> <span>฿699.00</span> </div>
+  <div class="text-pair svelte-1gyt6l2"><span>ChatGPT Plus</span> <span>RM99.90</span> </div>
+  <div class="text-pair svelte-1gyt6l2"><span>ChatGPT Plus</span> <span>Rp 349ribu</span> </div>
+  <div class="text-pair svelte-1gyt6l2"><span>ChatGPT Pro 20x</span> <span>Rp 3,499juta</span> </div>
   <div class="text-pair svelte-1gyt6l2"><span>Developer</span> <span>OpenAI OpCo, LLC</span></div>
 `;
 
 const pairs = extractInAppPurchasePairs(html, "https://apps.apple.com/tr/app/chatgpt/id6448311069");
 
-assert.equal(pairs.length, 8);
+assert.equal(pairs.length, 13);
 assert.deepEqual(
   pairs.map((item) => [item.title, item.priceText]),
   [
@@ -32,10 +37,20 @@ assert.deepEqual(
     ["Claude Pro - Monthly", "Rs 4,900.00"],
     ["Claude Pro - Monthly", "499.000đ"],
     ["Claude Pro - Monthly", "S/ 69.90"],
+    ["ChatGPT Plus", "￦29,000"],
+    ["ChatGPT Plus", "฿699.00"],
+    ["ChatGPT Plus", "RM99.90"],
+    ["ChatGPT Plus", "Rp 349ribu"],
+    ["ChatGPT Pro 20x", "Rp 3,499juta"],
   ],
 );
 assert.ok(pairs.every((item) => item.sourceUrl === "https://apps.apple.com/tr/app/chatgpt/id6448311069"));
 assert.ok(pairs.every((item) => item.rawSnippetHash.length === 16));
+assert.equal(parsePriceValue("￦29,000"), 29000);
+assert.equal(parsePriceValue("฿699.00"), 699);
+assert.equal(parsePriceValue("RM99.90"), 99.9);
+assert.equal(parsePriceValue("Rp 349ribu"), 349000);
+assert.equal(parsePriceValue("Rp 3,499juta"), 3499000);
 
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "priceai-official-fx-"));
 const latestPath = path.join(tempDir, "latest.json");
