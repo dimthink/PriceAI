@@ -3,6 +3,7 @@ import "server-only";
 import { ADMIN_MANUAL_HIDE_REASON_PREFIX, listOfferFeedback, listSiteFeedback, listSubmissions } from "./admin";
 import { buildProductGroups, canonicalCatalog, comparePlatformOrder, resolveOfferProduct } from "./catalog";
 import { isSupabaseConfigured } from "./env";
+import { getOfficialSubscriptionAdminData } from "./official-prices-db";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
 import type {
@@ -314,6 +315,19 @@ export function getEmptyAdminSummary(isAuthenticated = false): AdminSummary {
     isAuthenticated,
     crawlRuns: [],
     collectionJobs: [],
+    officialPrices: {
+      configured: isSupabaseConfigured(),
+      tableReady: false,
+      source: "static",
+      generatedAt: new Date().toISOString(),
+      message: "尚未加载官方地区价后台数据。",
+      apps: [],
+      plans: [],
+      regions: [],
+      currentPrices: [],
+      collectRuns: [],
+      unmatchedItems: [],
+    },
     pendingSubmissions: [],
     pendingOfferFeedback: [],
     pendingSiteFeedback: [],
@@ -364,6 +378,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
   if (!supabase) {
     const dashboard = await getDashboardData();
     const adminDashboard = toAdminDashboardData(dashboard, dashboard.rawOffers.length);
+    const officialPrices = await getOfficialSubscriptionAdminData();
     return {
       ...adminDashboard,
       rawOfferTotal: dashboard.rawOffers.length,
@@ -371,6 +386,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       isAuthenticated: false,
       crawlRuns: [],
       collectionJobs: [],
+      officialPrices,
       pendingSubmissions: [],
       pendingOfferFeedback: [],
       pendingSiteFeedback: [],
@@ -390,6 +406,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     pendingSiteFeedback,
     sourceOfferStats,
     hiddenOfferData,
+    officialPrices,
   ] = await Promise.all([
     supabase.from("sources").select("*").order("name"),
     supabase.from("canonical_products").select("*").eq("is_active", true),
@@ -405,6 +422,19 @@ async function readAdminSummary(): Promise<AdminSummary> {
     listSiteFeedback("pending").catch(() => []),
     listSourceOfferStats().catch(() => []),
     listAdminHiddenRawOffers().catch(() => ({ rows: [], total: 0 })),
+    getOfficialSubscriptionAdminData().catch(() => ({
+      configured: isSupabaseConfigured(),
+      tableReady: false,
+      source: "static" as const,
+      generatedAt: new Date().toISOString(),
+      message: "读取官方地区价后台数据失败。",
+      apps: [],
+      plans: [],
+      regions: [],
+      currentPrices: [],
+      collectRuns: [],
+      unmatchedItems: [],
+    })),
   ]);
 
   const sources = sourcesResult.error ? [] : (sourcesResult.data || []).map(mapSource);
@@ -429,6 +459,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       isAuthenticated: false,
       crawlRuns: [],
       collectionJobs,
+      officialPrices,
       pendingSubmissions,
       pendingOfferFeedback,
       pendingSiteFeedback,
@@ -444,6 +475,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     isAuthenticated: false,
     crawlRuns: (data || []).map(mapCrawlRun),
     collectionJobs,
+    officialPrices,
     pendingSubmissions,
     pendingOfferFeedback,
     pendingSiteFeedback,

@@ -55,6 +55,9 @@ type Message = {
 };
 
 type AdminProduct = AdminSummary["products"][number];
+type OfficialAdminData = AdminSummary["officialPrices"];
+type OfficialAdminPrice = OfficialAdminData["currentPrices"][number];
+type OfficialAdminRun = OfficialAdminData["collectRuns"][number];
 
 type ProbeOffer = {
   sourceStoreName?: string | null;
@@ -81,7 +84,28 @@ type ProbeResult = {
   finishedAt?: string;
 };
 
-type AdminTab = "review" | "todo" | "feedback" | "history" | "collect" | "sources" | "manual" | "logs";
+type OfficialProbeResult = {
+  ok: boolean;
+  message?: string;
+  result?: {
+    run?: {
+      status?: string;
+      availableCount?: number;
+      missingCount?: number;
+      needsReviewCount?: number;
+      unmatchedCount?: number;
+      failureCount?: number;
+    };
+    database?: {
+      status?: string;
+      currentRows?: number;
+      snapshots?: number;
+      fxRates?: number;
+    };
+  };
+};
+
+type AdminTab = "review" | "todo" | "feedback" | "history" | "collect" | "official" | "sources" | "manual" | "logs";
 
 type RowFeedback = {
   id: string;
@@ -134,6 +158,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [offerFeedback, setOfferFeedback] = useState<OfferFeedback[]>(data.pendingOfferFeedback || []);
   const [siteFeedback, setSiteFeedback] = useState<SiteFeedback[]>(data.pendingSiteFeedback || []);
   const [probeResults, setProbeResults] = useState<Record<string, ProbeResult>>({});
+  const [officialProbeResult, setOfficialProbeResult] = useState<OfficialProbeResult | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTab>("review");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -238,11 +263,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { label: "渠道源", value: sources.length, icon: <Store key="s" size={15} /> },
       { label: "标准商品", value: data.products.length, icon: <Database key="d" size={15} /> },
       { label: "报价", value: data.rawOfferTotal, icon: <FileInput key="f" size={15} /> },
+      { label: "官方价", value: data.officialPrices.currentPrices.length, icon: <Database key="op" size={15} /> },
       { label: "待审核", value: reviewSubmissions.length, icon: <Inbox key="i" size={15} /> },
       { label: "反馈", value: siteFeedback.length + offerFeedback.length, icon: <Flag key="fb" size={15} /> },
       { label: "采集待办", value: collectorTodoSubmissions.length, icon: <TerminalSquare key="t" size={15} /> },
     ],
-    [collectorTodoSubmissions.length, data.products.length, data.rawOfferTotal, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
+    [collectorTodoSubmissions.length, data.officialPrices.currentPrices.length, data.products.length, data.rawOfferTotal, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
   );
   const sourceStatsById = useMemo(
     () => new Map((data.sourceOfferStats || []).map((stats) => [stats.sourceId, stats])),
@@ -302,11 +328,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { id: "feedback", label: "反馈", count: siteFeedback.length + offerFeedback.length, icon: <Flag size={15} /> },
       { id: "history", label: "历史", count: null, icon: <History size={15} /> },
       { id: "collect", label: "采集", count: failedRunCount || null, icon: <RefreshCcw size={15} /> },
+      { id: "official", label: "官方价", count: data.officialPrices.currentPrices.length || null, icon: <Database size={15} /> },
       { id: "sources", label: "渠道", count: sources.length, icon: <Store size={15} /> },
       { id: "manual", label: "维护", count: null, icon: <Plus size={15} /> },
       { id: "logs", label: "日志", count: data.crawlRuns.length, icon: <Clock size={15} /> },
     ],
-    [collectorTodoSubmissions.length, data.crawlRuns.length, failedRunCount, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
+    [collectorTodoSubmissions.length, data.crawlRuns.length, data.officialPrices.currentPrices.length, failedRunCount, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
   );
 
   /* ─── Keyboard shortcuts ─── */
@@ -394,6 +421,28 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       setLoadingAction(null);
     }
   }
+
+  async function probeOfficialPrices() {
+    setLoadingAction("official-probe");
+    setGlobalMessage({ type: "info", text: "正在试采集 ChatGPT / US 官方地区价，不会写入数据库..." });
+    const result = await request("/api/admin/official-prices/probe", password, {
+      app: "chatgpt",
+      regions: "US",
+    });
+    setLoadingAction(null);
+    setOfficialProbeResult(result);
+    if (result.ok) {
+      setGlobalMessage({ type: "success", text: "官方地区价试采集完成，结果已在面板中更新。" });
+    } else {
+      setGlobalMessage({ type: "error", text: result.message || "官方地区价试采集失败。" });
+    }
+  }
+
+  const copyOfficialCollectorCommand = () => {
+    const command = "npm run collect:official -- --all --dry-run --post";
+    void navigator.clipboard.writeText(command);
+    setGlobalMessage({ type: "success", text: "已复制官方地区价 dry-run 命令。" });
+  };
 
   async function enqueueSourceCollection(source: Source): Promise<{ ok: boolean; jobCount?: number; message?: string }> {
     const result = await request("/api/admin/collection-jobs", password, {
@@ -1748,6 +1797,19 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   <CollectionJobsPanel jobs={data.collectionJobs.slice(0, 8)} />
                   <RecentRunsPanel runs={data.crawlRuns.slice(0, 8)} />
                 </div>
+              </div>
+            )}
+
+            {/* Official prices tab */}
+            {activeTab === "official" && (
+              <div role="tabpanel" id="tabpanel-official">
+                <OfficialPricesAdminPanel
+                  data={data.officialPrices}
+                  loadingAction={loadingAction}
+                  probeResult={officialProbeResult}
+                  onProbe={probeOfficialPrices}
+                  onCopyCommand={copyOfficialCollectorCommand}
+                />
               </div>
             )}
 
@@ -3186,6 +3248,251 @@ function SourceTableRow({
   );
 }
 
+function OfficialPricesAdminPanel({
+  data,
+  loadingAction,
+  probeResult,
+  onProbe,
+  onCopyCommand,
+}: {
+  data: OfficialAdminData;
+  loadingAction: string | null;
+  probeResult: OfficialProbeResult | null;
+  onProbe: () => void;
+  onCopyCommand: () => void;
+}) {
+  const latestPrices = data.currentPrices.slice(0, 80);
+  const latestRuns = data.collectRuns.slice(0, 8);
+  const unmatchedItems = data.unmatchedItems.slice(0, 8);
+  const failedCount = data.currentPrices.filter((price) => price.status !== "available" && price.status !== "stale").length;
+
+  return (
+    <div className="space-y-5">
+      <Panel title="官方地区价控制台" icon={<Database size={17} />}>
+        {data.message ? (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-[#fff7e8] bg-[#fffaf0] px-4 py-3 text-sm leading-6 text-[#7a541b]">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <span>{data.message}</span>
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <OfficialMetric label="数据源" value={data.source === "supabase" ? "Supabase" : "静态样本"} />
+          <OfficialMetric label="平台" value={String(data.apps.length)} />
+          <OfficialMetric label="计划" value={String(data.plans.length)} />
+          <OfficialMetric label="地区" value={String(data.regions.length)} />
+          <OfficialMetric label="当前价" value={String(data.currentPrices.length)} tone={failedCount ? "warn" : "default"} />
+          <OfficialMetric label="最近更新" value={formatRelativeTime(data.generatedAt)} />
+        </div>
+
+        <Divider />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-[#2d3435]">试采集与命令</p>
+            <p className="mt-1 text-sm leading-6 text-[#5a6061]">
+              后台试采集固定为 dry-run，只读取 Apple App Store 公开页并生成数据库写入计划，不会写入 Supabase。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onProbe}
+              disabled={loadingAction === "official-probe"}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[#2d3435] px-4 text-sm font-medium text-white transition-colors hover:bg-[#202829] disabled:opacity-60"
+            >
+              {loadingAction === "official-probe" ? <Loader2 size={15} className="animate-spin" /> : <RefreshCcw size={15} />}
+              试采集 ChatGPT US
+            </button>
+            <button
+              type="button"
+              onClick={onCopyCommand}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-4 text-sm font-medium text-[#2d3435] transition-colors hover:bg-[#f2f4f4]"
+            >
+              <Copy size={15} />
+              复制 dry-run 命令
+            </button>
+          </div>
+        </div>
+
+        {probeResult ? (
+          <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${probeResult.ok ? "border-[#2f7a4b]/20 bg-[#e8f3ec] text-[#2f7a4b]" : "border-[#9b3328]/20 bg-[#fbe9e7] text-[#9b3328]"}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{probeResult.ok ? "试采集完成" : "试采集失败"}</span>
+              {probeResult.result?.run?.status ? <Badge tone="info">{officialRunStatusLabel(probeResult.result.run.status)}</Badge> : null}
+              {probeResult.result?.database?.status ? <Badge tone="info">DB {probeResult.result.database.status}</Badge> : null}
+            </div>
+            <p className="mt-2 leading-6">
+              {officialProbeSummaryText(probeResult)}
+            </p>
+            {probeResult.message ? <p className="mt-1 break-words text-xs leading-5">{probeResult.message}</p> : null}
+          </div>
+        ) : null}
+      </Panel>
+
+      <Panel title="当前官方地区价" icon={<ClipboardList size={17} />}>
+        {latestPrices.length ? (
+          <div className="overflow-x-auto rounded-lg border border-[#adb3b4]/20">
+            <table className="min-w-[980px] w-full divide-y divide-[#adb3b4]/15 text-left text-sm">
+              <thead className="bg-[#f2f4f4] text-xs font-semibold text-[#5a6061]">
+                <tr>
+                  <th className="px-4 py-3">平台 / 计划</th>
+                  <th className="px-4 py-3">地区</th>
+                  <th className="px-4 py-3">原价</th>
+                  <th className="px-4 py-3">约合人民币</th>
+                  <th className="px-4 py-3">状态</th>
+                  <th className="px-4 py-3">更新时间</th>
+                  <th className="px-4 py-3">来源</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#adb3b4]/15 bg-white">
+                {latestPrices.map((price) => (
+                  <tr key={price.id} className="align-top">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-[#2d3435]">{price.appName}</div>
+                      <div className="mt-1 text-xs text-[#5a6061]">
+                        {price.planLabel} · {officialBillingPeriodLabel(price.billingPeriod)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-[#2d3435]">{price.countryLabel}</div>
+                      <div className="mt-1 text-xs text-[#adb3b4]">{price.countryCode}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-[#2d3435]">{price.priceText || "未解析"}</div>
+                      <div className="mt-1 text-xs text-[#adb3b4]">{price.currencyCode || "未知币种"}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-[#2d3435]">{formatCurrency(price.cnyPrice, "CNY")}</div>
+                      <div className="mt-1 text-xs text-[#adb3b4]">FX {price.fxDate || "未记录"}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${officialPriceStatusClass(price.status)}`}>
+                        {officialPriceStatusLabel(price.status)}
+                      </span>
+                      {price.failureReason ? <p className="mt-1 max-w-60 break-words text-xs leading-5 text-[#9b3328]">{price.failureReason}</p> : null}
+                    </td>
+                    <td className="px-4 py-3 text-[#5a6061]">
+                      <div>{formatRelativeTime(price.lastCheckedAt || price.lastSuccessAt)}</div>
+                      {price.lastSuccessAt && price.lastCheckedAt !== price.lastSuccessAt ? (
+                        <div className="mt-1 text-xs text-[#adb3b4]">成功 {formatRelativeTime(price.lastSuccessAt)}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <a
+                        href={price.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[#47657a] transition-colors hover:text-[#2d3435]"
+                      >
+                        App Store
+                        <ExternalLink size={12} />
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            icon={<Database size={32} className="text-[#adb3b4]" />}
+            title="暂无官方地区价"
+            description="应用 migration 并执行 collect:official 后，当前价会出现在这里。"
+          />
+        )}
+        {data.currentPrices.length > latestPrices.length ? (
+          <p className="mt-3 text-xs text-[#adb3b4]">当前仅展示前 {latestPrices.length} 条，完整数据可在 Supabase 表或前台官方地区价页面查看。</p>
+        ) : null}
+      </Panel>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Panel title="最近官方价采集" icon={<RefreshCcw size={17} />}>
+          {latestRuns.length ? (
+            <div className="divide-y divide-[#adb3b4]/15 rounded-lg border border-[#adb3b4]/20">
+              {latestRuns.map((run) => (
+                <div key={run.id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-[#2d3435]">{run.targetAppSlug || "全部 App"}</span>
+                    <Badge>{run.mode}</Badge>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${officialRunStatusClass(run.status)}`}>
+                      {officialRunStatusLabel(run.status)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-[#5a6061]">
+                    成功 {run.successCount}，失败 {run.failureCount}，未匹配 {run.unmatchedCount} · {formatRelativeTime(run.finishedAt || run.startedAt)}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#adb3b4]">
+                    {run.targetRegionCodes.length ? run.targetRegionCodes.join(", ") : "全部地区"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Clock size={32} className="text-[#adb3b4]" />}
+              title="暂无官方价采集记录"
+              description="collect:official --post 成功写入后会生成采集日志。"
+            />
+          )}
+        </Panel>
+
+        <Panel title="待匹配官方价项目" icon={<AlertTriangle size={17} />}>
+          {unmatchedItems.length ? (
+            <div className="divide-y divide-[#adb3b4]/15 rounded-lg border border-[#adb3b4]/20">
+              {unmatchedItems.map((item, index) => (
+                <div key={`${item.appSlug || "app"}-${item.countryCode || "region"}-${index}`} className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-[#2d3435]">{item.rawTitle || "未命名项目"}</span>
+                    {item.appSlug ? <Badge>{item.appSlug}</Badge> : null}
+                    {item.countryLabel || item.countryCode ? <Badge tone="info">{item.countryLabel || item.countryCode}</Badge> : null}
+                  </div>
+                  <p className="mt-2 text-sm text-[#5a6061]">{item.priceText || "未记录价格"}</p>
+                  {item.reason ? <p className="mt-1 text-xs leading-5 text-[#adb3b4]">{item.reason}</p> : null}
+                  {item.sourceUrl ? (
+                    <a
+                      href={item.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#47657a] transition-colors hover:text-[#2d3435]"
+                    >
+                      查看来源
+                      <ExternalLink size={12} />
+                    </a>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<CheckCircle2 size={32} className="text-[#adb3b4]" />}
+              title="暂无待匹配项目"
+              description="未被规则消费的 App Store 内购项目会出现在这里，方便后续修正规则。"
+            />
+          )}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function OfficialMetric({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "warn";
+}) {
+  return (
+    <div className="rounded-lg bg-[#f2f4f4] px-3 py-2.5">
+      <p className="text-[0.68rem] font-semibold uppercase tracking-wider text-[#5a6061]">{label}</p>
+      <p className={`mt-1 truncate text-sm font-semibold ${tone === "warn" ? "text-[#7a541b]" : "text-[#2d3435]"}`}>{value}</p>
+    </div>
+  );
+}
+
 function CollectionJobsPanel({ jobs }: { jobs: CollectionJob[] }) {
   return (
     <Panel title="采集任务队列" icon={<ClipboardList size={17} />}>
@@ -3500,6 +3807,62 @@ function offerSourceLabel(offer: RawOffer | null | undefined, feedback: OfferFee
 
 function offerStatusLabel(status: OfferStatus): string {
   return status === "out_of_stock" ? "缺货" : "有货";
+}
+
+function officialBillingPeriodLabel(value: OfficialAdminPrice["billingPeriod"]): string {
+  if (value === "annual") return "年付";
+  if (value === "one_time") return "一次性";
+  return "月付";
+}
+
+function officialPriceStatusLabel(value: OfficialAdminPrice["status"]): string {
+  const labels: Record<OfficialAdminPrice["status"], string> = {
+    available: "可用",
+    stale: "保留旧价",
+    missing: "未匹配",
+    parse_failed: "解析失败",
+    needs_review: "待复核",
+  };
+  return labels[value] || value;
+}
+
+function officialPriceStatusClass(value: OfficialAdminPrice["status"]): string {
+  if (value === "available") return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (value === "stale") return "bg-[#fff7e8] text-[#7a541b]";
+  if (value === "needs_review") return "bg-[#eef3f8] text-[#47657a]";
+  return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
+function officialRunStatusLabel(value: string): string {
+  if (value === "success") return "成功";
+  if (value === "partial_success") return "部分成功";
+  if (value === "failed") return "失败";
+  return value;
+}
+
+function officialRunStatusClass(value: OfficialAdminRun["status"]): string {
+  if (value === "success") return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (value === "partial_success") return "bg-[#fff7e8] text-[#7a541b]";
+  return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
+function officialProbeSummaryText(result: OfficialProbeResult): string {
+  if (!result.ok) return result.message || "试采集没有返回可用结果。";
+
+  const run = result.result?.run;
+  const database = result.result?.database;
+  const parts = [
+    `可用 ${run?.availableCount ?? 0}`,
+    `缺失 ${run?.missingCount ?? 0}`,
+    `待复核 ${run?.needsReviewCount ?? 0}`,
+    `未匹配 ${run?.unmatchedCount ?? 0}`,
+    `失败 ${run?.failureCount ?? 0}`,
+  ];
+  const dbText = database
+    ? `数据库计划：当前价 ${database.currentRows ?? 0}，快照 ${database.snapshots ?? 0}，汇率 ${database.fxRates ?? 0}。`
+    : "未生成数据库计划。";
+
+  return `${parts.join("，")}。${dbText}`;
 }
 
 function offerTimestamp(offer: RawOffer): string | null | undefined {

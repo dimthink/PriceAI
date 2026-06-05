@@ -124,6 +124,7 @@ export type AdminSummary = DashboardData & {
   hiddenRawOfferTotal: number;
   crawlRuns: CrawlRun[];
   collectionJobs: CollectionJob[];
+  officialPrices: OfficialSubscriptionAdminData;
   pendingSubmissions: ChannelSubmission[];
   pendingOfferFeedback: OfferFeedback[];
   pendingSiteFeedback: SiteFeedback[];
@@ -171,6 +172,106 @@ export type CollectionJob = {
   result?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt?: string | null;
+};
+
+export type OfficialSubscriptionPriceStatus =
+  | "available"
+  | "stale"
+  | "missing"
+  | "parse_failed"
+  | "needs_review";
+
+export type OfficialSubscriptionAdminApp = {
+  id: string;
+  slug: string;
+  displayName: string;
+  provider: string;
+  appStoreId: string;
+  appStoreSlug: string;
+  enabled: boolean;
+  sortOrder: number;
+};
+
+export type OfficialSubscriptionAdminPlan = {
+  id: string;
+  appId: string;
+  appSlug: string;
+  slug: string;
+  label: string;
+  billingPeriod: "monthly" | "annual" | "one_time";
+  enabled: boolean;
+  sortOrder: number;
+};
+
+export type OfficialSubscriptionAdminRegion = {
+  id: string;
+  countryCode: string;
+  storefrontCode: string;
+  countryLabel: string;
+  currencyCode: string;
+  enabled: boolean;
+  priority: number;
+};
+
+export type OfficialSubscriptionAdminPrice = {
+  id: string;
+  appSlug: string;
+  appName: string;
+  planSlug: string;
+  planLabel: string;
+  billingPeriod: "monthly" | "annual" | "one_time";
+  countryCode: string;
+  countryLabel: string;
+  currencyCode: string | null;
+  priceText: string | null;
+  priceValue: number | null;
+  cnyPrice: number | null;
+  fxRateToCny: number | null;
+  fxDate: string | null;
+  sourceUrl: string;
+  status: OfficialSubscriptionPriceStatus;
+  rawTitle: string | null;
+  lastSuccessAt: string | null;
+  lastCheckedAt: string | null;
+  failureReason: string | null;
+};
+
+export type OfficialSubscriptionCollectRun = {
+  id: string;
+  mode: "manual" | "cron" | "worker";
+  targetAppSlug: string | null;
+  targetRegionCodes: string[];
+  status: "success" | "partial_success" | "failed";
+  successCount: number;
+  failureCount: number;
+  unmatchedCount: number;
+  startedAt: string;
+  finishedAt: string;
+  logs: Record<string, unknown>;
+};
+
+export type OfficialSubscriptionUnmatchedItem = {
+  appSlug: string | null;
+  countryCode: string | null;
+  countryLabel: string | null;
+  sourceUrl: string | null;
+  rawTitle: string | null;
+  priceText: string | null;
+  reason: string | null;
+};
+
+export type OfficialSubscriptionAdminData = {
+  configured: boolean;
+  tableReady: boolean;
+  source: "supabase" | "static";
+  generatedAt: string;
+  message: string | null;
+  apps: OfficialSubscriptionAdminApp[];
+  plans: OfficialSubscriptionAdminPlan[];
+  regions: OfficialSubscriptionAdminRegion[];
+  currentPrices: OfficialSubscriptionAdminPrice[];
+  collectRuns: OfficialSubscriptionCollectRun[];
+  unmatchedItems: OfficialSubscriptionUnmatchedItem[];
 };
 
 export type OfferInput = {
