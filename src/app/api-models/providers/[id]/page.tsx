@@ -65,16 +65,17 @@ export default async function ApiProviderDetailPage({
   return (
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
       <div className="sticky top-0 z-40 border-b border-[#dfe4e5] bg-[#f9f9f9]/95 shadow-[0_10px_24px_rgba(45,52,53,0.035)] backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-[1300px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <SiteHeader maxWidthClassName="max-w-[1300px]" logoCompact />
+      </div>
+
+      <div className="mx-auto max-w-[1300px] px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+        <div className="mb-5">
           <Link href="/api-models" className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-2 text-sm font-semibold text-[#5a6061] hover:bg-[#edf0f1] hover:text-[#2d3435] sm:px-3">
             <ArrowLeft size={17} />
             返回 API 模型
           </Link>
         </div>
-        <SiteHeader maxWidthClassName="max-w-[1300px]" logoCompact />
-      </div>
 
-      <div className="mx-auto max-w-[1300px] px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
         <section className="rounded-lg bg-[#f2f4f4] p-6 shadow-[0_20px_60px_rgba(45,52,53,0.04)] lg:p-8">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)] lg:items-end">
             <div className="min-w-0 max-w-3xl">

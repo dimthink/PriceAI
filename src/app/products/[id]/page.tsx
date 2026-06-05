@@ -1,7 +1,7 @@
 import { Clock3, Layers3 } from "lucide-react";
 import { notFound } from "next/navigation";
 import { BrandIcon } from "@/components/BrandIcon";
-import { ProductDetailHeader } from "@/components/ProductDetailHeader";
+import { ProductDetailHeader, ProductReturnLink } from "@/components/ProductDetailHeader";
 import { ProductOffersPanel } from "@/components/ProductOffersPanel";
 import { getPublicProductSummary, listPublicProductOffers } from "@/lib/data";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
@@ -41,6 +41,10 @@ export default async function ProductDetail({
       <ProductDetailHeader />
 
       <div className="mx-auto max-w-[1300px] px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+        <div className="mb-5">
+          <ProductReturnLink />
+        </div>
+
         <section className="rounded-lg bg-[#f2f4f4] p-6 shadow-[0_20px_60px_rgba(45,52,53,0.04)] lg:p-8">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(420px,520px)] lg:items-end">
             <div className="min-w-0 max-w-3xl">
