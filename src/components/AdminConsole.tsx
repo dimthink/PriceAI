@@ -29,6 +29,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { apiProviderTypeLabels } from "@/lib/api-models";
 import type {
   AdminSummary,
   ChannelSubmission,
@@ -58,6 +59,10 @@ type AdminProduct = AdminSummary["products"][number];
 type OfficialAdminData = AdminSummary["officialPrices"];
 type OfficialAdminPrice = OfficialAdminData["currentPrices"][number];
 type OfficialAdminRun = OfficialAdminData["collectRuns"][number];
+type ApiModelAdminData = AdminSummary["apiModels"];
+type ApiModelAdminProvider = ApiModelAdminData["providers"][number];
+type ApiModelAdminOffer = ApiModelAdminData["offers"][number];
+type ApiModelAdminPlan = ApiModelAdminData["plans"][number];
 
 type ProbeOffer = {
   sourceStoreName?: string | null;
@@ -105,7 +110,7 @@ type OfficialProbeResult = {
   };
 };
 
-type AdminTab = "review" | "todo" | "feedback" | "history" | "collect" | "official" | "sources" | "manual" | "logs";
+type AdminTab = "review" | "todo" | "feedback" | "history" | "collect" | "official" | "apiModels" | "sources" | "manual" | "logs";
 
 type RowFeedback = {
   id: string;
@@ -159,6 +164,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [siteFeedback, setSiteFeedback] = useState<SiteFeedback[]>(data.pendingSiteFeedback || []);
   const [probeResults, setProbeResults] = useState<Record<string, ProbeResult>>({});
   const [officialProbeResult, setOfficialProbeResult] = useState<OfficialProbeResult | null>(null);
+  const [apiProviderPatches, setApiProviderPatches] = useState<Record<string, Partial<ApiModelAdminProvider>>>({});
+  const [apiOfferPatches, setApiOfferPatches] = useState<Record<string, Partial<ApiModelAdminOffer>>>({});
   const [activeTab, setActiveTab] = useState<AdminTab>("review");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -210,6 +217,20 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
     return map;
   }, [data.products]);
+  const apiModels = useMemo(
+    (): ApiModelAdminData => ({
+      ...data.apiModels,
+      providers: (data.apiModels.providers || []).map((provider) => ({
+        ...provider,
+        ...(apiProviderPatches[provider.id] || {}),
+      })),
+      offers: (data.apiModels.offers || []).map((offer) => ({
+        ...offer,
+        ...(apiOfferPatches[offer.id] || {}),
+      })),
+    }),
+    [apiOfferPatches, apiProviderPatches, data.apiModels],
+  );
 
   const filteredReview = useMemo(() => {
     if (!searchQuery.trim()) return reviewSubmissions;
@@ -264,11 +285,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { label: "标准商品", value: data.products.length, icon: <Database key="d" size={15} /> },
       { label: "报价", value: data.rawOfferTotal, icon: <FileInput key="f" size={15} /> },
       { label: "官方价", value: data.officialPrices.currentPrices.length, icon: <Database key="op" size={15} /> },
+      { label: "API 模型", value: apiModels.offers.length, icon: <TerminalSquare key="api" size={15} /> },
       { label: "待审核", value: reviewSubmissions.length, icon: <Inbox key="i" size={15} /> },
       { label: "反馈", value: siteFeedback.length + offerFeedback.length, icon: <Flag key="fb" size={15} /> },
       { label: "采集待办", value: collectorTodoSubmissions.length, icon: <TerminalSquare key="t" size={15} /> },
     ],
-    [collectorTodoSubmissions.length, data.officialPrices.currentPrices.length, data.products.length, data.rawOfferTotal, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
+    [apiModels.offers.length, collectorTodoSubmissions.length, data.officialPrices.currentPrices.length, data.products.length, data.rawOfferTotal, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
   );
   const sourceStatsById = useMemo(
     () => new Map((data.sourceOfferStats || []).map((stats) => [stats.sourceId, stats])),
@@ -329,11 +351,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { id: "history", label: "历史", count: null, icon: <History size={15} /> },
       { id: "collect", label: "采集", count: failedRunCount || null, icon: <RefreshCcw size={15} /> },
       { id: "official", label: "官方价", count: data.officialPrices.currentPrices.length || null, icon: <Database size={15} /> },
+      { id: "apiModels", label: "API 模型", count: apiModels.offers.length || null, icon: <TerminalSquare size={15} /> },
       { id: "sources", label: "渠道", count: sources.length, icon: <Store size={15} /> },
       { id: "manual", label: "维护", count: null, icon: <Plus size={15} /> },
       { id: "logs", label: "日志", count: data.crawlRuns.length, icon: <Clock size={15} /> },
     ],
-    [collectorTodoSubmissions.length, data.crawlRuns.length, data.officialPrices.currentPrices.length, failedRunCount, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
+    [apiModels.offers.length, collectorTodoSubmissions.length, data.crawlRuns.length, data.officialPrices.currentPrices.length, failedRunCount, offerFeedback.length, reviewSubmissions.length, siteFeedback.length, sources.length],
   );
 
   /* ─── Keyboard shortcuts ─── */
@@ -466,6 +489,54 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     void navigator.clipboard.writeText(command);
     setGlobalMessage({ type: "success", text: "已复制官方地区价 dry-run 命令。" });
   };
+
+  const copyApiModelImportCommand = () => {
+    const command = "npm run import:api-models -- --dry-run --post";
+    void navigator.clipboard.writeText(command);
+    setGlobalMessage({ type: "success", text: "已复制 API 模型 dry-run 导入命令。" });
+  };
+
+  async function toggleApiProviderEnabled(provider: ApiModelAdminProvider, enabled: boolean) {
+    setLoadingAction(`api-provider-${provider.id}`);
+    const result = await requestWithMethod("/api/admin/api-models", "PATCH", password, {
+      target: "provider",
+      id: provider.id,
+      enabled,
+    });
+    setLoadingAction(null);
+
+    if (result.ok) {
+      setApiProviderPatches((prev) => ({ ...prev, [provider.id]: { enabled } }));
+      setGlobalMessage({
+        type: "success",
+        text: enabled ? `已启用 API 来源「${provider.name}」。` : `已停用 API 来源「${provider.name}」，前台会隐藏该来源报价。`,
+      });
+      router.refresh();
+    } else {
+      setGlobalMessage({ type: "error", text: result.message || "更新 API 来源失败。" });
+    }
+  }
+
+  async function toggleApiOfferStatus(offer: ApiModelAdminOffer, status: ApiModelAdminOffer["status"]) {
+    setLoadingAction(`api-offer-${offer.id}`);
+    const result = await requestWithMethod("/api/admin/api-models", "PATCH", password, {
+      target: "offer",
+      id: offer.id,
+      status,
+    });
+    setLoadingAction(null);
+
+    if (result.ok) {
+      setApiOfferPatches((prev) => ({ ...prev, [offer.id]: { status } }));
+      setGlobalMessage({
+        type: "success",
+        text: status === "active" ? "API 模型报价已恢复展示。" : "API 模型报价已从前台隐藏。",
+      });
+      router.refresh();
+    } else {
+      setGlobalMessage({ type: "error", text: result.message || "更新 API 模型报价失败。" });
+    }
+  }
 
   async function enqueueSourceCollection(source: Source): Promise<{ ok: boolean; jobCount?: number; message?: string }> {
     const result = await request("/api/admin/collection-jobs", password, {
@@ -1833,6 +1904,19 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   onProbe={probeOfficialPrices}
                   onEnqueueCollection={enqueueOfficialPriceCollection}
                   onCopyCommand={copyOfficialCollectorCommand}
+                />
+              </div>
+            )}
+
+            {/* API models tab */}
+            {activeTab === "apiModels" && (
+              <div role="tabpanel" id="tabpanel-apiModels">
+                <ApiModelsAdminPanel
+                  data={apiModels}
+                  loadingAction={loadingAction}
+                  onCopyImportCommand={copyApiModelImportCommand}
+                  onToggleProviderEnabled={toggleApiProviderEnabled}
+                  onToggleOfferStatus={toggleApiOfferStatus}
                 />
               </div>
             )}
@@ -3511,6 +3595,333 @@ function OfficialPricesAdminPanel({
   );
 }
 
+function ApiModelsAdminPanel({
+  data,
+  loadingAction,
+  onCopyImportCommand,
+  onToggleProviderEnabled,
+  onToggleOfferStatus,
+}: {
+  data: ApiModelAdminData;
+  loadingAction: string | null;
+  onCopyImportCommand: () => void;
+  onToggleProviderEnabled: (provider: ApiModelAdminProvider, enabled: boolean) => void;
+  onToggleOfferStatus: (offer: ApiModelAdminOffer, status: ApiModelAdminOffer["status"]) => void;
+}) {
+  const inactiveProviderCount = data.providers.filter((provider) => !provider.enabled).length;
+  const inactiveOfferCount = data.offers.filter((offer) => offer.status !== "active").length;
+  const latestOffers = data.offers.slice(0, 80);
+  const latestPlans = data.plans.slice(0, 24);
+  const latestRuns = data.collectRuns.slice(0, 8);
+
+  return (
+    <div className="space-y-5">
+      <Panel title="API 模型控制台" icon={<TerminalSquare size={17} />}>
+        {data.message ? (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-[#fff7e8] bg-[#fffaf0] px-4 py-3 text-sm leading-6 text-[#7a541b]">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <span>{data.message}</span>
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <OfficialMetric label="数据源" value={data.source === "supabase" ? "Supabase" : "静态样本"} />
+          <OfficialMetric label="标准模型" value={String(data.models.length)} />
+          <OfficialMetric label="来源渠道" value={String(data.providers.length)} tone={inactiveProviderCount ? "warn" : "default"} />
+          <OfficialMetric label="套餐" value={String(data.plans.length)} />
+          <OfficialMetric label="报价" value={String(data.offers.length)} tone={inactiveOfferCount ? "warn" : "default"} />
+          <OfficialMetric label="最近更新" value={formatRelativeTime(data.generatedAt)} />
+        </div>
+
+        <Divider />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-[#2d3435]">静态数据导入</p>
+            <p className="mt-1 text-sm leading-6 text-[#5a6061]">
+              当前阶段先用公开文档整理的静态数据写入独立 api_* 表；确认 dry-run 后再手动决定是否写库。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/api-models"
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[#2d3435] px-4 text-sm font-medium text-white transition-colors hover:bg-[#202829]"
+            >
+              查看前台
+              <ExternalLink size={15} />
+            </Link>
+            <button
+              type="button"
+              onClick={onCopyImportCommand}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-4 text-sm font-medium text-[#2d3435] transition-colors hover:bg-[#f2f4f4]"
+            >
+              <Copy size={15} />
+              复制 dry-run 命令
+            </button>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title="API 来源渠道" icon={<Store size={17} />}>
+        {data.providers.length ? (
+          <div className="overflow-x-auto rounded-lg border border-[#adb3b4]/20">
+            <table className="min-w-[980px] w-full divide-y divide-[#adb3b4]/15 text-left text-sm">
+              <thead className="bg-[#f2f4f4] text-xs font-semibold text-[#5a6061]">
+                <tr>
+                  <th className="px-4 py-3">来源</th>
+                  <th className="px-4 py-3">类型</th>
+                  <th className="px-4 py-3">计费</th>
+                  <th className="px-4 py-3">覆盖</th>
+                  <th className="px-4 py-3">状态</th>
+                  <th className="px-4 py-3">更新时间</th>
+                  <th className="px-4 py-3">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#adb3b4]/15 bg-white">
+                {data.providers.map((provider) => {
+                  const loading = loadingAction === `api-provider-${provider.id}`;
+                  return (
+                    <tr key={provider.id} className="align-top">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-[#2d3435]">{provider.name}</div>
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                          <a
+                            href={provider.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[#47657a] transition-colors hover:text-[#2d3435]"
+                          >
+                            官网
+                            <ExternalLink size={12} />
+                          </a>
+                          {provider.pricingUrl ? (
+                            <a
+                              href={provider.pricingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[#47657a] transition-colors hover:text-[#2d3435]"
+                            >
+                              价格页
+                              <ExternalLink size={12} />
+                            </a>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge>{apiProviderTypeLabel(provider.type)}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-[#5a6061]">{provider.billingMode}</td>
+                      <td className="px-4 py-3 text-[#5a6061]">
+                        {provider.modelCount} 个模型 · {provider.offerCount} 条报价 · {provider.planCount} 个套餐
+                        {provider.limitSummary ? <p className="mt-1 max-w-72 text-xs leading-5 text-[#adb3b4]">{provider.limitSummary}</p> : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${apiProviderStatusClass(provider.enabled)}`}>
+                          {provider.enabled ? "启用" : "停用"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[#5a6061]">{formatRelativeTime(provider.updatedAt)}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => onToggleProviderEnabled(provider, !provider.enabled)}
+                          className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-white px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
+                            provider.enabled
+                              ? "border-[#9b3328]/20 text-[#9b3328] hover:bg-[#fbe9e7]"
+                              : "border-[#2f7a4b]/20 text-[#2f7a4b] hover:bg-[#e8f3ec]"
+                          }`}
+                        >
+                          {loading ? <Loader2 size={14} className="animate-spin" /> : null}
+                          {provider.enabled ? "停用" : "启用"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            icon={<Store size={32} className="text-[#adb3b4]" />}
+            title="暂无 API 来源渠道"
+            description="导入 api_* 静态数据后，来源渠道会出现在这里。"
+          />
+        )}
+      </Panel>
+
+      <Panel title="API 模型报价" icon={<ClipboardList size={17} />}>
+        {latestOffers.length ? (
+          <div className="overflow-x-auto rounded-lg border border-[#adb3b4]/20">
+            <table className="min-w-[1120px] w-full divide-y divide-[#adb3b4]/15 text-left text-sm">
+              <thead className="bg-[#f2f4f4] text-xs font-semibold text-[#5a6061]">
+                <tr>
+                  <th className="px-4 py-3">模型</th>
+                  <th className="px-4 py-3">来源</th>
+                  <th className="px-4 py-3">输入价</th>
+                  <th className="px-4 py-3">输出价</th>
+                  <th className="px-4 py-3">套餐 / 免费口径</th>
+                  <th className="px-4 py-3">状态</th>
+                  <th className="px-4 py-3">更新时间</th>
+                  <th className="px-4 py-3">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#adb3b4]/15 bg-white">
+                {latestOffers.map((offer) => {
+                  const loading = loadingAction === `api-offer-${offer.id}`;
+                  const isActive = offer.status === "active";
+                  return (
+                    <tr key={offer.id} className="align-top">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-[#2d3435]">{offer.modelName}</div>
+                        <div className="mt-1 text-xs text-[#adb3b4]">
+                          {offer.family}
+                          {offer.routeModelId ? ` · ${offer.routeModelId}` : ""}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-[#2d3435]">{offer.providerName}</div>
+                        <div className="mt-1">
+                          <Badge>{apiProviderTypeLabel(offer.providerType)}</Badge>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-[#5a6061]">{apiPriceValueLabel(offer.inputPrice)}</td>
+                      <td className="px-4 py-3 text-[#5a6061]">{apiPriceValueLabel(offer.outputPrice)}</td>
+                      <td className="px-4 py-3 text-[#5a6061]">
+                        {offer.freeOrPlan || "未记录"}
+                        {offer.limitSummary ? <p className="mt-1 max-w-72 text-xs leading-5 text-[#adb3b4]">{offer.limitSummary}</p> : null}
+                        {offer.pricingUrl ? (
+                          <a
+                            href={offer.pricingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[#47657a] transition-colors hover:text-[#2d3435]"
+                          >
+                            来源价格页
+                            <ExternalLink size={12} />
+                          </a>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${apiOfferStatusClass(offer.status)}`}>
+                          {apiOfferStatusLabel(offer.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[#5a6061]">{formatRelativeTime(offer.updatedAt)}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          disabled={loading}
+                          onClick={() => onToggleOfferStatus(offer, isActive ? "inactive" : "active")}
+                          className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-white px-3 text-xs font-medium transition-colors disabled:opacity-60 ${
+                            isActive
+                              ? "border-[#9b3328]/20 text-[#9b3328] hover:bg-[#fbe9e7]"
+                              : "border-[#2f7a4b]/20 text-[#2f7a4b] hover:bg-[#e8f3ec]"
+                          }`}
+                        >
+                          {loading ? <Loader2 size={14} className="animate-spin" /> : null}
+                          {isActive ? "下架" : "恢复"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            icon={<ClipboardList size={32} className="text-[#adb3b4]" />}
+            title="暂无 API 模型报价"
+            description="导入 api_model_offers 后，模型报价会出现在这里。"
+          />
+        )}
+        {data.offers.length > latestOffers.length ? (
+          <p className="mt-3 text-xs text-[#adb3b4]">当前仅展示前 {latestOffers.length} 条，完整数据可在 Supabase 表或前台 API 模型页查看。</p>
+        ) : null}
+      </Panel>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Panel title="API 套餐摘要" icon={<Database size={17} />}>
+          {latestPlans.length ? (
+            <div className="divide-y divide-[#adb3b4]/15 rounded-lg border border-[#adb3b4]/20">
+              {latestPlans.map((plan) => (
+                <ApiPlanRow key={plan.id} plan={plan} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Database size={32} className="text-[#adb3b4]" />}
+              title="暂无 API 套餐"
+              description="订阅套餐、免费额度和模型路由套餐会在这里汇总。"
+            />
+          )}
+        </Panel>
+
+        <Panel title="最近 API 采集" icon={<RefreshCcw size={17} />}>
+          {latestRuns.length ? (
+            <div className="divide-y divide-[#adb3b4]/15 rounded-lg border border-[#adb3b4]/20">
+              {latestRuns.map((run) => (
+                <div key={run.id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-[#2d3435]">{run.providerName || run.providerId || "全部 API 来源"}</span>
+                    {run.collectorKind ? <Badge>{run.collectorKind}</Badge> : null}
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${apiRunStatusClass(run.status)}`}>
+                      {apiRunStatusLabel(run.status)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-[#5a6061]">
+                    模型 {run.modelCount}，报价 {run.offerCount} · {formatRelativeTime(run.finishedAt || run.startedAt)}
+                  </p>
+                  {run.errorMessage ? <p className="mt-1 break-words text-xs leading-5 text-[#9b3328]">{run.errorMessage}</p> : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Clock size={32} className="text-[#adb3b4]" />}
+              title="暂无 API 采集记录"
+              description="后续 API 采集器写入 api_collection_runs 后会显示在这里。"
+            />
+          )}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function ApiPlanRow({ plan }: { plan: ApiModelAdminPlan }) {
+  return (
+    <div className="px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium text-[#2d3435]">{plan.name}</span>
+        <Badge>{plan.providerName}</Badge>
+        <Badge tone="info">{apiProviderTypeLabel(plan.type)}</Badge>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${apiProviderStatusClass(plan.enabled)}`}>
+          {plan.enabled ? "启用" : "停用"}
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-[#5a6061]">
+        {plan.priceLabel || "未记录价格"} · 覆盖 {plan.modelCount} 个模型
+      </p>
+      <p className="mt-1 text-xs leading-5 text-[#adb3b4]">
+        {plan.quotaSummary || "未记录额度"}
+        {plan.limitSummary ? ` · ${plan.limitSummary}` : ""}
+      </p>
+      <a
+        href={plan.sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#47657a] transition-colors hover:text-[#2d3435]"
+      >
+        {plan.sourceLabel || "查看来源"}
+        <ExternalLink size={12} />
+      </a>
+    </div>
+  );
+}
+
 function OfficialMetric({
   label,
   value,
@@ -3898,6 +4309,59 @@ function officialProbeSummaryText(result: OfficialProbeResult): string {
     : "未生成数据库计划。";
 
   return `${parts.join("，")}。${dbText}`;
+}
+
+function apiProviderTypeLabel(value: ApiModelAdminProvider["type"] | ApiModelAdminOffer["providerType"] | ApiModelAdminPlan["type"]): string {
+  return apiProviderTypeLabels[value] || value;
+}
+
+function apiProviderStatusClass(enabled: boolean): string {
+  return enabled ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-[#f2f4f4] text-[#5a6061]";
+}
+
+function apiOfferStatusLabel(value: ApiModelAdminOffer["status"]): string {
+  if (value === "active") return "展示中";
+  if (value === "needs_review") return "待复核";
+  return "已下架";
+}
+
+function apiOfferStatusClass(value: ApiModelAdminOffer["status"]): string {
+  if (value === "active") return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (value === "needs_review") return "bg-[#fff7e8] text-[#7a541b]";
+  return "bg-[#f2f4f4] text-[#5a6061]";
+}
+
+function apiRunStatusLabel(value: ApiModelAdminData["collectRuns"][number]["status"]): string {
+  if (value === "success") return "成功";
+  if (value === "partial") return "部分成功";
+  return "失败";
+}
+
+function apiRunStatusClass(value: ApiModelAdminData["collectRuns"][number]["status"]): string {
+  if (value === "success") return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (value === "partial") return "bg-[#fff7e8] text-[#7a541b]";
+  return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
+function apiPriceValueLabel(value: ApiModelAdminOffer["inputPrice"]): string {
+  if (value.kind === "text") return value.text || "待确认";
+
+  const parts: string[] = [];
+  if (typeof value.cnyPerMTokens === "number") {
+    parts.push(`¥${formatApiPriceNumber(value.cnyPerMTokens)}/百万 tokens`);
+  }
+  if (typeof value.usdPerMTokens === "number") {
+    parts.push(`$${formatApiPriceNumber(value.usdPerMTokens)}/M tokens`);
+  }
+  if (value.label) parts.push(value.label);
+  return parts.length ? parts.join(" · ") : "待确认";
+}
+
+function formatApiPriceNumber(value: number): string {
+  return value.toLocaleString("zh-CN", {
+    minimumFractionDigits: value >= 1 || value === 0 ? 0 : 4,
+    maximumFractionDigits: value >= 1 ? 2 : 6,
+  });
 }
 
 function offerTimestamp(offer: RawOffer): string | null | undefined {

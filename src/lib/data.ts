@@ -3,6 +3,7 @@ import "server-only";
 import { ADMIN_MANUAL_HIDE_REASON_PREFIX, listOfferFeedback, listSiteFeedback, listSubmissions } from "./admin";
 import { buildProductGroups, canonicalCatalog, comparePlatformOrder, resolveOfferProduct } from "./catalog";
 import { isSupabaseConfigured } from "./env";
+import { getApiModelAdminData } from "./api-models-db";
 import { getOfficialSubscriptionAdminData } from "./official-prices-db";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
@@ -328,6 +329,18 @@ export function getEmptyAdminSummary(isAuthenticated = false): AdminSummary {
       collectRuns: [],
       unmatchedItems: [],
     },
+    apiModels: {
+      configured: isSupabaseConfigured(),
+      tableReady: false,
+      source: "static",
+      generatedAt: new Date().toISOString(),
+      message: "尚未加载 API 模型后台数据。",
+      models: [],
+      providers: [],
+      plans: [],
+      offers: [],
+      collectRuns: [],
+    },
     pendingSubmissions: [],
     pendingOfferFeedback: [],
     pendingSiteFeedback: [],
@@ -378,7 +391,10 @@ async function readAdminSummary(): Promise<AdminSummary> {
   if (!supabase) {
     const dashboard = await getDashboardData();
     const adminDashboard = toAdminDashboardData(dashboard, dashboard.rawOffers.length);
-    const officialPrices = await getOfficialSubscriptionAdminData();
+    const [officialPrices, apiModels] = await Promise.all([
+      getOfficialSubscriptionAdminData(),
+      getApiModelAdminData(),
+    ]);
     return {
       ...adminDashboard,
       rawOfferTotal: dashboard.rawOffers.length,
@@ -387,6 +403,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       crawlRuns: [],
       collectionJobs: [],
       officialPrices,
+      apiModels,
       pendingSubmissions: [],
       pendingOfferFeedback: [],
       pendingSiteFeedback: [],
@@ -407,6 +424,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     sourceOfferStats,
     hiddenOfferData,
     officialPrices,
+    apiModels,
   ] = await Promise.all([
     supabase.from("sources").select("*").order("name"),
     supabase.from("canonical_products").select("*").eq("is_active", true),
@@ -435,6 +453,18 @@ async function readAdminSummary(): Promise<AdminSummary> {
       collectRuns: [],
       unmatchedItems: [],
     })),
+    getApiModelAdminData().catch(() => ({
+      configured: isSupabaseConfigured(),
+      tableReady: false,
+      source: "static" as const,
+      generatedAt: new Date().toISOString(),
+      message: "读取 API 模型后台数据失败。",
+      models: [],
+      providers: [],
+      plans: [],
+      offers: [],
+      collectRuns: [],
+    })),
   ]);
 
   const sources = sourcesResult.error ? [] : (sourcesResult.data || []).map(mapSource);
@@ -460,6 +490,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       crawlRuns: [],
       collectionJobs,
       officialPrices,
+      apiModels,
       pendingSubmissions,
       pendingOfferFeedback,
       pendingSiteFeedback,
@@ -476,6 +507,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     crawlRuns: (data || []).map(mapCrawlRun),
     collectionJobs,
     officialPrices,
+    apiModels,
     pendingSubmissions,
     pendingOfferFeedback,
     pendingSiteFeedback,

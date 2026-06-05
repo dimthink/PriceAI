@@ -1,3 +1,5 @@
+import type { ApiBillingMode, ApiPriceValue, ApiProviderType } from "@/lib/api-models";
+
 export type OfferStatus = "in_stock" | "low_stock" | "out_of_stock" | "unknown";
 export type EffectiveOfferStatus =
   | "available"
@@ -125,6 +127,7 @@ export type AdminSummary = DashboardData & {
   crawlRuns: CrawlRun[];
   collectionJobs: CollectionJob[];
   officialPrices: OfficialSubscriptionAdminData;
+  apiModels: ApiModelAdminData;
   pendingSubmissions: ChannelSubmission[];
   pendingOfferFeedback: OfferFeedback[];
   pendingSiteFeedback: SiteFeedback[];
@@ -272,6 +275,98 @@ export type OfficialSubscriptionAdminData = {
   currentPrices: OfficialSubscriptionAdminPrice[];
   collectRuns: OfficialSubscriptionCollectRun[];
   unmatchedItems: OfficialSubscriptionUnmatchedItem[];
+};
+
+export type ApiModelAdminModel = {
+  id: string;
+  family: string;
+  displayName: string;
+  modelId: string;
+  status: "active" | "inactive" | "needs_review";
+  offerCount: number;
+  providerCount: number;
+  sourceUrl: string;
+  sourceLabel: string;
+  updatedAt: string;
+};
+
+export type ApiModelAdminProvider = {
+  id: string;
+  name: string;
+  type: ApiProviderType;
+  billingMode: ApiBillingMode;
+  url: string;
+  pricingUrl: string | null;
+  logoUrl: string | null;
+  enabled: boolean;
+  offerCount: number;
+  modelCount: number;
+  planCount: number;
+  limitSummary: string;
+  limitations: string;
+  sourceLabel: string;
+  updatedAt: string;
+};
+
+export type ApiModelAdminPlan = {
+  id: string;
+  providerId: string;
+  providerName: string;
+  name: string;
+  type: ApiProviderType;
+  priceLabel: string;
+  modelCount: number;
+  enabled: boolean;
+  quotaSummary: string;
+  limitSummary: string;
+  sourceUrl: string;
+  sourceLabel: string;
+  updatedAt: string;
+};
+
+export type ApiModelAdminOffer = {
+  id: string;
+  modelId: string;
+  modelName: string;
+  family: string;
+  providerId: string;
+  providerName: string;
+  providerType: ApiProviderType;
+  routeModelId: string | null;
+  inputPrice: ApiPriceValue;
+  outputPrice: ApiPriceValue;
+  freeOrPlan: string;
+  limitSummary: string;
+  pricingUrl: string | null;
+  sourceLabel: string;
+  status: "active" | "inactive" | "needs_review";
+  updatedAt: string;
+};
+
+export type ApiModelCollectRun = {
+  id: string;
+  providerId: string | null;
+  providerName: string | null;
+  collectorKind: string | null;
+  status: "success" | "partial" | "failed";
+  modelCount: number;
+  offerCount: number;
+  errorMessage: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+export type ApiModelAdminData = {
+  configured: boolean;
+  tableReady: boolean;
+  source: "supabase" | "static";
+  generatedAt: string;
+  message: string | null;
+  models: ApiModelAdminModel[];
+  providers: ApiModelAdminProvider[];
+  plans: ApiModelAdminPlan[];
+  offers: ApiModelAdminOffer[];
+  collectRuns: ApiModelCollectRun[];
 };
 
 export type OfferInput = {
