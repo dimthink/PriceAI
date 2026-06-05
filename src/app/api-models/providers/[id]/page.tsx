@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ArrowLeft, Clock3, Database, ExternalLink } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -84,16 +85,19 @@ export default async function ApiProviderDetailPage({
             <div className="min-w-0 max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge>
-                  <Database size={15} />
+                  <ProviderLogo provider={provider} size="sm" />
                   {apiProviderTypeLabels[provider.type]}
                 </Badge>
                 {summary.families.map((family) => (
                   <Badge key={family}>{family}</Badge>
                 ))}
               </div>
-              <h1 className="mt-5 font-serif text-3xl font-bold tracking-normal text-[#202829] sm:text-4xl md:text-5xl">
-                {provider.name}
-              </h1>
+              <div className="mt-5 flex items-center gap-4">
+                <ProviderLogo provider={provider} size="lg" />
+                <h1 className="font-serif text-3xl font-bold tracking-normal text-[#202829] sm:text-4xl md:text-5xl">
+                  {provider.name}
+                </h1>
+              </div>
               <p className="mt-4 max-w-[75ch] text-sm leading-7 text-[#5a6061]">{provider.description}</p>
               <p className="mt-3 max-w-[75ch] text-sm leading-7 text-[#7a541b]">{provider.limitations}</p>
               <a
@@ -266,6 +270,37 @@ function Badge({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#5a6061] ring-1 ring-[#adb3b4]/15">
       {children}
+    </span>
+  );
+}
+
+function ProviderLogo({
+  provider,
+  size,
+}: {
+  provider: { name: string; logoUrl?: string };
+  size: "sm" | "lg";
+}) {
+  const boxClassName =
+    size === "lg"
+      ? "h-14 w-14 rounded-lg bg-white shadow-[0_12px_35px_rgba(45,52,53,0.04)]"
+      : "h-5 w-5 rounded-full bg-[#f2f4f4]";
+  const imageClassName = size === "lg" ? "h-9 w-9" : "h-4 w-4";
+
+  return (
+    <span className={`grid shrink-0 place-items-center ring-1 ring-[#adb3b4]/15 ${boxClassName}`}>
+      {provider.logoUrl ? (
+        <Image
+          src={provider.logoUrl}
+          alt=""
+          aria-hidden="true"
+          width={size === "lg" ? 36 : 16}
+          height={size === "lg" ? 36 : 16}
+          className={`${imageClassName} object-contain`}
+        />
+      ) : (
+        <Database size={size === "lg" ? 22 : 14} />
+      )}
     </span>
   );
 }
