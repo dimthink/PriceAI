@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import { ApiModelIcon } from "@/components/ApiModelIcon";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
-  apiModelFxSummary,
   apiProviderTypeLabels,
   formatApiPrice,
   formatPlanPrice,
@@ -17,8 +16,10 @@ import {
   type ApiPlan,
   type ApiProviderType,
 } from "@/lib/api-models";
+import { getApiModelDataset } from "@/lib/api-models-db";
 
 export const dynamicParams = true;
+export const revalidate = 300;
 
 export async function generateMetadata({
   params,
@@ -26,7 +27,8 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const summary = getApiModelSummary(id);
+  const dataset = await getApiModelDataset();
+  const summary = getApiModelSummary(id, dataset);
 
   if (!summary) {
     return {
@@ -54,13 +56,14 @@ export default async function ApiModelDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const summary = getApiModelSummary(id);
+  const dataset = await getApiModelDataset();
+  const summary = getApiModelSummary(id, dataset);
   const currency: ApiCurrency = "CNY";
 
   if (!summary) notFound();
 
-  const rows = getApiModelOffersByModel(id);
-  const plans = getApiPlansByModel(id);
+  const rows = getApiModelOffersByModel(id, dataset);
+  const plans = getApiPlansByModel(id, dataset);
 
   return (
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
@@ -120,7 +123,7 @@ export default async function ApiModelDetailPage({
           <div>
             <h2 className="font-serif text-3xl font-semibold tracking-normal text-[#202829]">API 渠道报价表</h2>
             <p className="mt-2 text-sm text-[#5a6061]">
-              {rows.length} 条公开渠道信息 · 人民币展示，汇率日期 {apiModelFxSummary.date}
+              {rows.length} 条公开渠道信息 · 人民币展示，汇率日期 {dataset.fxSummary.date}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-[#5a6061]">

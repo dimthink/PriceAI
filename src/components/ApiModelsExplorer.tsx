@@ -14,11 +14,7 @@ import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { ApiModelIcon } from "@/components/ApiModelIcon";
 import {
-  apiModelFxSummary,
-  apiModelOffers,
-  apiModelUpdatedAt,
   apiProviderTypeLabels,
-  apiProviders,
   formatApiPrice,
   formatPlanPrice,
   getApiModelOffers,
@@ -26,6 +22,7 @@ import {
   getApiModelSummaries,
   getApiProviderSummaries,
   type ApiCurrency,
+  type ApiModelDataset,
   type ApiModelOfferWithRelations,
   type ApiModelScope,
   type ApiModelSummary,
@@ -46,37 +43,39 @@ const typeFilterLabels: Record<TypeFilter, string> = {
   free: apiProviderTypeLabels.free,
 };
 
-export function ApiModelsExplorer() {
+export function ApiModelsExplorer({ dataset }: { dataset: ApiModelDataset }) {
   const [family, setFamily] = useState<FamilyFilter>("all");
   const [scopeMode, setScopeMode] = useState<ScopeMode>("models");
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [currency, setCurrency] = useState<ApiCurrency>("CNY");
 
+  const familyOptions = useMemo(() => getApiModelFamilyOptions(dataset), [dataset]);
+  const allModelCount = useMemo(() => getApiModelSummaries("all", dataset).length, [dataset]);
   const normalizedQuery = query.trim().toLowerCase();
   const modelSummaries = useMemo(
     () =>
-      getApiModelSummaries(family)
+      getApiModelSummaries(family, dataset)
         .filter((summary) => matchesModelSummary(summary, normalizedQuery)),
-    [family, normalizedQuery],
+    [dataset, family, normalizedQuery],
   );
   const offerRows = useMemo(
     () =>
-      getApiModelOffers(family)
+      getApiModelOffers(family, dataset)
         .filter((offer) => matchesOffer(offer, normalizedQuery))
         .filter((offer) => typeFilter === "all" || offer.provider.type === typeFilter),
-    [family, normalizedQuery, typeFilter],
+    [dataset, family, normalizedQuery, typeFilter],
   );
   const providerSummaries = useMemo(
     () =>
-      getApiProviderSummaries(family)
+      getApiProviderSummaries(family, dataset)
         .filter((summary) => matchesProviderSummary(summary, normalizedQuery))
         .filter((summary) => typeFilter === "all" || summary.provider.type === typeFilter),
-    [family, normalizedQuery, typeFilter],
+    [dataset, family, normalizedQuery, typeFilter],
   );
 
-  const freeProviderIds = new Set(apiProviders.filter((provider) => provider.type === "free").map((provider) => provider.id));
-  const freeCount = apiModelOffers.filter((offer) => freeProviderIds.has(offer.providerId)).length;
+  const freeProviderIds = new Set(dataset.providers.filter((provider) => provider.type === "free").map((provider) => provider.id));
+  const freeCount = dataset.offers.filter((offer) => freeProviderIds.has(offer.providerId)).length;
   const resultCount =
     scopeMode === "models"
       ? modelSummaries.length
@@ -89,25 +88,25 @@ export function ApiModelsExplorer() {
       <div className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
         <div className="min-w-0">
           <h1 className="font-serif text-2xl font-semibold tracking-normal text-[#202829] md:text-4xl">
-            {buildTitle(family, scopeMode)}
+            {buildTitle(family, scopeMode, familyOptions)}
           </h1>
           <p className="mt-3 max-w-[75ch] text-sm leading-7 text-[#5a6061]">
             按具体模型和正规公开渠道重新组织 API 信息。你可以先查某个模型有哪些官方 API、套餐或免费入口，也可以反过来查某个渠道或套餐覆盖哪些模型。
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[0.72rem] font-medium text-[#5a6061]">
-            <span>人工维护样本：{apiModelUpdatedAt}</span>
+            <span>{dataset.source === "supabase" ? "数据库同步" : "人工维护样本"}：{formatDatasetDate(dataset.generatedAt)}</span>
             <span className="h-1 w-1 rounded-full bg-[#adb3b4]" />
             <span>当前显示：{resultCount} {scopeCountLabel(scopeMode)}</span>
             <span className="hidden h-1 w-1 rounded-full bg-[#adb3b4] md:inline-block" />
-            <span className="hidden md:inline">汇率日期：{apiModelFxSummary.date}</span>
+            <span className="hidden md:inline">汇率日期：{dataset.fxSummary.date}</span>
           </div>
         </div>
 
         <div className="space-y-3">
           <div className="grid grid-cols-4 gap-2">
-            <Metric label="标准模型" value={`${getApiModelSummaries("all").length}`} />
-            <Metric label="渠道报价" value={`${apiModelOffers.length}`} />
-            <Metric label="来源渠道" value={`${apiProviders.length}`} />
+            <Metric label="标准模型" value={`${allModelCount}`} />
+            <Metric label="渠道报价" value={`${dataset.offers.length}`} />
+            <Metric label="来源渠道" value={`${dataset.providers.length}`} />
             <Metric label="免费" value={`${freeCount}`} />
           </div>
           <div className="rounded-lg bg-[#eef3f8] p-4 text-sm leading-6 text-[#47657a] ring-1 ring-[#cfdae4]">
@@ -124,7 +123,7 @@ export function ApiModelsExplorer() {
       <section className="mb-6 space-y-3">
         <div className="flex gap-2 overflow-x-auto pb-1">
           <FilterPill active={family === "all"} icon={<Layers3 size={17} />} label="全部" onClick={() => setFamily("all")} />
-          {getApiModelFamilyOptions().map((option) => (
+          {familyOptions.map((option) => (
             <FilterPill
               key={option.id}
               active={family === option.id}
@@ -603,14 +602,18 @@ function TableHead({ children }: { children: ReactNode }) {
   return <th className="px-5 py-3 font-semibold">{children}</th>;
 }
 
-function buildTitle(family: ApiModelScope, scopeMode: ScopeMode) {
-  const label = family === "all" ? "全模型" : getApiModelFamilyOptions().find((option) => option.id === family)?.label ?? family;
+function buildTitle(family: ApiModelScope, scopeMode: ScopeMode, familyOptions: { id: string; label: string }[]) {
+  const label = family === "all" ? "全模型" : familyOptions.find((option) => option.id === family)?.label ?? family;
   const suffix = {
     models: "标准模型",
     offers: "全部报价",
     providers: "来源渠道",
   }[scopeMode];
   return `${label} ${suffix}`;
+}
+
+function formatDatasetDate(value: string) {
+  return value.includes("T") ? value.slice(0, 10) : value;
 }
 
 function scopeCountLabel(scopeMode: ScopeMode) {

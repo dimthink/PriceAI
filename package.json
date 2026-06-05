@@ -13,6 +13,7 @@
     "collect:prices": "node scripts/collect-prices.mjs",
     "collect:official": "node scripts/collect-official-prices.mjs",
     "collect:worker": "node scripts/collect-worker.mjs",
+    "import:api-models": "node scripts/import-api-models.mjs",
     "test:official-parser": "node scripts/test-official-prices-parser.mjs",
     "collect:browser": "node scripts/collect-browser.mjs",
     "reparse:submissions": "node scripts/reparse-submissions-local.mjs",

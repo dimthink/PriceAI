@@ -1,12 +1,16 @@
 import type { MetadataRoute } from "next";
 import { getApiModelSummaries, getApiProviderSummaries } from "@/lib/api-models";
+import { getApiModelDataset } from "@/lib/api-models-db";
 import { getExplorerData } from "@/lib/data";
 import { getOfficialPricePlanSummaries } from "@/lib/official-prices";
 
 const siteUrl = "https://priceai.cc";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const data = await getExplorerData();
+  const [data, apiDataset] = await Promise.all([
+    getExplorerData(),
+    getApiModelDataset(),
+  ]);
   const now = new Date();
 
   const staticRoutes: MetadataRoute.Sitemap = [
@@ -50,16 +54,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.65,
   }));
 
-  const apiModelRoutes: MetadataRoute.Sitemap = getApiModelSummaries("all").map((model) => ({
+  const apiModelRoutes: MetadataRoute.Sitemap = getApiModelSummaries("all", apiDataset).map((model) => ({
     url: `${siteUrl}/api-models/${model.id}`,
-    lastModified: now,
+    lastModified: model.latestUpdatedAt ? new Date(model.latestUpdatedAt) : now,
     changeFrequency: "daily",
     priority: 0.65,
   }));
 
-  const apiProviderRoutes: MetadataRoute.Sitemap = getApiProviderSummaries("all").map((provider) => ({
+  const apiProviderRoutes: MetadataRoute.Sitemap = getApiProviderSummaries("all", apiDataset).map((provider) => ({
     url: `${siteUrl}/api-models/providers/${provider.id}`,
-    lastModified: now,
+    lastModified: provider.latestUpdatedAt ? new Date(provider.latestUpdatedAt) : now,
     changeFrequency: "daily",
     priority: 0.6,
   }));
