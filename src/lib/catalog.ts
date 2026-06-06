@@ -396,10 +396,6 @@ export function classifyOffer(
     return getCanonicalProduct("virtual-card");
   }
 
-  if (isSupportService(value)) {
-    return getCanonicalProduct("other-product");
-  }
-
   if (isOtherTool(value)) {
     return getCanonicalProduct(classifyOtherTool(value));
   }
@@ -429,7 +425,7 @@ export function classifyOffer(
   }
 
   if (isGeminiProduct(value)) {
-    if (matches(value, ["ultra", "250美元", "250 美元", "反重力", "flow", "45k", "25k", "企业"])) {
+    if (matches(value, ["ultra", "250美元", "250 美元", "45k", "25k", "企业"])) {
       return getCanonicalProduct("gemini-ultra");
     }
 
@@ -442,6 +438,18 @@ export function classifyOffer(
     }
 
     return getCanonicalProduct("grok-account");
+  }
+
+  if (isChatGptPro20(value)) {
+    return getCanonicalProduct("chatgpt-pro-20x");
+  }
+
+  if (isChatGptPro5(value)) {
+    return getCanonicalProduct("chatgpt-pro-5x");
+  }
+
+  if (isSupportService(value)) {
+    return getCanonicalProduct("other-product");
   }
 
   if (isAmbiguousPlusPackage(value)) {
@@ -461,12 +469,20 @@ export function classifyOffer(
       return getCanonicalProduct("chatgpt-free-account");
     }
 
+    if (isChatGptPlus(value) && !isChatGptTeamDominant(value)) {
+      return getCanonicalProduct("chatgpt-plus");
+    }
+
     if (isChatGptTeam(value)) {
       return getCanonicalProduct("chatgpt-team-business");
     }
 
-    if (matches(value, ["plus"])) {
+    if (isChatGptPlus(value)) {
       return getCanonicalProduct("chatgpt-plus");
+    }
+
+    if (isChatGptAccountTitle(value)) {
+      return getCanonicalProduct("chatgpt-free-account");
     }
   }
 
@@ -638,10 +654,16 @@ function isExpired(value: string | null | undefined): boolean {
 function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
+    .replace(/美國/g, "美国")
+    .replace(/虛擬/g, "虚拟")
     .replace(/[×]/g, "x")
     .replace(/[｜|/【】[\]()（）,，:：\-_/]+/g, " ")
+    .replace(/gptplus/g, "gpt plus")
     .replace(/\bpuls\b/g, "plus")
     .replace(/\bpulus\b/g, "plus")
+    .replace(/\bgemin\b/g, "gemini")
+    .replace(/\bcoedx\b/g, "codex")
+    .replace(/\bbusisness\b/g, "business")
     .replace(/chat\s*gpt/g, "chatgpt")
     .replace(/supergrok/g, "super grok")
     .replace(/\s+/g, " ")
@@ -655,6 +677,10 @@ function normalizeTags(tags: string[] | string | null | undefined): string {
 }
 
 function isSupportService(value: string): boolean {
+  if (isApiProduct(value)) {
+    return false;
+  }
+
   if (matches(value, ["教程", "电话卡", "手机套餐", "代理服务", "并发数", "安装版", "安装教程", "登陆教程", "登录教程"])) {
     return true;
   }
@@ -721,7 +747,12 @@ function isNegatedPlus(value: string): boolean {
 }
 
 function isApiProduct(value: string): boolean {
+  if (isChatGptAccountOrSubscriptionDominant(value)) return false;
+  if (isChatGptTeam(value)) return false;
+
   if (matches(value, ["claude/gpt/gemini中转站", "中转站", "中转余额", "中转 gpt", "api中转", "api 中转"])) return true;
+  if (matches(value, ["中转api", "中转 api"])) return true;
+  if (matches(value, ["兑换码"]) && matches(value, ["api", "额度", "100刀", "200刀", "300刀", "1000刀", "2100刀", "官方1:1"])) return true;
   if (matches(value, ["codexapi", "codex api", "codex 授权", "codex 授權"])) return true;
   if (matches(value, ["gpt api", "openai api", "geminiapi", "gemini api"])) return true;
   if (matches(value, ["api 额度", "api额度", "api 100刀", "api 50刀", "api 300刀"])) return true;
@@ -772,6 +803,13 @@ function isPureEmail(value: string): boolean {
     "gemini pro",
     "gemini ultra",
     "grok",
+    "gpt 账号",
+    "gpt账号",
+    "gpt 白号",
+    "gpt白号",
+    "gpt专用",
+    "gpt 专用",
+    "gptplus",
   ]);
 }
 
@@ -797,6 +835,8 @@ function isGrokProduct(value: string): boolean {
 
 function isChatGptProduct(value: string): boolean {
   if (matches(value, ["gemini", "claude", "grok"])) return false;
+  if (matches(value, ["steam"])) return false;
+  if (isChatGptPro20(value) || isChatGptPro5(value)) return true;
   return matches(value, ["chatgpt", "gpt", "openai", "plus", "team", "business", "t5"]);
 }
 
@@ -866,17 +906,76 @@ function isAmbiguousPlusPackage(value: string): boolean {
   return false;
 }
 
+function isChatGptPlus(value: string): boolean {
+  if (matches(value, ["plus"])) return true;
+  if (!matches(value, ["chatgpt", "gpt", "openai"])) return false;
+  if (matches(value, ["pro"]) && !matches(value, ["plus"])) return false;
+  if (matches(value, ["go", "go月卡", "go 年卡", "go-"])) return false;
+
+  return matches(value, [
+    "ios土区",
+    "土区 ios",
+    "土区",
+    "自助卡密",
+    "续费一个月",
+    "一个月卡密",
+    "一个月 成品号",
+    "一个月",
+    "月卡",
+    "订阅",
+    "直充",
+    "充值",
+    "卡密",
+    "cc 渠道",
+    "谷歌正规付款",
+  ]);
+}
+
+function isChatGptAccountTitle(value: string): boolean {
+  if (!matches(value, ["chatgpt", "gpt", "openai"])) return false;
+  if (matches(value, ["plus", "pro", "team", "business", "t5"])) return false;
+
+  return matches(value, ["成品号", "账号", "独享号", "直登", "日抛"]);
+}
+
+function isChatGptAccountOrSubscriptionDominant(value: string): boolean {
+  if (!matches(value, ["chatgpt", "gpt", "openai", "plus"])) return false;
+  if (matches(value, ["codex api", "api cdk", "api 额度", "api额度", "api中转", "api 中转", "充值余额", "中转余额"])) return false;
+
+  return isChatGptPlus(value) || isChatGptFreeAccount(value) || isChatGptAccountTitle(value);
+}
+
 function isChatGptPro20(value: string): boolean {
   if (matches(value, ["gemini", "claude"])) return false;
-  return matches(value, ["pro", "gpt pro", "chatgpt pro"]) && matches(value, ["20x", "x20", "20倍", "200刀", "200 美元", "200美元"]);
+  return matches(value, ["pro", "gpt pro", "chatgpt pro"]) && matches(value, ["20x", "x20", "20倍", "200刀", "200 美元", "200美元", "200美金", "200 美金"]);
 }
 
 function isChatGptPro5(value: string): boolean {
   if (matches(value, ["gemini", "claude"])) return false;
-  return matches(value, ["pro", "gpt pro", "chatgpt pro"]) && matches(value, ["5x", "x5", "5倍", "100刀", "100 美元", "100美元"]);
+  return matches(value, ["pro", "gpt pro", "chatgpt pro"]) && matches(value, ["5x", "x5", "5倍", "100刀", "100 美元", "100美元", "100美金", "100 美金"]);
 }
 
 function isChatGptTeam(value: string): boolean {
   if (matches(value, ["gemini", "claude", "grok"])) return false;
-  return matches(value, ["team", "business", "t5", "t5倍", "母号", "自动拉", "直拉", "拼车位", "邀请", "团队号", "团队席位"]);
+  if (matches(value, ["有team不能冲", "有 team 不能冲", "非team", "非 team"])) return false;
+
+  return isChatGptTeamDominant(value) || matches(value, ["team", "t5", "t5倍"]);
+}
+
+function isChatGptTeamDominant(value: string): boolean {
+  if (matches(value, ["gemini", "claude", "grok"])) return false;
+
+  return matches(value, [
+    "business",
+    "团队",
+    "母号",
+    "自动拉",
+    "直拉",
+    "拼车位",
+    "车位",
+    "邀请",
+    "团队号",
+    "团队席位",
+    "席位",
+  ]);
 }

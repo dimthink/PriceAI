@@ -22,6 +22,7 @@
     "reparse:submissions": "node scripts/reparse-submissions-local.mjs",
     "migrate:remote:freshness": "node scripts/apply-remote-migration.mjs",
     "setup:ga4": "node scripts/setup-ga4.mjs",
+    "audit:catalog": "node scripts/audit-catalog.mjs",
     "test:catalog": "node scripts/test-catalog.mjs"
   },
   "dependencies": {
