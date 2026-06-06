@@ -4,6 +4,17 @@ These assets are cached locally for stable rendering and performance. They are s
 
 | File | Source | Notes |
 |---|---|---|
+| `gmail.png` | `https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico` | Converted from official Google-hosted Gmail favicon to PNG. |
+| `outlook.png` | `https://outlook.live.com/mail/favicon.ico` | Converted from official Outlook web favicon to PNG. |
+| `google.png` | `https://www.google.com/favicon.ico` | Converted from official Google favicon to PNG. |
+| `google-workspace.png` | `https://workspace.google.com/favicon.ico` | Converted from official Google Workspace favicon to PNG for education and generic email rows. |
+| `paypal.png` | `https://www.paypalobjects.com/webstatic/icon/pp258.png` | Official PayPal public icon cached as PNG. |
+| `visa.png` | `https://www.visa.com/favicon.ico` | Converted from official Visa favicon to PNG for virtual card rows. |
+| `cursor.png` | `https://cursor.com/favicon.ico` | Converted from official Cursor favicon to PNG. |
+| `kiro.png` | `https://kiro.dev/favicon.ico` | Converted from official Kiro favicon to PNG. |
+| `windsurf.png` | `https://windsurf.com/favicon.ico` | Converted from official Windsurf favicon to PNG. |
+| `perplexity.png` | `https://www.perplexity.ai/favicon.ico` | Converted from official Perplexity favicon to PNG. |
+| `suno.png` | `https://suno.com/favicon.ico` | Converted from official Suno favicon to PNG. |
 | `deepseek.png` | `https://www.deepseek.com/favicon.ico` | Converted from official favicon to PNG. |
 | `qwen.png` | `https://qwenlm.github.io/favicon.png` | Official QwenLM site favicon. |
 | `kimi.png` | `https://www.kimi.com/favicon.ico` | Converted from official favicon to PNG. |

@@ -38,9 +38,9 @@ const platformIconMap: Record<string, string> = {
   Claude: "/brand-icons/claude.svg",
   Gemini: "/brand-icons/gemini.svg",
   Grok: "/brand-icons/grok.svg",
-  Google: "/brand-icons/google.svg",
+  Google: "/brand-icons/google.png",
   "API/CDK": "/brand-icons/chatgpt.svg",
-  邮箱: "/brand-icons/gmail.svg",
+  邮箱: "/brand-icons/gmail.png",
 };
 
 const problems = [
