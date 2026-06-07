@@ -44,10 +44,13 @@ export async function generateMetadata({
   const priceText = product.lowestPrice !== null
     ? `${formatCurrency(product.lowestPrice, product.lowestOffer?.currency)} 起`
     : "暂无有货报价";
+  const detailText = getOfficialPricePlanMapping(product)
+    ? "有货最低价、渠道报价、官方参考价和最近更新时间"
+    : "有货最低价、渠道报价和最近更新时间";
 
   return {
     title: `${product.displayName} 价格对比`,
-    description: `查看 ${product.displayName} 的有货最低价、渠道报价、官方参考价和最近更新时间。当前参考：${priceText}。`,
+    description: `查看 ${product.displayName} 的${detailText}。当前参考：${priceText}。`,
     alternates: {
       canonical: `/products/${product.slug}`,
     },
@@ -185,7 +188,7 @@ type OfficialPriceReference = {
 };
 
 const officialPlanByProductId: Record<string, { appSlug: "chatgpt" | "claude" | "gemini" | "grok"; planSlug: string }> = {
-  "chatgpt-plus": { appSlug: "chatgpt", planSlug: "plus-monthly" },
+  "chatgpt-plus-recharge": { appSlug: "chatgpt", planSlug: "plus-monthly" },
   "chatgpt-pro-5x": { appSlug: "chatgpt", planSlug: "pro-5x" },
   "chatgpt-pro-20x": { appSlug: "chatgpt", planSlug: "pro-20x" },
   "claude-pro-month": { appSlug: "claude", planSlug: "pro-monthly" },
@@ -200,7 +203,7 @@ function buildOfficialPriceReference(
   product: ExplorerProductSummary,
   dataset: OfficialPricesDataset,
 ): OfficialPriceReference | null {
-  const mapping = officialPlanByProductId[product.id] || officialPlanByProductId[product.slug];
+  const mapping = getOfficialPricePlanMapping(product);
   if (!mapping) return null;
 
   const id = officialPricePlanId(mapping.appSlug, mapping.planSlug);
@@ -213,6 +216,10 @@ function buildOfficialPriceReference(
     rows,
     usRow: rows.find((row) => row.countryCode === "US") || null,
   };
+}
+
+function getOfficialPricePlanMapping(product: Pick<ExplorerProductSummary, "id" | "slug">) {
+  return officialPlanByProductId[product.id] || officialPlanByProductId[product.slug] || null;
 }
 
 function OfficialPriceReferenceStrip({
