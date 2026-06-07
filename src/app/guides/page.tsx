@@ -4,7 +4,13 @@ import Link from "next/link";
 import { GuidesDirectory } from "@/components/GuidesDirectory";
 import { JsonLd } from "@/components/JsonLd";
 import { SiteHeader } from "@/components/SiteHeader";
-import { getGuideCategory, guideCategories, guideEntries } from "@/lib/guides";
+import {
+  getGuideCategory,
+  getGuidePathStepEntry,
+  guideCategories,
+  guideEntries,
+  guideReadingPaths,
+} from "@/lib/guides";
 
 export const revalidate = 86400;
 
@@ -77,6 +83,58 @@ export default function GuidesIndexPage() {
                 </div>
               </div>
             </aside>
+          </section>
+
+          <section className="mt-8 rounded-lg bg-white p-5 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 sm:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">按问题阅读</p>
+                <h2 className="mt-3 font-serif text-3xl font-semibold tracking-normal text-[#202829]">先选一条路径</h2>
+                <p className="mt-2 max-w-[72ch] text-sm leading-7 text-[#5a6061]">
+                  如果你还不确定该读哪篇，可以先按当前问题走一条短路径。每条路径会把基础解释、风险判断和回到比价工具串起来。
+                </p>
+              </div>
+              <a
+                href="#all-guides"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-[#f2f4f4] px-4 text-sm font-semibold text-[#2d3435] ring-1 ring-[#adb3b4]/15 transition hover:bg-[#dde4e5]"
+              >
+                直接看全部目录
+                <ArrowRight size={15} />
+              </a>
+            </div>
+
+            <div className="mt-6 grid gap-4 lg:grid-cols-3">
+              {guideReadingPaths.map((path) => (
+                <div key={path.id} className="rounded-lg bg-[#f9f9f9] p-4 ring-1 ring-[#adb3b4]/15">
+                  <span className="inline-flex h-7 items-center rounded-full bg-[#e8f3ec] px-3 text-xs font-semibold text-[#2f7a4b]">
+                    {path.audience}
+                  </span>
+                  <h3 className="mt-3 font-semibold text-[#202829]">{path.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-[#5a6061]">{path.description}</p>
+                  <div className="mt-4 space-y-2">
+                    {path.steps.map((step, index) => {
+                      const guide = getGuidePathStepEntry(step);
+
+                      return (
+                        <Link
+                          key={step.href}
+                          href={step.href}
+                          className="group flex gap-3 rounded-lg bg-white px-3 py-3 ring-1 ring-[#adb3b4]/10 transition hover:-translate-y-0.5 hover:ring-[#45bf78]/30"
+                        >
+                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-xs font-bold text-[#5a6061]">
+                            {index + 1}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-[#202829]">{guide?.title ?? step.label}</span>
+                            <span className="mt-1 block text-xs leading-5 text-[#5a6061]">{step.description}</span>
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

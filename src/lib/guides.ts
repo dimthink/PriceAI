@@ -15,6 +15,20 @@ export type GuideEntry = {
   intent: string;
 };
 
+export type GuidePathStep = {
+  href: string;
+  label: string;
+  description: string;
+};
+
+export type GuideReadingPath = {
+  id: string;
+  title: string;
+  description: string;
+  audience: string;
+  steps: GuidePathStep[];
+};
+
 export const guideCategories: GuideCategory[] = [
   {
     id: "basics",
@@ -113,6 +127,88 @@ export const guideEntries: GuideEntry[] = [
   },
 ];
 
+export const guideReadingPaths: GuideReadingPath[] = [
+  {
+    id: "understand-price",
+    title: "先搞懂价格差异",
+    description: "适合第一次看到 AI 订阅报价差很多，不确定官网价、地区价、代充价和第三方渠道价怎么区分的用户。",
+    audience: "小白入门",
+    steps: [
+      {
+        href: "/guides/why-ai-subscription-prices-differ",
+        label: "价格为什么不同",
+        description: "先拆开官网正价、地区价、资格价、代充价和渠道价。",
+      },
+      {
+        href: "/guides/ai-subscription-region-price-risks",
+        label: "地区价能不能用",
+        description: "再看低价区、税费、汇率、账户地区和续费限制。",
+      },
+      {
+        href: "/guides/are-ai-subscription-card-shops-reliable",
+        label: "第三方渠道怎么判断",
+        description: "最后判断卡网渠道、售后入口、投诉路径和交易风险。",
+      },
+    ],
+  },
+  {
+    id: "subscribe-officially",
+    title: "自己走官方订阅",
+    description: "适合想尽量走官方路径，但不清楚官网、App Store、Google Play、支付卡和礼品卡应该怎么选的用户。",
+    audience: "想自己订阅",
+    steps: [
+      {
+        href: "/guides/how-to-subscribe-ai-officially",
+        label: "官方订阅总览",
+        description: "先判断官网、App Store、Google Play 哪个入口更适合。",
+      },
+      {
+        href: "/guides/visa-card-for-ai-subscription",
+        label: "支付卡准备",
+        description: "确认 Visa、Mastercard、虚拟卡、预付卡和续费失败风险。",
+      },
+      {
+        href: "/guides/apple-id-ai-subscription",
+        label: "Apple ID 路径",
+        description: "如果走 iOS 或 App Store，先看账户地区、余额和礼品卡限制。",
+      },
+      {
+        href: "/guides/google-play-ai-subscription",
+        label: "Google Play 路径",
+        description: "如果走 Android 或 Google Play，先看国家/地区和付款资料。",
+      },
+      {
+        href: "/guides/ai-subscription-gift-card",
+        label: "礼品卡限制",
+        description: "用余额或礼品卡前，确认地区绑定、税费、退款和续费。",
+      },
+    ],
+  },
+  {
+    id: "compare-channel",
+    title: "准备买第三方渠道",
+    description: "适合已经决定看第三方渠道，但还想知道怎么判断渠道、怎么比较具体商品和怎么回到报价表核验的用户。",
+    audience: "准备比价购买",
+    steps: [
+      {
+        href: "/guides/are-ai-subscription-card-shops-reliable",
+        label: "先判断渠道可靠性",
+        description: "把卡网看作信息源，重点看售后、商品描述和投诉入口。",
+      },
+      {
+        href: "/guides/chatgpt-subscription-options",
+        label: "再分清 ChatGPT 商品",
+        description: "区分 Plus、Pro、Team、成品号、代充、CDK 和 API/CDK。",
+      },
+      {
+        href: "/?stock=available",
+        label: "回到有货报价",
+        description: "最后回到 PriceAI，按有货最低价、来源和更新时间筛选。",
+      },
+    ],
+  },
+];
+
 export function getGuideCategory(id: GuideCategoryId) {
   return guideCategories.find((category) => category.id === id);
 }
@@ -121,8 +217,28 @@ export function getGuideEntry(href: string) {
   return guideEntries.find((guide) => guide.href === href);
 }
 
+export function getGuideReadingPath(id: string) {
+  return guideReadingPaths.find((path) => path.id === id);
+}
+
+export function getGuideReadingPathForGuide(currentHref: string) {
+  return guideReadingPaths
+    .map((path) => ({
+      path,
+      stepIndex: path.steps.findIndex((step) => step.href === currentHref),
+    }))
+    .filter((item) => item.stepIndex >= 0)
+    .sort((a, b) => a.stepIndex - b.stepIndex || a.path.steps.length - b.path.steps.length)[0]?.path;
+}
+
+export function getGuidePathStepEntry(step: GuidePathStep) {
+  return getGuideEntry(step.href);
+}
+
 export function getRelatedGuides(currentHref: string, limit = 3) {
   const current = getGuideEntry(currentHref);
+  const currentPath = getGuideReadingPathForGuide(currentHref);
+  const pathGuideHrefs = currentPath?.steps.map((step) => step.href) ?? [];
 
   if (!current) {
     return guideEntries.filter((guide) => guide.href !== currentHref).slice(0, limit);
@@ -133,10 +249,11 @@ export function getRelatedGuides(currentHref: string, limit = 3) {
     .map((guide) => {
       const sharedTags = guide.tags.filter((tag) => current.tags.includes(tag)).length;
       const categoryScore = guide.categoryId === current.categoryId ? 3 : 0;
+      const pathScore = pathGuideHrefs.includes(guide.href) ? 4 : 0;
 
       return {
         guide,
-        score: categoryScore + sharedTags,
+        score: pathScore + categoryScore + sharedTags,
       };
     })
     .sort((a, b) => b.score - a.score || guideEntries.indexOf(a.guide) - guideEntries.indexOf(b.guide))

@@ -1,9 +1,15 @@
-import { ArrowRight, BookOpenText, ListTree } from "lucide-react";
+import { ArrowRight, BookOpenText, CheckCircle2, ListTree } from "lucide-react";
 import Link from "next/link";
-import { getGuideCategory, getRelatedGuides } from "@/lib/guides";
+import {
+  getGuideCategory,
+  getGuidePathStepEntry,
+  getGuideReadingPathForGuide,
+  getRelatedGuides,
+} from "@/lib/guides";
 
 export function GuideReadingFooter({ currentHref }: { currentHref: string }) {
   const relatedGuides = getRelatedGuides(currentHref, 3);
+  const readingPath = getGuideReadingPathForGuide(currentHref);
 
   return (
     <section className="mt-12 overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
@@ -18,6 +24,45 @@ export function GuideReadingFooter({ currentHref }: { currentHref: string }) {
           <p className="mt-3 max-w-[68ch] text-sm leading-7 text-[#5a6061]">
             指南负责把路径和风险讲清楚；比价工具负责查看当前可见的有货报价、来源和更新时间。
           </p>
+
+          {readingPath ? (
+            <div className="mt-6 rounded-lg bg-[#f2f4f4] p-4 ring-1 ring-[#adb3b4]/15">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">当前阅读路径</p>
+              <h3 className="mt-2 font-semibold text-[#202829]">{readingPath.title}</h3>
+              <div className="mt-4 grid gap-2">
+                {readingPath.steps.map((step, index) => {
+                  const guide = getGuidePathStepEntry(step);
+                  const active = step.href === currentHref;
+
+                  return (
+                    <Link
+                      key={step.href}
+                      href={step.href}
+                      aria-current={active ? "page" : undefined}
+                      className={`group flex gap-3 rounded-lg px-3 py-3 transition ${
+                        active
+                          ? "bg-white text-[#202829] shadow-[0_10px_30px_rgba(45,52,53,0.035)] ring-1 ring-[#45bf78]/20"
+                          : "bg-transparent text-[#5a6061] hover:bg-white"
+                      }`}
+                    >
+                      <span
+                        className={`mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                          active ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-white text-[#5a6061] ring-1 ring-[#adb3b4]/15"
+                        }`}
+                      >
+                        {active ? <CheckCircle2 size={14} /> : index + 1}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-[#202829]">{guide?.title ?? step.label}</span>
+                        <span className="mt-1 block text-xs leading-5 text-[#5a6061]">{step.description}</span>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               href="/guides"
