@@ -122,6 +122,8 @@ export default async function ProductDetail({
           </div>
         </section>
 
+        <ProductAvailabilityStrip product={product} />
+
         {officialReference ? (
           <OfficialPriceReferenceStrip reference={officialReference} product={product} />
         ) : null}
@@ -149,36 +151,7 @@ export default async function ProductDetail({
           initialData={initialOffers}
         />
 
-        {product.platform === "ChatGPT" ? (
-          <section className="mt-8 rounded-lg bg-[#f2f4f4] p-5 ring-1 ring-[#adb3b4]/15">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="font-serif text-2xl font-semibold tracking-normal text-[#202829]">
-                  想先弄清 ChatGPT 各种获取方式？
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-[#5a6061]">
-                  可以先看平台价格页和新手指南，再回到这里核验具体渠道报价。
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
-                <Link
-                  href="/platforms/chatgpt"
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-[#dde4e5] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#d3dcdd]"
-                >
-                  平台页
-                  <ArrowRight size={15} />
-                </Link>
-                <Link
-                  href="/guides/chatgpt-subscription-options"
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#202829]"
-                >
-                  指南
-                  <ArrowRight size={15} />
-                </Link>
-              </div>
-            </div>
-          </section>
-        ) : null}
+        <ProductRelatedCta product={product} />
 
         <p className="mt-8 text-xs leading-6 text-[#5a6061]">
           免责声明：本站仅聚合公开采集或审核通过的报价信息，不参与交易，实际价格、库存、质保和售后规则以原平台为准。
@@ -611,6 +584,46 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ProductAvailabilityStrip({ product }: { product: ExplorerProductSummary }) {
+  return (
+    <section className="mt-4 rounded-lg bg-white px-4 py-4 shadow-[0_14px_42px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.15fr_0.75fr_0.75fr_0.9fr]">
+        <ProductMetric
+          label="当前有货最低"
+          value={product.lowestPrice !== null ? formatCurrency(product.lowestPrice, product.lowestOffer?.currency) : "暂无有货"}
+          tone={product.lowestPrice !== null ? "good" : "danger"}
+          detail={product.lowestOffer ? `${product.lowestOffer.sourceStoreName || product.lowestOffer.sourceName} · 缺货不参与最低价` : "缺货或下架报价不参与最低价"}
+        />
+        <ProductMetric label="有货报价" value={`${product.inStockCount}`} detail="可作为当前购买参考" />
+        <ProductMetric label="总报价" value={`${product.offerCount}`} detail={`${product.outOfStockCount} 条缺货或不可用`} />
+        <ProductMetric label="最近记录" value={formatRelativeTime(product.latestSeenAt)} detail="以来源更新时间和采集记录为准" />
+      </div>
+    </section>
+  );
+}
+
+function ProductMetric({
+  label,
+  value,
+  detail,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "default" | "good" | "danger";
+}) {
+  return (
+    <div className="rounded-lg bg-[#f2f4f4] px-4 py-3">
+      <p className="text-xs font-semibold text-[#5a6061]">{label}</p>
+      <p className={`mt-1 text-xl font-bold ${tone === "good" ? "text-[#2f7a4b]" : tone === "danger" ? "text-[#9b3328]" : "text-[#202829]"}`}>
+        {value}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-[#5a6061]">{detail}</p>
+    </div>
+  );
+}
+
 function platformIcon(platform: string, productId?: string) {
   const className = "h-[15px] w-[15px]";
 
@@ -621,6 +634,98 @@ function platformIcon(platform: string, productId?: string) {
 
 function productTypeLabel(productType: string): string {
   return productTypeLabels[productType] || productType;
+}
+
+type RelatedCta = {
+  title: string;
+  description: string;
+  links: Array<{
+    label: string;
+    href: string;
+    tone?: "primary" | "secondary";
+  }>;
+};
+
+function ProductRelatedCta({ product }: { product: ExplorerProductSummary }) {
+  const cta = getRelatedCta(product);
+  if (!cta) return null;
+
+  return (
+    <section className="mt-8 rounded-lg bg-[#f2f4f4] p-5 ring-1 ring-[#adb3b4]/15">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-serif text-2xl font-semibold tracking-normal text-[#202829]">{cta.title}</h2>
+          <p className="mt-2 text-sm leading-6 text-[#5a6061]">{cta.description}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {cta.links.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-4 text-sm font-semibold transition ${
+                link.tone === "primary"
+                  ? "bg-[#2d3435] text-[#f8f8f8] hover:bg-[#202829]"
+                  : "bg-[#dde4e5] text-[#2d3435] hover:bg-[#d3dcdd]"
+              }`}
+            >
+              {link.label}
+              <ArrowRight size={15} />
+            </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function getRelatedCta(product: ExplorerProductSummary): RelatedCta | null {
+  if (product.platform === "ChatGPT") {
+    return {
+      title: "想先弄清 ChatGPT 各种获取方式？",
+      description: "可以先看平台价格页和新手指南，再回到这里核验具体渠道报价。",
+      links: [
+        { label: "平台页", href: "/platforms/chatgpt" },
+        { label: "指南", href: "/guides/chatgpt-subscription-options", tone: "primary" },
+      ],
+    };
+  }
+
+  if (product.platform === "Gemini") {
+    return {
+      title: "想先弄清 Gemini 和 Google AI 的价格路径？",
+      description: "可以先看 Gemini 平台页、Google Play 指南和地区价风险，再核验具体渠道报价。",
+      links: [
+        { label: "Gemini 平台页", href: "/platforms/gemini" },
+        { label: "Google Play 指南", href: "/guides/google-play-ai-subscription" },
+        { label: "地区价风险", href: "/guides/ai-subscription-region-price-risks", tone: "primary" },
+      ],
+    };
+  }
+
+  if (product.platform === "Claude") {
+    return {
+      title: "想先分清 Claude Pro、Max 和账号类商品？",
+      description: "可以先看 Claude 平台页和官方参考价，再回到这里比较渠道报价和库存状态。",
+      links: [
+        { label: "Claude 平台页", href: "/platforms/claude" },
+        { label: "官方地区价", href: "/official-prices" },
+        { label: "渠道判断", href: "/guides/are-ai-subscription-card-shops-reliable", tone: "primary" },
+      ],
+    };
+  }
+
+  if (product.platform === "API/CDK" || product.id === "openai-api-cdk") {
+    return {
+      title: "想接入 Codex、Cursor 或自建工具？",
+      description: "可以先看 API 平台页和模型 API 雷达，分清官方 API、免费 API、Token Plan 和渠道额度。",
+      links: [
+        { label: "API 平台页", href: "/platforms/api" },
+        { label: "模型 API 雷达", href: "/api-models", tone: "primary" },
+      ],
+    };
+  }
+
+  return null;
 }
 
 function buildProductJsonLd(

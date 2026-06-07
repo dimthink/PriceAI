@@ -129,12 +129,56 @@ vercel deploy --prod --yes
 - `scope_change`：标准商品 / 全部报价。
 - `platform_filter_change`：平台切换。
 - `product_detail_open`：进入标准商品详情。
+- `platform_landing_cta_click`：从 ChatGPT / Gemini / Claude / API 承接页进入工具页、全部报价或 API 雷达。
+- `platform_product_detail_open`：从平台承接页进入重点商品详情。
+- `platform_related_link_click`：从平台承接页进入相关指南或官方价页面。
 - `purchase_link_click`：点击原站购买链接。
 - `submit_source_success`：提交渠道成功。
 
 当前这些事件会同时发送给 GA4 和 Umami。Umami Cloud 按 event 计量，前期不要为事件附加过多属性；不要发送完整搜索词、商品原始标题、渠道链接、邮箱或联系方式。
 
 不要把用户搜索框里的完整关键词直接发 GA4。搜索词可能包含邮箱、账号或链接，后续如果要分析搜索词，建议写入自己的 Supabase 表，并做脱敏和长度限制。
+
+## SEO 数据闭环
+
+PriceAI 的 SEO/GEO 复盘固定按 7-14 天做一次短周期检查，避免凭感觉改页面。
+
+每次复盘看四组数据：
+
+- Search Console：查询词、展示、点击、CTR、平均排名，重点看“有曝光没点击”的词。
+- Umami：页面访问、来源、设备、地域、平台页 CTA 点击、商品详情打开。
+- GA4：DAU / WAU / MAU、自然搜索来源、页面路径、engagement 和 referral。
+- GitHub referrer：GitHub README 是否继续给主站带来流量，尤其观察“AI 卡网渠道”相关入口。
+
+当前重点页面：
+
+- `/platforms/chatgpt`
+- `/platforms/gemini`
+- `/platforms/claude`
+- `/platforms/api`
+- `/products/chatgpt-plus`
+- `/products/chatgpt-pro-20x`
+- `/products/chatgpt-team-business`
+- `/products/gemini-pro-year`
+- `/products/claude-pro-month`
+- `/products/openai-api-cdk`
+- `/guides`
+
+短复盘建议记录：
+
+```md
+## SEO 短复盘 YYYY-MM-DD
+
+- Search Console 新增查询词：
+- 有曝光没点击的词：
+- 表现最好的入口页：
+- 跳出或停留较弱的页面：
+- GitHub README 是否继续带来流量：
+- 本轮只做的小改动：
+- 暂不处理：
+```
+
+README 目前先按低风险策略维护：只做小步补充和入口修正，不频繁重写首屏标题、截图和核心关键词，避免破坏已有 GitHub 搜索入口。
 
 ## 常见问题
 

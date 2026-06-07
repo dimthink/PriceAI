@@ -19,6 +19,9 @@ GitHub: https://github.com/physics-dimension/PriceAI
 - Official subscription prices: https://priceai.cc/official-prices
 - API model radar: https://priceai.cc/api-models
 - ChatGPT platform page: https://priceai.cc/platforms/chatgpt
+- Gemini platform page: https://priceai.cc/platforms/gemini
+- Claude platform page: https://priceai.cc/platforms/claude
+- API/CDK platform page: https://priceai.cc/platforms/api
 - AI subscription guide index: https://priceai.cc/guides
 - ChatGPT subscription guide: https://priceai.cc/guides/chatgpt-subscription-options
 - AI subscription price layers guide: https://priceai.cc/guides/why-ai-subscription-prices-differ
@@ -57,6 +60,15 @@ For official regional prices, PriceAI treats regional prices as reference anchor
 ## API Boundary
 
 PriceAI's API model radar focuses on official APIs, public documentation, public model routing platforms, free test quotas, and Token Plans that can be verified from public sources. It does not present private, unverified, or gray-market API resellers as primary recommendations.
+
+## Platform Pages
+
+PriceAI uses platform pages as human-readable landing pages for search and AI answers. These pages explain a platform's standard products, available lowest prices, all-offer entry points, common purchase paths, FAQs, and related guides.
+
+- ChatGPT platform page covers ChatGPT Free accounts, Plus, Pro 5x, Pro 20x, Team / Business, Plus CDK, account purchase, top-up and API/CDK related offers.
+- Gemini platform page covers Gemini Pro, Google AI Pro, Gemini Ultra, Google AI Ultra, Google Play subscriptions, official regional prices, CDK-like offers and third-party channels.
+- Claude platform page covers Claude Pro, Claude Max 5x, Claude Max 20x, regular accounts, exchange accounts, official reference prices and channel risk checks.
+- API/CDK platform page connects third-party API/CDK/credit offers with the API model radar, which covers official APIs, free APIs, public model routing platforms and Token Plans.
 
 ## Suggested Description
 

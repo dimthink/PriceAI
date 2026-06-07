@@ -3,6 +3,7 @@ import { getApiModelSummaries, getApiProviderSummaries } from "@/lib/api-models"
 import { getApiModelDataset } from "@/lib/api-models-db";
 import { getExplorerData } from "@/lib/data";
 import { getOfficialPricePlanSummaries } from "@/lib/official-prices";
+import { platformPageConfigList } from "@/lib/platform-pages";
 
 const siteUrl = "https://priceai.cc";
 
@@ -38,12 +39,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "daily",
       priority: 0.75,
     },
-    {
-      url: `${siteUrl}/platforms/chatgpt`,
+    ...platformPageConfigList.map((platform) => ({
+      url: `${siteUrl}/platforms/${platform.slug}`,
       lastModified: data.generatedAt ? new Date(data.generatedAt) : now,
-      changeFrequency: "daily",
-      priority: 0.78,
-    },
+      changeFrequency: "daily" as const,
+      priority: platform.slug === "chatgpt" ? 0.78 : 0.74,
+    })),
     {
       url: `${siteUrl}/guides`,
       lastModified: now,

@@ -4,11 +4,11 @@ import { platformPageConfigs } from "@/lib/platform-pages";
 import type { ExplorerProductSummary } from "@/lib/types";
 
 export const revalidate = 300;
-export const metadata = platformPageConfigs.chatgpt.metadata;
+export const metadata = platformPageConfigs.gemini.metadata;
 
-export default async function ChatGptPlatformPage() {
+export default async function GeminiPlatformPage() {
   const data = await getExplorerData();
-  const config = platformPageConfigs.chatgpt;
+  const config = platformPageConfigs.gemini;
   const productIds: readonly string[] = config.productIds;
   const products = data.products
     .filter((product) => productIds.includes(product.id))
