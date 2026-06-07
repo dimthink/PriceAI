@@ -5,7 +5,9 @@ import type { ReactNode } from "react";
 import {
   ArrowRight,
   CheckCircle2,
+  Code2,
   ExternalLink,
+  Globe2,
   Radar,
   Search,
   Send,
@@ -47,15 +49,46 @@ const platformIconMap: Record<string, string> = {
 const problems = [
   {
     title: "价格差异大",
-    text: "同一个 AI 会员可能有官网正价、地区价、资格价、代订价和第三方渠道价，普通用户很难判断哪个才是合理区间。",
+    text: "同一个 AI 会员可能同时有官网正价、地区价、资格价、代订价和第三方渠道价。",
   },
   {
     title: "渠道太分散",
-    text: "报价散落在卡网、Telegram 群、闲鱼、私域链接和不同店铺里，每次购买前都要打开很多页面手动对比。",
+    text: "报价散落在卡网、Telegram 群、闲鱼、私域链接和不同店铺里。",
   },
   {
-    title: "风险不透明",
-    text: "便宜可能来自地区权益、设备权益、批量渠道，也可能来自不稳定号源。价格低不等于一定有问题，价格高也不等于一定靠谱。",
+    title: "标题不统一",
+    text: "Plus、Pro、Team、成品号、直充、卡密、CDK 经常混在同一个商品标题里。",
+  },
+  {
+    title: "更新不可靠",
+    text: "便宜报价如果已经缺货、下架或很久没更新，就不能继续当成当前最低价。",
+  },
+];
+
+const accessPaths = [
+  {
+    title: "订阅比价",
+    label: "第三方渠道",
+    text: "比较 ChatGPT、Claude、Gemini、Grok、邮箱、CDK 等渠道报价，外层最低价只看有货报价。",
+    href: "/",
+    action: "进入比价",
+    icon: <Radar size={18} />,
+  },
+  {
+    title: "官方地区价",
+    label: "官方基准",
+    text: "查看公开官方价格和地区价，用作理解官网正价、地区价和渠道报价的价格锚点。",
+    href: "/official-prices",
+    action: "查看地区价",
+    icon: <Globe2 size={18} />,
+  },
+  {
+    title: "模型 API",
+    label: "API / Token",
+    text: "整理官方 API、免费 API、模型路由和 Token Plan，给开发者比较调用成本和限制。",
+    href: "/api-models",
+    action: "查看 API",
+    icon: <Code2 size={18} />,
   },
 ];
 
@@ -92,10 +125,34 @@ const features = [
   },
 ];
 
-const steps = [
-  ["搜索商品", "输入 ChatGPT Plus、Gemini Pro、Claude Pro、Grok、Gmail 等关键词。"],
-  ["比较来源", "查看有货最低价、渠道数量、原始商品名、库存状态和更新时间。"],
-  ["跳转原站", "回到原渠道确认交付方式、售后规则和最终价格，再决定是否购买。"],
+const guides = [
+  {
+    title: "AI 订阅价格为什么差很多",
+    text: "先理解官网正价、地区价、代充价和第三方渠道价。",
+    href: "/guides/why-ai-subscription-prices-differ",
+  },
+  {
+    title: "卡网渠道是否靠谱",
+    text: "理解卡网、卖家、售后入口和购买前检查清单。",
+    href: "/guides/are-ai-subscription-card-shops-reliable",
+  },
+  {
+    title: "如何自己完成官方订阅",
+    text: "理解官网、App Store、Google Play、支付方式和地区价。",
+    href: "/guides/how-to-subscribe-ai-officially",
+  },
+  {
+    title: "ChatGPT 获取方式",
+    text: "先理解官方订阅、地区价、代充、成品号、Team 和 API/CDK。",
+    href: "/guides/chatgpt-subscription-options",
+  },
+];
+
+const audiences = [
+  ["小白用户", "想用 ChatGPT / Gemini，但不清楚官网正价、地区价和第三方渠道有什么区别。"],
+  ["性价比用户", "愿意付费，也想知道哪个地区、渠道或套餐更便宜。"],
+  ["API 用户", "想找免费或便宜的 DeepSeek、Qwen、Kimi API，或接入 Codex、Cursor、OpenCode。"],
+  ["贡献用户", "发现新渠道、错价、下架或假货线索，希望提交给 PriceAI 审核。"],
 ];
 
 const faqs = [
@@ -142,11 +199,11 @@ export default async function AboutPage() {
             <AppLogo />
           </Link>
           <nav className="hidden items-center gap-6 text-sm font-semibold text-[#5a6061] md:flex">
-            <a href="#problems" className="transition hover:text-[#202829]">
-              痛点
+            <a href="#paths" className="transition hover:text-[#202829]">
+              入口
             </a>
-            <a href="#features" className="transition hover:text-[#202829]">
-              能力
+            <a href="#boundary" className="transition hover:text-[#202829]">
+              边界
             </a>
             <a href="#faq" className="transition hover:text-[#202829]">
               FAQ
@@ -171,17 +228,17 @@ export default async function AboutPage() {
       </header>
 
       <div className="mx-auto max-w-[1180px] px-5 pb-12 pt-10 sm:px-8 lg:pb-18 lg:pt-16">
-        <section className="grid gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(420px,1fr)] lg:items-center">
+        <section className="grid gap-8 lg:grid-cols-[minmax(0,0.92fr)_minmax(360px,0.72fr)] lg:items-start">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full bg-[#e8f3ec] px-3 py-1.5 text-xs font-semibold text-[#2f7a4b] ring-1 ring-[#45bf78]/15">
               <Radar size={14} />
-              AI 订阅与模型 API 获取成本雷达
+              AI 订阅与模型 API 的获取成本雷达
             </div>
             <h1 className="mt-5 font-serif text-4xl font-semibold leading-tight tracking-normal text-[#202829] sm:text-5xl lg:text-[3.5rem]">
               获取 AI 能力前，先看清真实成本。
             </h1>
             <p className="mt-6 max-w-[66ch] text-base leading-8 text-[#5a6061]">
-              ChatGPT、Claude、Gemini、Grok 这些 AI 订阅和模型 API，可能同时存在官网正价、地区价、代订价、第三方渠道价、免费额度和 Token Plan。PriceAI 把这些获取路径整理到一起，让你购买或接入前先看到价格、来源、库存和更新时间。
+              PriceAI 面向中文用户整理 AI 能力获取路径：第三方订阅渠道、官方地区价、模型 API、免费 API 和 Token Plan。它不卖货、不担保，只把购买或接入前需要核验的价格、来源、库存和更新时间放到同一个界面里。
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -199,7 +256,7 @@ export default async function AboutPage() {
                 <Send size={16} />
               </Link>
             </div>
-            <div className="mt-8 flex flex-wrap gap-2">
+            <div className="mt-8 flex flex-wrap gap-2" aria-label="当前覆盖的平台和类型">
               {platformOptions.slice(0, 7).map((platform) => (
                 <span
                   key={platform}
@@ -216,23 +273,41 @@ export default async function AboutPage() {
             </div>
           </div>
 
-          <ProductPreview products={previewProducts} productTotal={data.products.length} offerTotal={data.offerTotal} availableCount={availableCount} />
+          <AboutSnapshot
+            products={previewProducts}
+            productTotal={data.products.length}
+            offerTotal={data.offerTotal}
+            availableCount={availableCount}
+          />
         </section>
 
-        <section id="problems" className="mt-18 scroll-mt-28">
+        <section id="paths" className="mt-14 scroll-mt-28">
           <SectionHeader
-            eyebrow="Why PriceAI"
-            title="AI 订阅价格不是一个统一市场。"
-            text="小白第一次买会被名词绕晕，熟手也会被渠道数量拖慢。PriceAI 先把问题拆清楚，再把可比的信息放到同一个界面里。"
+            eyebrow="Start with paths"
+            title="先选你要解决的获取问题。"
+            text="PriceAI 不把所有信息混成一个大列表，而是把订阅、官方基准价和 API 获取方式分开承接。"
           />
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
+          <div className="mt-8 grid gap-4 lg:grid-cols-3">
+            {accessPaths.map((path) => (
+              <PathCard key={path.title} {...path} />
+            ))}
+          </div>
+        </section>
+
+        <section id="problems" className="mt-16 scroll-mt-28">
+          <SectionHeader
+            eyebrow="Why it exists"
+            title="AI 能力获取不是一个统一市场。"
+            text="官网正价、地区价、资格权益、代订、成品号、卡密、CDK、免费 API 和模型路由混在一起，用户很难快速判断合理区间。"
+          />
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {problems.map((item, index) => (
               <ProblemCard key={item.title} index={index + 1} title={item.title} text={item.text} />
             ))}
           </div>
         </section>
 
-        <section className="mt-16 grid gap-6 rounded-lg bg-[#202829] p-6 text-[#f8f8f8] shadow-[0_24px_70px_rgba(45,52,53,0.12)] md:grid-cols-[0.74fr_1fr] md:p-8">
+        <section id="boundary" className="mt-16 grid gap-6 rounded-lg bg-[#202829] p-6 text-[#f8f8f8] shadow-[0_24px_70px_rgba(45,52,53,0.12)] md:grid-cols-[0.74fr_1fr] md:p-8">
           <div>
             <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#f8f8f8]/10 text-[#45bf78]">
               <ShieldAlert size={19} />
@@ -245,8 +320,8 @@ export default async function AboutPage() {
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Boundary title="PriceAI 会做" items={["聚合多个渠道报价", "展示有货 / 缺货", "保留原始商品名", "显示更新时间"]} />
-            <Boundary title="PriceAI 不做" items={["不卖货", "不收款", "不替渠道担保", "不承诺售后"]} />
+            <Boundary title="PriceAI 会做" items={["聚合渠道报价", "展示官方地区价", "整理模型 API", "保留原始来源"]} />
+            <Boundary title="PriceAI 不做" items={["不卖货", "不收款", "不替渠道担保", "不绕过风控"]} />
           </div>
         </section>
 
@@ -263,95 +338,38 @@ export default async function AboutPage() {
           </div>
         </section>
 
-        <section className="mt-16 rounded-lg bg-white p-6 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 md:p-8">
-          <div className="grid gap-6 lg:grid-cols-[0.72fr_1fr] lg:items-start">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">Start here</p>
-              <h2 className="mt-3 font-serif text-3xl font-semibold leading-tight tracking-normal text-[#202829]">
-                第一次买，先把价格和风险边界看清楚。
-              </h2>
-              <p className="mt-4 text-sm leading-7 text-[#5a6061]">
-                先理解价格为什么会分层，再看卡网渠道该怎么判断，最后回到具体平台页查看当前有货报价。
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Link
-                href="/guides/why-ai-subscription-prices-differ"
-                className="rounded-lg bg-[#f2f4f4] p-5 transition hover:-translate-y-0.5 hover:bg-[#ebeeef]"
-              >
-                <span className="text-sm font-semibold text-[#202829]">AI 订阅价格分层指南</span>
-                <span className="mt-2 block text-sm leading-6 text-[#5a6061]">先理解官网正价、地区价、代充价和第三方渠道价。</span>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2d3435]">
-                  阅读指南
-                  <ArrowRight size={15} />
-                </span>
-              </Link>
-              <Link
-                href="/guides/are-ai-subscription-card-shops-reliable"
-                className="rounded-lg bg-[#f2f4f4] p-5 transition hover:-translate-y-0.5 hover:bg-[#ebeeef]"
-              >
-                <span className="text-sm font-semibold text-[#202829]">卡网渠道可信度指南</span>
-                <span className="mt-2 block text-sm leading-6 text-[#5a6061]">理解卡网、卖家、售后入口和购买前检查清单。</span>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2d3435]">
-                  阅读指南
-                  <ArrowRight size={15} />
-                </span>
-              </Link>
-              <Link
-                href="/platforms/chatgpt"
-                className="rounded-lg bg-[#f2f4f4] p-5 transition hover:-translate-y-0.5 hover:bg-[#ebeeef]"
-              >
-                <span className="text-sm font-semibold text-[#202829]">ChatGPT 平台价格页</span>
-                <span className="mt-2 block text-sm leading-6 text-[#5a6061]">查看 Plus、Pro、Team、普号和 API/CDK 的价格摘要。</span>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2d3435]">
-                  查看页面
-                  <ArrowRight size={15} />
-                </span>
-              </Link>
-              <Link
-                href="/guides/chatgpt-subscription-options"
-                className="rounded-lg bg-[#f2f4f4] p-5 transition hover:-translate-y-0.5 hover:bg-[#ebeeef]"
-              >
-                <span className="text-sm font-semibold text-[#202829]">ChatGPT 获取方式指南</span>
-                <span className="mt-2 block text-sm leading-6 text-[#5a6061]">先理解官方订阅、地区价、代充、成品号和 API/CDK。</span>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2d3435]">
-                  阅读指南
-                  <ArrowRight size={15} />
-                </span>
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-18 grid gap-10 lg:grid-cols-[0.7fr_1fr] lg:items-start">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">How it works</p>
+        <section className="mt-16 grid gap-6 lg:grid-cols-[0.72fr_1fr] lg:items-start">
+          <div className="rounded-lg bg-[#f2f4f4] p-6 ring-1 ring-[#adb3b4]/15 md:p-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">Who uses it</p>
             <h2 className="mt-3 font-serif text-3xl font-semibold leading-tight tracking-normal text-[#202829]">
-              三步完成购买前比价。
+              不同用户，先看的入口不一样。
             </h2>
             <p className="mt-4 text-sm leading-7 text-[#5a6061]">
-              它适合第一次听说卡网的人，也适合已经收藏很多渠道、每次都要手动打开页面比价的人。
+              PriceAI 不是泛 AI 工具目录，它只服务“AI 订阅、官方价格、API / Token 怎么来”这条主线。
             </p>
           </div>
-          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-1">
-            {steps.map(([title, text], index) => (
-              <StepCard key={title} index={index + 1} title={title} text={text} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {audiences.map(([title, text]) => (
+              <Audience key={title} title={title} text={text} />
             ))}
           </div>
         </section>
 
-        <section className="mt-18 rounded-lg bg-[#f2f4f4] p-6 ring-1 ring-[#adb3b4]/15 md:p-8">
-          <div className="grid gap-8 lg:grid-cols-[0.7fr_1fr]">
+        <section className="mt-16 rounded-lg bg-white p-6 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 md:p-8">
+          <div className="grid gap-6 lg:grid-cols-[0.58fr_1fr] lg:items-start">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">Who uses it</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">Start here</p>
               <h2 className="mt-3 font-serif text-3xl font-semibold leading-tight tracking-normal text-[#202829]">
-                如果你买之前会犹豫，它就有用。
+                第一次来，可以先读这些。
               </h2>
+              <p className="mt-4 text-sm leading-7 text-[#5a6061]">
+                这些指南负责解释背景和边界，工具页负责给出当前价格和来源。两者分开，判断会更稳。
+              </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Audience title="小白用户" text="先理解为什么同一个订阅会有不同价格。" />
-              <Audience title="比价用户" text="少打开几个渠道站，先看有货最低价。" />
-              <Audience title="渠道发现者" text="发现新来源后提交，让系统后续尝试纳入。" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              {guides.map((guide) => (
+                <GuideLink key={guide.href} {...guide} />
+              ))}
             </div>
           </div>
         </section>
@@ -416,7 +434,7 @@ function buildAboutJsonLd() {
   };
 }
 
-function ProductPreview({
+function AboutSnapshot({
   products,
   productTotal,
   offerTotal,
@@ -428,12 +446,12 @@ function ProductPreview({
   availableCount: number;
 }) {
   return (
-    <aside className="rounded-lg bg-white p-4 shadow-[0_24px_70px_rgba(45,52,53,0.08)] ring-1 ring-[#adb3b4]/15">
+    <aside className="rounded-lg bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.055)] ring-1 ring-[#adb3b4]/15">
       <div className="rounded-lg bg-[#f2f4f4] p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">Live price desk</p>
-            <h2 className="mt-1 text-base font-bold text-[#202829]">当前报价预览</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">PriceAI now</p>
+            <h2 className="mt-1 text-base font-bold text-[#202829]">当前数据快照</h2>
           </div>
           <span className="rounded-full bg-[#e8f3ec] px-3 py-1 text-xs font-semibold text-[#2f7a4b]">
             有货优先
@@ -474,9 +492,49 @@ function ProductPreview({
       </div>
 
       <div className="mt-4 rounded-lg bg-[#fff7e8] px-4 py-3 text-xs leading-5 text-[#7a541b]">
-        PriceAI 不参与交易。跳转原站前，请自行确认交付方式、售后规则和最终价格。
+        快照只说明当前系统可见数据。跳转原站前，请自行确认交付方式、售后规则和最终价格。
       </div>
     </aside>
+  );
+}
+
+function PathCard({
+  title,
+  label,
+  text,
+  href,
+  action,
+  icon,
+}: {
+  title: string;
+  label: string;
+  text: string;
+  href: string;
+  action: string;
+  icon: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex min-h-[190px] flex-col justify-between rounded-lg bg-white p-5 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 transition hover:-translate-y-0.5 hover:bg-[#fbfcfc]"
+    >
+      <span className="flex items-start justify-between gap-4">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#e8f3ec] text-[#2f7a4b]">
+          {icon}
+        </span>
+        <span className="rounded-full bg-[#f2f4f4] px-2.5 py-1 text-xs font-semibold text-[#5a6061]">
+          {label}
+        </span>
+      </span>
+      <span className="mt-5 block">
+        <span className="block text-lg font-bold text-[#202829]">{title}</span>
+        <span className="mt-2 block text-sm leading-7 text-[#5a6061]">{text}</span>
+      </span>
+      <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2d3435]">
+        {action}
+        <ArrowRight size={15} className="transition group-hover:translate-x-0.5" />
+      </span>
+    </Link>
   );
 }
 
@@ -534,26 +592,28 @@ function FeatureRow({ icon, title, text }: { icon: ReactNode; title: string; tex
   );
 }
 
-function StepCard({ index, title, text }: { index: number; title: string; text: string }) {
-  return (
-    <article className="grid gap-3 rounded-lg bg-white p-5 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 sm:grid-cols-[44px_1fr]">
-      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#202829] text-sm font-bold text-[#f8f8f8]">
-        {index}
-      </span>
-      <div>
-        <h3 className="text-base font-bold text-[#202829]">{title}</h3>
-        <p className="mt-2 text-sm leading-7 text-[#5a6061]">{text}</p>
-      </div>
-    </article>
-  );
-}
-
 function Audience({ title, text }: { title: string; text: string }) {
   return (
     <article className="rounded-lg bg-white p-4 ring-1 ring-[#adb3b4]/15">
       <h3 className="text-sm font-bold text-[#202829]">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-[#5a6061]">{text}</p>
     </article>
+  );
+}
+
+function GuideLink({ title, text, href }: { title: string; text: string; href: string }) {
+  return (
+    <Link
+      href={href}
+      className="group rounded-lg bg-[#f2f4f4] p-4 transition hover:-translate-y-0.5 hover:bg-[#ebeeef]"
+    >
+      <span className="text-sm font-semibold text-[#202829]">{title}</span>
+      <span className="mt-2 block text-sm leading-6 text-[#5a6061]">{text}</span>
+      <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#2d3435]">
+        阅读
+        <ArrowRight size={15} className="transition group-hover:translate-x-0.5" />
+      </span>
+    </Link>
   );
 }
 
