@@ -6,6 +6,7 @@ import net from "node:net";
 import { canonicalCatalog, classifyOffer } from "./catalog";
 import { ADMIN_SESSION_COOKIE, getAdminPassword, verifyAdminSessionToken } from "./env";
 import { freshnessFields } from "./freshness";
+import { pruneOperationalLogs } from "./operational-logs";
 import { getSupabaseServerClient } from "./supabase";
 import type {
   ChannelSubmission,
@@ -2037,6 +2038,7 @@ export async function approveSubmission(
       },
     });
     if (logError) throw logError;
+    await pruneOperationalLogs(supabase);
   }
 
   const nextMeta = {

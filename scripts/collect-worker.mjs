@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { collectApiModels } from "./collect-api-models.mjs";
 import { collectOfficialPrices } from "./collect-official-prices.mjs";
 import { createCollectionFamilyState, runPriceCollection } from "./collect-prices.mjs";
+import { pruneOperationalLogs } from "./operational-log-retention.mjs";
 
 const env = readEnvFile(".env.local");
 const args = parseArgs(process.argv.slice(2));
@@ -113,6 +114,8 @@ async function runJob(job) {
     });
     console.error(`Collection job ${job.id} failed: ${message}`);
   }
+
+  await pruneOperationalLogs(supabase, env);
 }
 
 async function runCollectionJobByType(job, sourceId) {

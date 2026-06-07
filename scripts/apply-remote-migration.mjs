@@ -4,8 +4,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
-const migrationPath = resolve(process.argv[2] || "supabase/migrations/20260507120500_offer_freshness.sql");
-const env = readEnvFile(".env.local");
+const args = parseArgs(process.argv.slice(2));
+const migrationPath = resolve(args.migrationPath || "supabase/migrations/20260507120500_offer_freshness.sql");
+const envPath = args.envPath || ".env.local";
+const env = readEnvFile(envPath);
 const dbPassword = env.SUPABASE_DB_PASSWORD;
 
 if (!dbPassword) {
@@ -24,6 +26,7 @@ const supabaseBin = existsSync("/Users/dimension/.local/bin/supabase")
   : "supabase";
 
 console.log(`Applying migration: ${migrationPath}`);
+console.log(`Using env file: ${envPath}`);
 const statements = splitSqlStatements(readFileSync(migrationPath, "utf8"));
 
 for (let index = 0; index < statements.length; index += 1) {
@@ -41,6 +44,29 @@ for (let index = 0; index < statements.length; index += 1) {
 }
 
 console.log("Migration applied.");
+
+function parseArgs(argv) {
+  const output = {
+    migrationPath: "",
+    envPath: "",
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--env") {
+      output.envPath = argv[index + 1] || "";
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--env=")) {
+      output.envPath = arg.slice("--env=".length);
+      continue;
+    }
+    if (!output.migrationPath) output.migrationPath = arg;
+  }
+
+  return output;
+}
 
 function readEnvFile(path) {
   const output = {};
@@ -66,20 +92,22 @@ function unquote(value) {
 }
 
 function buildDbUrl(env, password) {
-  const poolerPath = "supabase/.temp/pooler-url";
-  if (existsSync(poolerPath)) {
-    const url = new URL(readFileSync(poolerPath, "utf8").trim());
-    url.password = password;
-    url.searchParams.set("sslmode", "require");
-    return url.toString();
-  }
-
   if (!env.NEXT_PUBLIC_SUPABASE_URL) {
-    console.error("缺少 NEXT_PUBLIC_SUPABASE_URL，请检查 .env.local。");
+    console.error("缺少 NEXT_PUBLIC_SUPABASE_URL，请检查环境文件。");
     process.exit(1);
   }
 
   const ref = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
+  const poolerPath = "supabase/.temp/pooler-url";
+  if (existsSync(poolerPath)) {
+    const url = new URL(readFileSync(poolerPath, "utf8").trim());
+    if (url.username === `postgres.${ref}`) {
+      url.password = password;
+      url.searchParams.set("sslmode", "require");
+      return url.toString();
+    }
+  }
+
   const url = new URL(`postgresql://postgres@db.${ref}.supabase.co:5432/postgres`);
   url.password = password;
   url.searchParams.set("sslmode", "require");

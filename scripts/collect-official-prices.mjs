@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { pruneOperationalLogs } from "./operational-log-retention.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -290,6 +291,7 @@ async function postOfficialPriceSnapshot(result, configs, options) {
   await upsertRows(supabase, "fx_rates", fxRows, {
     onConflict: "base_currency,target_currency,date,source",
   });
+  await pruneOperationalLogs(supabase, readEnvFile(path.join(repoRoot, ".env.local")));
 
   return {
     status: "posted",
