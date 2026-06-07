@@ -44,6 +44,13 @@ function buildOfficialPricesJsonLd(appCount: number, regionCount: number, priceC
         description:
           "A curated dataset of official regional subscription prices, original prices, CNY estimates, exchange-rate dates, and source links.",
         url: "https://priceai.cc/official-prices",
+        license: "https://github.com/physics-dimension/PriceAI/blob/main/LICENSE",
+        creator: {
+          "@type": "Organization",
+          name: "PriceAI",
+          url: "https://priceai.cc",
+          sameAs: "https://github.com/physics-dimension/PriceAI",
+        },
         variableMeasured: ["app", "plan", "region", "original price", "CNY estimate", "exchange rate", "source"],
         measurementTechnique: "Public App Store price pages and exchange-rate estimates",
         keywords: ["AI subscription", "regional price", "App Store", "ChatGPT", "Claude", "Gemini", "Grok"],

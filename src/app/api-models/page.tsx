@@ -45,6 +45,13 @@ function buildApiModelsJsonLd(modelCount: number, providerCount: number, offerCo
         description:
           "A curated dataset of public model API providers, offers, free quotas, Token Plans, prices, and source links.",
         url: "https://priceai.cc/api-models",
+        license: "https://github.com/physics-dimension/PriceAI/blob/main/LICENSE",
+        creator: {
+          "@type": "Organization",
+          name: "PriceAI",
+          url: "https://priceai.cc",
+          sameAs: "https://github.com/physics-dimension/PriceAI",
+        },
         variableMeasured: ["model", "provider", "price", "free quota", "token plan", "limit", "source"],
         measurementTechnique: "Public documentation and reviewed public source pages",
         keywords: ["AI API", "DeepSeek API", "Qwen API", "Kimi API", "OpenRouter", "NVIDIA NIM", "Token Plan"],
