@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ArrowRight, Clock3, ExternalLink, Layers3 } from "lucide-react";
+import { ArrowRight, Clock3, ExternalLink, HelpCircle, Layers3 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BrandIcon } from "@/components/BrandIcon";
@@ -44,19 +44,24 @@ export async function generateMetadata({
   const priceText = product.lowestPrice !== null
     ? `${formatCurrency(product.lowestPrice, product.lowestOffer?.currency)} 起`
     : "暂无有货报价";
+  const seoProfile = getProductSeoProfile(product);
   const detailText = getOfficialPricePlanMapping(product)
     ? "有货最低价、渠道报价、官方参考价和最近更新时间"
     : "有货最低价、渠道报价和最近更新时间";
+  const title = seoProfile?.metadataTitle || `${product.displayName} 价格对比`;
+  const description = seoProfile
+    ? `${seoProfile.metadataDescription} 当前参考：${priceText}。`
+    : `查看 ${product.displayName} 的${detailText}。当前参考：${priceText}。`;
 
   return {
-    title: `${product.displayName} 价格对比`,
-    description: `查看 ${product.displayName} 的${detailText}。当前参考：${priceText}。`,
+    title,
+    description,
     alternates: {
       canonical: `/products/${product.slug}`,
     },
     openGraph: {
-      title: `${product.displayName} 价格对比`,
-      description: `对比 ${product.displayName} 的渠道报价、库存状态和更新时间。`,
+      title,
+      description: seoProfile?.metadataDescription || `对比 ${product.displayName} 的渠道报价、库存状态和更新时间。`,
       url: `https://priceai.cc/products/${product.slug}`,
     },
   };
@@ -90,10 +95,11 @@ export default async function ProductDetail({
   if (!product) notFound();
 
   const officialReference = buildOfficialPriceReference(product, officialPricesDataset);
+  const seoProfile = getProductSeoProfile(product);
 
   return (
     <>
-    <JsonLd data={buildProductJsonLd(product, officialReference)} />
+    <JsonLd data={buildProductJsonLd(product, officialReference, seoProfile)} />
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
       <ProductDetailHeader />
 
@@ -119,6 +125,8 @@ export default async function ProductDetail({
         {officialReference ? (
           <OfficialPriceReferenceStrip reference={officialReference} product={product} />
         ) : null}
+
+        {seoProfile ? <ProductSeoBrief product={product} profile={seoProfile} /> : null}
 
         <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -187,6 +195,256 @@ type OfficialPriceReference = {
   usRow: OfficialPriceRow | null;
 };
 
+type ProductSeoProfile = {
+  metadataTitle: string;
+  metadataDescription: string;
+  lead: string;
+  points: string[];
+  faq: Array<{
+    question: string;
+    answer: string;
+  }>;
+  links: Array<{
+    label: string;
+    href: string;
+    description: string;
+  }>;
+};
+
+const productSeoProfiles: Record<string, ProductSeoProfile> = {
+  "chatgpt-plus": {
+    metadataTitle: "ChatGPT Plus 价格对比：有货最低价、代充、成品号和 CDK",
+    metadataDescription: "查看 ChatGPT Plus 有货最低价、渠道报价、Plus 代充、成品号、卡密/CDK 和更新时间。",
+    lead:
+      "ChatGPT Plus 是用户最常比较的 AI 订阅。PriceAI 会把 Plus 直充、代充、成品号、卡密/CDK 等报价聚合到同一个标准商品下，外层价格优先显示有货最低价。",
+    points: [
+      "先看有货最低价，再点进原渠道确认库存、质保和售后规则。",
+      "Plus 成品号、代充和卡密/CDK 的交付方式不同，低价不代表风险相同。",
+      "如果想自己走官方路径，可以同时参考官方地区价和支付方式指南。",
+    ],
+    faq: [
+      {
+        question: "ChatGPT Plus 代充、成品号和 CDK 是一回事吗？",
+        answer:
+          "不是。代充通常是给已有账号开通会员，成品号是直接交付账号，CDK 或卡密更偏兑换或自助开通。不同渠道的售后、登录方式和封号风险不同，购买前要看原平台说明。",
+      },
+      {
+        question: "这个页面的最低价为什么和某些缺货报价不同？",
+        answer:
+          "商品页主价格优先取当前有货报价的最低价。缺货、隐藏或下架报价不会作为可购买最低价展示，但可能仍保留在历史报价表里供核对。",
+      },
+      {
+        question: "ChatGPT Plus 适合直接买第三方渠道吗？",
+        answer:
+          "如果你追求省心和稳定，优先理解官网订阅和官方地区价；如果选择第三方渠道，应先核验售后群、联系方式、原站订单投诉入口和质保说明。",
+      },
+    ],
+    links: [
+      { label: "ChatGPT 平台页", href: "/platforms/chatgpt", description: "查看 Plus、Pro、Team、普号和 API/CDK 的整体价格入口。" },
+      { label: "ChatGPT 获取方式指南", href: "/guides/chatgpt-subscription-options", description: "理解官方订阅、代充、成品号、Team 和 API/CDK 的区别。" },
+      { label: "卡网渠道判断", href: "/guides/are-ai-subscription-card-shops-reliable", description: "购买第三方渠道前先看核验清单。" },
+    ],
+  },
+  "chatgpt-team-business": {
+    metadataTitle: "ChatGPT Team / Business 价格对比：团队邀请、母号和渠道报价",
+    metadataDescription: "查看 ChatGPT Team / Business 有货最低价、团队邀请、母号、自动拉和渠道报价。",
+    lead:
+      "ChatGPT Team / Business 通常会被渠道写成 Team、Business、团队号、母号、邀请或自动拉。它和 Plus、Pro 不是同一类商品，购买前要确认交付方式和成员权限。",
+    points: [
+      "Team / Business 报价经常和邀请、母号、自动拉相关，务必看清是否需要提供账号邮箱。",
+      "不要把 Team / Business 误当成 Plus；它对应的是团队/商业订阅权益。",
+      "如果只想个人使用，先比较 Plus、Pro 和 Team 的权益差异再决定。",
+    ],
+    faq: [
+      {
+        question: "ChatGPT Team / Business 和 Plus 有什么区别？",
+        answer:
+          "Plus 是个人订阅，Team / Business 面向团队或商业场景。第三方渠道里常见的 Team 邀请、母号、自动拉，本质上是围绕团队席位或团队账号交付，和 Plus 成品号不是一类商品。",
+      },
+      {
+        question: "Team 邀请为什么会比官方订阅便宜？",
+        answer:
+          "便宜价格可能来自地区价、批量席位、活动资格或第三方库存。PriceAI 只聚合价格和入口，不判断渠道来源是否合法或长期稳定。",
+      },
+      {
+        question: "购买 Team / Business 前应该确认什么？",
+        answer:
+          "至少确认交付方式、是否需要提供邮箱、是否支持退出或换绑、质保多久、售后在哪里，以及原站是否支持订单投诉。",
+      },
+    ],
+    links: [
+      { label: "ChatGPT 平台页", href: "/platforms/chatgpt", description: "回到 ChatGPT 订阅与渠道总览。" },
+      { label: "ChatGPT 获取方式指南", href: "/guides/chatgpt-subscription-options", description: "理解 Team、Plus、Pro、代充和成品号的关系。" },
+      { label: "价格为什么不同", href: "/guides/why-ai-subscription-prices-differ", description: "了解官网价、地区价、资格价和第三方渠道价。" },
+    ],
+  },
+  "openai-api-cdk": {
+    metadataTitle: "API / CDK / 额度价格对比：OpenAI API、Codex API 和中转额度",
+    metadataDescription: "查看 API/CDK、OpenAI API、Codex API、余额、额度和模型中转渠道报价。",
+    lead:
+      "API / CDK / 额度类商品更适合想把模型接入 Codex、Cursor、OpenCode 或自建工具的用户。它和 ChatGPT Plus 这类网页订阅不同，核心要看模型、额度、计费方式和可用限制。",
+    points: [
+      "先确认商品是官方 API 额度、CDK、余额，还是第三方模型路由或中转额度。",
+      "如果要接入编程工具，还要看是否兼容 OpenAI API 格式、是否限制模型和速率。",
+      "免费或低价 API 可能有额度、并发、模型版本和有效期限制。",
+    ],
+    faq: [
+      {
+        question: "API / CDK / 额度和 ChatGPT Plus 有什么区别？",
+        answer:
+          "ChatGPT Plus 是网页或 App 里的订阅权益，API / CDK / 额度用于程序调用模型。能不能在 Codex、Cursor、OpenCode 等工具里使用，取决于它是否提供兼容接口和可用模型。",
+      },
+      {
+        question: "低价 API 额度一定划算吗？",
+        answer:
+          "不一定。要同时看可用模型、输入输出价格、有效期、速率限制、是否支持流式输出、是否有稳定文档和售后。",
+      },
+      {
+        question: "PriceAI 会收录灰色中转 API 吗？",
+        answer:
+          "当前策略优先收录官方或公开文档可核验的 API 渠道。第三方中转会更谨慎，重点看来源、文档、稳定性和风险边界。",
+      },
+    ],
+    links: [
+      { label: "模型 API 雷达", href: "/api-models", description: "查看官方 API、免费 API、模型路由和 Token Plan。" },
+      { label: "ChatGPT 平台页", href: "/platforms/chatgpt", description: "区分 ChatGPT 订阅、API/CDK 和账号类商品。" },
+      { label: "指南目录", href: "/guides", description: "后续 API 和编程工具接入指南会集中收录在这里。" },
+    ],
+  },
+  "gemini-pro-year": {
+    metadataTitle: "Gemini Pro 价格对比：Google AI Pro、年卡、CDK 和渠道报价",
+    metadataDescription: "查看 Gemini Pro / Google AI Pro 有货最低价、年卡、成品号、CDK、渠道报价和更新时间。",
+    lead:
+      "Gemini Pro / Google AI Pro 的低价来源可能包括官方地区价、学生或活动资格、第三方成品号、CDK 或代开渠道。对比时不要只看标价，也要看账号归属和续费方式。",
+    points: [
+      "Gemini Pro 常和 Google AI Pro、年卡、学生价、CDK 等表达混在一起。",
+      "如果涉及 Google 账号或地区价，要额外注意账号地区、支付方式和续费限制。",
+      "第三方渠道价格仅供参考，实际权益和售后以原平台说明为准。",
+    ],
+    faq: [
+      {
+        question: "Gemini Pro 和 Google AI Pro 是一回事吗？",
+        answer:
+          "很多渠道会混用 Gemini Pro 和 Google AI Pro。实际购买前应以原平台商品说明为准，确认是订阅权益、账号、CDK 还是其他形式。",
+      },
+      {
+        question: "Gemini Pro 年卡为什么价格差很多？",
+        answer:
+          "价格差异可能来自官方地区价、活动资格、学生资格、账号库存或第三方渠道策略。低价不等于同款，必须看交付方式和质保。",
+      },
+      {
+        question: "购买 Gemini Pro 前应该看哪些信息？",
+        answer:
+          "重点看是否需要提供 Google 账号、是否支持续费、是否有地区限制、是否能换绑，以及售后和退款规则。",
+      },
+    ],
+    links: [
+      { label: "官方地区价", href: "/official-prices", description: "查看 Gemini / Google AI 的公开地区价参考。" },
+      { label: "Google Play 订阅指南", href: "/guides/google-play-ai-subscription", description: "理解 Google Play 国家/地区、付款资料和续费限制。" },
+      { label: "地区价风险", href: "/guides/ai-subscription-region-price-risks", description: "判断低价区、税费、汇率和账号地区风险。" },
+    ],
+  },
+  "claude-pro-month": {
+    metadataTitle: "Claude Pro 价格对比：月卡、直充、成品号和渠道报价",
+    metadataDescription: "查看 Claude Pro 有货最低价、月卡、直充、成品号、渠道报价、官方参考价和更新时间。",
+    lead:
+      "Claude Pro 是 Claude 用户最常比较的个人订阅。渠道里可能写成 Pro 月卡、直充、成品号或地区价代订，需要确认账号归属、支付方式和续费方式。",
+    points: [
+      "Claude Pro 和 Claude Max 不是同一档套餐，购买前先确认权益。",
+      "如果是成品号，要看账号是否可改密、是否绑定邮箱、是否支持售后。",
+      "如果是直充或代订，要确认是否需要提供账号，以及续费失败如何处理。",
+    ],
+    faq: [
+      {
+        question: "Claude Pro 和 Claude Max 有什么区别？",
+        answer:
+          "Claude Pro 是个人订阅档，Claude Max 通常是更高额度的套餐。第三方渠道有时会把 Pro、Max、账号和代订混写，购买前应确认实际权益。",
+      },
+      {
+        question: "Claude Pro 低价渠道靠谱吗？",
+        answer:
+          "PriceAI 不为任何渠道背书。你可以把卡网当作信息源，先看售后群、联系方式、质保时间和原站投诉入口，再决定是否交易。",
+      },
+      {
+        question: "Claude Pro 是否适合走官方订阅？",
+        answer:
+          "如果你更看重稳定和账号安全，官方订阅通常更稳；如果看重价格，可以用 PriceAI 对比第三方渠道，但要接受相应风险。",
+      },
+    ],
+    links: [
+      { label: "官方地区价", href: "/official-prices", description: "查看 Claude Pro 和 Max 的官方公开价格参考。" },
+      { label: "卡网渠道判断", href: "/guides/are-ai-subscription-card-shops-reliable", description: "购买第三方 Claude 渠道前先看风险清单。" },
+      { label: "价格为什么不同", href: "/guides/why-ai-subscription-prices-differ", description: "理解正价、地区价和第三方渠道价。" },
+    ],
+  },
+  "chatgpt-pro-20x": {
+    metadataTitle: "ChatGPT Pro 20x 价格对比：Pro 高额度、代开和渠道报价",
+    metadataDescription: "查看 ChatGPT Pro 20x 有货最低价、Pro 高额度、代开、卡密、渠道报价、官方参考价和更新时间。",
+    lead:
+      "ChatGPT Pro 20x 通常指更高额度的 Pro 档位或相关渠道交付。它和 Plus、Team / Business 都不是同一类商品，价格差异很大时尤其要确认交付方式、权益描述和售后规则。",
+    points: [
+      "先确认原渠道写的是 Pro 20x、高额度 Pro、代开、充值还是卡密。",
+      "Pro 20x 单价通常高于 Plus，异常低价要回到原站核验是否同款。",
+      "如果原渠道有官方价、地区价或代订说明，要同时看续费方式和质保范围。",
+    ],
+    faq: [
+      {
+        question: "ChatGPT Pro 20x 和 Plus 有什么区别？",
+        answer:
+          "Plus 是常见个人会员档，Pro 20x 通常指更高额度或更高价格的 Pro 相关权益。第三方渠道可能用代开、充值、卡密等方式交付，购买前要确认是否真的是 Pro 20x。",
+      },
+      {
+        question: "为什么 ChatGPT Pro 20x 的价格差异会很大？",
+        answer:
+          "价格可能受到官方价、地区价、渠道库存、交付方式和售后承诺影响。过低价格不一定是同款，应该点进原渠道核对商品详情。",
+      },
+      {
+        question: "Pro 20x 适合优先看官方参考价吗？",
+        answer:
+          "适合。官方参考价可以作为价格基准，再用 PriceAI 查看第三方有货报价。最终是否购买第三方渠道，需要结合质保、售后和原站交易规则判断。",
+      },
+    ],
+    links: [
+      { label: "ChatGPT 平台页", href: "/platforms/chatgpt", description: "比较 Plus、Pro、Team 和 API/CDK 的整体价格。" },
+      { label: "官方地区价", href: "/official-prices", description: "查看 ChatGPT 公开地区价和人民币估算价。" },
+      { label: "价格为什么不同", href: "/guides/why-ai-subscription-prices-differ", description: "理解正价、地区价和第三方渠道价。" },
+    ],
+  },
+  "super-grok": {
+    metadataTitle: "Super Grok 价格对比：Grok 会员、激活码、月卡和渠道报价",
+    metadataDescription: "查看 Super Grok 有货最低价、Grok 会员、激活码、月卡、年卡、渠道报价和官方地区价。",
+    lead:
+      "Super Grok 是 Grok 的订阅类权益。第三方渠道里可能写成 SuperGrok、Grok Super、激活码、月卡、年卡、直充或成品号，对比时要先确认具体权益和交付方式。",
+    points: [
+      "先确认是 Super Grok、SuperGrok Heavy，还是普通 Grok 体验号。",
+      "如果是激活码、卡密或直充，要看是否限制账号地区、设备或续费方式。",
+      "Grok 订阅有官方地区价参考，可以先用官方价作为价格锚点，再比较第三方有货报价。",
+    ],
+    faq: [
+      {
+        question: "Super Grok 和普通 Grok 账号有什么区别？",
+        answer:
+          "Super Grok 是订阅权益，普通 Grok 账号或体验号通常只是账号交付。第三方渠道可能混用描述，购买前要确认是否包含订阅、订阅档位和有效期。",
+      },
+      {
+        question: "Super Grok 低价一般来自哪里？",
+        answer:
+          "价格差异可能来自官方地区价、渠道库存、激活码、活动资格或第三方成品号。PriceAI 只聚合公开报价，最终权益要以原渠道详情为准。",
+      },
+      {
+        question: "购买 Super Grok 前应该核验什么？",
+        answer:
+          "建议核验有效期、是否可登录自己的账号、是否支持续费或换绑、质保多久、售后在哪里，以及原站是否支持订单投诉。",
+      },
+    ],
+    links: [
+      { label: "官方地区价", href: "/official-prices", description: "查看 Grok / SuperGrok 的公开地区价参考。" },
+      { label: "价格为什么不同", href: "/guides/why-ai-subscription-prices-differ", description: "理解官网价、地区价和第三方渠道价的来源。" },
+      { label: "卡网渠道判断", href: "/guides/are-ai-subscription-card-shops-reliable", description: "购买第三方渠道前先看售后和投诉入口。" },
+    ],
+  },
+};
+
 const officialPlanByProductId: Record<string, { appSlug: "chatgpt" | "claude" | "gemini" | "grok"; planSlug: string }> = {
   "chatgpt-plus-recharge": { appSlug: "chatgpt", planSlug: "plus-monthly" },
   "chatgpt-pro-5x": { appSlug: "chatgpt", planSlug: "pro-5x" },
@@ -220,6 +478,79 @@ function buildOfficialPriceReference(
 
 function getOfficialPricePlanMapping(product: Pick<ExplorerProductSummary, "id" | "slug">) {
   return officialPlanByProductId[product.id] || officialPlanByProductId[product.slug] || null;
+}
+
+function getProductSeoProfile(product: Pick<ExplorerProductSummary, "id" | "slug">): ProductSeoProfile | null {
+  return productSeoProfiles[product.id] || productSeoProfiles[product.slug] || null;
+}
+
+function ProductSeoBrief({
+  product,
+  profile,
+}: {
+  product: ExplorerProductSummary;
+  profile: ProductSeoProfile;
+}) {
+  return (
+    <section className="mt-5 rounded-lg bg-white p-5 shadow-[0_18px_48px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15 lg:p-6">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        <div className="min-w-0">
+          <p className="inline-flex items-center gap-1.5 rounded-full bg-[#e8f3ec] px-3 py-1 text-xs font-semibold text-[#2f7a4b]">
+            <HelpCircle size={14} />
+            商品解释
+          </p>
+          <h2 className="mt-4 font-serif text-2xl font-semibold tracking-normal text-[#202829]">
+            如何理解 {product.displayName}
+          </h2>
+          <p className="mt-3 text-sm leading-7 text-[#5a6061]">{profile.lead}</p>
+          <ul className="mt-4 grid gap-2 text-sm leading-6 text-[#5a6061]">
+            {profile.points.map((point) => (
+              <li key={point} className="flex gap-2">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#45bf78]" />
+                <span>{point}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="min-w-0 rounded-lg bg-[#f2f4f4] p-4 ring-1 ring-[#adb3b4]/15">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#5a6061]">相关入口</p>
+          <div className="mt-3 grid gap-2">
+            {profile.links.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="group block rounded-md bg-white px-3 py-3 ring-1 ring-[#adb3b4]/10 transition hover:-translate-y-0.5 hover:ring-[#45bf78]/35"
+              >
+                <span className="flex items-center justify-between gap-3 text-sm font-semibold text-[#202829]">
+                  {link.label}
+                  <ArrowRight size={15} className="shrink-0 transition group-hover:translate-x-0.5" />
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-[#5a6061]">{link.description}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 border-t border-[#edf0f1] pt-5">
+        <h3 className="font-serif text-xl font-semibold tracking-normal text-[#202829]">常见问题</h3>
+        <div className="mt-3 grid gap-3">
+          {profile.faq.map((item) => (
+            <details key={item.question} className="group rounded-lg bg-[#f9fafa] px-4 py-3 ring-1 ring-[#adb3b4]/15">
+              <summary className="cursor-pointer list-none text-sm font-semibold text-[#202829] marker:hidden">
+                <span className="inline-flex w-full items-center justify-between gap-3">
+                  {item.question}
+                  <ArrowRight size={15} className="shrink-0 transition group-open:rotate-90" />
+                </span>
+              </summary>
+              <p className="mt-2 text-sm leading-6 text-[#5a6061]">{item.answer}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function OfficialPriceReferenceStrip({
@@ -295,6 +626,7 @@ function productTypeLabel(productType: string): string {
 function buildProductJsonLd(
   product: ExplorerProductSummary,
   officialReference: OfficialPriceReference | null,
+  seoProfile: ProductSeoProfile | null,
 ) {
   const productUrl = `https://priceai.cc/products/${product.slug}`;
   const lowestOffer = product.lowestPrice !== null && product.lowestOffer
@@ -317,7 +649,7 @@ function buildProductJsonLd(
     "@context": "https://schema.org",
     "@type": "Product",
     name: product.displayName,
-    description: product.summary,
+    description: seoProfile?.metadataDescription || product.summary,
     category: `${product.platform} / ${product.productType}`,
     brand: {
       "@type": "Brand",
@@ -342,7 +674,7 @@ function buildProductJsonLd(
     ];
   }
 
-  return [
+  const schemas: Record<string, unknown>[] = [
     productSchema,
     {
       "@context": "https://schema.org",
@@ -369,4 +701,21 @@ function buildProductJsonLd(
       ],
     },
   ];
+
+  if (seoProfile?.faq.length) {
+    schemas.push({
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: seoProfile.faq.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: item.answer,
+        },
+      })),
+    });
+  }
+
+  return schemas;
 }
