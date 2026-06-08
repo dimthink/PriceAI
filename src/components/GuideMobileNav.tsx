@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { BookOpenText, ChevronLeft, ChevronRight, ListTree, Menu, X } from "lucide-react";
+import { BookOpenText, ChevronRight, Menu, X } from "lucide-react";
 import Link from "next/link";
 import {
   getGuideCategory,
-  getGuideNavigationItems,
   guideCategories,
   guideEntries,
 } from "@/lib/guides";
@@ -16,7 +15,6 @@ export function GuideMobileNav({ currentHref }: { currentHref: string }) {
   const touchStart = useRef<{ x: number; y: number; mode: "edge-open" | "drawer-close" } | null>(null);
   const currentGuide = guideEntries.find((guide) => guide.href === currentHref);
   const currentCategory = currentGuide ? getGuideCategory(currentGuide.categoryId) : undefined;
-  const navigationItems = getGuideNavigationItems(currentHref);
 
   function handleSwipeEnd(touch: { clientX: number; clientY: number } | undefined) {
     const start = touchStart.current;
@@ -226,71 +224,6 @@ export function GuideMobileNav({ currentHref }: { currentHref: string }) {
         </div>
       ) : null}
 
-      <nav
-        aria-label="移动端指南连续阅读"
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-[#dfe4e5] bg-[#f9f9f9]/95 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_32px_rgba(45,52,53,0.08)] backdrop-blur-xl lg:hidden"
-      >
-        <div className="mx-auto grid max-w-[520px] grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <MobileNavLink
-            href={navigationItems.previous?.href}
-            label={navigationItems.previous?.label ?? "上一篇"}
-            direction="previous"
-          />
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="inline-flex h-11 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-4 text-xs font-semibold text-[#f8f8f8] shadow-[0_10px_24px_rgba(45,52,53,0.14)]"
-            aria-expanded={open}
-            aria-controls={drawerId}
-            aria-label="打开指南目录"
-            data-guide-mobile-menu-button
-          >
-            <ListTree size={18} />
-            目录
-          </button>
-          <MobileNavLink
-            href={navigationItems.next?.href}
-            label={navigationItems.next?.label ?? "下一篇"}
-            direction="next"
-          />
-        </div>
-      </nav>
     </>
-  );
-}
-
-function MobileNavLink({
-  href,
-  label,
-  direction,
-}: {
-  href?: string;
-  label: string;
-  direction: "previous" | "next";
-}) {
-  const content = (
-    <>
-      {direction === "previous" ? <ChevronLeft size={16} className="shrink-0" /> : null}
-      <span className="min-w-0 truncate">{label}</span>
-      {direction === "next" ? <ChevronRight size={16} className="shrink-0" /> : null}
-    </>
-  );
-
-  const className = `inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-md px-3 text-xs font-semibold ${
-    direction === "previous" ? "justify-self-start" : "justify-self-end"
-  }`;
-
-  if (!href) {
-    return (
-      <span className={`${className} text-[#adb3b4]`} aria-disabled="true">
-        {content}
-      </span>
-    );
-  }
-
-  return (
-    <Link href={href} className={`${className} max-w-full bg-[#edf0f1] text-[#2d3435] transition hover:bg-[#dde4e5]`}>
-      {content}
-    </Link>
   );
 }

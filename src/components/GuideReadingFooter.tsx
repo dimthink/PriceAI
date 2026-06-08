@@ -1,7 +1,8 @@
-import { ArrowRight, BookOpenText, CheckCircle2, ListTree } from "lucide-react";
+import { ArrowRight, BookOpenText, CheckCircle2, ChevronLeft, ChevronRight, ListTree } from "lucide-react";
 import Link from "next/link";
 import {
   getGuideCategory,
+  getGuideNavigationItems,
   getGuidePathStepEntry,
   getGuideReadingPathForGuide,
   getRelatedGuides,
@@ -10,6 +11,7 @@ import {
 export function GuideReadingFooter({ currentHref }: { currentHref: string }) {
   const relatedGuides = getRelatedGuides(currentHref, 3);
   const readingPath = getGuideReadingPathForGuide(currentHref);
+  const navigationItems = getGuideNavigationItems(currentHref);
 
   return (
     <section data-guide-no-toc className="mt-12 border-t border-[#dfe4e5] pt-8">
@@ -63,14 +65,18 @@ export function GuideReadingFooter({ currentHref }: { currentHref: string }) {
             </div>
           ) : null}
 
-          <div className="mt-6 flex flex-wrap gap-3">
+          <nav aria-label="指南连续阅读" className="mt-7 grid gap-2 border-y border-[#dfe4e5] py-3 sm:grid-cols-[1fr_auto_1fr]">
+            <FooterNavLink direction="previous" item={navigationItems.previous} />
             <Link
               href="/guides"
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#202829]"
+              className="inline-flex min-h-12 items-center justify-center rounded-md px-3 text-sm font-semibold text-[#2d3435] transition hover:bg-[#edf0f1]"
             >
-              返回指南目录
-              <ArrowRight size={16} />
+              指南目录
             </Link>
+            <FooterNavLink direction="next" item={navigationItems.next} />
+          </nav>
+
+          <div className="mt-6 flex flex-wrap gap-3">
             <Link
               href="/?stock=available"
               className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#edf0f1] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
@@ -115,5 +121,47 @@ export function GuideReadingFooter({ currentHref }: { currentHref: string }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function FooterNavLink({
+  direction,
+  item,
+}: {
+  direction: "previous" | "next";
+  item: ReturnType<typeof getGuideNavigationItems>["previous"];
+}) {
+  const isPrevious = direction === "previous";
+  const label = isPrevious ? "上一篇" : "下一篇";
+
+  if (!item) {
+    return (
+      <span
+        aria-disabled="true"
+        className={`inline-flex min-h-12 items-center gap-2 rounded-md px-3 text-sm text-[#9aa1a2] ${
+          isPrevious ? "justify-start" : "justify-start sm:justify-end"
+        }`}
+      >
+        {isPrevious ? <ChevronLeft size={16} /> : null}
+        <span>{label}</span>
+        {!isPrevious ? <ChevronRight size={16} /> : null}
+      </span>
+    );
+  }
+
+  return (
+    <Link
+      href={item.href}
+      className={`group inline-flex min-h-12 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[#202829] transition hover:bg-[#edf0f1] ${
+        isPrevious ? "justify-start" : "justify-start sm:justify-end"
+      }`}
+    >
+      {isPrevious ? <ChevronLeft size={16} className="shrink-0 transition group-hover:-translate-x-0.5" /> : null}
+      <span className={isPrevious ? "min-w-0" : "min-w-0 sm:text-right"}>
+        <span className="block text-xs font-semibold text-[#7a8182]">{label}</span>
+        <span className="mt-0.5 block truncate">{item.label}</span>
+      </span>
+      {!isPrevious ? <ChevronRight size={16} className="shrink-0 transition group-hover:translate-x-0.5" /> : null}
+    </Link>
   );
 }

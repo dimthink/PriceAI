@@ -19,7 +19,7 @@ export function GuideDocsLayout({
         <SiteHeader activeSection="guides" />
       </div>
 
-      <div className="mx-auto max-w-[1500px] px-5 pb-32 pt-4 sm:px-8 lg:pb-14 lg:pt-6">
+      <div className="mx-auto max-w-[1500px] px-5 pb-14 pt-4 sm:px-8 lg:pt-6">
         <div className="mb-5 lg:hidden">
           <GuideMobileNav currentHref={currentHref} />
         </div>
