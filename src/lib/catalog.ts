@@ -563,6 +563,10 @@ export function classifyOffer(
     }
   }
 
+  if (isBundledVerificationAccount(value)) {
+    return getCanonicalProduct("other-product");
+  }
+
   if (matches(value, ["codex", "api", "cdk", "token", "额度", "中转", "余额"])) {
     return getCanonicalProduct("openai-api-cdk");
   }
@@ -738,6 +742,7 @@ function normalizeTitle(title: string): string {
     .replace(/[｜|/【】[\]()（）,，:：\-_/]+/g, " ")
     .replace(/gptplus/g, "gpt plus")
     .replace(/plus月卡/g, "plus 月卡")
+    .replace(/普拉斯/g, "plus")
     .replace(/\bpuls\b/g, "plus")
     .replace(/\bpulus\b/g, "plus")
     .replace(/\bgemin\b/g, "gemini")
@@ -768,11 +773,13 @@ function isSupportService(value: string): boolean {
 }
 
 function isVerificationService(value: string): boolean {
-  if (isAiSubscriptionOrAccountTitle(value)) {
+  if (isStandaloneVerificationService(value)) return true;
+
+  if (isBundledVerificationAccount(value)) {
     return false;
   }
 
-  if (matches(value, ["已接码", "已手机接码", "已接码验证", "已手机接码验证"])) {
+  if (isAiSubscriptionOrAccountTitle(value)) {
     return false;
   }
 
@@ -781,6 +788,97 @@ function isVerificationService(value: string): boolean {
   }
 
   return matches(value, ["验证"]) && matches(value, ["手机号", "手机号码", "短信", "接码"]);
+}
+
+function isBundledVerificationAccount(value: string): boolean {
+  if (hasAccountBundleSignal(value) && matches(value, ["接码", "收码", "验证码", "手机号", "手机号码", "手机验证"])) {
+    return true;
+  }
+
+  return matches(value, [
+    "已接码",
+    "已经接码",
+    "已完成接码",
+    "已手机接码",
+    "已接码验证",
+    "已手机接码验证",
+    "未接码",
+    "没接码",
+    "自行接码",
+    "自己接码",
+    "需要自己接码",
+    "需要自行接码",
+    "codex自己接码",
+    "需接码",
+    "需使用自行接码",
+    "不需要手机验证接码",
+    "带接码地址",
+    "带接码链接",
+    "长效接码链接",
+    "包含长效接码",
+  ]);
+}
+
+function isStandaloneVerificationService(value: string): boolean {
+  if (matches(value, ["接码自助", "接码 自助", "接码自助卡密", "手机接码自助", "手机接码 自助"])) {
+    return true;
+  }
+
+  if (matches(value, ["sms 接码", "短信接码", "短信 接码", "实卡接码", "实体卡接码", "收码"])) {
+    return true;
+  }
+
+  if (matches(value, ["单次接码", "一次性接码", "一次性验证"])) {
+    return true;
+  }
+
+  if (matches(value, ["手机接码", "手机号验证", "手机验证"]) && matches(value, ["号码", "实卡", "自助卡密", "质保1次成功接码"])) {
+    return true;
+  }
+
+  if (matches(value, ["手机接码"]) && matches(value, ["可绑定", "绑定 3 个", "绑定3个"])) {
+    return true;
+  }
+
+  if (
+    matches(value, [
+      "codex接码",
+      "codex 接码",
+      "gpt codex 接码",
+      "gpt codex接码",
+      "openai codex 接码",
+      "openai codex接码",
+      "google gemini 接码",
+      "google gemini接码",
+      "gemini 接码",
+      "claude 接码",
+    ]) &&
+    !hasAccountBundleSignal(value)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function hasAccountBundleSignal(value: string): boolean {
+  return matches(value, [
+    "成品号",
+    "半成品",
+    "账号",
+    "账户",
+    "账密",
+    "plus",
+    "pro",
+    "team",
+    "business",
+    "月卡",
+    "年卡",
+    "12个月",
+    "一年",
+    "会员",
+    "订阅",
+  ]);
 }
 
 function classifyVerificationService(value: string): string {
@@ -978,11 +1076,11 @@ function isChatGptProduct(value: string): boolean {
   if (matches(value, ["gemini", "claude", "grok"])) return false;
   if (matches(value, ["steam"])) return false;
   if (isChatGptPro20(value) || isChatGptPro5(value)) return true;
-  return matches(value, ["chatgpt", "gpt", "openai", "plus", "team", "business", "t5"]);
+  return matches(value, ["chatgpt", "gpt", "openai", "codex", "plus", "team", "business", "t5"]);
 }
 
 function isAiSubscriptionOrAccountTitle(value: string): boolean {
-  if (!matches(value, ["chatgpt", "gpt", "openai", "claude", "gemini", "grok", "plus", "team", "business"])) {
+  if (!matches(value, ["chatgpt", "gpt", "openai", "codex", "claude", "gemini", "grok", "plus", "team", "business"])) {
     return false;
   }
 
@@ -1088,10 +1186,10 @@ function isChatGptPlusRecharge(value: string): boolean {
 }
 
 function isChatGptAccountTitle(value: string): boolean {
-  if (!matches(value, ["chatgpt", "gpt", "openai"])) return false;
+  if (!matches(value, ["chatgpt", "gpt", "openai", "codex"])) return false;
   if (matches(value, ["plus", "pro", "team", "business", "t5"])) return false;
 
-  return matches(value, ["成品号", "账号", "独享号", "直登", "日抛"]);
+  return matches(value, ["成品号", "账号", "独享号", "直登", "日抛", "网页号", "半成品"]);
 }
 
 function isChatGptAccountOrSubscriptionDominant(value: string): boolean {

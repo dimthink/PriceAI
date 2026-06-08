@@ -90,7 +90,48 @@ async function listVisibleOffers() {
 }
 
 function buildSuspiciousChecks(items) {
+  const verificationProductIds = new Set([
+    "openai-phone-verification",
+    "google-phone-verification",
+    "paypal-phone-verification",
+    "phone-verification",
+  ]);
+  const aiProductIds = new Set([
+    "chatgpt-free-account",
+    "chatgpt-plus",
+    "chatgpt-plus-recharge",
+    "chatgpt-team-business",
+    "chatgpt-pro-5x",
+    "chatgpt-pro-20x",
+    "claude-pro-month",
+    "claude-team-standard",
+    "claude-team-premium",
+    "claude-max-5x",
+    "claude-max-20x",
+    "claude-account",
+    "gemini-pro-year",
+    "gemini-ultra",
+    "super-grok",
+    "grok-account",
+  ]);
   const checks = [
+    {
+      key: "ai_product_maybe_standalone_verification",
+      label: "订阅/账号中疑似独立接码服务",
+      expected: "接码",
+      filter: (offer) =>
+        aiProductIds.has(offer.canonical_product_id) &&
+        isStandaloneVerificationTitle(offer.normalizedTitle),
+    },
+    {
+      key: "verification_maybe_account_bundle",
+      label: "接码中疑似账号/邮箱/非 AI 商品",
+      expected: "账号/邮箱/其他",
+      filter: (offer) =>
+        verificationProductIds.has(offer.canonical_product_id) &&
+        isAccountBundleTitle(offer.normalizedTitle) &&
+        !isStandaloneVerificationTitle(offer.normalizedTitle),
+    },
     {
       key: "plus_maybe_team",
       label: "Plus 中疑似 Team / Business 商品",
@@ -172,6 +213,26 @@ function buildSuspiciousChecks(items) {
       samples: hits.slice(0, SAMPLE_LIMIT).map(toSample),
     };
   });
+}
+
+function isStandaloneVerificationTitle(value) {
+  if (/(接码\s*自助|接码自助|手机接码\s*自助|实卡接码|实体卡接码|单次接码|一次性接码|sms\s*接码|短信\s*接码)/i.test(value)) {
+    return true;
+  }
+
+  if (/(codex|gpt|openai|google|gemini|claude)\s*接码/i.test(value) && !isAccountBundleTitle(value)) {
+    return true;
+  }
+
+  if (/手机接码/.test(value) && /(可绑定|绑定\s*3\s*个|绑定3个|号码|质保1次成功接码)/.test(value)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isAccountBundleTitle(value) {
+  return /(成品号|半成品|账号|账户|账密|普号|网页号|邮箱|plus|pro|team|business|会员|月卡|年卡|12个月|一年|whatsapp|未接码|已接码|自行接码|自己接码|带接码地址|带接码链接)/i.test(value);
 }
 
 function toSample(offer) {
