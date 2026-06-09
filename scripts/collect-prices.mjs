@@ -1445,7 +1445,9 @@ function stableId(...parts) {
 function selectTargets(targets, options) {
   const selected = options.source || options.id || options.name;
   const runnable = (target) => target.kind;
-  const applyExclusions = (items) => items.filter((target) => !shouldExcludeTarget(target, options));
+  const applyExclusions = (items) => items
+    .filter((target) => matchesTargetKinds(target, options))
+    .filter((target) => !shouldExcludeTarget(target, options));
   if (!selected && !options.all) return applyExclusions(targets.filter(runnable));
   if (options.all) return applyExclusions(targets.filter(runnable));
 
@@ -1607,6 +1609,10 @@ function hasTargetFilters(options = {}) {
     options.source ||
       options.id ||
       options.name ||
+      options.kind ||
+      options.kinds ||
+      options["collector-kind"] ||
+      options["collector-kinds"] ||
       options.excludeFamily ||
       options["exclude-family"] ||
       options.excludeFamilies ||
@@ -1618,6 +1624,14 @@ function shouldExcludeTarget(target, options = {}) {
   const families = optionList(options.excludeFamily || options["exclude-family"] || options.excludeFamilies || options["exclude-families"]);
   if (families.includes("liandong-shop") && isLiandongShopTarget(target)) return true;
   return false;
+}
+
+function matchesTargetKinds(target, options = {}) {
+  const kinds = optionList(options.kind || options.kinds || options["collector-kind"] || options["collector-kinds"]);
+  if (!kinds.length) return true;
+
+  return kinds.includes(String(target.kind || "").toLowerCase()) ||
+    kinds.includes(String(target.configuredKind || "").toLowerCase());
 }
 
 function isLiandongShopTarget(target) {
