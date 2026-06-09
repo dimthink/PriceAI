@@ -193,7 +193,7 @@ function buildSuspiciousChecks(items) {
       expected: "virtual-card",
       filter: (offer) =>
         offer.nextProductId === "other-product" &&
-        /(虛擬卡|虚拟卡|visa|mastercard|paypal.*(美國|美国).*(虛擬|虚拟)|0刀卡|1刀卡|485954)/i.test(offer.normalizedTitle),
+        /(虛擬卡|虚拟卡|visa|mastercard|paypal.*(美國|美国).*(虛擬|虚拟)|(^|[^\d])[01]\s*刀\s*卡(?!\d)|485954)/i.test(offer.normalizedTitle),
     },
     {
       key: "other_maybe_api",
@@ -201,7 +201,7 @@ function buildSuspiciousChecks(items) {
       expected: "openai-api-cdk",
       filter: (offer) =>
         offer.nextProductId === "other-product" &&
-        /(中转\s*api|中转api|api.*兑换码|\d+刀兑换码|官方1:1|api\s*\|)/i.test(offer.normalizedTitle),
+        /(中转\s*api|中转api|api.*兑换码|\d+刀兑换码|codex\s*api.*\d+\s*刀\s*卡|api.*\d+\s*刀\s*卡|官方1:1|api\s*\|)/i.test(offer.normalizedTitle),
     },
   ];
 

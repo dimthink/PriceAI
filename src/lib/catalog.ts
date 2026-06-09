@@ -1148,11 +1148,17 @@ function isApiProduct(value: string): boolean {
 function isVirtualCardProduct(value: string): boolean {
   if (matches(value, ["paypal接码", "paypal 接码"])) return false;
 
-  if (matches(value, ["visa", "mastercard", "虚拟卡", "虚拟信用卡", "0刀卡", "1刀卡", "bin 卡", "485954", "美国虚拟卡", "paypal 美国虚拟卡"])) {
+  if (matches(value, ["visa", "mastercard", "虚拟卡", "虚拟信用卡", "bin 卡", "485954", "美国虚拟卡", "paypal 美国虚拟卡"])) {
     return true;
   }
 
+  if (isZeroOrOneDollarCard(value)) return true;
+
   return matches(value, ["美国卡", "卡头"]) && !matches(value, ["chatgpt", "claude", "gemini", "grok"]);
+}
+
+function isZeroOrOneDollarCard(value: string): boolean {
+  return /(^|[^\d])[01]\s*刀\s*卡(?!\d)/.test(value);
 }
 
 function isPureEmail(value: string): boolean {
