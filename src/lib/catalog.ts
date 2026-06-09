@@ -482,6 +482,10 @@ function classifyOfferByTitle(
     return getCanonicalProduct("virtual-card");
   }
 
+  if (isToolSourceCodeProduct(value)) {
+    return getCanonicalProduct("other-product");
+  }
+
   if (isOtherTool(value)) {
     return getCanonicalProduct(classifyOtherTool(value));
   }
@@ -812,6 +816,16 @@ function isSupportService(value: string): boolean {
 
   if (matches(value, ["教程", "电话卡", "手机套餐", "代理服务", "并发数", "安装版", "安装教程", "登陆教程", "登录教程"])) {
     return true;
+  }
+
+  return false;
+}
+
+function isToolSourceCodeProduct(value: string): boolean {
+  if (matches(value, ["源码", "源代码", "脚本源码", "注册机源码"])) return true;
+
+  if (matches(value, ["注册机", "生成器", "工具包"])) {
+    return !matches(value, ["成品号", "账号", "账户", "积分", "额度", "power", "pro", "会员", "订阅", "月卡", "年卡"]);
   }
 
   return false;
