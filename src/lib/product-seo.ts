@@ -63,6 +63,14 @@ const productSeoProfiles: Record<string, ProductSeoProfile> = {
     metadataTitle: "Claude Pro 价格对比：月卡、直充、成品号和渠道报价",
     metadataDescription: "查看 Claude Pro 有货最低价、月卡、直充、成品号、渠道报价、官方参考价和更新时间。",
   }),
+  "claude-team-premium": profile({
+    metadataTitle: "Claude Team Premium 价格对比：高级团队席位和渠道报价",
+    metadataDescription: "查看 Claude Team Premium 有货最低价、高级团队席位、邀请、母号、渠道报价、库存和更新时间。",
+  }),
+  "claude-team-standard": profile({
+    metadataTitle: "Claude Team Standard 价格对比：标准团队席位和渠道报价",
+    metadataDescription: "查看 Claude Team Standard 有货最低价、标准团队席位、邀请、母号、渠道报价、库存和更新时间。",
+  }),
   "claude-max-20x": profile({
     metadataTitle: "Claude Max 20x 价格对比：高额度套餐、月卡和渠道报价",
     metadataDescription: "查看 Claude Max 20x 有货最低价、高额度套餐、月卡、直充、成品号、渠道报价和官方参考价。",
@@ -71,9 +79,33 @@ const productSeoProfiles: Record<string, ProductSeoProfile> = {
     metadataTitle: "Claude Max 5x 价格对比：Max 会员、月卡和渠道报价",
     metadataDescription: "查看 Claude Max 5x 有货最低价、Max 会员、月卡、直充、成品号、渠道报价和官方参考价。",
   }),
+  "claude-account": profile({
+    metadataTitle: "Claude 普号价格对比：兑换号、成品账号和渠道报价",
+    metadataDescription: "查看 Claude 普号、兑换号、成品账号的有货最低价、渠道报价、库存和更新时间。",
+  }),
   "super-grok": profile({
     metadataTitle: "Super Grok 价格对比：Grok 会员、激活码、月卡和渠道报价",
     metadataDescription: "查看 Super Grok 有货最低价、Grok 会员、激活码、月卡、年卡、渠道报价和官方地区价。",
+  }),
+  "grok-account": profile({
+    metadataTitle: "Grok 普号价格对比：体验号、成品账号和渠道报价",
+    metadataDescription: "查看 Grok 普号、体验号、X / Grok 账号的有货最低价、渠道报价、库存和更新时间。",
+  }),
+  "gmail-account": profile({
+    metadataTitle: "Gmail 批发价格对比：Google 邮箱、账号和渠道报价",
+    metadataDescription: "查看 Gmail / Google 邮箱有货最低价、批发账号、渠道报价、库存、来源和更新时间。",
+  }),
+  "outlook-account": profile({
+    metadataTitle: "Outlook 邮箱价格对比：Hotmail、微软邮箱和渠道报价",
+    metadataDescription: "查看 Outlook / Hotmail / Microsoft 邮箱有货最低价、批发账号、渠道报价、库存和更新时间。",
+  }),
+  "apple-id-account": profile({
+    metadataTitle: "Apple ID 价格对比：苹果账号、订阅辅助和渠道报价",
+    metadataDescription: "查看 Apple ID / 苹果账号有货最低价、账号渠道报价、库存、来源和更新时间，辅助理解 App Store 订阅路径。",
+  }),
+  "virtual-card": profile({
+    metadataTitle: "虚拟卡价格对比：Visa、MasterCard、绑卡和渠道报价",
+    metadataDescription: "查看虚拟卡、Visa、MasterCard、绑卡相关渠道的有货最低价、库存、来源和更新时间。",
   }),
 };
 
