@@ -38,6 +38,12 @@ npm run collect:prices -- --all --post --exclude-kind dujiao
 npm run collect:prices -- --all --kind dujiao --concurrency 2 --post
 ```
 
+只采集 `shopApi`，按不同主域并发 2，同一主域内部仍然串行：
+
+```bash
+npm run collect:prices -- --all --kind shopApi --concurrency 2 --post --liandong-shop-limit 10
+```
+
 采集单个来源并写入：
 
 ```bash
@@ -98,6 +104,12 @@ npm run collect:performance -- --hours 24 --limit 1500
 ## 链动小铺类渠道策略
 
 `pay.ldxp.cn`、`pay.qxvx.cn`、`catfk.com` 等 `shopApi` 渠道属于同一类“一个主域承载多个店铺”的来源。大量新增这类店铺时，不能把每个店铺都当成完全独立站点并在同一轮里连续请求，否则容易触发 JS 挑战、验证码、WAF 或 IP 限流。
+
+当前 `shopApi` 专项采集采用“跨主域并发、同主域串行”的策略：
+
+- `pay.ldxp.cn`、`pay.qxvx.cn`、`catfk.com` 等不同主域可以并行。
+- 同一个主域内的多个店铺暂时仍然串行。
+- 单主域内部并发 2 需要后续单独压测后再决定。
 
 当前批量采集默认启用渠道族保护：
 
