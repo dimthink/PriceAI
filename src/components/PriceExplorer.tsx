@@ -31,6 +31,7 @@ import {
 } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
+import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
 import type { CanonicalProduct, ExplorerData, ExplorerProductSummary, RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -127,10 +128,11 @@ export function PriceExplorer({
   initialState?: ExplorerInitialState;
   restoreStateFromUrl?: boolean;
 }) {
+  const initialExplorerData = newestGeneratedDataset(data, explorerMemoryCache) ?? EMPTY_EXPLORER_DATA;
   const [explorerData, setExplorerData] = useState<ExplorerData>(
-    data ?? explorerMemoryCache ?? EMPTY_EXPLORER_DATA,
+    initialExplorerData,
   );
-  const [dataLoading, setDataLoading] = useState(!data && !explorerMemoryCache);
+  const [dataLoading, setDataLoading] = useState(initialExplorerData === EMPTY_EXPLORER_DATA);
   const [dataError, setDataError] = useState<string | null>(null);
   const [query, setQuery] = useState(initialState.query ?? "");
   const [effectiveQuery, setEffectiveQuery] = useState(initialState.query ?? "");
@@ -303,8 +305,39 @@ export function PriceExplorer({
   useEffect(() => {
     if (!data) return;
 
-    explorerMemoryCache = data;
-    writeSessionCache(EXPLORER_CACHE_KEY, data);
+    const seededData = newestGeneratedDataset(data, explorerMemoryCache) ?? data;
+    explorerMemoryCache = seededData;
+    writeSessionCache(EXPLORER_CACHE_KEY, seededData);
+
+    if (!isGeneratedDatasetStale(seededData)) return;
+
+    const timeout = createTimeoutSignal();
+    let active = true;
+
+    async function refreshExplorerData() {
+      try {
+        const nextData = await fetchExplorerData(timeout.signal);
+        if (!active) return;
+        const latestData = newestGeneratedDataset(nextData, explorerMemoryCache) ?? nextData;
+        explorerMemoryCache = latestData;
+        writeSessionCache(EXPLORER_CACHE_KEY, latestData);
+        setExplorerData(latestData);
+        setDataError(null);
+      } catch (error) {
+        if (active && !timeout.signal.aborted) {
+          setDataError(error instanceof Error ? error.message : "商品数据加载失败");
+        }
+      } finally {
+        timeout.clear();
+      }
+    }
+
+    void refreshExplorerData();
+
+    return () => {
+      active = false;
+      timeout.cancel();
+    };
   }, [data]);
 
   useEffect(() => {

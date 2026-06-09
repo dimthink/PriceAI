@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { publicDataCacheHeaders } from "@/lib/cache-headers";
+import { priceDataCacheHeaders } from "@/lib/cache-headers";
 import { listPublicOffers } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json(result, {
-    headers: publicDataCacheHeaders(),
+    headers: priceDataCacheHeaders(),
   });
 }
 

@@ -5,6 +5,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { isAvailable } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
+import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
 import type { RawOffer } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -35,7 +36,7 @@ export function ProductOffersPanel({
   initialData?: ProductOffersResponse | null;
 }) {
   const initialCacheKey = productOffersCacheKey(productId, 0);
-  const cachedInitialData = productOffersMemoryCache.get(initialCacheKey) ?? initialData;
+  const cachedInitialData = newestGeneratedDataset(productOffersMemoryCache.get(initialCacheKey), initialData);
   const [data, setData] = useState<ProductOffersResponse | null>(cachedInitialData);
   const [loading, setLoading] = useState(!cachedInitialData);
   const [paging, setPaging] = useState(false);
@@ -44,49 +45,60 @@ export function ProductOffersPanel({
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
     const cacheKey = productOffersCacheKey(productId, 0);
+    let cancelRefresh: (() => void) | null = null;
+    let active = true;
 
     async function loadOffers() {
-      if (initialData) {
-        productOffersMemoryCache.set(cacheKey, initialData);
-        writeSessionCache(cacheKey, initialData);
-        setData(initialData);
-        setLoading(false);
-        setError(null);
-        return;
-      }
-
-      const cachedData =
-        productOffersMemoryCache.get(cacheKey) ??
-        readSessionCache<ProductOffersResponse>(cacheKey, PRODUCT_OFFERS_CACHE_TTL_MS);
+      const cachedData = newestGeneratedDataset(
+        productOffersMemoryCache.get(cacheKey),
+        initialData,
+        readSessionCache<ProductOffersResponse>(cacheKey, PRODUCT_OFFERS_CACHE_TTL_MS),
+      );
 
       if (cachedData) {
         productOffersMemoryCache.set(cacheKey, cachedData);
+        writeSessionCache(cacheKey, cachedData);
         setData(cachedData);
         setLoading(false);
+        setError(null);
+
+        if (!isGeneratedDatasetStale(cachedData)) return;
       } else {
         setLoading(true);
       }
 
-      setError(null);
+      const timeout = createTimeoutSignal();
+      cancelRefresh = timeout.cancel;
 
       try {
-        const nextData = await fetchProductOfferPage(productId, 0, controller.signal);
-        productOffersMemoryCache.set(cacheKey, nextData);
-        writeSessionCache(cacheKey, nextData);
-        setData(nextData);
+        const nextData = await fetchProductOfferPage(productId, 0, timeout.signal);
+        if (!active) return;
+        const latestData = newestGeneratedDataset(nextData, productOffersMemoryCache.get(cacheKey)) ?? nextData;
+        productOffersMemoryCache.set(cacheKey, latestData);
+        writeSessionCache(cacheKey, latestData);
+        setData(latestData);
+        setError(null);
       } catch (currentError) {
-        if (controller.signal.aborted) return;
-        setError(currentError instanceof Error ? currentError.message : "报价加载失败");
+        if (!active) return;
+        if (timeout.signal.aborted) {
+          if (!cachedData) setError("报价加载超时，请稍后刷新");
+        } else {
+          setError(currentError instanceof Error ? currentError.message : "报价加载失败");
+          if (!cachedData) setData(null);
+        }
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        timeout.clear();
+        if (active) setLoading(false);
       }
     }
 
     loadOffers();
 
-    return () => controller.abort();
+    return () => {
+      active = false;
+      cancelRefresh?.();
+    };
   }, [initialData, productId]);
 
   const offers = data?.offers ?? [];
