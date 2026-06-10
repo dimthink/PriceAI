@@ -180,6 +180,8 @@ npm run collect:browser -- --url https://aisou.pro/ --password your-admin-passwo
 - [采集器与来源扩展](./docs/collectors.md)
 - [架构说明](./docs/architecture.md)
 - [数据策略](./docs/data-policy.md)
+- [数据与内容授权](./DATA_LICENSE.md)
+- [品牌与商标政策](./TRADEMARKS.md)
 - [产品原则](./PRODUCT.md)
 - [设计系统](./DESIGN.md)
 - [GA4 分析](./docs/analytics.md)
@@ -218,4 +220,6 @@ npm run collect:browser -- --url https://aisou.pro/ --password your-admin-passwo
 
 ## License
 
-PriceAI 使用 [MIT License](./LICENSE)。
+PriceAI 的软件代码使用 [GNU Affero General Public License v3.0](./LICENSE) 开源。
+
+`PriceAI` 名称、Logo、域名、视觉品牌、线上生产数据、渠道数据、价格快照、指南内容和截图不随软件代码授权。Fork、二次开发或部署公开服务时，请阅读 [数据与内容授权](./DATA_LICENSE.md) 和 [品牌与商标政策](./TRADEMARKS.md)，并避免让用户误认为你的服务是官方 PriceAI。

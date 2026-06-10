@@ -26,6 +26,13 @@ npm run build
 - 修改分类规则时，请补充典型标题样例，说明预期归类。
 - 修改 UI 时，请附截图或说明桌面端、移动端影响。
 - 修改文档时，请确认 README 中的链接仍然有效。
+- 提交贡献即表示你同意该贡献按本仓库当前开源协议授权。
+
+## 授权边界
+
+PriceAI 的软件代码使用 [GNU Affero General Public License v3.0](./LICENSE)。如果你修改代码并将其作为网络服务提供给用户，需要遵守 AGPL-3.0 的源码提供要求。
+
+`PriceAI` 名称、Logo、域名、视觉品牌、线上生产数据、渠道数据、价格快照、指南内容和截图不随软件代码授权。Fork 或二次部署时，请避免使用会让用户误认为是官方 PriceAI 的名称、Logo 或域名。更多说明见 [DATA_LICENSE.md](./DATA_LICENSE.md) 和 [TRADEMARKS.md](./TRADEMARKS.md)。
 
 ## 采集器贡献
 
