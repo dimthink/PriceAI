@@ -1135,12 +1135,17 @@ function analyzeSubmissionUrl(parsed: URL, parsedTitle: string | null): Record<s
   const collectorKind = inferCollectorKind(host);
   const collectionMethod: CollectionMethod = collectorKind === "browser" ? "browser" : "http";
   const suggestedName = inferSubmittedSourceName(host, parsedTitle, shopToken);
+  const canonicalSourceUrl = shopToken
+    ? `${baseUrl}/shop/${encodeURIComponent(shopToken)}`
+    : submittedUrlType === "source" && !isSharedShopApiPlatformHost(host)
+      ? baseUrl
+      : null;
 
   return {
     normalized_url: parsed.toString(),
     submitted_url_type: submittedUrlType,
     base_url: baseUrl,
-    canonical_source_url: shopToken ? `${baseUrl}/shop/${encodeURIComponent(shopToken)}` : baseUrl,
+    ...(canonicalSourceUrl ? { canonical_source_url: canonicalSourceUrl } : {}),
     shop_token: shopToken,
     suggested_source_name: suggestedName,
     suggested_source_id: inferSubmittedSourceId(host, suggestedName, shopToken),
@@ -1179,7 +1184,7 @@ async function resolveSubmittedSource(
       ...baseMeta,
       submitted_url_type: "product",
       canonical_source_status: "unresolved",
-      canonical_source_reason: "商品链接暂未反查到店铺入口，审核时会按域名兜底。",
+      canonical_source_reason: "商品链接暂未反查到店铺入口；请重新解析，或手动填写真实店铺入口后再通过。",
     };
   }
 
@@ -1443,6 +1448,10 @@ function safeUrl(value: string | null | undefined): URL | null {
 
 function normalizeHostname(value: string): string {
   return value.toLowerCase().replace(/^www\./, "");
+}
+
+function isSharedShopApiPlatformHost(host: string): boolean {
+  return host === "pay.ldxp.cn" || host === "pay.qxvx.cn" || host === "ldxp.cn" || host === "catfk.com";
 }
 
 function normalizeCollectorKind(value: unknown): CollectorKind | null {
@@ -1882,8 +1891,12 @@ export async function recordSubmissionProbeResult(
     : runtimeIssue && knownCollector
       ? `已识别 ${collectorKind} 采集器，但本次运行触发验证或风控；可先确认解析器入库，后续云端和本地采集脚本都会继续尝试。`
       : result.message || "当前采集器暂不支持，需要加入采集器待办后补解析脚本。";
+  const resolvedSourceMeta = success
+    ? resolveSubmissionSourceFromProbeResult(submission, result, collectorKind)
+    : {};
   const nextMeta = {
     ...submission.parsedMeta,
+    ...resolvedSourceMeta,
     probe_result: result,
     probe_checked_at: checkedAt,
     suggested_collector_kind: collectorKind || submission.parsedMeta.suggested_collector_kind,
@@ -2164,6 +2177,63 @@ function getStoredProbeResult(meta: Record<string, unknown>): SubmissionProbeRes
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as SubmissionProbeResult)
     : null;
+}
+
+function resolveSubmissionSourceFromProbeResult(
+  submission: ChannelSubmission,
+  result: SubmissionProbeResult,
+  collectorKind: CollectorKind | null,
+): Record<string, unknown> {
+  const sourceUrl =
+    firstProbeOfferSourceUrl(result) ||
+    stringValue(result.sourceUrl) ||
+    stringValue(submission.parsedMeta.canonical_source_url);
+  const parsed = safeUrl(sourceUrl);
+  if (!parsed) return {};
+
+  const host = normalizeHostname(parsed.hostname);
+  const shopToken = getShopToken(parsed.pathname);
+  if (isSharedShopApiPlatformHost(host) && !shopToken) return {};
+
+  const sourceName =
+    firstProbeOfferSourceName(result) ||
+    stringValue(result.sourceName) ||
+    submission.name ||
+    getSuggestedSourceName(submission.parsedMeta) ||
+    inferSubmittedSourceName(host, submission.parsedTitle, shopToken);
+  const normalizedSourceUrl = normalizeSourceEntryUrl(parsed.toString()) || parsed.toString();
+
+  return {
+    canonical_source_status: "resolved",
+    canonical_source_reason: "已通过试采集结果反查到真实店铺入口，审核通过时会按该渠道入口入库。",
+    canonical_source_url: normalizedSourceUrl,
+    shop_token: shopToken,
+    suggested_source_name: sourceName,
+    suggested_source_id: inferSubmittedSourceId(host, sourceName, shopToken),
+    suggested_collection_method: "http",
+    suggested_collector_kind: collectorKind || submission.parsedMeta.suggested_collector_kind,
+  };
+}
+
+function firstProbeOfferSourceUrl(result: SubmissionProbeResult): string | null {
+  if (!Array.isArray(result.offers)) return null;
+  for (const offer of result.offers) {
+    if (!offer || typeof offer !== "object" || Array.isArray(offer)) continue;
+    const sourceUrl = stringValue((offer as Record<string, unknown>).sourceUrl);
+    if (sourceUrl) return sourceUrl;
+  }
+  return null;
+}
+
+function firstProbeOfferSourceName(result: SubmissionProbeResult): string | null {
+  if (!Array.isArray(result.offers)) return null;
+  for (const offer of result.offers) {
+    if (!offer || typeof offer !== "object" || Array.isArray(offer)) continue;
+    const record = offer as Record<string, unknown>;
+    const sourceName = stringValue(record.sourceStoreName) || stringValue(record.sourceName);
+    if (sourceName) return sourceName;
+  }
+  return null;
 }
 
 function getSuggestedSourceName(meta: Record<string, unknown>): string | null {

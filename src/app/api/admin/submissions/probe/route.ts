@@ -30,7 +30,10 @@ export async function POST(request: Request) {
     if (submission.status !== "pending") throw new Error("该提交已被处理。");
 
     const meta = asRecord(submission.parsed_meta);
-    const sourceUrl = stringMeta(meta, "canonical_source_url") || submission.url;
+    const canonicalSourceUrl = stringMeta(meta, "canonical_source_url");
+    const sourceUrl = isMisleadingSharedShopApiPlatformUrl(canonicalSourceUrl, submission.url, meta)
+      ? submission.url
+      : canonicalSourceUrl || submission.url;
     const result = await probeSource({
       sourceId: stringMeta(meta, "suggested_source_id") || undefined,
       sourceName:
@@ -64,6 +67,33 @@ function asRecord(value: unknown): Record<string, unknown> {
 function stringMeta(meta: Record<string, unknown>, key: string): string | null {
   const value = meta[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isMisleadingSharedShopApiPlatformUrl(
+  sourceUrl: string | null,
+  submittedUrl: string,
+  meta: Record<string, unknown>,
+): boolean {
+  if (!sourceUrl || stringMeta(meta, "submitted_url_type") !== "product") return false;
+  const source = safeUrl(sourceUrl);
+  if (!source || !isSharedShopApiPlatformHost(source.hostname)) return false;
+  if (source.pathname.match(/\/shop\/[^/?#]+/i)) return false;
+
+  const submitted = safeUrl(submittedUrl);
+  return Boolean(submitted && isSharedShopApiPlatformHost(submitted.hostname));
+}
+
+function isSharedShopApiPlatformHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  return host === "pay.ldxp.cn" || host === "pay.qxvx.cn" || host === "ldxp.cn" || host === "catfk.com";
+}
+
+function safeUrl(value: string | null | undefined): URL | null {
+  try {
+    return value ? new URL(value) : null;
+  } catch {
+    return null;
+  }
 }
 
 function errorStatus(message: string): number {

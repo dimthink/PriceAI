@@ -428,7 +428,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const probe = probeResults[s.id] || probeResultFromMeta(s.parsedMeta || {});
       const existing = sourceById.get(suggestedSourceIdForSubmission(s) || "");
       const suggestedCollector = collectorKindMeta(meta, "suggested_collector_kind");
-      if (existing || (probe?.status === "success" && probe.offerCount > 0) || isRunnableCollector(suggestedCollector)) {
+      const hasValidSourceUrl = Boolean(displayableCanonicalSourceUrlForSubmission(s) || stringMeta(meta, "submitted_url_type") !== "product");
+      if (hasValidSourceUrl && (existing || (probe?.status === "success" && probe.offerCount > 0) || isRunnableCollector(suggestedCollector))) {
         ids.add(s.id);
       }
     }
@@ -1667,10 +1668,11 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const suggestedCollector = collectorKindMeta(meta, "suggested_collector_kind") || "auto";
       const probe = probeResults[item.id] || probeResultFromMeta(meta);
       const method: CollectionMethod = (probe?.status === "success" ? "http" : suggestedMethod) || "http";
+      const canonicalSourceUrl = displayableCanonicalSourceUrlForSubmission(item);
       const result = await request("/api/admin/submissions/approve", password, {
         id: item.id,
         name: item.name || stringMeta(meta, "suggested_source_name") || item.parsedTitle || null,
-        sourceUrl: stringMeta(meta, "canonical_source_url") || item.url,
+        sourceUrl: canonicalSourceUrl || item.url,
         collectionMethod: method,
         collectorKind: suggestedCollector,
       });
@@ -2838,7 +2840,7 @@ function SubmissionCard({
   const suggestedMethod = collectionMethodMeta(meta, "suggested_collection_method");
   const suggestedCollector = collectorKindMeta(meta, "suggested_collector_kind");
   const supportReason = stringMeta(meta, "support_reason");
-  const canonicalSourceUrl = stringMeta(meta, "canonical_source_url");
+  const canonicalSourceUrl = displayableCanonicalSourceUrlForSubmission(submission);
   const canonicalSourceStatus = stringMeta(meta, "canonical_source_status");
   const canonicalSourceReason = stringMeta(meta, "canonical_source_reason");
   const submittedUrlType = stringMeta(meta, "submitted_url_type");
@@ -2846,7 +2848,8 @@ function SubmissionCard({
   const currentProbe = probeResult || probeResultFromMeta(meta);
   const hasSuccessfulProbe = currentProbe?.status === "success" && currentProbe.offerCount > 0;
   const hasKnownCollector = isRunnableCollector(suggestedCollector);
-  const canApprove = Boolean(existingSource || hasSuccessfulProbe || hasKnownCollector);
+  const hasValidSourceUrl = Boolean(canonicalSourceUrl || submittedUrlType !== "product");
+  const canApprove = hasValidSourceUrl && Boolean(existingSource || hasSuccessfulProbe || hasKnownCollector);
 
   const [mode, setMode] = useState<"idle" | "approve" | "todo" | "reject">("idle");
   const [name, setName] = useState(submission.name || suggestedName || submission.parsedTitle || "");
@@ -6564,6 +6567,41 @@ function offerTimestamp(offer: RawOffer): string | null | undefined {
 function safeDomain(url: string): string | null {
   try {
     return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+function displayableCanonicalSourceUrlForSubmission(submission: ChannelSubmission): string | null {
+  const meta = submission.parsedMeta || {};
+  const sourceUrl = stringMeta(meta, "canonical_source_url");
+  if (!sourceUrl) return null;
+  if (isMisleadingSharedShopApiPlatformUrl(sourceUrl, submission.url, meta)) return null;
+  return sourceUrl;
+}
+
+function isMisleadingSharedShopApiPlatformUrl(
+  sourceUrl: string,
+  submittedUrl: string,
+  meta: Record<string, unknown>,
+): boolean {
+  if (stringMeta(meta, "submitted_url_type") !== "product") return false;
+  const source = safeUrl(sourceUrl);
+  if (!source || !isSharedShopApiPlatformHost(source.hostname)) return false;
+  if (source.pathname.match(/\/shop\/[^/?#]+/i)) return false;
+
+  const submitted = safeUrl(submittedUrl);
+  return Boolean(submitted && isSharedShopApiPlatformHost(submitted.hostname));
+}
+
+function isSharedShopApiPlatformHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^www\./, "");
+  return host === "pay.ldxp.cn" || host === "pay.qxvx.cn" || host === "ldxp.cn" || host === "catfk.com";
+}
+
+function safeUrl(value: string | null | undefined): URL | null {
+  try {
+    return value ? new URL(value) : null;
   } catch {
     return null;
   }
