@@ -1514,6 +1514,7 @@ function isChatGptAccountOrSubscriptionDominant(value: string): boolean {
 
 function isChatGptPro20(value: string): boolean {
   if (matches(value, ["gemini", "claude"])) return false;
+  if (isPrimaryChatGptPro5Tier(value)) return false;
   if (isMixedChatGptProTier(value)) return false;
 
   return matches(value, ["pro", "gpt pro", "chatgpt pro"]) && hasChatGptPro20Signal(value);
@@ -1529,8 +1530,14 @@ function isChatGptPro5(value: string): boolean {
 function isMixedChatGptProTier(value: string): boolean {
   if (matches(value, ["gemini", "claude"])) return false;
   if (!matches(value, ["pro", "gpt pro", "chatgpt pro"])) return false;
+  if (isPrimaryChatGptPro5Tier(value)) return false;
 
   return hasChatGptPro5Signal(value) && hasChatGptPro20Signal(value);
+}
+
+function isPrimaryChatGptPro5Tier(value: string): boolean {
+  return /\b(?:chatgpt\s*)?(?:gpt\s*)?pro\s*5x\s*(?:月卡|套餐|官方|充值|卡充|直充|代充)/.test(value) ||
+    /\b(?:chatgpt\s*)?(?:gpt\s*)?pro\s*5\s*倍\s*(?:月卡|套餐|官方|充值|卡充|直充|代充)/.test(value);
 }
 
 function hasChatGptPro20Signal(value: string): boolean {

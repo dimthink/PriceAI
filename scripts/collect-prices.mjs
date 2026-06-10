@@ -1048,6 +1048,9 @@ async function collectMooncakeCatalog(target) {
 
 async function collectGenericHtml(target) {
   const html = await fetchText(target.sourceUrl);
+  const cardOffers = collectGenericHtmlProductCards(target, html);
+  if (cardOffers.length >= 2) return dedupeOffers(cardOffers).slice(0, 200);
+
   const pageTitle = cleanPageTitle(html);
   const text = stripHtml(html)
     .replace(/&amp;/g, "&")
@@ -1096,6 +1099,79 @@ async function collectGenericHtml(target) {
   }
 
   return dedupeOffers(offers).slice(0, 200);
+}
+
+function collectGenericHtmlProductCards(target, html) {
+  const offers = [];
+  const cards = [...String(html || "").matchAll(/<article\b[\s\S]*?<\/article>/gi)].map((match) => match[0]);
+
+  for (const card of cards) {
+    const price = numberOrNull(card.match(CURRENCY_PRICE_RE)?.[0]);
+    if (price === null) continue;
+
+    const title = titleFromGenericProductCard(card);
+    if (!title || isNonComparableTitle(title)) continue;
+
+    const context = stripHtml(card);
+    const stockCount = stockFromGenericContext(context);
+    const soldOut = /缺货|已售罄|售罄|无货/.test(context) || stockCount === 0;
+    const detailUrl = genericProductCardUrl(card, target);
+
+    offers.push(
+      makeOffer(target, {
+        title,
+        price,
+        status: soldOut ? "out_of_stock" : statusFromStock(stockCount),
+        stockCount: soldOut ? 0 : stockCount,
+        url: detailUrl,
+        tags: compact([
+          ...genericProductCardTags(card),
+          /自动发货/.test(context) ? "自动发货" : null,
+          /人工/.test(context) ? "人工处理" : null,
+          "商品卡片解析",
+        ]),
+      }),
+    );
+  }
+
+  return offers;
+}
+
+function titleFromGenericProductCard(card) {
+  const tags = genericProductCardTags(card).join(" ");
+  const heading = cleanText(card.match(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1]);
+  const imageAlt = cleanText(card.match(/<img[^>]+alt=["']([^"']+)["']/i)?.[1]);
+  const highlight = cleanText(
+    card.match(/<p[^>]+class=["'][^"']*(?:highlight|subtitle|summary|description)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i)?.[1],
+  );
+  const description = genericProductCardParagraphs(card).find((paragraph) => paragraph !== highlight) || "";
+
+  return compact([tags, heading || imageAlt, highlight, description]).join(" ").slice(0, 180);
+}
+
+function genericProductCardParagraphs(card) {
+  return [...card.matchAll(/<p([^>]*)>([\s\S]*?)<\/p>/gi)]
+    .filter((match) => !/class=["'][^"']*(?:highlight|subtitle|summary|price|stock|badge)[^"']*["']/i.test(match[1] || ""))
+    .map((match) => cleanText(match[2]))
+    .filter(Boolean);
+}
+
+function genericProductCardTags(card) {
+  const tagBlock = card.match(/<div[^>]+class=["'][^"']*(?:tags|category|badge)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1] || "";
+  return [...tagBlock.matchAll(/<span[^>]*>([\s\S]*?)<\/span>/gi)]
+    .map((match) => cleanText(match[1]))
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function genericProductCardUrl(card, target) {
+  const hrefs = [...card.matchAll(/href=["']([^"']+)["']/gi)].map((match) => match[1]);
+  const preferred =
+    hrefs.find((href) => /\/products?\//i.test(href)) ||
+    hrefs.find((href) => /\/(?:checkout|buy|item|goods)\//i.test(href)) ||
+    hrefs.find(Boolean);
+
+  return absolutize(preferred || `${target.sourceUrl.replace(/#.*$/, "")}#offer-${Math.max(1, hrefs.length)}`, target.baseUrl);
 }
 
 function titleFromGenericSegment(value, price = null) {

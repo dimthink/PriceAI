@@ -31,6 +31,7 @@ import { useRouter } from "next/navigation";
 import type { Dispatch, FormEvent, ReactNode, SetStateAction, UIEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiProviderTypeLabels } from "@/lib/api-models";
+import { classifyOffer } from "@/lib/catalog";
 import {
   collectorKindLabel,
   collectorKindOptions,
@@ -3365,7 +3366,7 @@ function OfferFeedbackList({
           (item.productId ? productByKey.get(item.productId) : null) ||
           (item.productSlug ? productByKey.get(item.productSlug) : null) ||
           (item.productName ? productByKey.get(item.productName) : null);
-        const productName = matchedProduct?.displayName || item.productName || "未记录标准商品";
+        const currentProduct = matchedOffer?.canonicalProductId ? productByKey.get(matchedOffer.canonicalProductId) : null;
         const sourceName = offerSourceLabel(matchedOffer, item);
         const sourceTitle = item.sourceTitle || matchedOffer?.sourceTitle || "未记录原始商品名";
         const offerUrl = item.offerUrl || matchedOffer?.url || null;
@@ -3378,9 +3379,24 @@ function OfferFeedbackList({
         const currentStatus = matchedOffer ? offerStatusLabel(matchedOffer.status) : snapshotStatus || "未记录";
         const currentPrice = matchedOffer ? formatCurrency(matchedOffer.price, matchedOffer.currency) : snapshotPrice || "未记录";
         const updatedAt = matchedOffer ? offerTimestamp(matchedOffer) : snapshotUpdatedAt;
-        const categoryText = matchedProduct
-          ? [matchedProduct.platform, matchedProduct.productType, matchedProduct.spec].filter(Boolean).join(" / ")
+        const ruleProduct = sourceTitle
+          ? productByKey.get(
+              classifyOffer(sourceTitle, {
+                price: matchedOffer?.price ?? item.offerPrice ?? undefined,
+              }).id,
+            )
+          : null;
+        const displayProduct = ruleProduct || currentProduct || matchedProduct;
+        const categoryText = displayProduct
+          ? [displayProduct.platform, displayProduct.productType, displayProduct.spec].filter(Boolean).join(" / ")
           : item.productSlug || item.productId || "未匹配到当前标准商品";
+        const snapshotProductName = displayProduct && matchedProduct && displayProduct.id !== matchedProduct.id
+          ? matchedProduct.displayName || item.productName
+          : null;
+        const storedProductName = displayProduct && currentProduct && displayProduct.id !== currentProduct.id
+          ? currentProduct.displayName
+          : null;
+        const productName = displayProduct?.displayName || item.productName || "未记录标准商品";
         const isLegacyCategoryFeedback = item.reason === "wrong_category";
         const hasEvidence = Boolean(item.evidenceText || item.evidenceUrls.length);
 
@@ -3425,6 +3441,12 @@ function OfferFeedbackList({
                     <p className="text-[0.68rem] font-semibold uppercase tracking-wider text-[#5a6061]">当前归类</p>
                     <p className="mt-1 text-sm font-semibold text-[#202829]">{productName}</p>
                     <p className="mt-0.5 text-xs leading-5 text-[#5a6061]">{categoryText}</p>
+                    {snapshotProductName ? (
+                      <p className="mt-1 text-[0.7rem] text-[#8a9293]">反馈快照：{snapshotProductName}</p>
+                    ) : null}
+                    {storedProductName ? (
+                      <p className="mt-1 text-[0.7rem] text-[#8a9293]">数据库记录：{storedProductName}</p>
+                    ) : null}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
                     <FeedbackFact label="价格" value={currentPrice} strong />

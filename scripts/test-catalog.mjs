@@ -29,7 +29,7 @@ const cases = [
   ["ChatGPT Pro 5倍 官方充值", "chatgpt-pro-5x"],
   ["PRO 5× 充值卡密(iOS美区质保)", "chatgpt-pro-5x"],
   ["ChatGPT Pro 100 美金 成品号/账号代充", "chatgpt-pro-5x"],
-  ["ChatGPT 推理强 ChatGPT Pro 5X 月卡｜官方卡充｜1个月｜支持续费｜正规充值 【20X-200刀款】 自助充值卡密", "other-product"],
+  ["ChatGPT 推理强 ChatGPT Pro 5X 月卡｜官方卡充｜1个月｜支持续费｜正规充值 【20X-200刀款】 自助充值卡密", "chatgpt-pro-5x"],
   ["ChatGPT PRO 5X/20X", "other-product"],
   ["GPT PRO 特价代充卡密(质保订阅)", "other-product"],
   ["ChatGPT Team 团队席位 邀请", "chatgpt-team-business"],
@@ -208,13 +208,13 @@ const mixedTierGroups = buildProductGroups([
   }),
 ]);
 assert.ok(
-  mixedTierGroups.find((group) => group.id === "other-product")?.offers.some((offer) => offer.id === "mixed-pro-tier"),
-  "Mixed ChatGPT Pro tier titles should not fall back to the stored Pro 20x category.",
+  mixedTierGroups.find((group) => group.id === "chatgpt-pro-5x")?.offers.some((offer) => offer.id === "mixed-pro-tier"),
+  "Primary ChatGPT Pro 5x titles should classify as Pro 5x even if the description mentions 20x.",
 );
 assert.equal(
   mixedTierGroups.find((group) => group.id === "chatgpt-pro-20x"),
   undefined,
-  "Mixed ChatGPT Pro tier titles should be removed from the Pro 20x group.",
+  "Primary ChatGPT Pro 5x titles should be removed from the stored Pro 20x group.",
 );
 
 console.log(`catalog test passed cases=${cases.length + priceCases.length}`);
