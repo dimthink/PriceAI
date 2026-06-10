@@ -214,6 +214,16 @@ const statusOptions: Array<[OfferStatus, string]> = [
 
 const OFFER_EMERGENCY_PAGE_SIZE = 50;
 
+type FeedbackWorkFilter = "all" | "precheck" | "transient" | "category" | "high_risk" | "site";
+type OfferFeedbackBucket = "transient" | "category" | "high_risk" | "other";
+type OfferFeedbackVerdictTone = "success" | "info" | "warn" | "danger";
+type OfferFeedbackVerdict = {
+  label: string;
+  description: string;
+  tone: OfferFeedbackVerdictTone;
+  batchSafe: boolean;
+};
+
 /* ─── Main Component ─── */
 
 export function AdminConsole({ data }: { data: AdminSummary }) {
@@ -227,6 +237,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [offerFeedback, setOfferFeedback] = useState<OfferFeedback[]>(data.pendingOfferFeedback || []);
   const [feedbackRawOffers, setFeedbackRawOffers] = useState<RawOffer[]>(data.feedbackRawOffers || []);
   const [siteFeedback, setSiteFeedback] = useState<SiteFeedback[]>(data.pendingSiteFeedback || []);
+  const [feedbackFilter, setFeedbackFilter] = useState<FeedbackWorkFilter>("all");
+  const [selectedFeedbackIds, setSelectedFeedbackIds] = useState<Set<string>>(new Set());
   const [probeResults, setProbeResults] = useState<Record<string, ProbeResult>>({});
   const [officialProbeResult, setOfficialProbeResult] = useState<OfficialProbeResult | null>(null);
   const [apiModelProbeResult, setApiModelProbeResult] = useState<ApiModelProbeResult | null>(null);
@@ -316,6 +328,31 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
     return map;
   }, [data.products]);
+  const filteredOfferFeedback = useMemo(
+    () => filterOfferFeedbackByWorkFilter(offerFeedback, feedbackFilter, offerById),
+    [feedbackFilter, offerById, offerFeedback],
+  );
+  const safeBatchFeedback = useMemo(
+    () =>
+      filteredOfferFeedback.filter((item) => {
+        if (!selectedFeedbackIds.has(item.id)) return false;
+        const verdict = getOfferFeedbackVerdict(item, item.offerId ? offerById.get(item.offerId) : null);
+        return verdict.batchSafe;
+      }),
+    [filteredOfferFeedback, offerById, selectedFeedbackIds],
+  );
+  const feedbackFilterCounts = useMemo(
+    () => getFeedbackWorkFilterCounts(offerFeedback, siteFeedback, offerById),
+    [offerById, offerFeedback, siteFeedback],
+  );
+  useEffect(() => {
+    if (!selectedFeedbackIds.size) return;
+    const visibleIds = new Set(filteredOfferFeedback.map((item) => item.id));
+    setSelectedFeedbackIds((prev) => {
+      const next = new Set(Array.from(prev).filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredOfferFeedback, selectedFeedbackIds.size]);
   const apiModels = useMemo(
     (): ApiModelAdminData => ({
       ...data.apiModels,
@@ -1321,6 +1358,74 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
   }
 
+  function toggleFeedbackSelect(id: string) {
+    setSelectedFeedbackIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleFeedback() {
+    const ids = filteredOfferFeedback.map((item) => item.id);
+    if (!ids.length) {
+      setSelectedFeedbackIds(new Set());
+      return;
+    }
+    setSelectedFeedbackIds((prev) => {
+      if (ids.every((id) => prev.has(id))) return new Set();
+      return new Set(ids);
+    });
+  }
+
+  async function batchUpdateSelectedOfferFeedback(status: OfferFeedbackStatus) {
+    const selected = filteredOfferFeedback.filter((item) => selectedFeedbackIds.has(item.id));
+    if (!selected.length) {
+      setGlobalMessage({ type: "error", text: "请先选择要处理的报价举报。" });
+      return;
+    }
+
+    const targets = status === "resolved" ? safeBatchFeedback : selected;
+    if (!targets.length) {
+      setGlobalMessage({ type: "error", text: "当前没有可安全批量标记已处理的反馈。高风险、分类和需人工核验的反馈请逐条处理。" });
+      return;
+    }
+
+    const note = status === "resolved" ? "轻量预处理：当前状态已更新或问题已自愈" : "批量忽略";
+    const confirmed = window.confirm(
+      status === "resolved"
+        ? `确定将 ${targets.length} 条低风险反馈批量标记为已处理吗？`
+        : `确定忽略 ${targets.length} 条已选反馈吗？`,
+    );
+    if (!confirmed) return;
+
+    setLoadingAction(status === "resolved" ? "batch-feedback-resolved" : "batch-feedback-ignored");
+    let success = 0;
+    for (const item of targets) {
+      const result = await requestWithMethod("/api/admin/feedback", "PATCH", password, {
+        id: item.id,
+        status,
+        reviewerNote: note,
+      });
+      if (result.ok) success++;
+    }
+
+    const targetIds = new Set(targets.map((item) => item.id));
+    setOfferFeedback((prev) => prev.filter((item) => !targetIds.has(item.id)));
+    setSelectedFeedbackIds((prev) => {
+      const next = new Set(prev);
+      for (const id of targetIds) next.delete(id);
+      return next;
+    });
+    setLoadingAction(null);
+    setGlobalMessage({
+      type: success === targets.length ? "success" : "info",
+      text: `${status === "resolved" ? "批量标记已处理" : "批量忽略"}完成：${success}/${targets.length} 条成功。`,
+    });
+    router.refresh();
+  }
+
   async function updateSiteFeedbackStatus(feedback: SiteFeedback, status: SiteFeedbackStatus, reviewerNote?: string) {
     setLoadingAction(`site-feedback-${status}-${feedback.id}`);
     const result = await requestWithMethod("/api/admin/site-feedback", "PATCH", password, {
@@ -2182,23 +2287,86 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
             {/* Feedback tab */}
             {activeTab === "feedback" && (
               <div role="tabpanel" id="tabpanel-feedback">
-                <div className="mb-4 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void refreshSiteFeedback();
-                      void refreshOfferFeedback();
-                    }}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4]"
-                  >
-                    <RefreshCcw size={14} />
-                    刷新
-                  </button>
-                  <span className="text-xs text-[#adb3b4]">
-                    {siteFeedback.length} 条站点意见，{offerFeedback.length} 条报价举报
-                  </span>
+                <div className="mb-4 space-y-3 rounded-lg border border-[#adb3b4]/20 bg-white p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Flag size={15} className="text-[#5a6061]" />
+                        <h3 className="text-sm font-semibold text-[#202829]">反馈工作台</h3>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-[#5a6061]">
+                        先按反馈性质分流，轻量核验只给处理建议，不自动下架报价或渠道。
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void refreshSiteFeedback();
+                          void refreshOfferFeedback();
+                        }}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4]"
+                      >
+                        <RefreshCcw size={14} />
+                        刷新
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleAllVisibleFeedback}
+                        disabled={!filteredOfferFeedback.length || feedbackFilter === "site"}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+                      >
+                        <Check size={14} />
+                        {selectedFeedbackIds.size ? "取消选择" : "选择当前"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => batchUpdateSelectedOfferFeedback("resolved")}
+                        disabled={!safeBatchFeedback.length || loadingAction === "batch-feedback-resolved"}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#2f7a4b]/20 bg-white px-3 text-xs font-medium text-[#2f7a4b] transition-colors hover:bg-[#e8f3ec] disabled:opacity-50"
+                      >
+                        {loadingAction === "batch-feedback-resolved" ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                        批量已处理 ({safeBatchFeedback.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => batchUpdateSelectedOfferFeedback("ignored")}
+                        disabled={!selectedFeedbackIds.size || loadingAction === "batch-feedback-ignored"}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+                      >
+                        {loadingAction === "batch-feedback-ignored" ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                        批量忽略
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {feedbackWorkFilters.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => setFeedbackFilter(item.value)}
+                        className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${
+                          feedbackFilter === item.value
+                            ? "bg-[#2d3435] text-white"
+                            : "bg-[#f2f4f4] text-[#5a6061] hover:bg-[#e4e9ea]"
+                        }`}
+                      >
+                        {item.label}
+                        <span className={feedbackFilter === item.value ? "text-white/70" : "text-[#adb3b4]"}>
+                          {feedbackFilterCounts[item.value]}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#adb3b4]">
+                    <span>{siteFeedback.length} 条站点意见</span>
+                    <span>{offerFeedback.length} 条报价举报</span>
+                    <span>已选 {selectedFeedbackIds.size} 条</span>
+                  </div>
                 </div>
                 <div className="space-y-6">
+                  {(feedbackFilter === "all" || feedbackFilter === "site") && (
                   <section>
                     <div className="mb-3 flex items-center gap-2">
                       <MessageCircle size={15} className="text-[#5a6061]" />
@@ -2212,23 +2380,28 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       onIgnore={(item) => updateSiteFeedbackStatus(item, "ignored", "已忽略")}
                     />
                   </section>
+                  )}
+                  {feedbackFilter !== "site" && (
                   <section>
                     <div className="mb-3 flex items-center gap-2">
                       <Flag size={15} className="text-[#5a6061]" />
                       <h3 className="text-sm font-semibold text-[#202829]">报价举报</h3>
                     </div>
                     <OfferFeedbackList
-                      feedback={offerFeedback}
+                      feedback={filteredOfferFeedback}
                       offerById={offerById}
                       productByKey={productByKey}
                       loadingAction={loadingAction}
                       rowFeedback={rowFeedback}
+                      selectedIds={selectedFeedbackIds}
+                      onToggleSelect={toggleFeedbackSelect}
                       onHideOffer={hideOfferFromFeedback}
                       onHideSource={hideSourceFromFeedback}
                       onResolve={(item) => updateFeedbackStatus(item, "resolved", "已人工确认处理")}
                       onIgnore={(item) => updateFeedbackStatus(item, "ignored", "已忽略")}
                     />
                   </section>
+                  )}
                 </div>
               </div>
             )}
@@ -3149,6 +3322,8 @@ function OfferFeedbackList({
   productByKey,
   loadingAction,
   rowFeedback,
+  selectedIds,
+  onToggleSelect,
   onHideOffer,
   onHideSource,
   onResolve,
@@ -3159,6 +3334,8 @@ function OfferFeedbackList({
   productByKey: Map<string, AdminProduct>;
   loadingAction: string | null;
   rowFeedback: RowFeedback | null;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
   onHideOffer: (feedback: OfferFeedback) => void;
   onHideSource: (feedback: OfferFeedback) => void;
   onResolve: (feedback: OfferFeedback) => void;
@@ -3183,6 +3360,7 @@ function OfferFeedbackList({
         const ignoreLoading = loadingAction === `feedback-ignored-${item.id}`;
         const rowState = rowFeedback?.id === item.id ? rowFeedback : null;
         const matchedOffer = item.offerId ? offerById.get(item.offerId) : null;
+        const verdict = getOfferFeedbackVerdict(item, matchedOffer);
         const matchedProduct =
           (item.productId ? productByKey.get(item.productId) : null) ||
           (item.productSlug ? productByKey.get(item.productSlug) : null) ||
@@ -3209,6 +3387,20 @@ function OfferFeedbackList({
         return (
           <article key={item.id} className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_12px_34px_rgba(45,52,53,0.035)]">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={selectedIds.has(item.id)}
+                aria-label={`选择反馈 ${sourceTitle}`}
+                onClick={() => onToggleSelect(item.id)}
+                className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
+                  selectedIds.has(item.id)
+                    ? "border-[#2f7a4b] bg-[#2f7a4b] text-white"
+                    : "border-[#adb3b4]/40 hover:border-[#2d3435]"
+                }`}
+              >
+                {selectedIds.has(item.id) && <Check size={12} strokeWidth={3} />}
+              </button>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${feedbackReasonClass(item.reason)}`}>
@@ -3220,8 +3412,14 @@ function OfferFeedbackList({
                   <span className="rounded-full bg-[#eef3f8] px-2 py-0.5 text-xs font-semibold text-[#47657a]">
                     用户希望：{feedbackUserExpectedActionLabel(item.userExpectedAction)}
                   </span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${offerFeedbackVerdictClass(verdict.tone)}`}>
+                    核验：{verdict.label}
+                  </span>
                   <span className="text-xs text-[#adb3b4]">{formatRelativeTime(item.createdAt)}</span>
                 </div>
+                <p className="mt-2 rounded-lg bg-[#f2f4f4] px-3 py-2 text-xs leading-5 text-[#5a6061]">
+                  {verdict.description}
+                </p>
                 <div className="mt-3 grid gap-3 lg:grid-cols-[1.1fr_1fr]">
                   <div className="rounded-lg bg-[#f2f4f4] px-3 py-2.5">
                     <p className="text-[0.68rem] font-semibold uppercase tracking-wider text-[#5a6061]">当前归类</p>
@@ -5875,6 +6073,155 @@ function rowFeedbackClass(value: RowFeedback["type"]): string {
   if (value === "success") return "bg-[#e8f3ec] text-[#2f7a4b]";
   if (value === "info") return "bg-[#eef3f8] text-[#47657a]";
   return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
+const feedbackWorkFilters: Array<{ value: FeedbackWorkFilter; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "precheck", label: "待预处理" },
+  { value: "transient", label: "临时数据" },
+  { value: "category", label: "分类问题" },
+  { value: "high_risk", label: "高风险" },
+  { value: "site", label: "站点意见" },
+];
+
+function getOfferFeedbackBucket(feedback: OfferFeedback): OfferFeedbackBucket {
+  if (feedback.reason === "wrong_category") return "category";
+  if (feedback.reason === "fraud" || feedback.reason === "bad_source") return "high_risk";
+  if (feedback.reason === "wrong_price" || feedback.reason === "stock_mismatch" || feedback.reason === "item_removed") {
+    return "transient";
+  }
+  return "other";
+}
+
+function filterOfferFeedbackByWorkFilter(
+  feedback: OfferFeedback[],
+  filter: FeedbackWorkFilter,
+  offerById: Map<string, RawOffer>,
+): OfferFeedback[] {
+  if (filter === "all" || filter === "site") return feedback;
+  if (filter === "precheck") {
+    return feedback.filter((item) => getOfferFeedbackVerdict(item, item.offerId ? offerById.get(item.offerId) : null).batchSafe);
+  }
+  return feedback.filter((item) => {
+    const bucket = getOfferFeedbackBucket(item);
+    if (filter === "transient") return bucket === "transient";
+    if (filter === "category") return bucket === "category";
+    if (filter === "high_risk") return bucket === "high_risk";
+    return true;
+  });
+}
+
+function getFeedbackWorkFilterCounts(
+  offerFeedback: OfferFeedback[],
+  siteFeedback: SiteFeedback[],
+  offerById: Map<string, RawOffer>,
+): Record<FeedbackWorkFilter, number> {
+  return {
+    all: offerFeedback.length + siteFeedback.length,
+    precheck: offerFeedback.filter((item) => getOfferFeedbackVerdict(item, item.offerId ? offerById.get(item.offerId) : null).batchSafe).length,
+    transient: offerFeedback.filter((item) => getOfferFeedbackBucket(item) === "transient").length,
+    category: offerFeedback.filter((item) => getOfferFeedbackBucket(item) === "category").length,
+    high_risk: offerFeedback.filter((item) => getOfferFeedbackBucket(item) === "high_risk").length,
+    site: siteFeedback.length,
+  };
+}
+
+function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer | null | undefined): OfferFeedbackVerdict {
+  const bucket = getOfferFeedbackBucket(feedback);
+  if (bucket === "category") {
+    return {
+      label: "分类待修",
+      description: "这类反馈不建议和库存、价格问题混在一起处理，后续应进入分类规则或模型辅助归类流程。",
+      tone: "info",
+      batchSafe: false,
+    };
+  }
+
+  if (bucket === "high_risk") {
+    return {
+      label: "人工核验",
+      description: "涉及虚假或渠道可信度，需要优先人工打开原链接和渠道售后信息核验，不自动批量处理。",
+      tone: "danger",
+      batchSafe: false,
+    };
+  }
+
+  if (!currentOffer) {
+    return {
+      label: "未匹配报价",
+      description: "后台当前未找到这条报价记录，建议先打开原始链接或刷新反馈数据后再判断。",
+      tone: "warn",
+      batchSafe: false,
+    };
+  }
+
+  if (feedback.reason === "wrong_price") {
+    if (feedback.offerPrice !== null && feedback.offerPrice !== undefined && currentOffer.price !== null) {
+      const priceChanged = Math.abs(Number(currentOffer.price) - Number(feedback.offerPrice)) >= 0.01;
+      if (priceChanged) {
+        return {
+          label: "价格已更新",
+          description: "当前价格和用户反馈时的快照不同，通常表示后续采集已经修正，可批量标记已处理。",
+          tone: "success",
+          batchSafe: true,
+        };
+      }
+    }
+    return {
+      label: "建议重采",
+      description: "当前价格和用户反馈快照仍接近，建议先重采或人工打开原链接核验。",
+      tone: "warn",
+      batchSafe: false,
+    };
+  }
+
+  if (feedback.reason === "stock_mismatch") {
+    if (feedback.offerStatus && currentOffer.status !== feedback.offerStatus) {
+      return {
+        label: "状态已更新",
+        description: "当前库存状态已不同于用户提交时的快照，通常表示后续采集已修正，可批量标记已处理。",
+        tone: "success",
+        batchSafe: true,
+      };
+    }
+    return {
+      label: "建议重采",
+      description: "当前库存状态仍和用户反馈快照一致，建议先重采；不要直接按临时反馈下架渠道。",
+      tone: "warn",
+      batchSafe: false,
+    };
+  }
+
+  if (feedback.reason === "item_removed") {
+    if (currentOffer.hidden || currentOffer.status === "out_of_stock") {
+      return {
+        label: "已不可售",
+        description: "当前报价已隐藏或缺货，和用户反馈方向一致，可批量标记已处理。",
+        tone: "success",
+        batchSafe: true,
+      };
+    }
+    return {
+      label: "需核验链接",
+      description: "用户反馈原商品下架，但当前报价仍显示有货，建议打开原链接或重采后再决定是否下架报价。",
+      tone: "warn",
+      batchSafe: false,
+    };
+  }
+
+  return {
+    label: "人工判断",
+    description: "这条反馈没有明确的自动判断规则，建议按单条反馈处理。",
+    tone: "info",
+    batchSafe: false,
+  };
+}
+
+function offerFeedbackVerdictClass(tone: OfferFeedbackVerdictTone): string {
+  if (tone === "success") return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (tone === "danger") return "bg-[#fbe9e7] text-[#9b3328]";
+  if (tone === "warn") return "bg-[#fff7e8] text-[#7a541b]";
+  return "bg-[#eef3f8] text-[#47657a]";
 }
 
 function feedbackReasonLabel(value: OfferFeedback["reason"]): string {

@@ -606,6 +606,7 @@ const feedbackReasonOptions = [
   { value: "wrong_price", label: "价格不准" },
   { value: "item_removed", label: "商品已下架" },
   { value: "stock_mismatch", label: "库存状态不准" },
+  { value: "wrong_category", label: "分类错误" },
   { value: "fraud", label: "疑似虚假/欺诈" },
   { value: "bad_source", label: "渠道不可信" },
   { value: "other", label: "其他问题" },
