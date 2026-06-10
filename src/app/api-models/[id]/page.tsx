@@ -144,7 +144,7 @@ export default async function ApiModelDetailPage({
           </div>
           <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-[#5a6061]">
             <Clock3 size={16} />
-            最近记录 {summary.latestUpdatedAt}
+            最近记录 {formatDatasetDate(summary.latestUpdatedAt)}
           </div>
         </div>
 
