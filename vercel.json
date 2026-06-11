@@ -8,29 +8,5 @@
       "path": "/api/cron/official-prices-weekly",
       "schedule": "30 18 * * 0"
     }
-  ],
-  "redirects": [
-    {
-      "source": "/(.*)",
-      "has": [
-        {
-          "type": "host",
-          "value": "ai-price-hub.vercel.app"
-        }
-      ],
-      "destination": "https://priceai.cc/$1",
-      "permanent": true
-    },
-    {
-      "source": "/(.*)",
-      "has": [
-        {
-          "type": "host",
-          "value": "priceai.tider.cc"
-        }
-      ],
-      "destination": "https://priceai.cc/$1",
-      "permanent": true
-    }
   ]
 }
