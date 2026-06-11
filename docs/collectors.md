@@ -155,4 +155,43 @@ PRICEAI_LIANDONG_SHOP_BREAKER_MINUTES=30
 npm run collect:prices -- --all --post --liandong-shop-limit 10 --liandong-shop-delay-ms 30000
 ```
 
+## 轻量边缘采集节点
+
+当某个 `shopApi` 主域对固定 VPS IP 风控较强时，可以临时换一台云服务器作为轻量采集节点。新机器不需要 clone PriceAI 仓库，也不需要安装 Supabase 配置；只要有 Node.js 18+ 和 `curl`，执行一行命令即可从 PriceAI 拉取采集任务、采集、再回传结果。
+
+先 dry-run 验证该 IP 能否访问链动小铺：
+
+```bash
+curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
+  PRICEAI_AGENT_TOKEN="<ADMIN_PASSWORD 或 CRON_SECRET>" \
+  PRICEAI_COLLECTOR_NODE_ID="cn-vps-test-1" \
+  PRICEAI_COLLECTOR_NODE_NAME="临时国内采集节点 1" \
+  PRICEAI_COLLECTOR_NODE_REGION="cn" \
+  bash -s -- --family pay.ldxp.cn --limit 3 --dry-run
+```
+
+确认可用后，正式跑一轮并写回：
+
+```bash
+curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
+  PRICEAI_AGENT_TOKEN="<ADMIN_PASSWORD 或 CRON_SECRET>" \
+  PRICEAI_COLLECTOR_NODE_ID="cn-vps-test-1" \
+  PRICEAI_COLLECTOR_NODE_NAME="临时国内采集节点 1" \
+  PRICEAI_COLLECTOR_NODE_REGION="cn" \
+  bash -s -- --family pay.ldxp.cn --limit 3
+```
+
+需要让临时节点持续工作时，加 `--loop`：
+
+```bash
+curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
+  PRICEAI_AGENT_TOKEN="<ADMIN_PASSWORD 或 CRON_SECRET>" \
+  PRICEAI_COLLECTOR_NODE_ID="cn-vps-test-1" \
+  PRICEAI_COLLECTOR_NODE_NAME="临时国内采集节点 1" \
+  PRICEAI_COLLECTOR_NODE_REGION="cn" \
+  bash -s -- --family pay.ldxp.cn --limit 3 --loop --interval 300
+```
+
+当前轻量节点只内置 `shopApi` 解析器，优先用于 `pay.ldxp.cn` / LDXP 这类换 IP 试采集场景。中心站点负责下发任务和接收日志，节点只负责执行，不保存长期配置。
+
 遇到 `acw_tc`、`cdn_sec_tc`、HTML 脚本挑战页等风控响应时，不应把商品标记为缺货，也不应判定店铺关闭；应记录为采集失败/风控，等待低频复查或切换到合适的采集节点。
