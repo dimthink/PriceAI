@@ -52,7 +52,7 @@ export const canonicalCatalog: CanonicalProduct[] = [
     platform: "ChatGPT",
     productType: "订阅/会员",
     spec: "Plus",
-    summary: "ChatGPT Plus 月卡、成品号、普通直充、卡密、CDK 或自助开通，不含单独拆分的 iOS 土区充值代充。",
+    summary: "ChatGPT Plus 月卡、成品号、普通直充、卡密、CDK、Pix 低价试用或自助开通，不含单独拆分的地区充值代充。",
     aliases: [
       "gpt plus",
       "chatgpt plus",
