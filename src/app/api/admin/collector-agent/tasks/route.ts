@@ -9,6 +9,7 @@ const FAMILY_HOSTS: Record<string, string[]> = {
   "liandong-shop": ["pay.ldxp.cn", "ldxp.cn"],
   ldxp: ["pay.ldxp.cn", "ldxp.cn"],
 };
+const ALL_SHOPAPI_FAMILIES = new Set(["all", "*", "shopapi", "shop-api"]);
 
 const querySchema = z.object({
   kind: z.string().optional().default("shopApi"),
@@ -66,6 +67,8 @@ export async function GET(request: Request) {
       .filter((source) => {
         const sourceUrl = String(source.entry_url || source.base_url || "");
         const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
+        if (!hostCandidates) return true;
+
         const host = normalizeHostname(baseUrl || sourceUrl);
         return hostCandidates.includes(host);
       })
@@ -132,8 +135,9 @@ async function loadRawOfferUrlsBySource(sourceIds: string[]): Promise<Map<string
   return map;
 }
 
-function familyHosts(value: string): string[] {
+function familyHosts(value: string): string[] | null {
   const normalized = value.trim().toLowerCase();
+  if (ALL_SHOPAPI_FAMILIES.has(normalized)) return null;
   if (FAMILY_HOSTS[normalized]) return FAMILY_HOSTS[normalized];
 
   return normalized

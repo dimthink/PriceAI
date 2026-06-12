@@ -5,7 +5,7 @@ import os from "node:os";
 const VERSION = "0.1.0";
 const DEFAULT_ENDPOINT = "https://priceai.cc";
 const DEFAULT_KIND = "shopApi";
-const DEFAULT_FAMILY = "pay.ldxp.cn";
+const DEFAULT_FAMILY = "shopApi";
 const DEFAULT_LIMIT = 3;
 const DEFAULT_PAGE_DELAY_MS = 300;
 const DEFAULT_INTERVAL_SECONDS = 300;

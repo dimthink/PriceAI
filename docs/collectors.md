@@ -159,7 +159,7 @@ npm run collect:prices -- --all --post --liandong-shop-limit 10 --liandong-shop-
 
 当某个 `shopApi` 主域对固定 VPS IP 风控较强时，可以临时换一台云服务器作为轻量采集节点。新机器不需要 clone PriceAI 仓库，也不需要安装 Supabase 配置；只要有 Node.js 18+ 和 `curl`，执行一行命令即可从 PriceAI 拉取采集任务、采集、再回传结果。
 
-先 dry-run 验证该 IP 能否访问链动小铺：
+先 dry-run 验证该 IP 能否访问 `shopApi` 渠道：
 
 ```bash
 curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
@@ -167,7 +167,7 @@ curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
   PRICEAI_COLLECTOR_NODE_ID="cn-vps-test-1" \
   PRICEAI_COLLECTOR_NODE_NAME="临时国内采集节点 1" \
   PRICEAI_COLLECTOR_NODE_REGION="cn" \
-  bash -s -- --family pay.ldxp.cn --limit 3 --round --dry-run
+  bash -s -- --family shopApi --limit 3 --round --dry-run
 ```
 
 确认可用后，正式跑一轮并写回：
@@ -178,7 +178,7 @@ curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
   PRICEAI_COLLECTOR_NODE_ID="cn-vps-test-1" \
   PRICEAI_COLLECTOR_NODE_NAME="临时国内采集节点 1" \
   PRICEAI_COLLECTOR_NODE_REGION="cn" \
-  bash -s -- --family pay.ldxp.cn --limit 3 --round
+  bash -s -- --family shopApi --limit 3 --round
 ```
 
 服务器上建议用 `systemd timer` 每 30 分钟触发一次 `--round`，不要用 5 分钟高频轮询。`--round` 会在启动时固定本轮的 `staleBefore`，持续分批拉取本轮尚未更新的来源，直到没有待采集任务或达到 `--max-round-tasks` 上限。遇到连续 3 个风控/403 失败时，runner 会在本进程内冷却 5 分钟后继续本轮，而不是结束本轮等待下一次定时器。
@@ -191,9 +191,9 @@ curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
   PRICEAI_COLLECTOR_NODE_ID="cn-vps-test-1" \
   PRICEAI_COLLECTOR_NODE_NAME="临时国内采集节点 1" \
   PRICEAI_COLLECTOR_NODE_REGION="cn" \
-  bash -s -- --family pay.ldxp.cn --limit 3 --round --loop --interval 1800
+  bash -s -- --family shopApi --limit 3 --round --loop --interval 1800
 ```
 
-当前轻量节点只内置 `shopApi` 解析器，优先用于 `pay.ldxp.cn` / LDXP 这类换 IP 试采集场景。中心站点负责下发任务和接收日志，节点只负责执行，不保存长期配置。
+当前轻量节点只内置 `shopApi` 解析器，优先用于需要国内 IP 的 `pay.ldxp.cn`、`pay.qxvx.cn`、`catfk.com` 等渠道。中心站点负责下发任务和接收日志，节点只负责执行，不保存长期配置。需要只跑 LDXP 时仍可使用 `--family ldxp` 或 `--family pay.ldxp.cn`。
 
 遇到 `acw_tc`、`cdn_sec_tc`、HTML 脚本挑战页等风控响应时，不应把商品标记为缺货，也不应判定店铺关闭；应记录为采集失败/风控，等待低频复查或切换到合适的采集节点。
