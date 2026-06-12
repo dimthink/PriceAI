@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { priceDataCacheHeaders } from "@/lib/cache-headers";
 import { listPublicProductOffers } from "@/lib/data";
+import { parseOfferFilterTags } from "@/lib/offer-filter-tags";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,6 +14,9 @@ export async function GET(
   const result = await listPublicProductOffers(id, {
     limit: parseIntegerParam(request.nextUrl.searchParams.get("limit")),
     offset: parseIntegerParam(request.nextUrl.searchParams.get("offset")),
+    filterTags: parseOfferFilterTags(request.nextUrl.searchParams.get("tags")),
+    query: request.nextUrl.searchParams.get("q"),
+    excludeQuery: request.nextUrl.searchParams.get("exclude"),
   });
 
   return NextResponse.json(result, {

@@ -1,17 +1,26 @@
 "use client";
 
-import { ChevronDown, ChevronUp, ExternalLink, Flag, X } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp, ExternalLink, Flag, Search, X } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { isAvailable } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
+import {
+  OFFER_FILTER_TAG_BY_ID,
+  parseOfferFilterTags,
+  toggleOfferFilterTag,
+  type OfferFilterTagFacet,
+  type OfferFilterTagId,
+} from "@/lib/offer-filter-tags";
 import type { RawOffer } from "@/lib/types";
-import { formatCurrency, formatRelativeTime } from "@/lib/utils";
+import { formatCurrency, formatDateMinute, formatRelativeTime } from "@/lib/utils";
 
 type ProductOffersResponse = {
   offers: RawOffer[];
   total: number;
+  filterFacets?: OfferFilterTagFacet[];
+  activeFilterTags?: OfferFilterTagId[];
   limited?: boolean;
   generatedAt: string;
   degraded?: boolean;
@@ -29,14 +38,33 @@ export function ProductOffersPanel({
   productName,
   initialCount,
   initialData = null,
+  initialFilterTags = [],
+  initialQuery = "",
+  initialExcludeQuery = "",
 }: {
   productId: string;
   productSlug: string;
   productName: string;
   initialCount: number;
   initialData?: ProductOffersResponse | null;
+  initialFilterTags?: string[];
+  initialQuery?: string;
+  initialExcludeQuery?: string;
 }) {
-  const initialCacheKey = productOffersCacheKey(productId, 0);
+  const normalizedInitialFilterTags = useMemo(() => parseOfferFilterTags(initialFilterTags), [initialFilterTags]);
+  const normalizedInitialQuery = useMemo(() => normalizeOfferSearchQuery(initialQuery), [initialQuery]);
+  const normalizedInitialExcludeQuery = useMemo(() => normalizeOfferSearchQuery(initialExcludeQuery, 160), [initialExcludeQuery]);
+  const [selectedFilterTags, setSelectedFilterTags] = useState<OfferFilterTagId[]>(normalizedInitialFilterTags);
+  const [searchOpen, setSearchOpen] = useState(Boolean(normalizedInitialQuery || normalizedInitialExcludeQuery));
+  const [queryInput, setQueryInput] = useState(normalizedInitialQuery);
+  const [excludeInput, setExcludeInput] = useState(normalizedInitialExcludeQuery);
+  const [offerQuery, setOfferQuery] = useState(normalizedInitialQuery);
+  const [offerExcludeQuery, setOfferExcludeQuery] = useState(normalizedInitialExcludeQuery);
+  const selectedFilterKey = selectedFilterTags.join(",");
+  const offerQueryKey = offerQuery.trim();
+  const offerExcludeQueryKey = offerExcludeQuery.trim();
+  const initialFilterKey = normalizedInitialFilterTags.join(",");
+  const initialCacheKey = productOffersCacheKey(productId, 0, normalizedInitialFilterTags, normalizedInitialQuery, normalizedInitialExcludeQuery);
   const cachedInitialData = newestGeneratedDataset(productOffersMemoryCache.get(initialCacheKey), initialData);
   const [data, setData] = useState<ProductOffersResponse | null>(cachedInitialData);
   const [loading, setLoading] = useState(!cachedInitialData);
@@ -46,14 +74,21 @@ export function ProductOffersPanel({
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const cacheKey = productOffersCacheKey(productId, 0);
+    const filterTags = parseOfferFilterTags(selectedFilterTags);
+    const query = normalizeOfferSearchQuery(offerQuery);
+    const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
+    const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery);
     let cancelRefresh: (() => void) | null = null;
     let active = true;
 
     async function loadOffers() {
+      const shouldUseInitialData =
+        filterTags.join(",") === initialFilterKey &&
+        query === normalizedInitialQuery &&
+        excludeQuery === normalizedInitialExcludeQuery;
       const cachedData = newestGeneratedDataset(
         productOffersMemoryCache.get(cacheKey),
-        initialData,
+        shouldUseInitialData ? initialData : null,
         readSessionCache<ProductOffersResponse>(cacheKey, PRODUCT_OFFERS_CACHE_TTL_MS),
       );
 
@@ -73,7 +108,7 @@ export function ProductOffersPanel({
       cancelRefresh = timeout.cancel;
 
       try {
-        const nextData = await fetchProductOfferPage(productId, 0, timeout.signal);
+        const nextData = await fetchProductOfferPage(productId, 0, filterTags, query, excludeQuery, timeout.signal);
         if (!active) return;
         const latestData = newestGeneratedDataset(nextData, productOffersMemoryCache.get(cacheKey)) ?? nextData;
         productOffersMemoryCache.set(cacheKey, latestData);
@@ -100,20 +135,35 @@ export function ProductOffersPanel({
       active = false;
       cancelRefresh?.();
     };
-  }, [initialData, productId]);
+  }, [
+    initialData,
+    initialFilterKey,
+    normalizedInitialExcludeQuery,
+    normalizedInitialQuery,
+    offerExcludeQuery,
+    offerQuery,
+    productId,
+    selectedFilterKey,
+    selectedFilterTags,
+  ]);
 
   const offers = data?.offers ?? [];
   const total = data?.total ?? initialCount;
+  const filterFacets = data?.filterFacets ?? initialData?.filterFacets ?? [];
   const hasMore = Boolean(data) && offers.length < total;
+  const activeFilters = selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey);
 
   const loadMoreOffers = useCallback(async () => {
     if (!data || paging || offers.length >= total) return;
+    const filterTags = parseOfferFilterTags(selectedFilterTags);
+    const query = normalizeOfferSearchQuery(offerQuery);
+    const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
 
     setPaging(true);
     setError(null);
 
     try {
-      const nextPage = await fetchProductOfferPage(productId, offers.length);
+      const nextPage = await fetchProductOfferPage(productId, offers.length, filterTags, query, excludeQuery);
       setData((current) => {
         if (!current) return nextPage;
 
@@ -127,7 +177,7 @@ export function ProductOffersPanel({
           limited: nextPage.limited,
         };
 
-        const cacheKey = productOffersCacheKey(productId, 0);
+        const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery);
         productOffersMemoryCache.set(cacheKey, mergedData);
         writeSessionCache(cacheKey, mergedData);
 
@@ -138,7 +188,7 @@ export function ProductOffersPanel({
     } finally {
       setPaging(false);
     }
-  }, [data, offers.length, paging, productId, total]);
+  }, [data, offerExcludeQuery, offerQuery, offers.length, paging, productId, selectedFilterTags, total]);
 
   useEffect(() => {
     if (!hasMore) return;
@@ -160,23 +210,39 @@ export function ProductOffersPanel({
     return () => observer.disconnect();
   }, [hasMore, loadMoreOffers]);
 
-  if (loading) {
+  const handleToggleFilterTag = useCallback((tagId: OfferFilterTagId) => {
+    setSelectedFilterTags((current) => {
+      const nextTags = toggleOfferFilterTag(current, tagId);
+      syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery);
+      return nextTags;
+    });
+  }, [offerExcludeQuery, offerQuery]);
+
+  const handleSearchSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextQuery = normalizeOfferSearchQuery(queryInput);
+    const nextExcludeQuery = normalizeOfferSearchQuery(excludeInput, 160);
+    setQueryInput(nextQuery);
+    setExcludeInput(nextExcludeQuery);
+    setOfferQuery(nextQuery);
+    setOfferExcludeQuery(nextExcludeQuery);
+    setSearchOpen(Boolean(nextQuery || nextExcludeQuery) || searchOpen);
+    syncOfferFiltersToUrl(selectedFilterTags, nextQuery, nextExcludeQuery);
+  }, [excludeInput, queryInput, searchOpen, selectedFilterTags]);
+
+  const clearOfferFilters = useCallback(() => {
+    setSelectedFilterTags([]);
+    setQueryInput("");
+    setExcludeInput("");
+    setOfferQuery("");
+    setOfferExcludeQuery("");
+    setSearchOpen(false);
+    syncOfferFiltersToUrl([], "", "");
+  }, []);
+
+  if (loading && !data) {
     return (
-      <section className="mt-6 overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
-        {Array.from({ length: Math.min(Math.max(initialCount, 3), 6) }).map((_, index) => (
-          <div key={index} className="grid grid-cols-[110px_220px_1fr_120px_130px_110px] gap-5 border-b border-[#edf0f1] px-5 py-5 last:border-b-0">
-            <Skeleton className="h-8 w-16 rounded-full" />
-            <div>
-              <Skeleton className="h-5 w-32 rounded-full" />
-              <Skeleton className="mt-3 h-4 w-24 rounded-full" />
-            </div>
-            <Skeleton className="h-5 w-full rounded-full" />
-            <Skeleton className="h-7 w-20 rounded-full" />
-            <Skeleton className="h-5 w-24 rounded-full" />
-            <Skeleton className="h-9 w-24 rounded-full" />
-          </div>
-        ))}
-      </section>
+      <OfferTableSkeleton count={initialCount} />
     );
   }
 
@@ -193,12 +259,35 @@ export function ProductOffersPanel({
       {data?.degraded ? (
         <DegradedBanner message={data.message} />
       ) : null}
-      <OfferTable offers={offers} onFeedback={setFeedbackOffer} />
-      <section className="mt-5 grid gap-3 md:hidden">
-        {offers.map((offer) => (
-          <OfferListItem key={offer.id} offer={offer} onFeedback={setFeedbackOffer} />
-        ))}
-      </section>
+      <OfferFilterBar
+        facets={filterFacets}
+        selectedTags={selectedFilterTags}
+        total={total}
+        active={activeFilters}
+        excludeInput={excludeInput}
+        queryInput={queryInput}
+        searchOpen={searchOpen}
+        onClear={clearOfferFilters}
+        onExcludeInputChange={setExcludeInput}
+        onSearchInputChange={setQueryInput}
+        onSearchOpen={() => setSearchOpen(true)}
+        onSearchSubmit={handleSearchSubmit}
+        onToggle={handleToggleFilterTag}
+      />
+      {loading ? (
+        <OfferTableSkeleton count={Math.min(Math.max(total, 3), 6)} />
+      ) : offers.length ? (
+        <>
+          <OfferTable offers={offers} onFeedback={setFeedbackOffer} />
+          <section className="mt-5 grid gap-3 md:hidden">
+            {offers.map((offer, index) => (
+              <OfferListItem key={offerRowKey(offer, index)} offer={offer} onFeedback={setFeedbackOffer} />
+            ))}
+          </section>
+        </>
+      ) : (
+        <EmptyOfferFilterState onClear={clearOfferFilters} />
+      )}
       {hasMore ? (
         <div ref={loadMoreRef} className="mt-4 flex justify-center">
           <button
@@ -235,12 +324,18 @@ function DegradedBanner({ message }: { message?: string | null }) {
 async function fetchProductOfferPage(
   productId: string,
   offset: number,
+  filterTags: OfferFilterTagId[] = [],
+  query = "",
+  excludeQuery = "",
   signal?: AbortSignal,
 ): Promise<ProductOffersResponse> {
   const params = new URLSearchParams({
     limit: String(OFFER_PAGE_SIZE),
     offset: String(offset),
   });
+  if (filterTags.length) params.set("tags", filterTags.join(","));
+  if (query) params.set("q", query);
+  if (excludeQuery) params.set("exclude", excludeQuery);
   const response = await fetch(`/api/products/${encodeURIComponent(productId)}/offers?${params.toString()}`, {
     signal,
   });
@@ -250,8 +345,196 @@ async function fetchProductOfferPage(
   return (await response.json()) as ProductOffersResponse;
 }
 
-function productOffersCacheKey(productId: string, offset: number): string {
-  return `priceai:product-offers:v2:${productId}:${offset}:${OFFER_PAGE_SIZE}`;
+function productOffersCacheKey(
+  productId: string,
+  offset: number,
+  filterTags: OfferFilterTagId[] = [],
+  query = "",
+  excludeQuery = "",
+): string {
+  return `priceai:product-offers:v6:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}`;
+}
+
+function normalizeOfferSearchQuery(value: string, limit = 80): string {
+  return value.trim().slice(0, limit);
+}
+
+function syncOfferFiltersToUrl(filterTags: OfferFilterTagId[], query: string, excludeQuery: string) {
+  if (typeof window === "undefined") return;
+
+  const url = new URL(window.location.href);
+  if (filterTags.length) {
+    url.searchParams.set("tags", filterTags.join(","));
+  } else {
+    url.searchParams.delete("tags");
+  }
+  const normalizedQuery = normalizeOfferSearchQuery(query);
+  if (normalizedQuery) {
+    url.searchParams.set("q", normalizedQuery);
+  } else {
+    url.searchParams.delete("q");
+  }
+  const normalizedExcludeQuery = normalizeOfferSearchQuery(excludeQuery, 160);
+  if (normalizedExcludeQuery) {
+    url.searchParams.set("exclude", normalizedExcludeQuery);
+  } else {
+    url.searchParams.delete("exclude");
+  }
+
+  window.history.replaceState(window.history.state, "", url);
+}
+
+function OfferFilterBar({
+  facets,
+  selectedTags,
+  total,
+  active,
+  excludeInput,
+  queryInput,
+  searchOpen,
+  onClear,
+  onExcludeInputChange,
+  onSearchInputChange,
+  onSearchOpen,
+  onSearchSubmit,
+  onToggle,
+}: {
+  facets: OfferFilterTagFacet[];
+  selectedTags: OfferFilterTagId[];
+  total: number;
+  active: boolean;
+  excludeInput: string;
+  queryInput: string;
+  searchOpen: boolean;
+  onClear: () => void;
+  onExcludeInputChange: (value: string) => void;
+  onSearchInputChange: (value: string) => void;
+  onSearchOpen: () => void;
+  onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onToggle: (tagId: OfferFilterTagId) => void;
+}) {
+  const facetById = new Map(facets.map((facet) => [facet.id, facet]));
+  const visibleFacets = Array.from(OFFER_FILTER_TAG_BY_ID.values())
+    .filter((definition) => facetById.has(definition.id));
+
+  return (
+    <section className="mt-5 flex flex-col gap-3 border-y border-[#e5eaea] py-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="shrink-0 text-xs font-semibold text-[#5a6061]">只看</span>
+        {visibleFacets.map((facet) => {
+          const selected = selectedTags.includes(facet.id);
+
+          return (
+            <button
+              key={facet.id}
+              type="button"
+              onClick={() => onToggle(facet.id)}
+              title={facet.description}
+              className={`inline-flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition ${
+                selected
+                  ? "bg-[#202829] text-white"
+                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+              }`}
+            >
+              {facet.label}
+            </button>
+          );
+        })}
+        {active ? (
+          <span className="text-xs text-[#7a8587]">当前 {total} 条</span>
+        ) : null}
+      </div>
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+        {searchOpen ? (
+          <form onSubmit={onSearchSubmit} className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(190px,240px)_minmax(190px,240px)_auto] sm:items-center">
+            <label className="relative min-w-0">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#7a8587]">
+                包含
+              </span>
+              <input
+                value={queryInput}
+                onChange={(event) => onSearchInputChange(event.target.value)}
+                placeholder="关键词、渠道、商品名"
+                className="h-9 w-full rounded-full bg-white pl-12 pr-3 text-sm text-[#202829] outline-none ring-1 ring-[#dbe2e3] transition placeholder:text-[#9aa3a5] focus:ring-2 focus:ring-[#adb3b4]/35"
+              />
+            </label>
+            <label className="relative min-w-0">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#9b3328]">
+                排除
+              </span>
+              <input
+                value={excludeInput}
+                onChange={(event) => onExcludeInputChange(event.target.value)}
+                placeholder="网页、无质保、日抛"
+                className="h-9 w-full rounded-full bg-white pl-12 pr-3 text-sm text-[#202829] outline-none ring-1 ring-[#dbe2e3] transition placeholder:text-[#9aa3a5] focus:ring-2 focus:ring-[#adb3b4]/35"
+              />
+            </label>
+            <button
+              type="submit"
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-[#202829] px-3 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              应用
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={onSearchOpen}
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#eef1f1] px-3 text-sm font-semibold text-[#4d5657] transition hover:bg-[#e3e9e9] hover:text-[#202829]"
+          >
+            <Search size={14} />
+            搜索报价
+          </button>
+        )}
+        {active ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-transparent px-2 text-xs font-semibold text-[#6c7677] transition hover:bg-[#eef1f1] hover:text-[#202829]"
+          >
+            <X size={13} />
+            清除
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function OfferTableSkeleton({ count }: { count: number }) {
+  return (
+    <section className="mt-6 overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
+      {Array.from({ length: Math.min(Math.max(count, 3), 6) }).map((_, index) => (
+        <div key={index} className="grid grid-cols-[110px_220px_1fr_120px_130px_110px] gap-5 border-b border-[#edf0f1] px-5 py-5 last:border-b-0">
+          <Skeleton className="h-8 w-16 rounded-full" />
+          <div>
+            <Skeleton className="h-5 w-32 rounded-full" />
+            <Skeleton className="mt-3 h-4 w-24 rounded-full" />
+          </div>
+          <Skeleton className="h-5 w-full rounded-full" />
+          <Skeleton className="h-7 w-20 rounded-full" />
+          <Skeleton className="h-5 w-24 rounded-full" />
+          <Skeleton className="h-9 w-24 rounded-full" />
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function EmptyOfferFilterState({ onClear }: { onClear: () => void }) {
+  return (
+    <div className="mt-6 rounded-lg bg-white px-5 py-8 text-center shadow-[0_18px_45px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15">
+      <p className="text-sm font-semibold text-[#202829]">没有匹配的报价</p>
+      <p className="mt-2 text-sm text-[#5a6061]">换一组标签，或回到全部报价继续查看。</p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="mt-4 inline-flex h-9 items-center justify-center rounded-full bg-[#202829] px-4 text-sm font-semibold text-white transition hover:opacity-90"
+      >
+        查看全部报价
+      </button>
+    </div>
+  );
 }
 
 function OfferTable({ offers, onFeedback }: { offers: RawOffer[]; onFeedback: (offer: RawOffer) => void }) {
@@ -280,11 +563,11 @@ function OfferTable({ offers, onFeedback }: { offers: RawOffer[]; onFeedback: (o
             </tr>
           </thead>
           <tbody className="divide-y divide-[#edf0f1]">
-            {offers.map((offer) => {
+            {offers.map((offer, index) => {
               const available = isOfferAvailable(offer);
 
               return (
-                <tr key={offer.id} className={`group/row transition hover:bg-[#f7f9f9] ${available ? "" : "bg-[#fbf7f6]"}`}>
+                <tr key={offerRowKey(offer, index)} className={`group/row transition hover:bg-[#f7f9f9] ${available ? "" : "bg-[#fbf7f6]"}`}>
                   <td className="px-5 py-4">
                     <OfferStatusBadge available={available} />
                   </td>
@@ -304,7 +587,9 @@ function OfferTable({ offers, onFeedback }: { offers: RawOffer[]; onFeedback: (o
                       {formatCurrency(offer.price, offer.currency)}
                     </span>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-[#5a6061]">{formatRelativeTime(offerTimestamp(offer))}</td>
+                  <td className="whitespace-nowrap px-4 py-4 text-[#5a6061]">
+                    <OfferRelativeTime value={offerTimestamp(offer)} />
+                  </td>
                   <td className="px-3 py-3 text-center">
                     <OfferLink offer={offer} available={available} compact />
                   </td>
@@ -338,12 +623,18 @@ function OfferListItem({ offer, onFeedback }: { offer: RawOffer; onFeedback: (of
           <p className={`text-2xl font-bold tracking-normal ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
             {formatCurrency(offer.price, offer.currency)}
           </p>
-          <p className="mt-1 text-xs text-[#5a6061]">{formatRelativeTime(offerTimestamp(offer))}</p>
+          <p className="mt-1 text-xs text-[#5a6061]">
+            <OfferRelativeTime value={offerTimestamp(offer)} />
+          </p>
         </div>
         <OfferActions offer={offer} available={available} onFeedback={onFeedback} />
       </div>
     </article>
   );
+}
+
+function offerRowKey(offer: RawOffer, index: number): string {
+  return `${offer.id}:${offer.url}:${index}`;
 }
 
 function TableHead({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -453,6 +744,29 @@ function OfferStatusBadge({ available }: { available: boolean }) {
       {available ? "有货" : "缺货"}
     </span>
   );
+}
+
+function OfferRelativeTime({ value }: { value: string | null | undefined }) {
+  const mounted = useClientHydrated();
+
+  return <span suppressHydrationWarning>{mounted ? formatRelativeTime(value) : formatDateMinute(value)}</span>;
+}
+
+function useClientHydrated(): boolean {
+  return useSyncExternalStore(subscribeToHydration, getHydratedSnapshot, getServerHydrationSnapshot);
+}
+
+function subscribeToHydration(onStoreChange: () => void): () => void {
+  const timeoutId = window.setTimeout(onStoreChange, 0);
+  return () => window.clearTimeout(timeoutId);
+}
+
+function getHydratedSnapshot(): boolean {
+  return true;
+}
+
+function getServerHydrationSnapshot(): boolean {
+  return false;
 }
 
 export function OfferLink({

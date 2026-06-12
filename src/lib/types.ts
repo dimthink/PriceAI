@@ -62,6 +62,7 @@ export type RawOffer = {
   status: OfferStatus;
   url: string;
   tags: string[];
+  filterTags?: string[];
   stockCount?: number | null;
   hidden?: boolean;
   canonicalProductId?: string | null;
