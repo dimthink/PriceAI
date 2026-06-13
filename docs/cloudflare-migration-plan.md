@@ -53,14 +53,13 @@
 3. 已创建 R2 bucket：`priceai-cloudflare-poc-opennext-cache`。
 4. 已绑定测试域名：`cf.priceai.cc`。
 5. 已配置真实 Supabase / admin / Cron / GA secrets 到 Cloudflare Worker。
-6. 已在 GitHub repo secrets 补齐 Cloudflare preview workflow 所需的 Supabase / Admin / GA / Cloudflare Account ID 变量。
+6. 已在 GitHub repo secrets 补齐 Cloudflare preview workflow 所需的 Supabase / Admin / GA / Cloudflare 变量。
+7. 已创建部署专用 Cloudflare API Token，并验证 GitHub Actions 可完成预览部署。
 
 仍需准备：
 
 1. 确认 `priceai.cc` / `www.priceai.cc` 的正式切换窗口。
-2. 创建最小权限 Cloudflare API Token，用于 GitHub Actions 手动部署。
-3. 将新建的 `CLOUDFLARE_API_TOKEN` 写入 GitHub repo secret；这是当前 preview workflow 唯一缺口。
-4. 如需在 Cloudflare 预览环境统计访问，再补 `NEXT_PUBLIC_UMAMI_SCRIPT_URL` 和 `NEXT_PUBLIC_UMAMI_WEBSITE_ID`；当前测试阶段继续不配置，避免预览流量进入生产 Umami。
+2. 如需在 Cloudflare 预览环境统计访问，再补 `NEXT_PUBLIC_UMAMI_SCRIPT_URL` 和 `NEXT_PUBLIC_UMAMI_WEBSITE_ID`；当前测试阶段继续不配置，避免预览流量进入生产 Umami。
 
 Cloudflare Worker runtime secrets：
 
@@ -78,9 +77,9 @@ NEXT_PUBLIC_GA_MEASUREMENT_ID
 GitHub preview workflow secrets / variables：
 
 ```text
-CLOUDFLARE_API_TOKEN        # 尚未配置，需要在 Cloudflare 后台创建
-CLOUDFLARE_ACCOUNT_ID       # 已配置
-NEXT_PUBLIC_SUPABASE_URL    # 已配置
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
+NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 ADMIN_PASSWORD
@@ -198,6 +197,7 @@ npm run deploy:cloudflare
 测试域名稳定后，再把手动部署变成可重复流程。
 
 已新增手动 GitHub Actions workflow：`.github/workflows/deploy-cloudflare-preview.yml`。
+2026-06-14 已验证 workflow run `27472035881` 全部通过，并部署 Worker version `c66d1573-1393-477f-9665-80d21d265b27` 到 `cf.priceai.cc`。
 
 - 手动触发 `workflow_dispatch`。
 - 使用 GitHub secrets 保存 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`。
@@ -280,5 +280,4 @@ curl -sS -o /tmp/health.json -w '%{http_code} %{size_download} %{time_total}\n' 
 1. 用后台真实登录做一次低风险写操作验证。
 2. 观察 `cf.priceai.cc` 24 小时内 Worker 5xx、CPU、请求量、R2 增长和 Supabase egress。
 3. 确认官方价格采集和第三方价格采集只有一个生产入口，避免 Vercel / Cloudflare 双触发。
-4. 创建并配置 `CLOUDFLARE_API_TOKEN`，跑一次手动 Cloudflare preview workflow。
-5. 上述通过后，再安排 `priceai.cc` / `www.priceai.cc` 的切换窗口。
+4. 上述通过后，再安排 `priceai.cc` / `www.priceai.cc` 的切换窗口。

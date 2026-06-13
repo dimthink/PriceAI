@@ -66,7 +66,7 @@ Cloudflare 资源：
 |------|--------|
 | Worker | `priceai-cloudflare-poc` |
 | 测试域名 | `https://cf.priceai.cc` |
-| Worker version | `ea3b2342-4d4c-44f9-8b80-963c4dfc2165` |
+| Worker version | `c66d1573-1393-477f-9665-80d21d265b27` |
 | R2 bucket | `priceai-cloudflare-poc-opennext-cache` |
 | R2 incremental cache | 部署时填充 245 条 |
 | Worker startup time | 约 28ms |
@@ -78,6 +78,7 @@ Cloudflare 资源：
 - OpenNext/Cloudflare 运行时不能只依赖 `process.env`；应用通过 `src/lib/runtime-env.ts` 先读 `process.env`，再兜底读取 OpenNext 的 Cloudflare request context `env`。
 - `build:cloudflare` 和 `deploy:cloudflare` 会执行 `scripts/sanitize-opennext-env.mjs`，避免 `.open-next` 上传包残留本地 `.env*` 内容。
 - `wrangler.jsonc` 使用 `nodejs_compat_populate_process_env`，并声明 `secrets.required`，用于让 Wrangler 在部署前检查远端 secrets。
+- GitHub Actions 手动预览部署已通过：workflow run `27472035881` 完成环境检查、lint、Cloudflare build、deploy 和 smoke test。
 
 线上 smoke test：
 
