@@ -44,16 +44,22 @@
 
 ## 阶段 1：Cloudflare 账号与资源准备
 
-执行前提：需要登录 Cloudflare 并购买 Workers Paid 计划。
+状态：已完成 POC 资源准备。
 
-需要准备：
+已完成：
 
-1. 购买 Workers Paid 计划。
-2. 确认 `priceai.cc` 的 DNS 托管在 Cloudflare，或确认切换 nameserver 的窗口。
-3. 创建测试 Worker：`priceai-cloudflare-poc`。
-4. 创建 R2 bucket：`priceai-cloudflare-poc-opennext-cache`。
-5. 准备测试域名：`cf.priceai.cc`，先不要切 `priceai.cc`。
-6. 创建 Cloudflare API Token，用于后续本地或 GitHub Actions 部署。
+1. 已购买 Workers Paid 计划。
+2. 已创建测试 Worker：`priceai-cloudflare-poc`。
+3. 已创建 R2 bucket：`priceai-cloudflare-poc-opennext-cache`。
+4. 已绑定测试域名：`cf.priceai.cc`。
+5. 已配置真实 Supabase / admin / Cron / GA secrets 到 Cloudflare Worker。
+
+仍需准备：
+
+1. 确认 `priceai.cc` / `www.priceai.cc` 的正式切换窗口。
+2. 创建最小权限 Cloudflare API Token，用于 GitHub Actions 手动部署。
+3. 在 GitHub repo secrets 中补齐 Cloudflare / Supabase / Admin / GA 构建变量。当前已发现 GitHub 只配置了 `NEXT_PUBLIC_SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`CRON_SECRET`，还缺 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`ADMIN_PASSWORD`、`ADMIN_SESSION_SECRET`、`ADMIN_SESSION_VERSION`、`NEXT_PUBLIC_GA_MEASUREMENT_ID`。
+4. 如需在 Cloudflare 预览环境统计访问，再补 `NEXT_PUBLIC_UMAMI_SCRIPT_URL` 和 `NEXT_PUBLIC_UMAMI_WEBSITE_ID`；当前测试阶段可继续不配置，避免预览流量进入生产 Umami。
 
 需要配置的 secrets：
 
@@ -80,6 +86,8 @@ NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS=priceai.cc,www.priceai.cc
 
 ## 阶段 2：测试域名部署
 
+状态：核心读路径已通过。
+
 目标：让 `cf.priceai.cc` 跑起来，并证明它可以承载真实数据路径。
 
 建议命令：
@@ -104,10 +112,47 @@ npm run deploy:cloudflare
 
 阶段出口：
 
-- `cf.priceai.cc` 连续跑通核心路径。
-- Worker 运行时没有真实缺包错误。
-- Supabase egress / 请求量没有异常抬升。
-- 后台写操作和公开读缓存同时正常。
+- `cf.priceai.cc` 连续跑通核心读路径：已完成。
+- Worker 运行时没有真实缺包错误：核心页面、MDX guide、公开 API 已通过；OpenNext 构建仍会打印 MDX / Unified copy 日志，暂未造成运行时错误。
+- Supabase egress / 请求量没有异常抬升：待观察。
+- 后台写操作和公开读缓存同时正常：后台写操作待验证；公开 API 已发送 Cloudflare/Vercel edge cache headers，实际命中率待 Cloudflare Analytics / Supabase egress 观察。
+
+2026-06-13 当前测试结果见 `docs/cloudflare-poc.md` 的“线上 Workers Paid 验证记录”。
+
+## 前端与用户体验影响
+
+迁移本身不是一次前端重写。页面、组件、路由和 Supabase 数据结构保持不变，主要变化在运行时平台：从 Vercel 的 Next.js 托管环境切到 Cloudflare Workers + OpenNext。
+
+预期无感或轻微变化：
+
+1. 静态资源仍由 Next/OpenNext 生成，Cloudflare 负责边缘分发；正常情况下用户看到的 UI 不变。
+2. 首屏 HTML、RSC payload 和客户端 JS 的生成路径会变化，因此切换前必须在 `cf.priceai.cc` 检查首页、产品页、API 模型页、guide 页和后台页。
+3. `next/image` 当前项目已配置 `images.unoptimized = true`，不依赖 Vercel 图片优化，所以这块迁移风险低。
+4. 自部署 Umami 继续通过 `NEXT_PUBLIC_UMAMI_SCRIPT_URL` / `NEXT_PUBLIC_UMAMI_WEBSITE_ID` 注入；不要误切到 Cloud Umami。
+
+需要重点观察：
+
+1. App Router 流式渲染和客户端跳转是否在 Worker 环境下稳定，尤其是产品详情页的报价加载。
+2. ISR / revalidate 依赖 R2 incremental cache；后台写入后前台可能有短暂缓存延迟，验收时接受 120 秒内回显。
+3. MDX guide 页构建时有 Unified 依赖 copy 日志，虽然当前线上 Worker 可访问，但生产切换前仍要复测全部 guide 入口。
+
+## 生产中断评估
+
+按当前计划执行，生产不需要明显中断。
+
+原因：
+
+1. `priceai.cc` 当前继续由 Vercel 承载；Cloudflare 先跑 `cf.priceai.cc`，不会碰主域名。
+2. 主域名切换动作可以只改 Cloudflare Worker route / custom domain，Vercel 保持在线作为回滚目标。
+3. 数据库仍是同一个 Supabase，迁移不涉及数据搬迁或 schema 切换。
+4. 采集任务暂不迁入 Worker，不会因为切主站运行时就改变采集脚本执行环境。
+
+可能出现的短暂影响：
+
+1. DNS / route 生效窗口内，少量用户可能命中旧 Vercel 或新 Cloudflare 的不同版本；需要保证两边代码和数据库 schema 已对齐。
+2. 客户端已经加载旧 Vercel 资源时，切换后下一次导航可能触发一次完整刷新；这是可接受的。
+3. 如果 Cloudflare Worker 绑定生产域名后出现持续 5xx，应立即移除 route，回到 Vercel。
+4. 后台写操作和 revalidate 在 Cloudflare 上未充分验证前，不要在业务高峰切换。
 
 ## 阶段 3：兼容性与成本加固
 
@@ -137,13 +182,14 @@ npm run deploy:cloudflare
 
 测试域名稳定后，再把手动部署变成可重复流程。
 
-建议新增一条 GitHub Actions workflow：
+已新增手动 GitHub Actions workflow：`.github/workflows/deploy-cloudflare-preview.yml`。
 
 - 手动触发 `workflow_dispatch`。
-- 只从 Cloudflare POC 分支或指定 release 分支部署。
 - 使用 GitHub secrets 保存 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`。
-- 执行 `npm ci`、`npm run build:cloudflare`、`npm run deploy:cloudflare`。
-- 部署后自动打公开 API smoke test。
+- 构建前执行 `npm run check:cloudflare-env`，避免 CI 缺少构建变量时生成降级数据版本。
+- 执行 `npm ci`、`npm run lint`、`npm run build:cloudflare`、`npm run deploy:cloudflare`。
+- `deploy:cloudflare` 会把 `--keep-vars` 透传给 Wrangler，避免部署时覆盖 Cloudflare Dashboard 中维护的 runtime variables。
+- 部署后自动执行 `npm run smoke:cloudflare`。
 
 不建议在这一阶段自动切生产域名。域名切换仍应手动执行，并保留回滚窗口。
 
@@ -214,4 +260,10 @@ curl -sS -o /tmp/health.json -w '%{http_code} %{size_download} %{time_total}\n' 
 
 ## 当前下一步
 
-现在最值得做的是阶段 1 和阶段 2：购买 Workers Paid，创建 R2 bucket，给 `cf.priceai.cc` 部署一个真实 Cloudflare 预览环境。只要这个环境带真实 Supabase secrets 跑通，后面的生产切换就是受控 DNS / route 操作，而不是一次性赌迁移。
+当前最值得做的是阶段 2 收尾和阶段 3 加固：
+
+1. 用后台真实登录做一次低风险写操作验证。
+2. 观察 `cf.priceai.cc` 24 小时内 Worker 5xx、CPU、请求量、R2 增长和 Supabase egress。
+3. 确认官方价格采集和第三方价格采集只有一个生产入口，避免 Vercel / Cloudflare 双触发。
+4. 在 GitHub repo secrets 补齐 Cloudflare preview workflow 需要的缺失变量，跑一次手动 Cloudflare preview workflow。
+5. 上述通过后，再安排 `priceai.cc` / `www.priceai.cc` 的切换窗口。

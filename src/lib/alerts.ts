@@ -1,5 +1,7 @@
 import "server-only";
 
+import { getRuntimeEnv } from "@/lib/runtime-env";
+
 type AlertSeverity = "info" | "warning" | "critical";
 
 export async function notifyOperationalIssue(input: {
@@ -8,7 +10,8 @@ export async function notifyOperationalIssue(input: {
   severity?: AlertSeverity;
   details?: Record<string, unknown>;
 }): Promise<void> {
-  const webhookUrl = process.env.PRICEAI_ALERT_WEBHOOK_URL || process.env.ALERT_WEBHOOK_URL;
+  const webhookUrl =
+    getRuntimeEnv("PRICEAI_ALERT_WEBHOOK_URL") || getRuntimeEnv("ALERT_WEBHOOK_URL");
   if (!webhookUrl) return;
 
   const payload = {

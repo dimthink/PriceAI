@@ -2,6 +2,7 @@ import { loadTargets, runPriceCollection } from "../../../../../scripts/collect-
 import { getAdminPasswordFromRequest } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
 import { requireAdminOrCronPassword } from "@/lib/env";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +23,7 @@ async function runCronCollection(request: Request) {
   const startedAt = new Date().toISOString();
   const url = new URL(request.url);
   const source = url.searchParams.get("source") || url.searchParams.get("sourceId") || undefined;
-  const endpoint = process.env.CRON_PUBLIC_BASE_URL || url.origin;
+  const endpoint = getRuntimeEnv("CRON_PUBLIC_BASE_URL") || url.origin;
 
   try {
     if (url.searchParams.get("list") === "1") {
@@ -48,7 +49,7 @@ async function runCronCollection(request: Request) {
       source,
       post: true,
       endpoint,
-      password: process.env.ADMIN_PASSWORD,
+      password: getRuntimeEnv("ADMIN_PASSWORD"),
       silent: true,
     });
 
@@ -72,7 +73,7 @@ async function runCronCollection(request: Request) {
 }
 
 function authorizeCronRequest(request: Request) {
-  if (!process.env.CRON_SECRET && process.env.NODE_ENV === "production") {
+  if (!getRuntimeEnv("CRON_SECRET") && process.env.NODE_ENV === "production") {
     return Response.json(
       { ok: false, message: "CRON_SECRET 未配置，已拒绝执行定时采集。" },
       { status: 500 },

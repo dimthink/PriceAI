@@ -1,7 +1,8 @@
 import Script from "next/script";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 export function GoogleAnalytics() {
-  const measurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+  const measurementId = getRuntimeEnv("NEXT_PUBLIC_GA_MEASUREMENT_ID");
 
   if (!measurementId) return null;
 

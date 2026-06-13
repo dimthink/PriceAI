@@ -10,8 +10,15 @@ const eslintConfig = defineConfig([
     // Default ignores of eslint-config-next:
     ".next/**",
     ".vercel/**",
+    ".wrangler/**",
+    ".open-next/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".trellis/**",
     "out/**",
     "build/**",
+    "tmp/**",
     "next-env.d.ts",
   ]),
 ]);

@@ -3,11 +3,24 @@
   "name": "priceai-cloudflare-poc",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-06-11",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "compatibility_flags": [
+    "nodejs_compat",
+    "nodejs_compat_populate_process_env",
+    "global_fetch_strictly_public"
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "cf.priceai.cc",
+      "custom_domain": true
+    }
+  ],
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
@@ -20,6 +33,18 @@
       "bucket_name": "priceai-cloudflare-poc-opennext-cache"
     }
   ],
+  "secrets": {
+    "required": [
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "ADMIN_PASSWORD",
+      "ADMIN_SESSION_SECRET",
+      "ADMIN_SESSION_VERSION",
+      "CRON_SECRET",
+      "NEXT_PUBLIC_GA_MEASUREMENT_ID"
+    ]
+  },
   "vars": {
     "CRON_PUBLIC_BASE_URL": "https://cf.priceai.cc",
     "NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS": "priceai.cc,www.priceai.cc"

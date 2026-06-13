@@ -1,13 +1,17 @@
 import "server-only";
 
 import crypto from "node:crypto";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 export const ADMIN_SESSION_COOKIE = "priceai_admin_session";
 export const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
-const ADMIN_SESSION_VERSION = process.env.ADMIN_SESSION_VERSION || "1";
+
+function getAdminSessionVersion(): string {
+  return getRuntimeEnv("ADMIN_SESSION_VERSION") || "1";
+}
 
 export function getAdminPassword(): string {
-  const pwd = process.env.ADMIN_PASSWORD;
+  const pwd = getRuntimeEnv("ADMIN_PASSWORD");
   if (!pwd) {
     throw new Error(
       "ADMIN_PASSWORD is not configured. Set it in .env.local for local dev or in your deployment environment.",
@@ -19,7 +23,7 @@ export function getAdminPassword(): string {
 export function createAdminSessionToken(): string {
   const expiresAt = Date.now() + ADMIN_SESSION_MAX_AGE_SECONDS * 1000;
   const nonce = crypto.randomBytes(16).toString("base64url");
-  const payload = [ADMIN_SESSION_VERSION, String(expiresAt), nonce].join(".");
+  const payload = [getAdminSessionVersion(), String(expiresAt), nonce].join(".");
   return `${payload}.${signAdminSessionPayload(payload)}`;
 }
 
@@ -29,7 +33,7 @@ export function verifyAdminSessionToken(token: string | null | undefined): boole
   if (parts.length !== 4) return false;
   const [version, expiresAtText, nonce, signature] = parts;
   if (!version || !expiresAtText || !nonce || !signature) return false;
-  if (version !== ADMIN_SESSION_VERSION) return false;
+  if (version !== getAdminSessionVersion()) return false;
 
   const expiresAt = Number(expiresAtText);
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
@@ -54,12 +58,12 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 function getAdminSessionSecret(): string {
-  return process.env.ADMIN_SESSION_SECRET || getAdminPassword();
+  return getRuntimeEnv("ADMIN_SESSION_SECRET") || getAdminPassword();
 }
 
 export function isSupabaseConfigured(): boolean {
   return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY,
+    getRuntimeEnv("NEXT_PUBLIC_SUPABASE_URL") && getRuntimeEnv("SUPABASE_SERVICE_ROLE_KEY"),
   );
 }
 
@@ -70,8 +74,8 @@ export function requireAdminPassword(value: string | null): void {
 }
 
 export function requireAdminOrCronPassword(value: string | null): void {
-  const adminPassword = process.env.ADMIN_PASSWORD;
-  const cronSecret = process.env.CRON_SECRET;
+  const adminPassword = getRuntimeEnv("ADMIN_PASSWORD");
+  const cronSecret = getRuntimeEnv("CRON_SECRET");
 
   if (value && adminPassword && timingSafeEqual(value, adminPassword)) return;
   if (value && cronSecret && timingSafeEqual(value, cronSecret)) return;

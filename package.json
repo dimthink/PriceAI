@@ -9,9 +9,11 @@
   "scripts": {
     "dev": "node_modules/node/bin/node node_modules/next/dist/bin/next dev --webpack",
     "build": "node_modules/node/bin/node node_modules/next/dist/bin/next build --webpack",
-    "build:cloudflare": "opennextjs-cloudflare build",
+    "build:cloudflare": "opennextjs-cloudflare build && node scripts/sanitize-opennext-env.mjs",
     "preview:cloudflare": "opennextjs-cloudflare preview",
-    "deploy:cloudflare": "opennextjs-cloudflare deploy",
+    "deploy:cloudflare": "node scripts/sanitize-opennext-env.mjs && opennextjs-cloudflare deploy -- --keep-vars",
+    "smoke:cloudflare": "node scripts/smoke-cloudflare.mjs",
+    "check:cloudflare-env": "node scripts/check-cloudflare-env.mjs",
     "start": "node_modules/node/bin/node node_modules/next/dist/bin/next start",
     "lint": "node_modules/node/bin/node node_modules/eslint/bin/eslint.js",
     "collect:prices": "node scripts/collect-prices.mjs",

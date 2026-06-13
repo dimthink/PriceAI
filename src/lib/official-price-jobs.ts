@@ -1,6 +1,7 @@
 import { getAdminPasswordFromRequest } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
 import { requireAdminOrCronPassword } from "@/lib/env";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { stableId } from "@/lib/utils";
 
@@ -87,7 +88,7 @@ export function officialModeFromRequest(request: Request): OfficialPriceJobMode 
 }
 
 function authorizeCronRequest(request: Request) {
-  if (!process.env.CRON_SECRET && process.env.NODE_ENV === "production") {
+  if (!getRuntimeEnv("CRON_SECRET") && process.env.NODE_ENV === "production") {
     return Response.json(
       { ok: false, message: "CRON_SECRET 未配置，已拒绝创建官方地区价采集任务。" },
       { status: 500 },

@@ -1,9 +1,10 @@
 import Script from "next/script";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 const DEFAULT_ALLOWED_DOMAINS = ["priceai.cc", "www.priceai.cc"];
 
 function getAllowedDomains(): string[] {
-  const configured = process.env.NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS;
+  const configured = getRuntimeEnv("NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS");
   if (!configured) return DEFAULT_ALLOWED_DOMAINS;
 
   return configured
@@ -13,8 +14,8 @@ function getAllowedDomains(): string[] {
 }
 
 export function UmamiAnalytics() {
-  const websiteId = process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID;
-  const scriptUrl = process.env.NEXT_PUBLIC_UMAMI_SCRIPT_URL;
+  const websiteId = getRuntimeEnv("NEXT_PUBLIC_UMAMI_WEBSITE_ID");
+  const scriptUrl = getRuntimeEnv("NEXT_PUBLIC_UMAMI_SCRIPT_URL");
   const allowedDomains = getAllowedDomains();
 
   if (!websiteId || !scriptUrl) return null;

@@ -9,6 +9,7 @@
 - POC 目标是 **Cloudflare Workers + OpenNext**，不是静态 Cloudflare Pages export。当前项目有动态 API、后台、ISR / revalidate 页面和 Supabase 读取，静态导出不适合作为主迁移路径。
 - `next` / `eslint-config-next` 已升级到 `16.2.9`，用于满足 `@opennextjs/cloudflare@1.19.11` 的 peer dependency。
 - Cloudflare 本地预览已跑通：首页、`/api-models`、公开 API 和 `/admin` 页面都能从 Wrangler 返回。
+- Cloudflare Workers Paid 测试环境已跑通：`cf.priceai.cc` 当前可访问真实 Supabase 数据，`/api/health` 返回 `ok`。
 - 采集任务暂时继续运行在 GitHub Actions / 云服务器。`/api/cron/collect-prices` 在 Worker 中只验证了无密钥拒绝路径；真正执行采集会跑 Node 脚本，不应放入 Worker 请求路径。
 
 ## 本地验证
@@ -54,6 +55,51 @@ npm run preview:cloudflare
 | `https://priceai.cc/api/products/chatgpt-plus/offers?limit=80` | 200 | 64.0KB | `cache-control: max-age=120` |
 
 这些体积适合放在 Cloudflare 边缘缓存后服务。主要成本风险仍是 Supabase 回源和被绕过应用层缓存的直接分页抓取，相关背景见 `docs/engineering-audit-2026-06-07.md`。
+
+## 线上 Workers Paid 验证记录
+
+验证日期：2026-06-13。
+
+Cloudflare 资源：
+
+| 项目 | 当前值 |
+|------|--------|
+| Worker | `priceai-cloudflare-poc` |
+| 测试域名 | `https://cf.priceai.cc` |
+| Worker version | `5b2643b2-2774-4c23-8c51-2c9b27ffc6be` |
+| R2 bucket | `priceai-cloudflare-poc-opennext-cache` |
+| R2 incremental cache | 部署时填充 207 条 |
+| Worker startup time | 约 27ms |
+| 上传体积 | 约 18.3MiB，gzip 约 3.4MiB |
+
+运行时配置结论：
+
+- Cloudflare remote secrets 已配置并挂到 Worker version：Supabase、后台、Cron、GA 共 8 项。
+- OpenNext/Cloudflare 运行时不能只依赖 `process.env`；应用通过 `src/lib/runtime-env.ts` 先读 `process.env`，再兜底读取 OpenNext 的 Cloudflare request context `env`。
+- `build:cloudflare` 和 `deploy:cloudflare` 会执行 `scripts/sanitize-opennext-env.mjs`，避免 `.open-next` 上传包残留本地 `.env*` 内容。
+- `wrangler.jsonc` 使用 `nodejs_compat_populate_process_env`，并声明 `secrets.required`，用于让 Wrangler 在部署前检查远端 secrets。
+
+线上 smoke test：
+
+| 路径 | 状态 | 响应体积 | 说明 |
+|------|------|----------|------|
+| `/` | 200 | 290KB | 首页 HTML 正常 |
+| `/api-models` | 200 | 212KB | API 模型页 HTML 正常 |
+| `/guides/are-ai-subscription-card-shops-reliable` | 200 | 92KB | MDX guide 页正常 |
+| `/api/health` | 200 | 209B | `ok=true`，Supabase configured/reachable |
+| `/api/explorer` | 200 | 48.6KB | `configured=true`，真实数据 35 个产品 |
+| `/api/offers?limit=80` | 200 | 74.9KB | 80 条报价，体积仍在预期范围 |
+| `/api/products/chatgpt-plus/offers?limit=80` | 200 | 65.7KB | 80 条产品报价，体积仍在预期范围 |
+| `/api/cron/collect-prices` | 401 | 52B | 无密钥拒绝，说明 `CRON_SECRET` 已配置 |
+| `/api/cron/official-prices` | 401 | 67B | 无密钥拒绝 |
+| `/robots.txt` | 200 | 232B | 可访问，仍指向生产 canonical |
+| `/sitemap.xml` | 200 | 13.3KB | 可访问，仍指向生产 canonical |
+
+缓存观察：
+
+- 公开 API 响应保留 `Cache-Control: public, max-age=0, must-revalidate`。
+- 同时发送 `CDN-Cache-Control: public, s-maxage=120`、`Cloudflare-CDN-Cache-Control: public, s-maxage=120`、`Vercel-CDN-Cache-Control: public, s-maxage=120, stale-while-revalidate=600`。
+- Worker 响应未暴露 `cf-cache-status` / `age`，生产切换前仍需结合 Cloudflare Analytics 和 Supabase egress 观察实际缓存收益。
 
 ## 生产部署前置项
 
