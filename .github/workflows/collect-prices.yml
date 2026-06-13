@@ -1,9 +1,8 @@
 name: Collect Prices
 
 on:
-  schedule:
-    # 每 30 分钟跑一次（GitHub Actions cron 用 UTC，最小粒度 5 分钟，但官方建议 ≥ 10 分钟）
-    - cron: "*/30 * * * *"
+  # 非 shopApi 常规采集已迁移到 Huoshan2 systemd；shopApi 由国内边缘节点分流。
+  # 保留手动触发作为应急兜底，避免 GitHub-hosted runner 与服务器重复采集。
   workflow_dispatch: {}
 
 concurrency:

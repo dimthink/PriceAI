@@ -123,7 +123,7 @@ async function saveCrawlLogRun(
   });
 
   const { error } = await supabase.from("crawl_runs").insert({
-    id: stableId(payload.sourceName, payload.sourceUrl, startedAt),
+    id: stableId(payload.sourceName, payload.sourceUrl, startedAt, crawlLogRunIdSuffix(payload.details, payload.status)),
     source_id: source.id,
     source_name: payload.sourceName,
     mode: payload.mode,
@@ -210,6 +210,22 @@ function seenOfferIdsFromDetails(details: Record<string, unknown> | undefined): 
   const value = details?.seenOfferIds;
   if (!Array.isArray(value)) return null;
   return value.map((item) => String(item)).filter(Boolean);
+}
+
+function crawlLogRunIdSuffix(details: Record<string, unknown> | undefined, status: string): string | null {
+  const batchIndex = positiveIntegerFromDetails(details, "batchIndex");
+  const batchCount = positiveIntegerFromDetails(details, "batchCount");
+  if (batchIndex && batchCount) return `batch:${batchIndex}/${batchCount}`;
+  if (batchIndex) return `batch:${batchIndex}`;
+  if (status === "partial") return "partial";
+  return null;
+}
+
+function positiveIntegerFromDetails(details: Record<string, unknown> | undefined, key: string): number | null {
+  const value = details?.[key];
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isInteger(number) || number < 1) return null;
+  return number;
 }
 
 function dateFromDetails(details: Record<string, unknown> | undefined, key: string): string | null {

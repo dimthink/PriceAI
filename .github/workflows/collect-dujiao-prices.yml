@@ -1,9 +1,8 @@
 name: Collect Dujiao Prices
 
 on:
-  schedule:
-    # 与主采集任务错开 15 分钟，只跑 dujiao 来源并发 2。
-    - cron: "15,45 * * * *"
+  # Dujiao 常规采集已迁移到 Huoshan2 systemd。
+  # 保留手动触发作为应急兜底，避免 GitHub-hosted runner 与服务器重复采集。
   workflow_dispatch: {}
 
 concurrency:
