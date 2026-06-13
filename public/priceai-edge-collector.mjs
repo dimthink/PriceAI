@@ -33,6 +33,8 @@ const config = {
   kind: args.kind || process.env.PRICEAI_AGENT_KIND || DEFAULT_KIND,
   family: args.family || process.env.PRICEAI_AGENT_FAMILY || DEFAULT_FAMILY,
   limit: integerInRange(args.limit || process.env.PRICEAI_AGENT_LIMIT, 1, 20, DEFAULT_LIMIT),
+  shardCount: integerInRange(args.shardCount || args["shard-count"] || process.env.PRICEAI_AGENT_SHARD_COUNT, 1, 32, 1),
+  shardIndex: integerInRange(args.shardIndex || args["shard-index"] || process.env.PRICEAI_AGENT_SHARD_INDEX, 0, 31, 0),
   pageDelayMs: integerInRange(args.pageDelayMs || args["page-delay-ms"] || process.env.PRICEAI_AGENT_PAGE_DELAY_MS, 0, 5000, DEFAULT_PAGE_DELAY_MS),
   intervalSeconds: integerInRange(args.interval || args["interval-seconds"] || process.env.PRICEAI_AGENT_INTERVAL_SECONDS, 30, 3600, DEFAULT_INTERVAL_SECONDS),
   round: truthy(args.round) || truthy(process.env.PRICEAI_AGENT_ROUND),
@@ -51,6 +53,11 @@ if (!config.token) {
 
 if (config.kind !== "shopApi") {
   console.error("This lightweight collector currently supports shopApi only.");
+  process.exit(1);
+}
+
+if (config.shardIndex >= config.shardCount) {
+  console.error(`Invalid shard config: shardIndex=${config.shardIndex} must be smaller than shardCount=${config.shardCount}.`);
   process.exit(1);
 }
 
@@ -202,6 +209,10 @@ async function fetchTasks(options = {}) {
   url.searchParams.set("kind", config.kind);
   url.searchParams.set("family", config.family);
   url.searchParams.set("limit", String(config.limit));
+  if (config.shardCount > 1) {
+    url.searchParams.set("shardCount", String(config.shardCount));
+    url.searchParams.set("shardIndex", String(config.shardIndex));
+  }
   if (options.staleBefore) url.searchParams.set("staleBefore", options.staleBefore);
   if (options.excludeSourceIds?.length) {
     url.searchParams.set("excludeSourceIds", options.excludeSourceIds.join(","));
@@ -365,6 +376,8 @@ async function postCrawlRun(target, status, message, offers, extraDetails = {}) 
       edgeRunner: {
         version: VERSION,
         family: config.family,
+        shardCount: config.shardCount,
+        shardIndex: config.shardIndex,
       },
       fullSnapshot: false,
       ...extraDetails,
@@ -392,7 +405,7 @@ async function postCollectorHeartbeat(status, input = {}) {
 
   const payload = {
     node: collectorNodeDetails(),
-    scope: `kind:${config.kind};family:${config.family}`,
+    scope: `kind:${config.kind};family:${config.family};shard:${config.shardIndex}/${config.shardCount}`,
     status,
     startedAt: input.startedAt || null,
     finishedAt: input.finishedAt || null,
@@ -406,6 +419,8 @@ async function postCollectorHeartbeat(status, input = {}) {
       family: config.family,
       kind: config.kind,
       limit: config.limit,
+      shardCount: config.shardCount,
+      shardIndex: config.shardIndex,
       round: config.round,
       loop: config.loop,
       ...(input.details || {}),

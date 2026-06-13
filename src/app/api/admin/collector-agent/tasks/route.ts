@@ -17,6 +17,8 @@ const querySchema = z.object({
   kind: z.string().optional().default("shopApi"),
   family: z.string().optional().default("pay.ldxp.cn"),
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).optional().default(DEFAULT_LIMIT),
+  shardCount: z.coerce.number().int().min(1).max(32).optional().default(1),
+  shardIndex: z.coerce.number().int().min(0).max(31).optional().default(0),
   staleBefore: z.string().datetime().optional(),
   excludeSourceIds: z.string().optional(),
 });
@@ -36,6 +38,12 @@ export async function GET(request: Request) {
         { status: 400 },
       );
     }
+    if (query.shardIndex >= query.shardCount) {
+      return Response.json(
+        { ok: false, message: "分片参数无效：shardIndex 必须小于 shardCount。" },
+        { status: 400 },
+      );
+    }
 
     const hostCandidates = familyHosts(query.family);
     const generatedAt = new Date().toISOString();
@@ -46,7 +54,7 @@ export async function GET(request: Request) {
         .map((item) => item.trim())
         .filter(Boolean),
     );
-    const fetchLimit = Math.max(query.limit * 50, query.limit);
+    const fetchLimit = Math.max(query.limit * 50 * query.shardCount, query.limit);
     let sourcesQuery = supabase
       .from("sources")
       .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at")
@@ -68,6 +76,7 @@ export async function GET(request: Request) {
       .filter((source) => source.collection_method !== "public_json")
       .filter((source) => !excludedSourceIds.has(String(source.id)))
       .filter((source) => !sourceWithinCooldown(source.last_checked_at, generatedAt))
+      .filter((source) => sourceInShard(String(source.id), query.shardCount, query.shardIndex))
       .filter((source) => {
         const sourceUrl = String(source.entry_url || source.base_url || "");
         const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
@@ -101,6 +110,8 @@ export async function GET(request: Request) {
       kind: query.kind,
       family: query.family,
       limit: query.limit,
+      shardCount: query.shardCount,
+      shardIndex: query.shardIndex,
       staleBefore,
       tasks,
     });
@@ -173,6 +184,19 @@ function sourceWithinCooldown(value: unknown, nowIso: string): boolean {
   if (!Number.isFinite(checkedAt) || !Number.isFinite(now)) return false;
 
   return now - checkedAt < DEFAULT_COOLDOWN_MINUTES * 60 * 1000;
+}
+
+function sourceInShard(sourceId: string, shardCount: number, shardIndex: number): boolean {
+  if (shardCount <= 1) return true;
+  return positiveHash(sourceId) % shardCount === shardIndex;
+}
+
+function positiveHash(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
 }
 
 function isUnauthorizedError(error: unknown): boolean {

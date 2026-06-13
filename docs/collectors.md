@@ -181,6 +181,18 @@ curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
   bash -s -- --family shopApi --limit 3 --round
 ```
 
+多台国内节点可以用分片参数稳定分摊任务。例如两台机器时：
+
+```bash
+# 杭州节点
+bash -s -- --family shopApi --limit 3 --round --shard-count 2 --shard-index 0
+
+# 北京节点
+bash -s -- --family shopApi --limit 3 --round --shard-count 2 --shard-index 1
+```
+
+分片由中心站按来源 ID 自动计算，不需要在服务器上维护固定渠道列表。新增或下架渠道后，下次采集会自动进入对应分片。
+
 服务器上建议用 `systemd timer` 每 30 分钟触发一次 `--round`，不要用 5 分钟高频轮询。`--round` 会在启动时固定本轮的 `staleBefore`，持续分批拉取本轮尚未更新的来源，直到没有待采集任务或达到 `--max-round-tasks` 上限。遇到连续 3 个风控/403 失败时，runner 会在本进程内冷却 5 分钟后继续本轮，而不是结束本轮等待下一次定时器。
 
 手工持续调试时才使用 `--loop`：

@@ -96,6 +96,8 @@ curl -fsSL https://priceai.cc/priceai-edge-collector.sh | env \
   bash -s -- --family shopApi --limit 3 --round
 ```
 
+两台国内节点同时运行时，使用 `--shard-count 2` 并分别设置 `--shard-index 0` / `--shard-index 1`，由中心站自动把 `shopApi` 来源分成两半，避免重复采集同一批店铺。
+
 长期运行时用 systemd timer 每 30 分钟触发一次；如果遇到 403 风控，节点内部按采集脚本的冷却和重试策略继续处理，避免把 `shopApi` 压回 GitHub Actions。
 
 ## 采集边界
