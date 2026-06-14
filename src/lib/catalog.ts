@@ -31,6 +31,7 @@ export const productTypeOptions = [
   "接码/验证",
   "虚拟卡",
   "工具账号",
+  "礼品卡",
   "其他",
 ] as const;
 
@@ -407,6 +408,26 @@ export const canonicalCatalog: CanonicalProduct[] = [
     aliases: ["x premium", "twitter premium", "twitter", "推特", "x 推特", "x/twitter", "x-twitter"],
   },
   {
+    id: "telegram-account",
+    slug: "telegram-account",
+    displayName: "Telegram",
+    platform: "其他",
+    productType: "工具账号",
+    spec: "账号 / 星星 / 相关权益",
+    summary: "Telegram、TG、电报、飞机号成品账号、Telegram 星星或相关权益商品。",
+    aliases: ["telegram", "tg", "电报", "飞机号", "telegram 账号", "telegram 星星"],
+  },
+  {
+    id: "gift-card",
+    slug: "gift-card",
+    displayName: "礼品卡",
+    platform: "其他",
+    productType: "礼品卡",
+    spec: "Apple / 通用礼品卡",
+    summary: "Apple Gift Card、App Store、iTunes、Netflix、Spotify 等礼品卡或充值卡商品。",
+    aliases: ["礼品卡", "gift card", "giftcard", "apple gift card", "app store 卡", "itunes 卡"],
+  },
+  {
     id: "other-product",
     slug: "other-product",
     displayName: "其他商品",
@@ -496,6 +517,14 @@ function classifyOfferByTitle(
 
   if (isMirrorSiteProduct(value)) {
     return getCanonicalProduct("other-product");
+  }
+
+  if (isGiftCardProduct(value)) {
+    return getCanonicalProduct("gift-card");
+  }
+
+  if (isTelegramProduct(value, contextValue)) {
+    return getCanonicalProduct("telegram-account");
   }
 
   if (isOtherTool(value)) {
@@ -876,6 +905,20 @@ function isMirrorSiteProduct(value: string): boolean {
   return matches(value, ["chatgpt", "gpt", "openai", "plus", "claude", "gemini", "grok"]);
 }
 
+function isGiftCardProduct(value: string): boolean {
+  if (matches(value, ["非礼品卡", "不是礼品卡", "不含礼品卡", "无礼品卡"])) return false;
+
+  if (matches(value, ["礼品卡", "gift card", "giftcard", "itunes 卡", "itunes卡", "app store 卡", "appstore 卡"])) {
+    return true;
+  }
+
+  if (matches(value, ["苹果卡", "礼卡"]) && matches(value, ["面额", "usd", "hkd", "try", "充值卡"])) {
+    return true;
+  }
+
+  return false;
+}
+
 function isVerificationService(value: string): boolean {
   if (isStandaloneVerificationService(value)) return true;
 
@@ -1083,6 +1126,7 @@ function classifyVerificationService(value: string): string {
 }
 
 function isOtherTool(value: string): boolean {
+  if (isTelegramProduct(value)) return true;
   if (isXTwitterAccount(value)) return true;
 
   return matches(value, [
@@ -1116,6 +1160,7 @@ function isOtherTool(value: string): boolean {
 }
 
 function classifyOtherTool(value: string): string {
+  if (isTelegramProduct(value)) return "telegram-account";
   if (isXTwitterAccount(value)) return "x-twitter-account";
   if (matches(value, ["cursor"])) return "cursor-account";
   if (matches(value, ["kiro"])) return "kiro-account";
@@ -1125,6 +1170,28 @@ function classifyOtherTool(value: string): string {
   if (isAppleIdAccount(value)) return "apple-id-account";
 
   return "other-product";
+}
+
+function isTelegramProduct(value: string, contextValue = ""): boolean {
+  if (matches(value, ["飞机大厨", "airplane chefs"])) return false;
+  if (isTelegramContactOnly(value)) return false;
+  if (hasTelegramSignal(value)) return true;
+  if (!contextValue || !hasTelegramSignal(contextValue)) return false;
+  if (matches(value, ["esim", "e sim", "电子卡", "实体卡", "电话卡", "手机卡", "sim 卡"])) return false;
+
+  return matches(value, ["成品号", "账号", "账户", "老号", "白号", "精养", "高权重", "星星"]);
+}
+
+function hasTelegramSignal(value: string): boolean {
+  return /\b(tg|telegram)\b/.test(value) || matches(value, ["电报", "飞机号", "飞机账号", "飞机成品", "telegram 星星"]);
+}
+
+function isTelegramContactOnly(value: string): boolean {
+  if (!matches(value, ["tg客服", "tg 客服", "telegram客服", "telegram 客服", "联系tg", "联系 tg", "联系telegram", "联系 telegram"])) {
+    return false;
+  }
+
+  return !matches(value, ["telegram账号", "telegram 账号", "tg账号", "tg 账号", "电报账号", "飞机号", "成品号"]);
 }
 
 function isXTwitterAccount(value: string): boolean {

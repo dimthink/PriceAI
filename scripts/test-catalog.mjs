@@ -140,10 +140,41 @@ const cases = [
   ["美区ID 独享账号 自动发货", "apple-id-account"],
   ["X-Twitter Premium自助卡密", "x-twitter-account"],
   ["推特 Premium 会员直充卡密", "x-twitter-account"],
+  ["Telegram成品号 / 规格5", "telegram-account"],
+  ["TG电报高权重老号", "telegram-account"],
+  ["Telegram-星星 1000 stars", "telegram-account"],
+  ["飞机大厨自动充值金币宝石燃油 Airplane Chefs Top up", "other-product"],
+  ["接pixel代订阅谷歌gemini一年（下单后联系TG客服）", "gemini-pro-year"],
+  ["港区礼品卡Apple Gift Card(App store) / 50HKD面额", "gift-card"],
+  ["Netflix礼品卡 / 美国区100USD", "gift-card"],
+  ["Spotify官方礼品卡 / 日本区1个月会员礼品卡", "gift-card"],
+  ["Claude Pro 订阅，正规代充，封号无质保（非礼品卡）", "claude-pro-month"],
 ];
 
 for (const [title, expected] of cases) {
   assert.equal(classifyOffer(title).id, expected, `${title} should classify as ${expected}`);
+}
+
+const contextCases = [
+  [
+    "【美国+1】 1~2年 精养老号 | 高权重 | 抗风控强",
+    { tags: ["TG/电报/飞机/ Telegram 账号", "卡密", "自动发货"] },
+    "telegram-account",
+  ],
+  [
+    "英国原装 GG 电子卡 (eSIM)（高净值账号专用 / 零月租）",
+    { tags: ["电报/飞机/ Telegram 账号/X/Grok", "卡密", "自动发货"] },
+    "other-product",
+  ],
+  [
+    "tg电报api接码登录，带邮箱登录选项",
+    {},
+    "phone-verification",
+  ],
+];
+
+for (const [title, context, expected] of contextCases) {
+  assert.equal(classifyOffer(title, context).id, expected, `${title} should classify as ${expected}`);
 }
 
 const priceCases = [
@@ -240,7 +271,7 @@ assert.equal(
   "Primary ChatGPT Pro 5x titles should be removed from the stored Pro 20x group.",
 );
 
-console.log(`catalog test passed cases=${cases.length + priceCases.length}`);
+console.log(`catalog test passed cases=${cases.length + contextCases.length + priceCases.length}`);
 
 function makeOffer({
   id,

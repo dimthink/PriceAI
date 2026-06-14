@@ -1,4 +1,4 @@
-import { GraduationCap, Layers3, Mail, MessageCircleMore, type LucideIcon } from "lucide-react";
+import { Gift, GraduationCap, Layers3, Mail, MessageCircleMore, Send, type LucideIcon } from "lucide-react";
 import Image from "next/image";
 
 const iconByPlatform: Record<string, string> = {
@@ -31,6 +31,8 @@ const semanticIconByProductId: Record<string, LucideIcon> = {
   "education-email": GraduationCap,
   "email-account": Mail,
   "phone-verification": MessageCircleMore,
+  "telegram-account": Send,
+  "gift-card": Gift,
 };
 
 const semanticIconByPlatform: Record<string, LucideIcon> = {
