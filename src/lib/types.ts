@@ -600,14 +600,16 @@ export type SubmissionStatus = "pending" | "approved" | "rejected";
 
 export type OfferFeedbackStatus = "pending" | "resolved" | "ignored";
 export type SiteFeedbackStatus = OfferFeedbackStatus;
-export type OfferFeedbackReason =
-  | "wrong_price"
-  | "item_removed"
-  | "stock_mismatch"
-  | "fraud"
-  | "wrong_category"
-  | "bad_source"
-  | "other";
+export const offerFeedbackReasonValues = [
+  "wrong_price",
+  "item_removed",
+  "stock_mismatch",
+  "wrong_category",
+  "fraud",
+  "bad_source",
+  "other",
+] as const;
+export type OfferFeedbackReason = (typeof offerFeedbackReasonValues)[number];
 export type OfferFeedbackUserExpectedAction =
   | "recheck"
   | "hide_offer"

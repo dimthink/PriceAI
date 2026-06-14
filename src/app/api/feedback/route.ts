@@ -1,14 +1,8 @@
 import { z } from "zod";
 import { createOfferFeedback } from "@/lib/admin";
+import { offerFeedbackReasonValues } from "@/lib/types";
 
-const reasonSchema = z.enum([
-  "wrong_price",
-  "item_removed",
-  "stock_mismatch",
-  "fraud",
-  "bad_source",
-  "other",
-]);
+const reasonSchema = z.enum(offerFeedbackReasonValues);
 const userExpectedActionSchema = z.enum(["recheck", "hide_offer", "hide_source", "unsure"]);
 
 const schema = z.object({
