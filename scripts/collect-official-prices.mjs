@@ -751,7 +751,7 @@ async function upsertRows(supabase, table, rows, options = {}) {
   for (const chunk of chunks(rows, 500)) {
     if (!chunk.length) continue;
     const { error } = await supabase.from(table).upsert(chunk, options);
-    if (error) throw error;
+    if (error) throw new Error(`${table} upsert failed: ${errorMessage(error)}`);
   }
 }
 
@@ -759,7 +759,7 @@ async function insertRows(supabase, table, rows) {
   for (const chunk of chunks(rows, 500)) {
     if (!chunk.length) continue;
     const { error } = await supabase.from(table).insert(chunk);
-    if (error) throw error;
+    if (error) throw new Error(`${table} insert failed: ${errorMessage(error)}`);
   }
 }
 
@@ -1459,6 +1459,22 @@ function isCli() {
 
 function errorMessage(error) {
   if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const parts = ["message", "code", "details", "hint"]
+      .map((key) => {
+        const value = error[key];
+        return value ? `${key}=${String(value)}` : null;
+      })
+      .filter(Boolean);
+
+    if (parts.length) return parts.join(" ");
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return Object.prototype.toString.call(error);
+    }
+  }
   return String(error);
 }
 
