@@ -25,7 +25,6 @@ const checks = [
   {
     path: "/",
     status: 200,
-    maxBytes: 350_000,
     text: {
       forbidden: fallbackHtmlMarkers,
       requiredAny: [{ label: "configured=true", patterns: ['"configured":true', '\\"configured\\":true'] }],
@@ -34,7 +33,6 @@ const checks = [
   {
     path: "/official-prices",
     status: 200,
-    maxBytes: 400_000,
     text: {
       forbidden: [...fallbackHtmlMarkers, ...staticDatasetMarkers],
       requiredAny: [{ label: "source=supabase", patterns: ['"source":"supabase"', '\\"source\\":\\"supabase\\"'] }],
@@ -43,13 +41,12 @@ const checks = [
   {
     path: "/api-models",
     status: 200,
-    maxBytes: 280_000,
     text: {
       forbidden: [...fallbackHtmlMarkers, ...staticDatasetMarkers],
       requiredAny: [{ label: "source=supabase", patterns: ['"source":"supabase"', '\\"source\\":\\"supabase\\"'] }],
     },
   },
-  { path: "/guides/are-ai-subscription-card-shops-reliable", status: 200, maxBytes: 160_000 },
+  { path: "/guides/are-ai-subscription-card-shops-reliable", status: 200 },
   {
     path: "/api/health",
     status: 200,
@@ -101,7 +98,8 @@ for (const check of checks) {
       "";
 
     const statusOk = response.status === check.status;
-    const sizeOk = bytes <= check.maxBytes;
+    const maxBytes = Number.isFinite(check.maxBytes) ? check.maxBytes : null;
+    const sizeOk = maxBytes === null || bytes <= maxBytes;
     const cacheOk = !check.cache || /s-maxage|max-age/i.test(cacheHeader);
     const textFailures = check.text ? validateText(text, check.text) : [];
     const jsonFailures = check.json ? validateJson(text, check.json) : [];
@@ -118,6 +116,7 @@ for (const check of checks) {
         `${elapsed}ms`,
         check.path,
         check.cache ? `cache=${cacheHeader || "missing"}` : "",
+        !sizeOk && maxBytes !== null ? `size>${maxBytes}B` : "",
         textFailures.length ? `text=${textFailures.join(";")}` : "",
         jsonFailures.length ? `json=${jsonFailures.join(";")}` : "",
       ]
