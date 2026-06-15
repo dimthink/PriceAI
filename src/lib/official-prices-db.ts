@@ -167,7 +167,7 @@ async function readOfficialPricesDataset(): Promise<OfficialPricesDataset> {
 
     const appRows = dbRows(appsResult.data);
     const regionRows = dbRows(regionsResult.data);
-    if (!appRows.length || !regionRows.length) return staticOfficialPricesDataset;
+    if (!appRows.length || !regionRows.length) return configuredStaticOfficialPricesDataset();
 
     const appSlugById = new Map<string, OfficialPriceAppSlug>();
     const apps = appRows
@@ -247,7 +247,7 @@ async function readOfficialPricesDataset(): Promise<OfficialPricesDataset> {
       })
       .filter((row): row is OfficialPriceRow => Boolean(row));
 
-    if (!apps.length || !plans.length || !rows.length) return staticOfficialPricesDataset;
+    if (!apps.length || !plans.length || !rows.length) return configuredStaticOfficialPricesDataset();
 
     const fxSummary = await readFxSummary(rows);
     const generatedAt = rows.reduce((latest, row) => (row.fetchedAt > latest ? row.fetchedAt : latest), officialPriceGeneratedAt);
@@ -268,6 +268,13 @@ async function readOfficialPricesDataset(): Promise<OfficialPricesDataset> {
       configured: true,
     };
   }
+}
+
+function configuredStaticOfficialPricesDataset(): OfficialPricesDataset {
+  return {
+    ...staticOfficialPricesDataset,
+    configured: true,
+  };
 }
 
 async function readPlanRows(appIds: string[]): Promise<DbRow[]> {

@@ -3,6 +3,8 @@ import { JsonLd } from "@/components/JsonLd";
 import { OfficialPricesExplorer } from "@/components/OfficialPricesExplorer";
 import { getOfficialPricesDataset } from "@/lib/official-prices-db";
 
+export const revalidate = 1800;
+
 export const metadata: Metadata = {
   title: "官方订阅地区价",
   description: "查看 ChatGPT、Claude、Gemini、Grok 在 Apple App Store 公开页面中的官方订阅地区价和人民币估算价。",

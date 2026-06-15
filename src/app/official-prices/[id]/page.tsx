@@ -14,6 +14,7 @@ import {
 import { getOfficialPricesDataset } from "@/lib/official-prices-db";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
+export const revalidate = 1800;
 export const dynamicParams = true;
 
 const OFFICIAL_RETURN_KEYS = ["platform", "scope", "q"] as const;

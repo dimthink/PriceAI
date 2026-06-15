@@ -15,6 +15,11 @@ on:
         options:
           - fx_only
           - weekly_full
+      run_direct:
+        description: "Run collection directly in GitHub Actions instead of enqueueing a job"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: collect-official-prices
@@ -22,6 +27,7 @@ concurrency:
 
 jobs:
   enqueue:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_direct != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -58,6 +64,61 @@ jobs:
             --request POST \
             --header "Authorization: Bearer $CRON_SECRET" \
             "$BASE_URL/api/cron/official-prices?mode=$MODE"
+
+      - name: Notify failure
+        if: failure()
+        env:
+          WEBHOOK_URL: ${{ secrets.PRICEAI_ALERT_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            exit 0
+          fi
+
+          node <<'NODE'
+          const payload = {
+            title: "PriceAI GitHub Actions 失败",
+            message: `${process.env.GITHUB_WORKFLOW} #${process.env.GITHUB_RUN_NUMBER} failed on ${process.env.GITHUB_REF_NAME}`,
+            severity: "warning",
+            source: "github-actions",
+            runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+
+          await fetch(process.env.WEBHOOK_URL, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          NODE
+
+  direct-collect:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_direct == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Collect and write official prices
+        env:
+          REQUESTED_MODE: ${{ github.event.inputs.mode }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+
+          MODE="${REQUESTED_MODE:-weekly_full}"
+          if [ "$MODE" = "fx_only" ]; then
+            npm run collect:official -- --fx-only --post --mode=github-actions
+          else
+            npm run collect:official -- --all --post --mode=github-actions
+          fi
 
       - name: Notify failure
         if: failure()
