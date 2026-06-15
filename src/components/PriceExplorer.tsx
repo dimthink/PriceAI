@@ -23,7 +23,6 @@ import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/compon
 import { OfferActions, OfferFeedbackButton, OfferFeedbackDialog, OfferLink } from "@/components/ProductOffersPanel";
 import { SiteHeader } from "@/components/SiteHeader";
 import {
-  collectOfferFlags,
   comparePlatformOrder,
   isAvailable,
   platformOptions,
@@ -1284,7 +1283,7 @@ function ProductCard({
   returnQuery: string;
 }) {
   const previewOffer = product.lowestOffer;
-  const flags = previewOffer ? collectOfferFlags(previewOffer).slice(0, 2) : [];
+  const flags = previewOffer?.sourceTitle.includes("无质保") ? ["无质保"] : [];
   const productHref = productDetailHref(product.slug, returnQuery);
 
   return (

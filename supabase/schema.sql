@@ -535,7 +535,7 @@ as $$
           distinct concat_ws(' ', offers.source_title, offers.source_name, offers.source_store_name),
           ' '
         ),
-        1000
+        480
       ) as offer_search_text
     from offers
     group by offers.canonical_product_id
@@ -568,24 +568,7 @@ as $$
         'price', lowest.price,
         'currency', lowest.currency,
         'status', lowest.status,
-        'url', lowest.url,
-        'tags', lowest.tags,
-        'filter_tags', lowest.public_offer_filter_tags,
-        'stock_count', lowest.stock_count,
-        'hidden', lowest.hidden,
-        'canonical_product_id', lowest.canonical_product_id,
-        'category_slug', lowest.category_slug,
-        'captured_at', lowest.captured_at,
-        'source_updated_at', lowest.source_updated_at,
-        'last_seen_at', lowest.last_seen_at,
-        'verified_at', lowest.verified_at,
-        'expires_at', lowest.expires_at,
-        'source_priority', lowest.source_priority,
-        'confidence', lowest.confidence,
-        'effective_status', lowest.effective_status,
-        'freshness_status', lowest.freshness_status,
-        'last_failed_at', lowest.last_failed_at,
-        'failure_reason', lowest.failure_reason
+        'url', lowest.url
       )
     end as lowest_offer,
     case
@@ -599,24 +582,7 @@ as $$
         'price', warranty_lowest.price,
         'currency', warranty_lowest.currency,
         'status', warranty_lowest.status,
-        'url', warranty_lowest.url,
-        'tags', warranty_lowest.tags,
-        'filter_tags', warranty_lowest.public_offer_filter_tags,
-        'stock_count', warranty_lowest.stock_count,
-        'hidden', warranty_lowest.hidden,
-        'canonical_product_id', warranty_lowest.canonical_product_id,
-        'category_slug', warranty_lowest.category_slug,
-        'captured_at', warranty_lowest.captured_at,
-        'source_updated_at', warranty_lowest.source_updated_at,
-        'last_seen_at', warranty_lowest.last_seen_at,
-        'verified_at', warranty_lowest.verified_at,
-        'expires_at', warranty_lowest.expires_at,
-        'source_priority', warranty_lowest.source_priority,
-        'confidence', warranty_lowest.confidence,
-        'effective_status', warranty_lowest.effective_status,
-        'freshness_status', warranty_lowest.freshness_status,
-        'last_failed_at', warranty_lowest.last_failed_at,
-        'failure_reason', warranty_lowest.failure_reason
+        'url', warranty_lowest.url
       )
     end as warranty_lowest_offer,
     coalesce(stats.has_out_of_stock, false) as has_out_of_stock,

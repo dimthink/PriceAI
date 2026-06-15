@@ -33,6 +33,7 @@ import type {
   DashboardData,
   ExplorerData,
   ExplorerProductSummary,
+  PublicOfferSummary,
   ProductGroup,
   RawOffer,
   Source,
@@ -48,6 +49,7 @@ const PRODUCT_OFFERS_CACHE_TTL_MS = 120_000;
 const DASHBOARD_DATA_CACHE_TTL_MS = 30_000;
 const ADMIN_DATA_CACHE_TTL_MS = 120_000;
 const ADMIN_OFFER_SAMPLE_LIMIT = 80;
+const EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH = 480;
 const RAW_OFFER_PUBLIC_SELECT = [
   "id",
   "source_id",
@@ -1824,9 +1826,9 @@ function toExplorerProductSummary(product: DashboardData["products"][number]): E
     lowestPrice: product.lowestPrice,
     lowestPriceLabel: product.lowestPriceLabel,
     lowestPriceTone: product.lowestPriceTone,
-    lowestOffer: product.lowestOffer,
+    lowestOffer: compactExplorerOffer(product.lowestOffer),
     warrantyLowestPrice: product.warrantyLowestPrice,
-    warrantyLowestOffer: product.warrantyLowestOffer,
+    warrantyLowestOffer: compactExplorerOffer(product.warrantyLowestOffer),
     warrantyOfferCount: product.warrantyOfferCount,
     latestSeenAt: product.latestSeenAt,
     anomalyFlags: product.anomalyFlags,
@@ -1836,10 +1838,10 @@ function toExplorerProductSummary(product: DashboardData["products"][number]): E
 
 function mapPublicProductSummaryRow(row: Record<string, unknown>): ExplorerProductSummary {
   const lowestOffer = row.lowest_offer && typeof row.lowest_offer === "object"
-    ? mapRawOffer(row.lowest_offer as Record<string, unknown>)
+    ? mapPublicOfferSummary(row.lowest_offer as Record<string, unknown>)
     : null;
   const warrantyLowestOffer = row.warranty_lowest_offer && typeof row.warranty_lowest_offer === "object"
-    ? mapRawOffer(row.warranty_lowest_offer as Record<string, unknown>)
+    ? mapPublicOfferSummary(row.warranty_lowest_offer as Record<string, unknown>)
     : null;
   const inStockCount = Number(row.in_stock_count || 0);
   const outOfStockCount = Number(row.out_of_stock_count || 0);
@@ -1873,7 +1875,7 @@ function mapPublicProductSummaryRow(row: Record<string, unknown>): ExplorerProdu
       ...(hasOutOfStock ? ["缺货"] : []),
       ...(!inStockCount && outOfStockCount ? ["全部缺货"] : []),
     ],
-    offerSearchText: String(row.offer_search_text || ""),
+    offerSearchText: String(row.offer_search_text || "").slice(0, EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH),
   };
 }
 
@@ -1887,7 +1889,37 @@ function buildOfferSearchText(offers: RawOffer[]): string {
       .forEach((value) => parts.add(value));
   }
 
-  return Array.from(parts).join(" ").slice(0, 1000);
+  return Array.from(parts).join(" ").slice(0, EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH);
+}
+
+function compactExplorerOffer(offer: RawOffer | null): PublicOfferSummary | null {
+  if (!offer) return null;
+
+  return {
+    id: offer.id,
+    sourceId: offer.sourceId,
+    sourceName: offer.sourceName,
+    sourceStoreName: offer.sourceStoreName,
+    sourceTitle: offer.sourceTitle,
+    price: offer.price,
+    currency: offer.currency,
+    status: offer.status,
+    url: offer.url,
+  };
+}
+
+function mapPublicOfferSummary(row: Record<string, unknown>): PublicOfferSummary {
+  return {
+    id: String(row.id),
+    sourceId: row.source_id ? String(row.source_id) : null,
+    sourceName: String(row.source_name || ""),
+    sourceStoreName: row.source_store_name ? String(row.source_store_name) : null,
+    sourceTitle: String(row.source_title || ""),
+    price: row.price === null || row.price === undefined ? null : Number(row.price),
+    currency: String(row.currency || "CNY"),
+    status: String(row.status || "unknown") as RawOffer["status"],
+    url: String(row.url || ""),
+  };
 }
 
 function resolveExplorerProduct(
