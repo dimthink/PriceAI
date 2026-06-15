@@ -29,8 +29,9 @@ export const seedStations: TransitStation[] = [
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "aws-q Pro 池", "1:1", 0.14, 0.42, 2.1, 0.042, 0.525, "pro", "cloud", 0.991, 148),
-      price("claude", "Claude Sonnet 4.7", "claude-sale Max 池", "1:1", 0.18, 0.54, 2.7, 0.054, 0.675, "max", "first_party_wholesale", 0.972, 96),
-      price("claude", "Claude Sonnet 4.8", "claude-sale Max 池", "1:1", 0.22, 0.66, 3.3, 0.066, 0.825, "max", "first_party_wholesale", 0.956, 82),
+      price("claude", "Claude Opus 4.6", "claude-sale Max 池", "1:1", 0.18, 0.54, 2.7, 0.054, 0.675, "max", "first_party_wholesale", 0.972, 96),
+      price("claude", "Claude Opus 4.7", "claude-sale Max 池", "1:1", 0.20, 0.6, 3.0, 0.06, 0.75, "max", "first_party_wholesale", 0.963, 88),
+      price("claude", "Claude Opus 4.8", "claude-sale Max 池", "1:1", 0.22, 0.66, 3.3, 0.066, 0.825, "max", "first_party_wholesale", 0.956, 82),
       price("gpt", "GPT 5.5", "gpt-pro 池", "1:1", 0.11, 0.28, 1.1, 0.03, null, "pro", "first_party_pool", 0.984, 118),
       price("gpt", "GPT 5.4", "gpt-lite 池", "1:1", 0.07, 0.18, 0.72, 0.018, null, "pro", "first_party_pool", 0.992, 126),
     ],
@@ -64,7 +65,7 @@ export const seedStations: TransitStation[] = [
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Pro 混池", "1:1", 0.18, 0.54, 2.7, 0.054, 0.648, "mixed", "mixed", 0.948, 74),
-      price("claude", "Claude Sonnet 4.7", "Claude Max 池", "1:1", 0.24, 0.72, 3.6, 0.072, 0.864, "max", "first_party_pool", 0.932, 58),
+      price("claude", "Claude Opus 4.6", "Claude Max 池", "1:1", 0.24, 0.72, 3.6, 0.072, 0.864, "max", "first_party_pool", 0.932, 58),
       price("gpt", "GPT 5.5", "GPT Pro 池", "1:1", 0.14, 0.35, 1.4, 0.04, null, "pro", "first_party_pool", 0.962, 44),
       price("gpt", "GPT 5.4", "GPT Plus 池", "1:1", 0.10, 0.25, 1.0, 0.025, null, "plus", "first_party_pool", 0.957, 38),
     ],
@@ -98,7 +99,7 @@ export const seedStations: TransitStation[] = [
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Plus 池", "1:1", 0.20, 0.6, 3.0, 0.06, 0.72, "plus", "undisclosed", 0.914, 36),
-      price("claude", "Claude Sonnet 4.8", "Claude Max 池", "1:1", 0.26, 0.78, 3.9, 0.078, 0.936, "max", "undisclosed", 0.897, 28),
+      price("claude", "Claude Opus 4.8", "Claude Max 池", "1:1", 0.26, 0.78, 3.9, 0.078, 0.936, "max", "undisclosed", 0.897, 28),
       price("gpt", "GPT 5.5", "GPT Team 池", "1:1", 0.16, 0.4, 1.6, 0.04, null, "team", "first_party_pool", 0.935, 32),
       price("gpt", "GPT 5.4", "GPT Plus 池", "1:1", 0.12, 0.3, 1.2, 0.03, null, "plus", "first_party_pool", 0.926, 30),
     ],
@@ -132,7 +133,7 @@ export const seedStations: TransitStation[] = [
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Pro 池", "1:1.2", 0.16, 0.58, 2.8, 0.058, 0.7, "pro", "first_party_pool", 0.972, 18),
-      price("claude", "Claude Sonnet 4.7", "Claude Max 池", "1:1.2", 0.21, 0.76, 3.7, 0.076, 0.92, "max", "first_party_pool", 0.961, 16),
+      price("claude", "Claude Opus 4.6", "Claude Max 池", "1:1.2", 0.21, 0.76, 3.7, 0.076, 0.92, "max", "first_party_pool", 0.961, 16),
       price("gpt", "GPT 5.5", "GPT Pro 池", "1:1.2", 0.13, 0.34, 1.36, 0.034, null, "pro", "reseller", 0.958, 10),
       price("gpt", "GPT 5.4", "GPT Pro 池", "1:1.2", 0.09, 0.24, 0.96, 0.024, null, "pro", "reseller", 0.969, 8),
     ],
@@ -166,7 +167,7 @@ export const seedStations: TransitStation[] = [
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Plus 池", "1:1", 0.17, 0.51, 2.55, 0.051, 0.612, "plus", "first_party_pool", 0.934, 30),
-      price("claude", "Claude Sonnet 4.7", "Claude Pro 池", "1:1", 0.23, 0.69, 3.45, 0.069, 0.828, "pro", "first_party_pool", 0.921, 22),
+      price("claude", "Claude Opus 4.6", "Claude Pro 池", "1:1", 0.23, 0.69, 3.45, 0.069, 0.828, "pro", "first_party_pool", 0.921, 22),
       price("gpt", "GPT 5.4", "GPT Plus 池", "1:1", 0.08, 0.2, 0.8, 0.02, null, "plus", "first_party_pool", 0.952, 36),
     ],
     feedback: feedback(1, 0, "低价但样本量不足，建议用户控制首次充值金额。"),

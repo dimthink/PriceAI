@@ -24,7 +24,13 @@ export interface TransitAvailability {
 
 export interface TransitModelPrice {
   family: TransitModelFamily;
-  standardModel: "Claude Sonnet 4.6" | "Claude Sonnet 4.7" | "Claude Sonnet 4.8" | "GPT 5.5" | "GPT 5.4";
+  standardModel:
+    | "Claude Sonnet 4.6"
+    | "Claude Opus 4.6"
+    | "Claude Opus 4.7"
+    | "Claude Opus 4.8"
+    | "GPT 5.5"
+    | "GPT 5.4";
   groupName: string;
   rechargeRatio: string | null;
   modelMultiplier: number | null;

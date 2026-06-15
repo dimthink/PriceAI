@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { getStations } from "@/lib/api-transit";
 import { SiteHeader } from "@/components/SiteHeader";
 import TransitStationExplorer from "@/components/TransitStationExplorer";
+import { TransitSubmissionActions } from "@/components/TransitSubmissionDialog";
 import { TransitViewTabs } from "@/components/TransitViewTabs";
 import { JsonLd } from "@/components/JsonLd";
 
@@ -49,28 +50,23 @@ export default async function ApiTransitPage() {
       </div>
 
       <main className="mx-auto max-w-[1500px] px-5 py-7 pb-20">
-        <div className="mb-5">
-          <h1 className="text-[36px] font-semibold text-[#202829] leading-[1.15] tracking-0 font-[family-name:var(--font-serif)]">
-            API 中转站价格榜
-          </h1>
-          <p className="mt-2.5 max-w-[860px] text-sm text-[#5a6061] leading-[1.8]">
-            先把 Claude / GPT 中转站的价格和稳定性比清楚。这里展示充值系数、模型倍率、综合倍率、近 7 日可用性和轻量风险提示；不售卖 API，不替商家担保。
-            MVP 数据为静态样例，建议先小额试用并回原站核验。
-          </p>
-          <div className="flex flex-wrap gap-2.5 mt-3">
-            <Link
-              href="/api-transit/submit"
-              className="inline-flex items-center h-10 px-4 rounded-full bg-[#2d3435] text-[#f8f8f8] text-sm font-bold no-underline hover:bg-[#202829] transition-colors"
-            >
-              提交/入驻
-            </Link>
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-[900px]">
+            <h1 className="text-[32px] font-semibold leading-[1.18] text-[#202829] sm:text-[36px]">
+              API 中转站价格榜
+            </h1>
+            <p className="mt-2.5 max-w-[860px] text-sm leading-[1.8] text-[#5a6061]">
+              先把 Claude / GPT 中转站的价格和稳定性比清楚。这里展示充值系数、模型倍率、综合倍率、近 7 日可用性和轻量风险提示；不售卖 API，不替商家担保。
+              MVP 数据为静态样例，建议先小额试用并回原站核验。
+            </p>
             <Link
               href="/guides/api-transit"
-              className="inline-flex items-center h-10 px-4 rounded-full bg-[#dde4e5] text-[#2d3435] text-sm font-bold no-underline hover:bg-[#cfd8d9] transition-colors"
+              className="mt-2.5 inline-flex text-sm font-semibold text-[#2f7a4b] underline-offset-4 transition hover:text-[#24633c] hover:underline"
             >
-              中转站百科
+              查看中转站百科
             </Link>
           </div>
+          <TransitSubmissionActions className="shrink-0 lg:justify-end" />
         </div>
 
         <TransitViewTabs active="stations" className="mb-5" />

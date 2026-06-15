@@ -16,7 +16,7 @@ API 中转站 MVP 是 PriceAI 面向中转 API 用户的价格与稳定性比较
 
 1. 以“渠道榜 / 站点榜”为主入口，模型榜作为辅助视图。
 2. 模型范围先收敛到两类：`Claude` 和 `GPT`。
-3. 统一展示标准模型名：`Claude Sonnet 4.6`、`Claude Sonnet 4.7`、`Claude Sonnet 4.8`、`GPT 5.5`、`GPT 5.4`。
+3. 统一展示标准模型名：`Claude Sonnet 4.6`、`Claude Opus 4.6`、`Claude Opus 4.7`、`Claude Opus 4.8`、`GPT 5.5`、`GPT 5.4`。
 4. 按站点分别计算 `Claude 最低综合倍率` 和 `GPT 最低综合倍率`。
 5. 支持三种排序：综合、倍率、稳定性。
 6. 数据先使用静态配置，不接自动采集；所有样例数据明确标注状态。
@@ -110,7 +110,7 @@ API 中转站 MVP 是 PriceAI 面向中转 API 用户的价格与稳定性比较
 
 - 只展示 Claude / GPT 两类模型。
 - 按标准模型名汇总各站点报价。
-- 展开后展示站点、模型倍率、综合倍率、稳定性、风险提示。
+- 表格展示覆盖站点、最优综合倍率、稳定性、代表站点和操作入口。
 
 ### 5.4 `/api-transit/submit`
 
