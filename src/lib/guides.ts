@@ -127,11 +127,11 @@ export const guideEntries: GuideEntry[] = [
   },
   {
     title: "API 中转站怎么比较",
-    description: "理解 API 中转站、充值系数、模型倍率、综合倍率、号池来源和小额试用风险。",
+    description: "理解 API 中转站、充值系数、模型倍率、综合倍率、来源渠道和小额试用边界。",
     href: "/guides/api-transit",
     categoryId: "channels",
     tags: ["API 中转", "Claude", "GPT", "倍率", "号池"],
-    intent: "准备选择 API 中转站前，先理解价格口径、稳定性和风险提示。",
+    intent: "准备选择 API 中转站前，先理解价格口径、稳定性、来源渠道和小额试用边界。",
   },
 ];
 

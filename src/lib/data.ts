@@ -2,6 +2,7 @@ import "server-only";
 
 import { ADMIN_MANUAL_HIDE_REASON_PREFIX, listOfferFeedback, listSiteFeedback, listSubmissions } from "./admin";
 import { notifyOperationalIssue } from "./alerts";
+import { getApiTransitAdminData, getEmptyApiTransitAdminData } from "./api-transit-admin";
 import { buildProductGroups, canonicalCatalog, comparePlatformOrder, resolveOfferProduct } from "./catalog";
 import { isSupabaseConfigured } from "./env";
 import { getApiModelAdminData } from "./api-models-db";
@@ -414,6 +415,7 @@ export function getEmptyAdminSummary(isAuthenticated = false): AdminSummary {
       providerCandidates: [],
       providerSubmissions: [],
     },
+    apiTransit: getEmptyApiTransitAdminData(isAuthenticated),
     pendingSubmissions: [],
     pendingOfferFeedback: [],
     pendingSiteFeedback: [],
@@ -531,9 +533,10 @@ async function readAdminSummary(): Promise<AdminSummary> {
   if (!supabase) {
     const dashboard = await getDashboardData();
     const adminDashboard = toAdminDashboardData(dashboard, dashboard.rawOffers.length);
-    const [officialPrices, apiModels] = await Promise.all([
+    const [officialPrices, apiModels, apiTransit] = await Promise.all([
       getOfficialSubscriptionAdminData(),
       getApiModelAdminData(),
+      getApiTransitAdminData({ isAuthenticated: true }),
     ]);
     return {
       ...adminDashboard,
@@ -546,6 +549,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       collectorHealth: emptyCollectorHealthSummary(new Date().toISOString()),
       officialPrices,
       apiModels,
+      apiTransit,
       pendingSubmissions: [],
       pendingOfferFeedback: [],
       pendingSiteFeedback: [],
@@ -570,6 +574,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     hiddenOfferData,
     officialPrices,
     apiModels,
+    apiTransit,
   ] = await Promise.all([
     supabase.from("sources").select("*").order("name"),
     supabase.from("canonical_products").select("*").eq("is_active", true),
@@ -613,6 +618,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       providerCandidates: [],
       providerSubmissions: [],
     }, loadErrors),
+    adminLoad("api-transit", "中转 API", getApiTransitAdminData({ isAuthenticated: true }), getEmptyApiTransitAdminData(true, "读取中转 API 后台数据失败。"), loadErrors),
   ]);
 
   if (sourcesResult.error) recordAdminLoadError(loadErrors, "sources", "渠道源", sourcesResult.error);
@@ -661,6 +667,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       collectorHealth,
       officialPrices,
       apiModels,
+      apiTransit,
       pendingSubmissions,
       pendingOfferFeedback,
       pendingSiteFeedback,
@@ -681,6 +688,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     collectorHealth,
     officialPrices,
     apiModels,
+    apiTransit,
     pendingSubmissions,
     pendingOfferFeedback,
     pendingSiteFeedback,

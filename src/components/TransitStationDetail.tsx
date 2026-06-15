@@ -127,7 +127,7 @@ export default function TransitStationDetail({ station, backHref }: Props) {
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <MetricCard label="充值系数" value={formatRate(getStationRechargeCoefficient(station))} helper={station.prices[0]?.rechargeRatio ?? "未公开充值比例"} />
             <MetricCard label="近 7 日稳定性" value={formatPercent(station.availability.sevenDayRate)} helper={`样本 ${station.availability.sevenDaySamples}`} />
-            <MetricCard label="最后检查" value={station.availability.lastCheckedAt ?? "暂无"} helper={station.availability.note ?? "静态样例数据"} />
+            <MetricCard label="最后检查" value={station.availability.lastCheckedAt ?? "暂无"} helper={station.availability.note ?? "尚未接入可用性检测"} />
           </section>
 
           <PriceTable station={station} family="claude" />
@@ -206,7 +206,7 @@ export default function TransitStationDetail({ station, backHref }: Props) {
           <div className="rounded-lg border border-[#fff1cf] bg-[#fff7e8] p-4 text-xs leading-relaxed text-[#7a541b]">
             <p className="mb-1 font-bold">免责声明</p>
             <p>
-              PriceAI 只整理公开资料、样例价格和用户反馈，不售卖 API，也不替任何商家担保。首次使用建议控制充值金额，并在原站再次核验价格与规则。
+              PriceAI 只整理公开资料、公开价格和用户反馈，不售卖 API，也不替任何商家担保。首次使用建议控制充值金额，并在原站再次核验价格与规则。
             </p>
           </div>
         </aside>

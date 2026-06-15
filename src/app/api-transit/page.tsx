@@ -5,18 +5,17 @@ import { getTransitStations } from "@/lib/api-transit-db";
 import { SiteHeader } from "@/components/SiteHeader";
 import TransitStationExplorer from "@/components/TransitStationExplorer";
 import { TransitSubmissionActions } from "@/components/TransitSubmissionDialog";
-import { TransitViewTabs } from "@/components/TransitViewTabs";
 import { JsonLd } from "@/components/JsonLd";
 
 export const metadata: Metadata = {
   title: "API 中转站价格榜",
   description:
-    "PriceAI API 中转站价格榜 — 对比 Claude 和 GPT 中转站的充值系数、模型倍率、综合倍率、近 7 日稳定性和轻量风险提示。不售卖 API，不替商家担保。",
+    "PriceAI API 中转站价格榜 — 对比 Claude 和 GPT 中转站的充值系数、模型倍率、综合倍率、近 7 日稳定性和来源渠道。不售卖 API，不替商家担保。",
   alternates: { canonical: "/api-transit" },
   openGraph: {
-    title: "API 中转站价格榜：倍率、稳定性、风险提示 | PriceAI",
+    title: "API 中转站价格榜：倍率、稳定性、来源渠道 | PriceAI",
     description:
-      "对比 API 中转站的 Claude / GPT 综合倍率、站点稳定性和轻量风险提示，适合小额试用前筛选。",
+      "对比 API 中转站的 Claude / GPT 综合倍率、站点稳定性和来源渠道，适合小额试用前筛选。",
   },
 };
 
@@ -34,7 +33,7 @@ export default async function ApiTransitPage() {
             "@type": "CollectionPage",
             name: "API 中转站价格榜",
             description:
-              "PriceAI API 中转站价格榜 — 收录第三方 API 中转站样例信息，包括充值系数、模型倍率、综合倍率、稳定性和风险提示。",
+              "PriceAI API 中转站价格榜 — 整理已发布的第三方 API 中转站真实信息，包括充值系数、模型倍率、综合倍率和稳定性。",
             url: "https://priceai.cc/api-transit",
             isPartOf: {
               "@type": "WebSite",
@@ -56,8 +55,8 @@ export default async function ApiTransitPage() {
               API 中转站价格榜
             </h1>
             <p className="mt-2.5 max-w-[860px] text-sm leading-[1.8] text-[#5a6061]">
-              先把 Claude / GPT 中转站的价格和稳定性比清楚。这里展示充值系数、模型倍率、综合倍率、近 7 日可用性和轻量风险提示；不售卖 API，不替商家担保。
-              MVP 数据为静态样例，建议先小额试用并回原站核验。
+              先把 Claude / GPT 中转站的价格和稳定性比清楚。这里展示充值系数、模型倍率、综合倍率、近 7 日可用性和来源渠道；不售卖 API，不替商家担保。
+              没有完成审核发布的数据不会出现在榜单里，使用前仍建议小额试用并回原站核验。
             </p>
             <Link
               href="/guides/api-transit"
@@ -68,8 +67,6 @@ export default async function ApiTransitPage() {
           </div>
           <TransitSubmissionActions className="shrink-0 lg:justify-end" />
         </div>
-
-        <TransitViewTabs active="stations" className="mb-5" />
 
         <Suspense fallback={<div className="text-center py-16 text-[#5a6061]">加载中...</div>}>
           <TransitStationExplorer stations={stations} />

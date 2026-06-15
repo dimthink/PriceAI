@@ -3,7 +3,6 @@ import { Suspense } from "react";
 import { getTransitStations } from "@/lib/api-transit-db";
 import { SiteHeader } from "@/components/SiteHeader";
 import TransitModelExplorer from "@/components/TransitModelExplorer";
-import { TransitViewTabs } from "@/components/TransitViewTabs";
 import { JsonLd } from "@/components/JsonLd";
 
 export const metadata: Metadata = {
@@ -48,8 +47,6 @@ export default async function ApiTransitModelsPage() {
             按 Claude / GPT 标准模型横向对比各中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。站点榜仍是主入口，模型页用于快速查某个模型在哪些站点更便宜。
           </p>
         </div>
-
-        <TransitViewTabs active="models" className="mb-5" />
 
         <Suspense fallback={<div className="py-12 text-center text-[#5a6061]">加载中…</div>}>
           <TransitModelExplorer stations={stations} />

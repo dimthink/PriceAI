@@ -6,6 +6,7 @@ import type {
   ApiTransitAdminLoadError,
   ApiTransitAdminMetrics,
   ApiTransitAdminOffer,
+  ApiTransitOfferCandidate,
   ApiTransitAdminRun,
   ApiTransitAdminStation,
   ApiTransitAdminSubmission,
@@ -54,6 +55,7 @@ export async function getApiTransitAdminData(input: {
     metrics: buildMetrics(stations, offers, submissions, runs),
     stations,
     offers,
+    offerCandidates: buildOfferCandidates(offers),
     submissions,
     runs,
   };
@@ -75,12 +77,14 @@ export function getEmptyApiTransitAdminData(
       totalOffers: 0,
       activeOffers: 0,
       pendingOffers: 0,
+      candidateOffers: 0,
       pendingSubmissions: 0,
       successfulRuns: 0,
       failedRuns: 0,
     },
     stations: [],
     offers: [],
+    offerCandidates: [],
     submissions: [],
     runs: [],
   };
@@ -477,6 +481,7 @@ function buildMetrics(
   submissions: ApiTransitAdminSubmission[],
   runs: ApiTransitAdminRun[],
 ): ApiTransitAdminMetrics {
+  const offerCandidates = buildOfferCandidates(offers);
   return {
     totalStations: stations.length,
     publishedStations: stations.filter((station) => station.published).length,
@@ -484,10 +489,213 @@ function buildMetrics(
     totalOffers: offers.length,
     activeOffers: offers.filter((offer) => offer.status === "active").length,
     pendingOffers: offers.filter((offer) => offer.status === "needs_review").length,
+    candidateOffers: offerCandidates.filter((candidate) => candidate.status === "needs_review").length,
     pendingSubmissions: submissions.filter((submission) => submission.reviewStatus === "pending").length,
     successfulRuns: runs.filter((run) => run.status === "success").length,
     failedRuns: runs.filter((run) => run.status === "failed").length,
   };
+}
+
+function buildOfferCandidates(offers: ApiTransitAdminOffer[]): ApiTransitOfferCandidate[] {
+  const grouped = new Map<string, ApiTransitAdminOffer[]>();
+
+  for (const offer of offers) {
+    if (!isPrimaryStandardModel(offer.standardModel)) continue;
+    const key = [
+      offer.stationId,
+      offer.standardModel,
+      normalizeCandidateLane(offer),
+      offer.status,
+    ].join("::");
+    grouped.set(key, [...(grouped.get(key) || []), offer]);
+  }
+
+  return Array.from(grouped.values())
+    .map(toOfferCandidate)
+    .filter((candidate): candidate is ApiTransitOfferCandidate => Boolean(candidate))
+    .sort(compareOfferCandidates);
+}
+
+function toOfferCandidate(group: ApiTransitAdminOffer[]): ApiTransitOfferCandidate | null {
+  const sorted = [...group].sort(compareRawOffersForCandidate);
+  const representative = sorted[0];
+  const qualityFlags = Array.from(new Set(sorted.flatMap(getOfferQualityFlags)));
+  const hiddenRawCount = sorted.filter((offer) => isNoisyOffer(offer)).length;
+  const publishableOffers = sorted.filter((offer) => !isNoisyOffer(offer));
+  if (!publishableOffers.length) return null;
+  const candidateOffers = publishableOffers;
+  const lane = normalizeCandidateLane(representative);
+
+  return {
+    id: `${representative.stationId}:${representative.standardModel}:${lane}:${representative.status}`,
+    stationId: representative.stationId,
+    stationName: representative.stationName,
+    stationPublished: representative.stationPublished,
+    family: representative.family,
+    standardModel: representative.standardModel,
+    representativeOfferId: representative.id,
+    rawOfferIds: candidateOffers.map((offer) => offer.id),
+    rawOfferCount: sorted.length,
+    groupName: representative.groupName,
+    rechargeRatio: representative.rechargeRatio,
+    modelMultiplier: representative.modelMultiplier,
+    inputPrice: representative.inputPrice,
+    outputPrice: representative.outputPrice,
+    cacheReadPrice: representative.cacheReadPrice,
+    cacheWritePrice: representative.cacheWritePrice,
+    currency: representative.currency,
+    accountPool: representative.accountPool,
+    channelType: representative.channelType,
+    priceSource: representative.priceSource,
+    sourceUrl: representative.sourceUrl,
+    lastVerifiedAt: representative.lastVerifiedAt,
+    status: representative.status,
+    candidateScore: scoreRawOffer(representative),
+    reviewReason: buildCandidateReviewReason(representative, sorted, hiddenRawCount),
+    qualityFlags,
+    hiddenRawCount,
+  };
+}
+
+function compareOfferCandidates(left: ApiTransitOfferCandidate, right: ApiTransitOfferCandidate): number {
+  const statusOrder = statusSortValue(left.status) - statusSortValue(right.status);
+  if (statusOrder) return statusOrder;
+  return (
+    left.stationName.localeCompare(right.stationName, "zh-CN") ||
+    modelSortValue(left.standardModel) - modelSortValue(right.standardModel) ||
+    right.candidateScore - left.candidateScore ||
+    compareNullableNumber(left.modelMultiplier, right.modelMultiplier)
+  );
+}
+
+function compareRawOffersForCandidate(left: ApiTransitAdminOffer, right: ApiTransitAdminOffer): number {
+  return (
+    scoreRawOffer(right) - scoreRawOffer(left) ||
+    compareNullableNumber(left.modelMultiplier, right.modelMultiplier) ||
+    compareNullableNumber(left.inputPrice, right.inputPrice) ||
+    left.groupName.localeCompare(right.groupName, "zh-CN")
+  );
+}
+
+function scoreRawOffer(offer: ApiTransitAdminOffer): number {
+  let score = 50;
+  const text = offerText(offer);
+
+  if (offer.status === "active") score += 8;
+  if (offer.status === "inactive") score -= 12;
+  if (offer.inputPrice !== null && offer.outputPrice !== null) score += 10;
+  if (offer.modelMultiplier !== null) score += 8;
+  if (offer.cacheReadPrice !== null || offer.cacheWritePrice !== null) score += 3;
+  if (offer.accountPool !== "undisclosed") score += 5;
+  if (offer.channelType !== "undisclosed") score += 5;
+  if (offer.channelType === "official_api" || offer.channelType === "cloud") score += 6;
+  if (offer.accountPool === "pro" || offer.accountPool === "max" || offer.accountPool === "official_api") score += 4;
+  if (/\bazure\b|aws|vertex|official|官方|官转|codex|cc|pro|max/i.test(text)) score += 4;
+  if (/\bremap\b|test|free|trial|体验|测试|免费/i.test(text)) score -= 18;
+  if (/\bmini\b|compact|thinking|image|audio|embedding|search/i.test(text)) score -= 12;
+  if (offer.modelMultiplier !== null && offer.modelMultiplier > 4) score -= 8;
+  if (offer.modelMultiplier !== null && offer.modelMultiplier <= 0.02) score -= 6;
+  if (offer.outputPrice === null && offer.inputPrice === null) score -= 15;
+
+  return score;
+}
+
+function buildCandidateReviewReason(
+  representative: ApiTransitAdminOffer,
+  group: ApiTransitAdminOffer[],
+  hiddenRawCount: number,
+): string {
+  const parts = [
+    `${group.length} 条原始报价合并为 1 个审核候选`,
+    `优先展示 ${representative.groupName || "默认分组"}`,
+  ];
+  if (hiddenRawCount > 0) parts.push(`已弱化 ${hiddenRawCount} 条噪音报价`);
+  if (representative.channelType === "undisclosed" || representative.accountPool === "undisclosed") {
+    parts.push("号池/渠道仍需人工确认");
+  }
+  return parts.join("，");
+}
+
+function getOfferQualityFlags(offer: ApiTransitAdminOffer): string[] {
+  const flags: string[] = [];
+  const text = offerText(offer);
+  if (offer.accountPool === "undisclosed") flags.push("号池未披露");
+  if (offer.channelType === "undisclosed") flags.push("渠道未披露");
+  if (offer.modelMultiplier === null) flags.push("倍率缺失");
+  if (offer.inputPrice === null || offer.outputPrice === null) flags.push("价格不完整");
+  if (/\bremap\b/i.test(text)) flags.push("remap 分组");
+  if (/\bmini\b|compact|thinking/i.test(text)) flags.push("变体已弱化");
+  if (/test|free|trial|体验|测试|免费/i.test(text)) flags.push("疑似测试/免费分组");
+  return flags;
+}
+
+function isNoisyOffer(offer: ApiTransitAdminOffer): boolean {
+  return scoreRawOffer(offer) < 50 || getOfferQualityFlags(offer).some((flag) =>
+    flag === "remap 分组" ||
+    flag === "变体已弱化" ||
+    flag === "疑似测试/免费分组"
+  );
+}
+
+function normalizeCandidateLane(offer: ApiTransitAdminOffer): string {
+  if (offer.channelType === "official_api") return "official";
+  if (offer.channelType === "cloud") return "cloud";
+  if (offer.accountPool === "max") return "max";
+  if (offer.accountPool === "pro") return "pro";
+  if (offer.accountPool === "plus") return "plus";
+  if (offer.accountPool === "team") return "team";
+  if (/cc|codex/i.test(offer.groupName)) return "code";
+  if (/azure|aws|vertex/i.test(offer.groupName)) return "cloud";
+  if (/remap/i.test(offer.groupName)) return "remap";
+  return "default";
+}
+
+function isPrimaryStandardModel(value: string): boolean {
+  return (
+    value === "Claude Sonnet 4.6" ||
+    value === "Claude Opus 4.6" ||
+    value === "Claude Opus 4.7" ||
+    value === "Claude Opus 4.8" ||
+    value === "GPT 5.5" ||
+    value === "GPT 5.4"
+  );
+}
+
+function offerText(offer: ApiTransitAdminOffer): string {
+  return [
+    offer.standardModel,
+    offer.rawModelName,
+    offer.groupName,
+    offer.accountPool,
+    offer.channelType,
+    offer.priceSource,
+  ].join(" ").toLowerCase();
+}
+
+function modelSortValue(value: string): number {
+  const order = [
+    "Claude Sonnet 4.6",
+    "Claude Opus 4.6",
+    "Claude Opus 4.7",
+    "Claude Opus 4.8",
+    "GPT 5.5",
+    "GPT 5.4",
+  ];
+  const index = order.indexOf(value);
+  return index === -1 ? order.length : index;
+}
+
+function statusSortValue(value: ApiTransitOfferStatus): number {
+  if (value === "needs_review") return 0;
+  if (value === "active") return 1;
+  return 2;
+}
+
+function compareNullableNumber(left: number | null, right: number | null): number {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return left - right;
 }
 
 function getSupabaseOrThrow() {

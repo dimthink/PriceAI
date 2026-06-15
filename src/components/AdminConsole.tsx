@@ -32,6 +32,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Dispatch, FormEvent, ReactNode, SetStateAction, UIEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiTransitAdminPanel } from "@/components/ApiTransitAdminConsole";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { classifyOffer } from "@/lib/catalog";
 import {
@@ -192,7 +193,7 @@ type ApiModelProbeResult = {
   };
 };
 
-type AdminTab = "review" | "todo" | "feedback" | "history" | "collect" | "health" | "official" | "apiModels" | "sources" | "manual" | "logs";
+type AdminTab = "review" | "todo" | "feedback" | "history" | "collect" | "health" | "official" | "apiModels" | "apiTransit" | "sources" | "manual" | "logs";
 
 type RowFeedback = {
   id: string;
@@ -656,11 +657,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { id: "health", label: "健康", count: collectorHealthIssueCount || null, icon: <Activity size={15} /> },
       { id: "official", label: "官方价", count: officialPrices.currentPrices.length || null, icon: <Database size={15} /> },
       { id: "apiModels", label: "API 模型", count: apiModels.offers.length || null, icon: <TerminalSquare size={15} /> },
+      { id: "apiTransit", label: "中转 API", count: data.apiTransit.metrics.candidateOffers || data.apiTransit.metrics.pendingStations || null, icon: <Server size={15} /> },
       { id: "sources", label: "渠道", count: sources.length, icon: <Store size={15} /> },
       { id: "manual", label: "维护", count: null, icon: <Plus size={15} /> },
       { id: "logs", label: "日志", count: data.crawlRuns.length, icon: <Clock size={15} /> },
     ],
-    [apiModels.offers.length, collectorHealthIssueCount, collectorTodoSubmissions.length, data.crawlRuns.length, failedRunCount, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length],
+    [apiModels.offers.length, collectorHealthIssueCount, collectorTodoSubmissions.length, data.apiTransit.metrics.candidateOffers, data.apiTransit.metrics.pendingStations, data.crawlRuns.length, failedRunCount, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length],
   );
 
   /* ─── Keyboard shortcuts ─── */
@@ -2139,13 +2141,6 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
           </div>
           {authed && (
             <div className="flex items-center gap-3">
-              <Link
-                href="/admin/api-transit"
-                className="hidden h-8 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#2d3435] transition-colors hover:bg-[#f2f4f4] md:inline-flex"
-              >
-                <TerminalSquare size={14} />
-                API 中转审核台
-              </Link>
               {summary.map((s) => (
                 <div key={s.label} className="hidden items-center gap-1.5 text-xs text-[#5a6061] sm:flex">
                   {s.icon}
@@ -2852,6 +2847,13 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   onReviewProviderSubmission={reviewApiProviderSubmission}
                   onSaveEditable={saveApiModelEditable}
                 />
+              </div>
+            )}
+
+            {/* API transit tab */}
+            {activeTab === "apiTransit" && (
+              <div role="tabpanel" id="tabpanel-apiTransit">
+                <ApiTransitAdminPanel data={data.apiTransit} />
               </div>
             )}
 

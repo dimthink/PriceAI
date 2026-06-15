@@ -27,18 +27,29 @@ import type {
   ApiTransitAdminRun,
   ApiTransitAdminStation,
   ApiTransitAdminSubmission,
+  ApiTransitOfferCandidate,
   ApiTransitOfferStatus,
   ApiTransitSubmissionReviewStatus,
 } from "@/lib/api-transit-admin-types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
-type AdminTab = "stations" | "offers" | "submissions" | "runs";
+type AdminTab = "stations" | "candidates" | "rawOffers" | "submissions" | "runs";
 type Message = {
   type: "success" | "error" | "info";
   text: string;
 };
 
 export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) {
+  return <ApiTransitAdminPanel data={data} framed />;
+}
+
+export function ApiTransitAdminPanel({
+  data,
+  framed = false,
+}: {
+  data: ApiTransitAdminData;
+  framed?: boolean;
+}) {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [optimisticAuthed, setOptimisticAuthed] = useState(false);
@@ -54,6 +65,22 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
   const pendingOffers = useMemo(
     () => data.offers.filter((offer) => offer.status === "needs_review"),
     [data.offers],
+  );
+
+  const filteredCandidates = useMemo(
+    () =>
+      data.offerCandidates.filter((candidate) =>
+        matchesQuery(normalizedQuery, [
+          candidate.stationName,
+          candidate.standardModel,
+          candidate.groupName,
+          candidate.accountPool,
+          candidate.channelType,
+          candidate.reviewReason,
+          candidate.qualityFlags.join(" "),
+        ]),
+      ),
+    [data.offerCandidates, normalizedQuery],
   );
 
   const filteredStations = useMemo(
@@ -114,7 +141,8 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
 
   const tabs: Array<{ id: AdminTab; label: string; count: number; icon: ReactNode }> = [
     { id: "stations", label: "站点池", count: data.metrics.pendingStations, icon: <Server size={15} /> },
-    { id: "offers", label: "报价审核", count: data.metrics.pendingOffers, icon: <Database size={15} /> },
+    { id: "candidates", label: "清洗候选", count: data.metrics.candidateOffers, icon: <Database size={15} /> },
+    { id: "rawOffers", label: "原始报价", count: data.metrics.pendingOffers, icon: <ClipboardList size={15} /> },
     { id: "submissions", label: "提交线索", count: data.metrics.pendingSubmissions, icon: <Inbox size={15} /> },
     { id: "runs", label: "检测记录", count: data.metrics.failedRuns, icon: <Activity size={15} /> },
   ];
@@ -139,9 +167,11 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
 
   async function publishStation(station: ApiTransitAdminStation) {
     setLoadingAction(`station-publish-${station.id}`);
-    const offerIds = data.offers
-      .filter((offer) => offer.stationId === station.id && offer.status === "needs_review")
-      .map((offer) => offer.id);
+    const offerIds = uniqueIds(
+      data.offerCandidates
+        .filter((candidate) => candidate.stationId === station.id && candidate.status === "needs_review")
+        .flatMap((candidate) => candidate.rawOfferIds),
+    );
     const result = await requestJson("/api/admin/api-transit/stations", "PATCH", {
       action: "publish",
       id: station.id,
@@ -149,7 +179,7 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
     });
     handleActionResult(
       result,
-      `已发布 ${station.name}，同步激活 ${result.updatedOfferCount || 0} 条待审核报价。`,
+      `已发布 ${station.name}，同步激活 ${result.updatedOfferCount || 0} 条清洗候选报价。`,
       "发布中转站失败。",
     );
   }
@@ -206,15 +236,24 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
     setLoadingAction(null);
   }
 
-  const visibleOfferIds = filteredOffers.map((offer) => offer.id);
-  const allVisibleOffersSelected = visibleOfferIds.length > 0 && visibleOfferIds.every((id) => selectedOfferIds.has(id));
+  const visibleRawOfferIds = filteredOffers.map((offer) => offer.id);
+  const visibleCandidateOfferIds = uniqueIds(filteredCandidates.flatMap((candidate) => candidate.rawOfferIds));
+  const allVisibleRawOffersSelected = visibleRawOfferIds.length > 0 && visibleRawOfferIds.every((id) => selectedOfferIds.has(id));
+  const allVisibleCandidatesSelected =
+    visibleCandidateOfferIds.length > 0 && visibleCandidateOfferIds.every((id) => selectedOfferIds.has(id));
   const selectedPendingOfferIds = filteredOffers
     .filter((offer) => selectedOfferIds.has(offer.id) && offer.status === "needs_review")
     .map((offer) => offer.id);
+  const selectedPendingCandidateOfferIds = uniqueIds(
+    filteredCandidates
+      .filter((candidate) => candidate.status === "needs_review")
+      .flatMap((candidate) => candidate.rawOfferIds.filter((id) => selectedOfferIds.has(id))),
+  );
 
-  return (
-    <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
-      <header className="border-b border-[#adb3b4]/30 bg-white">
+  const content = (
+    <>
+      {framed ? (
+        <header className="border-b border-[#adb3b4]/30 bg-white">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <Link href="/admin" className="text-sm font-medium text-[#5a6061] transition-colors hover:text-[#2d3435]">
@@ -244,8 +283,9 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
           </div>
         </div>
       </header>
+      ) : null}
 
-      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+      <div className={framed ? "mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8" : ""}>
         {message ? <MessageBox message={message} onDismiss={() => setMessage(null)} /> : null}
 
         {!data.configured ? (
@@ -288,9 +328,9 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-4">
               <MetricCard label="待发布站点" value={data.metrics.pendingStations} />
-              <MetricCard label="待审核报价" value={data.metrics.pendingOffers} />
+              <MetricCard label="清洗候选" value={data.metrics.candidateOffers} />
+              <MetricCard label="原始待审" value={data.metrics.pendingOffers} />
               <MetricCard label="提交线索" value={data.metrics.pendingSubmissions} />
-              <MetricCard label="成功检测" value={data.metrics.successfulRuns} />
             </section>
 
             <section className="mb-5 rounded-lg border border-[#adb3b4]/25 bg-white p-3 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
@@ -342,15 +382,32 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
               />
             ) : null}
 
-            {activeTab === "offers" ? (
+            {activeTab === "candidates" ? (
+              <OfferCandidatesPanel
+                candidates={filteredCandidates}
+                selectedOfferIds={selectedOfferIds}
+                allVisibleCandidatesSelected={allVisibleCandidatesSelected}
+                selectedPendingCandidateOfferIds={selectedPendingCandidateOfferIds}
+                loadingAction={loadingAction}
+                onToggleAll={() => {
+                  setSelectedOfferIds(allVisibleCandidatesSelected ? new Set() : new Set(visibleCandidateOfferIds));
+                }}
+                onToggle={(candidate) => {
+                  setSelectedOfferIds((previous) => toggleCandidateSelection(previous, candidate));
+                }}
+                onUpdateOffers={updateOffers}
+              />
+            ) : null}
+
+            {activeTab === "rawOffers" ? (
               <OffersPanel
                 offers={filteredOffers}
                 selectedOfferIds={selectedOfferIds}
-                allVisibleOffersSelected={allVisibleOffersSelected}
+                allVisibleOffersSelected={allVisibleRawOffersSelected}
                 selectedPendingOfferIds={selectedPendingOfferIds}
                 loadingAction={loadingAction}
                 onToggleAll={() => {
-                  setSelectedOfferIds(allVisibleOffersSelected ? new Set() : new Set(visibleOfferIds));
+                  setSelectedOfferIds(allVisibleRawOffersSelected ? new Set() : new Set(visibleRawOfferIds));
                 }}
                 onToggle={(id) => {
                   setSelectedOfferIds((previous) => {
@@ -376,6 +433,14 @@ export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) 
           </>
         )}
       </div>
+    </>
+  );
+
+  if (!framed) return content;
+
+  return (
+    <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
+      {content}
     </main>
   );
 }
@@ -508,6 +573,175 @@ function StationsPanel({
   );
 }
 
+function OfferCandidatesPanel({
+  candidates,
+  selectedOfferIds,
+  allVisibleCandidatesSelected,
+  selectedPendingCandidateOfferIds,
+  loadingAction,
+  onToggleAll,
+  onToggle,
+  onUpdateOffers,
+}: {
+  candidates: ApiTransitOfferCandidate[];
+  selectedOfferIds: Set<string>;
+  allVisibleCandidatesSelected: boolean;
+  selectedPendingCandidateOfferIds: string[];
+  loadingAction: string | null;
+  onToggleAll: () => void;
+  onToggle: (candidate: ApiTransitOfferCandidate) => void;
+  onUpdateOffers: (ids: string[], status: ApiTransitOfferStatus) => void;
+}) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-[#adb3b4]/25 bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0f1] px-4 py-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#202829]">
+            <Database size={16} />
+            清洗候选
+            <span className="rounded-full bg-[#f2f4f4] px-2 py-0.5 text-xs font-medium text-[#5a6061]">
+              {candidates.length} 组
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-[#5a6061]">
+            默认只展示站点 + 标准模型 + 关键线路的审核候选；原始报价保留在“原始报价”里追溯。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onToggleAll}
+            className="inline-flex h-9 items-center rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#2d3435] transition-colors hover:bg-[#f2f4f4]"
+          >
+            {allVisibleCandidatesSelected ? "取消选择" : "选择当前候选"}
+          </button>
+          <button
+            type="button"
+            disabled={!selectedPendingCandidateOfferIds.length || loadingAction === "offers-active"}
+            onClick={() => onUpdateOffers(selectedPendingCandidateOfferIds, "active")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-medium text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50"
+          >
+            {loadingAction === "offers-active" ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+            发布所选候选
+          </button>
+          <button
+            type="button"
+            disabled={!selectedOfferIds.size || loadingAction === "offers-inactive"}
+            onClick={() => onUpdateOffers(Array.from(selectedOfferIds), "inactive")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+          >
+            <XCircle size={13} />
+            下架所选
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full table-fixed text-left text-sm">
+          <thead className="bg-[#f2f4f4] text-xs font-semibold text-[#5a6061]">
+            <tr>
+              <th className="w-10 px-4 py-3"></th>
+              <th className="w-60 px-3 py-3">站点 / 模型</th>
+              <th className="w-44 px-3 py-3">代表线路</th>
+              <th className="w-36 px-3 py-3">倍率 / 价格</th>
+              <th className="w-72 px-3 py-3">清洗说明</th>
+              <th className="w-28 px-3 py-3">状态</th>
+              <th className="w-36 px-3 py-3 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#edf0f1]">
+            {candidates.map((candidate) => {
+              const selected = candidate.rawOfferIds.every((id) => selectedOfferIds.has(id));
+              return (
+                <tr key={candidate.id} className={selected ? "bg-[#eef3f8]" : "bg-white hover:bg-[#fbfcfc]"}>
+                  <td className="px-4 py-3 align-top">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => onToggle(candidate)}
+                      className="h-4 w-4 rounded border-[#adb3b4]/50"
+                      aria-label={`选择 ${candidate.stationName} ${candidate.standardModel}`}
+                    />
+                  </td>
+                  <td className="px-3 py-3 align-top">
+                    <div className="font-semibold text-[#202829]">{candidate.stationName}</div>
+                    <div className="mt-1 text-xs text-[#5a6061]">{candidate.standardModel}</div>
+                    <div className="mt-1 text-[11px] text-[#7f8889]">
+                      原始 {candidate.rawOfferCount} 条
+                      {candidate.hiddenRawCount ? ` · 弱化 ${candidate.hiddenRawCount} 条` : ""}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 align-top">
+                    <div className="font-medium text-[#2d3435]">{candidate.groupName}</div>
+                    <div className="mt-1 text-xs text-[#5a6061]">{candidate.accountPool} / {candidate.channelType}</div>
+                    <div className="mt-1 text-xs text-[#adb3b4]">{candidate.priceSource}</div>
+                  </td>
+                  <td className="px-3 py-3 align-top">
+                    <span className="font-mono text-sm font-semibold text-[#202829]">{formatRatio(candidate.modelMultiplier)}</span>
+                    <div className="mt-1 text-xs text-[#5a6061]">{candidate.rechargeRatio || "未标"}</div>
+                    <div className="mt-1 font-mono text-xs text-[#5a6061]">
+                      {formatCurrency(candidate.inputPrice, candidate.currency)} / {formatCurrency(candidate.outputPrice, candidate.currency)}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 align-top">
+                    <p className="text-xs leading-5 text-[#5a6061]">{candidate.reviewReason}</p>
+                    {candidate.qualityFlags.length ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {candidate.qualityFlags.slice(0, 4).map((flag) => (
+                          <StatusBadge key={flag} tone={flag.includes("缺失") || flag.includes("未披露") ? "warn" : "info"}>
+                            {flag}
+                          </StatusBadge>
+                        ))}
+                        {candidate.qualityFlags.length > 4 ? <StatusBadge tone="muted">+{candidate.qualityFlags.length - 4}</StatusBadge> : null}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-3 align-top">
+                    <StatusBadge tone={candidate.status === "active" ? "success" : candidate.status === "inactive" ? "muted" : "warn"}>
+                      {offerStatusLabel(candidate.status)}
+                    </StatusBadge>
+                    <div className="mt-1 text-xs text-[#adb3b4]">{formatRelativeTime(candidate.lastVerifiedAt)}</div>
+                  </td>
+                  <td className="px-3 py-3 text-right align-top">
+                    <div className="flex justify-end gap-2">
+                      {candidate.status !== "active" ? (
+                        <button
+                          type="button"
+                          disabled={loadingAction === "offers-active"}
+                          onClick={() => onUpdateOffers(candidate.rawOfferIds, "active")}
+                          className="inline-flex h-8 items-center rounded-full bg-[#2d3435] px-2.5 text-xs font-medium text-[#f8f8f8] disabled:opacity-60"
+                        >
+                          发布候选
+                        </button>
+                      ) : null}
+                      {candidate.status !== "inactive" ? (
+                        <button
+                          type="button"
+                          disabled={loadingAction === "offers-inactive"}
+                          onClick={() => onUpdateOffers(candidate.rawOfferIds, "inactive")}
+                          className="inline-flex h-8 items-center rounded-full border border-[#adb3b4]/30 bg-white px-2.5 text-xs font-medium text-[#2d3435] disabled:opacity-60"
+                        >
+                          下架
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {!candidates.length ? (
+              <tr>
+                <td colSpan={7}>
+                  <EmptyState text="没有匹配的清洗候选。" />
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function OffersPanel({
   offers,
   selectedOfferIds,
@@ -532,9 +766,12 @@ function OffersPanel({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0f1] px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-[#202829]">
           <Database size={16} />
-          报价审核
+          原始报价
           <span className="rounded-full bg-[#f2f4f4] px-2 py-0.5 text-xs font-medium text-[#5a6061]">{offers.length} 条</span>
         </div>
+        <p className="basis-full text-xs text-[#5a6061] md:basis-auto">
+          这里保留采集回来的原始模型与分组，主要用于追溯和排错。
+        </p>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -864,6 +1101,23 @@ async function requestJson(path: string, method: string, body: unknown): Promise
 function matchesQuery(query: string, values: Array<string | null | undefined>): boolean {
   if (!query) return true;
   return values.some((value) => String(value || "").toLowerCase().includes(query));
+}
+
+function uniqueIds(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function toggleCandidateSelection(
+  previous: Set<string>,
+  candidate: ApiTransitOfferCandidate,
+): Set<string> {
+  const next = new Set(previous);
+  const selected = candidate.rawOfferIds.every((id) => next.has(id));
+  for (const id of candidate.rawOfferIds) {
+    if (selected) next.delete(id);
+    else next.add(id);
+  }
+  return next;
 }
 
 function formatRatio(value: number | null): string {

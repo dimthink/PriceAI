@@ -109,7 +109,7 @@ async function readStationsFromSupabase(): Promise<TransitStation[]> {
     }
 
     const stationRows = dbRows(stationsResult.data);
-    if (!stationRows.length) return seedStations;
+    if (!stationRows.length) return [];
 
     const offersByStation = new Map<string, DbRow[]>();
     for (const offer of dbRows(offersResult.data)) {
@@ -120,8 +120,8 @@ async function readStationsFromSupabase(): Promise<TransitStation[]> {
 
     return stationRows.map((row) => mapStationRow(row, offersByStation.get(stringValue(row.id)) || []));
   } catch (error) {
-    console.warn("Falling back to static API transit stations because Supabase read failed:", error);
-    return seedStations;
+    console.warn("Returning no API transit stations because Supabase read failed:", error);
+    return [];
   }
 }
 

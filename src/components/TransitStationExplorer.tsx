@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronRight, ExternalLink, Filter, Search } from "lucide-react";
+import { TransitViewTabs } from "@/components/TransitViewTabs";
 import type {
   TransitAccountPool,
   TransitChannelType,
   TransitModelFamily,
-  TransitRiskLabel,
   TransitStation,
 } from "@/data/api-transit/types";
 import {
@@ -16,8 +16,6 @@ import {
   TRANSIT_CHANNEL_TYPE_LABELS,
   TRANSIT_DATA_STATUS_LABELS,
   TRANSIT_MODEL_FAMILY_OPTIONS,
-  TRANSIT_RISK_LABELS,
-  TRANSIT_USAGE_ADVICE_LABELS,
 } from "@/data/api-transit/types";
 import {
   compareStations,
@@ -28,7 +26,6 @@ import {
   getStationComparisonSummary,
   getStationRechargeCoefficient,
   getSummaryStats,
-  getUsageAdviceBadgeClass,
   parseRechargeRatio,
   type TransitSortKey,
 } from "@/lib/api-transit";
@@ -45,14 +42,6 @@ const POOL_OPTIONS: { value: TransitAccountPool | "all"; label: string }[] = [
   { value: "all", label: "全部号池" },
   ...Object.entries(TRANSIT_ACCOUNT_POOL_LABELS).map(([value, label]) => ({
     value: value as TransitAccountPool,
-    label,
-  })),
-];
-
-const RISK_OPTIONS: { value: TransitRiskLabel | "all"; label: string }[] = [
-  { value: "all", label: "全部风险" },
-  ...Object.entries(TRANSIT_RISK_LABELS).map(([value, label]) => ({
-    value: value as TransitRiskLabel,
     label,
   })),
 ];
@@ -90,9 +79,6 @@ export default function TransitStationExplorer({ stations }: Props) {
   const [poolFilter, setPoolFilter] = useState<TransitAccountPool | "all">(
     coerceParam(searchParams.get("pool"), POOL_OPTIONS.map((item) => item.value), "all")
   );
-  const [riskFilter, setRiskFilter] = useState<TransitRiskLabel | "all">(
-    coerceParam(searchParams.get("risk"), RISK_OPTIONS.map((item) => item.value), "all")
-  );
   const [sortBy, setSortBy] = useState<TransitSortKey>(
     coerceParam(searchParams.get("sort"), ["overall", "rate", "stability"] as const, "overall")
   );
@@ -110,12 +96,11 @@ export default function TransitStationExplorer({ stations }: Props) {
     if (modelFilter !== "all") params.set("model", modelFilter);
     if (channelFilter !== "all") params.set("channel", channelFilter);
     if (poolFilter !== "all") params.set("pool", poolFilter);
-    if (riskFilter !== "all") params.set("risk", riskFilter);
     if (sortBy !== "overall") params.set("sort", sortBy);
 
     const query = params.toString();
     router.replace(query ? `/api-transit?${query}` : "/api-transit", { scroll: false });
-  }, [channelFilter, modelFilter, poolFilter, riskFilter, router, search, sortBy, urlReady]);
+  }, [channelFilter, modelFilter, poolFilter, router, search, sortBy, urlReady]);
 
   const filtered = useMemo(() => {
     let result = [...stations];
@@ -144,16 +129,19 @@ export default function TransitStationExplorer({ stations }: Props) {
       result = result.filter((station) => station.accountPools.includes(poolFilter));
     }
 
-    if (riskFilter !== "all") {
-      result = result.filter((station) => station.riskLabels.includes(riskFilter));
-    }
-
     return compareStations(result, sortBy);
-  }, [channelFilter, modelFilter, poolFilter, riskFilter, search, sortBy, stations]);
+  }, [channelFilter, modelFilter, poolFilter, search, sortBy, stations]);
 
   const stats = useMemo(() => getSummaryStats(stations), [stations]);
+  const latestUpdatedAt = useMemo(() => {
+    return stations
+      .map((station) => station.lastUpdatedAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? null;
+  }, [stations]);
   const activeFilterCount =
-    [modelFilter, channelFilter, poolFilter, riskFilter].filter((value) => value !== "all").length +
+    [modelFilter, channelFilter, poolFilter].filter((value) => value !== "all").length +
     (search ? 1 : 0) +
     (sortBy !== "overall" ? 1 : 0);
 
@@ -164,27 +152,20 @@ export default function TransitStationExplorer({ stations }: Props) {
       if (modelFilter !== "all") params.set("model", modelFilter);
       if (channelFilter !== "all") params.set("channel", channelFilter);
       if (poolFilter !== "all") params.set("pool", poolFilter);
-      if (riskFilter !== "all") params.set("risk", riskFilter);
       if (sortBy !== "overall") params.set("sort", sortBy);
       const query = params.toString();
 
       router.push(`/api-transit/${slug}${query ? `?back=${encodeURIComponent(query)}` : ""}`);
     },
-    [channelFilter, modelFilter, poolFilter, riskFilter, router, search, sortBy]
+    [channelFilter, modelFilter, poolFilter, router, search, sortBy]
   );
 
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <MetricCard label="站点" value={String(stats.total)} helper="静态样例" />
-        <MetricCard label="Claude 最低" value={formatRate(stats.bestClaude)} helper="综合倍率" />
-        <MetricCard label="GPT 最低" value={formatRate(stats.bestGpt)} helper="综合倍率" />
-        <MetricCard label="近 7 日样本" value={String(stats.sevenDaySamples)} helper={`${stats.withRisk} 个有提示`} />
-      </div>
-
       <div className="sticky top-[66px] z-20 mb-5 rounded-lg bg-[#f2f4f4] p-3 ring-1 ring-[#adb3b4]/15">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-          <div className="relative min-w-[210px] flex-1 lg:max-w-[460px]">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+          <TransitViewTabs active="stations" className="shrink-0 rounded-lg" />
+          <div className="relative min-w-[210px] flex-1 xl:max-w-[460px]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a8182]" />
             <input
               className="h-[38px] w-full rounded-lg border border-[#dfe4e5] bg-white pl-9 pr-3 text-sm text-[#2d3435] outline-none placeholder:text-[#5f6869] transition focus:border-[#45bf78]/65 focus:shadow-[0_0_0_3px_rgba(69,191,120,0.16)]"
@@ -193,7 +174,7 @@ export default function TransitStationExplorer({ stations }: Props) {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none xl:ml-auto">
             <SegmentedControl
               options={SORT_OPTIONS}
               value={sortBy}
@@ -214,9 +195,16 @@ export default function TransitStationExplorer({ stations }: Props) {
             </button>
           </div>
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5a6061]">
+          <span>真实站点 {stats.total}</span>
+          <span>Claude 最低 {formatRate(stats.bestClaude)}</span>
+          <span>GPT 最低 {formatRate(stats.bestGpt)}</span>
+          <span>样本 {stats.sevenDaySamples}</span>
+          <span>最近更新 {latestUpdatedAt ?? "暂无"}</span>
+        </div>
 
         {showFilters ? (
-          <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#dfe4e5] pt-3 sm:grid-cols-4">
+          <div className="mt-3 grid grid-cols-1 gap-3 border-t border-[#dfe4e5] pt-3 sm:grid-cols-3">
             <FilterSelect
               label="模型"
               value={modelFilter}
@@ -238,34 +226,34 @@ export default function TransitStationExplorer({ stations }: Props) {
               onChange={(value) => setPoolFilter(value as TransitAccountPool | "all")}
               options={POOL_OPTIONS}
             />
-            <FilterSelect
-              label="风险"
-              value={riskFilter}
-              onChange={(value) => setRiskFilter(value as TransitRiskLabel | "all")}
-              options={RISK_OPTIONS}
-            />
           </div>
         ) : null}
       </div>
 
       {filtered.length === 0 ? (
-        <div className="py-16 text-center text-[#5a6061]">
-          <p className="mb-2 text-lg font-semibold">没有匹配的中转站</p>
-          <p className="text-sm">尝试调整模型、渠道或风险筛选。</p>
+        <div className="rounded-lg bg-white px-6 py-16 text-center text-[#5a6061] ring-1 ring-[#adb3b4]/15">
+          <p className="mb-2 text-lg font-semibold text-[#202829]">
+            {stations.length === 0 ? "暂无已发布的真实中转站数据" : "没有匹配的中转站"}
+          </p>
+          <p className="mx-auto max-w-[560px] text-sm leading-6">
+            {stations.length === 0
+              ? "后台候选数据需要完成清洗、审核和发布后才会出现在这里；没有真实发布数据时不会展示样例榜单。"
+              : "尝试调整模型、渠道或号池筛选。"}
+          </p>
         </div>
       ) : (
         <>
           <div className="hidden overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 md:block">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] border-collapse text-left text-sm" role="table">
+              <table className="w-full min-w-[1120px] border-collapse text-left text-sm" role="table">
                 <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
                   <tr role="row">
                     <TableHead>站点</TableHead>
-                    <TableHead>模型覆盖</TableHead>
-                    <TableHead>价格倍率</TableHead>
+                    <TableHead>覆盖</TableHead>
+                    <TableHead>综合倍率</TableHead>
+                    <TableHead>拆分倍率</TableHead>
                     <TableHead>稳定性</TableHead>
-                    <TableHead>号池 / 渠道</TableHead>
-                    <TableHead>风险</TableHead>
+                    <TableHead>来源 / 渠道</TableHead>
                     <TableHead>更新时间</TableHead>
                     <TableHead className="w-[120px] text-center">操作</TableHead>
                   </tr>
@@ -299,24 +287,6 @@ export default function TransitStationExplorer({ stations }: Props) {
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  helper,
-}: {
-  label: string;
-  value: string;
-  helper: string;
-}) {
-  return (
-    <div className="rounded-lg bg-white px-3 py-3 ring-1 ring-[#adb3b4]/15">
-      <div className="text-[11px] font-semibold text-[#5a6061]">{label}</div>
-      <div className="mt-1 text-[20px] font-bold leading-tight text-[#202829]">{value}</div>
-      <div className="mt-0.5 truncate text-xs text-[#7a8182]">{helper}</div>
     </div>
   );
 }
@@ -436,16 +406,40 @@ function FamilySummaryCell({
   );
 }
 
-function PriceSummaryCell({ station }: { station: TransitStation }) {
+function BestRateCell({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
+  const summary = getStationComparisonSummary(station);
+
   return (
-    <div className="min-w-[210px]">
-      <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2">
+    <div className={compact ? "" : "min-w-[118px]"}>
+      <div className={`${compact ? "text-[18px]" : "text-[22px]"} font-bold leading-tight text-[#202829]`}>
+        {formatRate(summary.bestCombinedRate)}
+      </div>
+      <div className="mt-1 text-[11px] font-semibold text-[#5a6061]">
+        {bestRateLabel(summary)}
+      </div>
+    </div>
+  );
+}
+
+function bestRateLabel(summary: ReturnType<typeof getStationComparisonSummary>): string {
+  const claude = summary.claude.combinedRateMin;
+  const gpt = summary.gpt.combinedRateMin;
+
+  if (claude === null && gpt === null) return "缺少倍率";
+  if (claude !== null && (gpt === null || claude <= gpt)) return "Claude 最优";
+  return "GPT 最优";
+}
+
+function PriceBreakdownCell({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
+  return (
+    <div className={compact ? "" : "min-w-[190px]"}>
+      <div className="grid grid-cols-[58px_1fr] gap-x-2 gap-y-2">
         <span className="text-xs font-semibold text-[#5a6061]">充值</span>
-        <RechargeRatioDisplay station={station} />
+        <RechargeRatioDisplay station={station} compact={compact} />
         <span className="text-xs font-semibold text-[#5a6061]">Claude</span>
-        <FamilySummaryCell station={station} family="claude" />
+        <FamilySummaryCell station={station} family="claude" compact={compact} />
         <span className="text-xs font-semibold text-[#5a6061]">GPT</span>
-        <FamilySummaryCell station={station} family="gpt" />
+        <FamilySummaryCell station={station} family="gpt" compact={compact} />
       </div>
     </div>
   );
@@ -481,31 +475,16 @@ function StationRow({
         <ModelCoverage station={station} />
       </td>
       <td className="px-5 py-4">
-        <PriceSummaryCell station={station} />
+        <BestRateCell station={station} />
       </td>
       <td className="px-5 py-4">
-        <div className="text-xs font-semibold text-[#202829]">{formatAvailability(station.availability)}</div>
-        <div className="mt-0.5 text-[10px] text-[#7f8889]">
-          {station.availability.lastCheckedAt ?? "暂无检查时间"}
-        </div>
+        <PriceBreakdownCell station={station} />
+      </td>
+      <td className="px-5 py-4">
+        <AvailabilityCell station={station} />
       </td>
       <td className="max-w-[220px] px-5 py-4">
-        <PillList
-          items={[
-            ...station.accountPools.map((pool) => ({
-              id: `pool-${pool}`,
-              label: TRANSIT_ACCOUNT_POOL_LABELS[pool],
-            })),
-            ...station.channelTypes.map((type) => ({
-              id: `channel-${type}`,
-              label: TRANSIT_CHANNEL_TYPE_LABELS[type],
-            })),
-          ]}
-          max={3}
-        />
-      </td>
-      <td className="min-w-[160px] px-5 py-4">
-        <RiskBlock station={station} />
+        <SourceChannelCell station={station} />
       </td>
       <td className="px-5 py-4">
         <div className="text-xs text-[#5a6061]">{station.lastUpdatedAt}</div>
@@ -558,16 +537,15 @@ function StationCard({
         <ModelCoverage station={station} />
       </div>
 
-      <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
-        <InfoTile label="充值" value={<RechargeRatioDisplay station={station} compact />} />
-        <InfoTile label="Claude" value={<FamilySummaryCell station={station} family="claude" compact />} />
-        <InfoTile label="GPT" value={<FamilySummaryCell station={station} family="gpt" compact />} />
+      <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
+        <InfoTile label="综合倍率" value={<BestRateCell station={station} compact />} />
+        <InfoTile label="拆分倍率" value={<PriceBreakdownCell station={station} compact />} />
       </div>
 
-      <div className="mb-3 text-xs text-[#5a6061]">
-        稳定性 <span className="font-semibold text-[#202829]">{formatAvailability(station.availability)}</span>
+      <div className="mb-3">
+        <AvailabilityCell station={station} compact />
       </div>
-      <RiskBlock station={station} />
+      <SourceChannelCell station={station} />
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#5a6061]">
         <span>更新于 {station.lastUpdatedAt} · {TRANSIT_DATA_STATUS_LABELS[station.dataStatus]}</span>
         <span className="inline-flex items-center gap-1 font-semibold text-[#2d3435]">
@@ -576,6 +554,66 @@ function StationCard({
       </div>
     </div>
   );
+}
+
+function AvailabilityCell({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
+  return (
+    <div className={compact ? "" : "min-w-[118px]"}>
+      {compact ? (
+        <div className="mb-1 text-xs font-semibold text-[#5a6061]">
+          稳定性 <span className="text-[#202829]">{formatAvailability(station.availability)}</span>
+        </div>
+      ) : (
+        <div className="text-xs font-semibold text-[#202829]">{formatAvailability(station.availability)}</div>
+      )}
+      <AvailabilityStrip rate={station.availability.sevenDayRate} samples={station.availability.sevenDaySamples} />
+      <div className="mt-1 text-[10px] text-[#7f8889]">
+        {station.availability.lastCheckedAt ?? "暂无检查时间"}
+      </div>
+    </div>
+  );
+}
+
+function AvailabilityStrip({ rate, samples }: { rate: number | null; samples: number }) {
+  const bars = buildAvailabilityBars(rate, samples);
+  return (
+    <div
+      className="mt-1 flex h-4 items-end gap-[2px]"
+      aria-label={rate === null || samples <= 0 ? "稳定性样本不足" : `稳定性样本概览 ${(rate * 100).toFixed(1)}%`}
+      title="样本概览，真实逐次监控接入后会替换为时间线状态"
+    >
+      {bars.map((tone, index) => (
+        <span
+          key={`${tone}-${index}`}
+          className={`block w-[4px] rounded-full ${availabilityBarClass(tone)}`}
+          style={{ height: `${tone === "empty" ? 3 : index % 4 === 0 ? 12 : 15}px` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function buildAvailabilityBars(
+  rate: number | null,
+  samples: number,
+): Array<"good" | "warn" | "bad" | "empty"> {
+  const total = 16;
+  if (rate === null || samples <= 0) return Array(total).fill("empty");
+  const clamped = Math.max(0, Math.min(1, rate));
+  const goodCount = Math.round(clamped * total);
+  const weakCount = Math.max(0, total - goodCount);
+  return Array.from({ length: total }, (_, index) => {
+    if (index < goodCount) return "good";
+    if (weakCount <= 2) return "warn";
+    return index % 3 === 0 ? "bad" : "warn";
+  });
+}
+
+function availabilityBarClass(tone: "good" | "warn" | "bad" | "empty"): string {
+  if (tone === "good") return "bg-[#45bf78]";
+  if (tone === "warn") return "bg-[#d99a2b]";
+  if (tone === "bad") return "bg-[#d95745]";
+  return "bg-[#dfe4e5]";
 }
 
 function StationIdentity({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
@@ -598,20 +636,28 @@ function StationIdentity({ station, compact = false }: { station: TransitStation
 }
 
 function ModelCoverage({ station }: { station: TransitStation }) {
-  const names = Array.from(new Set(station.prices.map((price) => price.standardModel)));
+  const families = new Set(station.prices.map((price) => price.family));
 
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap gap-1.5">
-        {names.slice(0, 3).map((name) => (
-          <span key={name} className="rounded-full bg-[#f2f4f4] px-2 py-0.5 text-[11px] font-semibold text-[#2d3435]">
-            {name}
-          </span>
-        ))}
-        {names.length > 3 ? <CountBadge tone="neutral">+{names.length - 3}</CountBadge> : null}
+        <CoverageBadge label="Claude" covered={families.has("claude")} />
+        <CoverageBadge label="GPT" covered={families.has("gpt")} />
       </div>
       <p className="text-xs leading-5 text-[#5a6061]">{station.summary}</p>
     </div>
+  );
+}
+
+function CoverageBadge({ covered, label }: { covered: boolean; label: string }) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+        covered ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-[#f2f4f4] text-[#7f8889]"
+      }`}
+    >
+      {label}{covered ? "" : " 未收录"}
+    </span>
   );
 }
 
@@ -633,19 +679,39 @@ function PillList({ items, max = items.length }: { items: { id: string; label: s
   );
 }
 
-function RiskBlock({ station }: { station: TransitStation }) {
-  const visibleRisks = station.riskLabels.slice(0, 3);
+function SourceChannelCell({ station }: { station: TransitStation }) {
+  const channelItems = [
+    ...station.channelTypes.map((type) => ({
+      id: `channel-${type}`,
+      label: TRANSIT_CHANNEL_TYPE_LABELS[type],
+    })),
+    ...station.accountPools.map((pool) => ({
+      id: `pool-${pool}`,
+      label: TRANSIT_ACCOUNT_POOL_LABELS[pool],
+    })),
+  ];
+
+  const disclosed =
+    station.channelTypes.some((type) => type !== "undisclosed") ||
+    station.accountPools.some((pool) => pool !== "undisclosed");
+  const reviewHints = [
+    !disclosed ? "来源未披露" : null,
+    station.feedback.pendingCount > 0 ? "反馈待核验" : null,
+    station.riskLabels.includes("reseller") ? "二级分销" : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {visibleRisks.map((risk) => (
-        <span key={risk} className="rounded-full bg-[#fff7e8] px-2 py-0.5 text-[11px] font-semibold text-[#7a541b]">
-          {TRANSIT_RISK_LABELS[risk]}
-        </span>
-      ))}
-      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getUsageAdviceBadgeClass(station.usageAdvice)}`}>
-        {TRANSIT_USAGE_ADVICE_LABELS[station.usageAdvice]}
-      </span>
+    <div className="space-y-1.5">
+      <PillList items={channelItems} max={4} />
+      {reviewHints.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {reviewHints.slice(0, 2).map((hint) => (
+            <span key={hint} className="rounded-full bg-[#fff7e8] px-2 py-0.5 text-[11px] font-semibold text-[#7a541b]">
+              {hint}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

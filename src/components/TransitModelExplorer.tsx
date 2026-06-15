@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Search } from "lucide-react";
 import { CategoryTabStrip, type CategoryTabItem } from "@/components/CategoryTabBar";
 import { TransitModelIcon } from "@/components/TransitModelIcon";
+import { TransitViewTabs } from "@/components/TransitViewTabs";
 import type { TransitModelFamily, TransitStation } from "@/data/api-transit/types";
 import {
   TRANSIT_ACCOUNT_POOL_LABELS,
@@ -101,19 +102,9 @@ export default function TransitModelExplorer({ stations }: Props) {
 
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <MetricCard label="站点" value={String(stations.length)} helper="站点榜为主入口" />
-        <MetricCard label="标准模型" value={String(allSummaries.length)} helper="Claude / GPT" />
-        <MetricCard
-          label="当前模型族"
-          value={family === "all" ? "全部" : TRANSIT_MODEL_FAMILY_LABELS[family]}
-          helper={`${modelSummaries.length} 个模型`}
-        />
-        <MetricCard label="最低综合倍率" value={formatRate(bestRate)} helper={`样本 ${sampleCount}`} />
-      </div>
-
       <div className="sticky top-[66px] z-20 mb-5 rounded-lg bg-[#f2f4f4] p-3 ring-1 ring-[#adb3b4]/15">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+          <TransitViewTabs active="models" className="shrink-0 rounded-lg" />
           <div className="relative min-w-[200px] flex-1 xl:max-w-[440px]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a8182]" />
             <input
@@ -130,12 +121,25 @@ export default function TransitModelExplorer({ stations }: Props) {
             className="py-0"
           />
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5a6061]">
+          <span>真实站点 {stations.length}</span>
+          <span>标准模型 {allSummaries.length}</span>
+          <span>当前 {family === "all" ? "全部" : TRANSIT_MODEL_FAMILY_LABELS[family]}</span>
+          <span>最低综合倍率 {formatRate(bestRate)}</span>
+          <span>样本 {sampleCount}</span>
+        </div>
       </div>
 
       {modelSummaries.length === 0 ? (
-        <div className="py-16 text-center text-[#5a6061]">
-          <p className="mb-2 text-lg font-semibold">没有匹配的模型</p>
-          <p className="text-sm">尝试调整模型族或搜索关键词。</p>
+        <div className="rounded-lg bg-white px-6 py-16 text-center text-[#5a6061] ring-1 ring-[#adb3b4]/15">
+          <p className="mb-2 text-lg font-semibold text-[#202829]">
+            {stations.length === 0 ? "暂无已发布的真实模型数据" : "没有匹配的模型"}
+          </p>
+          <p className="mx-auto max-w-[560px] text-sm leading-6">
+            {stations.length === 0
+              ? "后台候选数据完成清洗、审核和发布后，模型页才会展示可对比的真实报价。"
+              : "尝试调整模型族或搜索关键词。"}
+          </p>
         </div>
       ) : (
         <>
@@ -307,24 +311,6 @@ function RiskPills({ station }: { station: TransitStation }) {
       <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getUsageAdviceBadgeClass(station.usageAdvice)}`}>
         {TRANSIT_USAGE_ADVICE_LABELS[station.usageAdvice]}
       </span>
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  helper,
-}: {
-  label: string;
-  value: string;
-  helper: string;
-}) {
-  return (
-    <div className="rounded-lg bg-white px-3 py-3 ring-1 ring-[#adb3b4]/15">
-      <div className="text-[11px] font-semibold text-[#5a6061]">{label}</div>
-      <div className="mt-1 text-[20px] font-bold leading-tight text-[#202829]">{value}</div>
-      <div className="mt-0.5 truncate text-xs text-[#7a8182]">{helper}</div>
     </div>
   );
 }

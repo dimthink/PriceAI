@@ -1,4 +1,5 @@
 import type { ApiBillingMode, ApiPriceValue, ApiProviderType } from "@/lib/api-models";
+import type { ApiTransitAdminData } from "@/lib/api-transit-admin-types";
 
 export type OfferStatus = "in_stock" | "low_stock" | "out_of_stock" | "unknown";
 export type EffectiveOfferStatus =
@@ -139,6 +140,7 @@ export type AdminSummary = DashboardData & {
   collectorHealth: CollectorHealthSummary;
   officialPrices: OfficialSubscriptionAdminData;
   apiModels: ApiModelAdminData;
+  apiTransit: ApiTransitAdminData;
   pendingSubmissions: ChannelSubmission[];
   pendingOfferFeedback: OfferFeedback[];
   pendingSiteFeedback: SiteFeedback[];

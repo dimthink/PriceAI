@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/api-transit/submit" },
   openGraph: {
     title: "提交 API 中转站 / 商家入驻 | PriceAI",
-    description: "推荐中转站、提交价格修正或申请商家入驻，MVP 阶段先走人工核验。",
+    description: "推荐中转站、提交价格修正或申请商家入驻，当前先走人工核验。",
   },
 };
 
@@ -60,7 +60,7 @@ export default function ApiTransitSubmitPage() {
             提交 API 中转站 / 商家入驻
           </h1>
           <p className="mt-3 text-sm leading-[1.8] text-[#5a6061]">
-            MVP 阶段先走人工核验。你可以推荐站点、提交价格修正、反馈不可用情况，或申请商家入驻。请只提交公开资料和联系方式，不要发送任何可用密钥。
+            当前先走人工核验。你可以推荐站点、提交价格修正、反馈不可用情况，或申请商家入驻。请只提交公开资料和联系方式，不要发送任何可用密钥。
           </p>
         </div>
 

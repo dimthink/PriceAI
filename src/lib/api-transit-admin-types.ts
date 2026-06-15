@@ -74,6 +74,36 @@ export type ApiTransitAdminOffer = {
   updatedAt: string | null;
 };
 
+export type ApiTransitOfferCandidate = {
+  id: string;
+  stationId: string;
+  stationName: string;
+  stationPublished: boolean;
+  family: string;
+  standardModel: string;
+  representativeOfferId: string;
+  rawOfferIds: string[];
+  rawOfferCount: number;
+  groupName: string;
+  rechargeRatio: string | null;
+  modelMultiplier: number | null;
+  inputPrice: number | null;
+  outputPrice: number | null;
+  cacheReadPrice: number | null;
+  cacheWritePrice: number | null;
+  currency: string;
+  accountPool: string;
+  channelType: string;
+  priceSource: string;
+  sourceUrl: string | null;
+  lastVerifiedAt: string | null;
+  status: ApiTransitOfferStatus;
+  candidateScore: number;
+  reviewReason: string;
+  qualityFlags: string[];
+  hiddenRawCount: number;
+};
+
 export type ApiTransitAdminSubmission = {
   id: string;
   submissionType: ApiTransitSubmissionType;
@@ -114,6 +144,7 @@ export type ApiTransitAdminMetrics = {
   totalOffers: number;
   activeOffers: number;
   pendingOffers: number;
+  candidateOffers: number;
   pendingSubmissions: number;
   successfulRuns: number;
   failedRuns: number;
@@ -127,6 +158,7 @@ export type ApiTransitAdminData = {
   metrics: ApiTransitAdminMetrics;
   stations: ApiTransitAdminStation[];
   offers: ApiTransitAdminOffer[];
+  offerCandidates: ApiTransitOfferCandidate[];
   submissions: ApiTransitAdminSubmission[];
   runs: ApiTransitAdminRun[];
 };
