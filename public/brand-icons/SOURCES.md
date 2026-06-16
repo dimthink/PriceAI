@@ -39,3 +39,4 @@ These assets are cached locally for stable rendering and performance. They are s
 | `tencentcloud.png` | `https://cloudcache.tencent-cloud.com/qcloud/favicon.ico` | Converted from Tencent Cloud official public favicon to PNG. |
 | `ctyun.png` | `https://www.ctyun.cn/favicon.ico` | Converted from CTYun official public favicon to PNG. |
 | `new-api.png` | `https://github.com/QuantumNous/new-api/blob/main/web/default/public/logo.png` | Cached from the QuantumNous/new-api public repository for New API based transit stations. |
+| `sub2api.png` | `https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/frontend/public/logo.png` | Cached from the Wei-Shaw/sub2api public repository for Sub2API based transit stations. |

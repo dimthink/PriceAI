@@ -370,7 +370,7 @@ export function getTransitStationSystem(station: TransitStation): TransitStation
 export function getTransitStationSystemLabel(station: TransitStation): string {
   const system = getTransitStationSystem(station);
   if (system === "new_api") return "New API";
-  if (system === "sub_to_api") return "Sub to API";
+  if (system === "sub_to_api") return "Sub2API";
   if (system === "custom") return "自定义系统";
   return "未知系统";
 }
