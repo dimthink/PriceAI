@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, ExternalLink, Filter } from "lucide-react";
+import { ArrowUpDown, ChevronRight, ExternalLink, Filter } from "lucide-react";
 import {
   DataTableHead,
   DataTableShell,
@@ -11,7 +11,6 @@ import {
   SearchField,
   SelectFilter,
   StatusChip,
-  ViewToggleButton,
 } from "@/components/ComparisonUi";
 import { TransitStationSystemIcon } from "@/components/TransitStationSystemIcon";
 import { TransitViewTabs } from "@/components/TransitViewTabs";
@@ -60,10 +59,14 @@ const POOL_OPTIONS: { value: TransitAccountPool | "all"; label: string }[] = [
 ];
 
 const SORT_OPTIONS: { value: TransitSortKey; label: string }[] = [
-  { value: "overall", label: "综合倍率" },
-  { value: "rate", label: "按倍率" },
-  { value: "stability", label: "按稳定性" },
+  { value: "overall", label: "综合排序" },
+  { value: "rate", label: "倍率从低到高" },
+  { value: "stability", label: "稳定性优先" },
 ];
+
+function sortLabel(value: TransitSortKey) {
+  return SORT_OPTIONS.find((option) => option.value === value)?.label ?? "综合排序";
+}
 
 function coerceParam<T extends string>(
   value: string | null,
@@ -188,17 +191,22 @@ export default function TransitStationExplorer({ stations }: Props) {
             className="flex-1 xl:max-w-[460px]"
           />
           <div className="flex min-w-0 items-center gap-2 overflow-x-auto scrollbar-none xl:ml-auto">
-            <div className="inline-flex h-11 shrink-0 items-center rounded-full bg-[#e4e9ea] p-1">
-              {SORT_OPTIONS.map((option) => (
-                <ViewToggleButton
-                  key={option.value}
-                  active={sortBy === option.value}
-                  label={option.label}
-                  onClick={() => setSortBy(option.value)}
-                  compact
-                />
-              ))}
-            </div>
+            <label className="relative inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]">
+              <ArrowUpDown className="h-4 w-4 shrink-0" />
+              <span className="pointer-events-none min-w-[5.5em]">{sortLabel(sortBy)}</span>
+              <select
+                aria-label="排序"
+                value={sortBy}
+                onChange={(event) => setSortBy(event.target.value as TransitSortKey)}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               onClick={() => setShowFilters((value) => !value)}
@@ -568,14 +576,16 @@ function StationIdentity({ station, compact = false }: { station: TransitStation
   return (
     <div className="flex min-w-0 items-center gap-3">
       <TransitStationSystemIcon station={station} />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold text-[#202829]">{station.name}</div>
         <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-[#5a6061]">
           <ExternalLink className="h-3 w-3 shrink-0" />
           <span className="truncate">{station.websiteUrl.replace(/^https?:\/\//, "")}</span>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-bold text-[#7f8889]">{getTransitStationSystemLabel(station)}</span>
+        <div className="mt-2 flex h-6 min-w-0 items-center gap-1.5 overflow-hidden">
+          <span className="inline-flex h-5 w-[72px] shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] px-2 text-[10px] font-bold text-[#5a6061]">
+            <span className="truncate">{getTransitStationSystemLabel(station)}</span>
+          </span>
           <ModelCoverage station={station} compact={compact} />
         </div>
       </div>
@@ -587,7 +597,7 @@ function ModelCoverage({ station, compact = false }: { station: TransitStation; 
   const families = new Set(station.prices.map((price) => price.family));
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex min-w-0 shrink-0 gap-1.5">
       <CoverageBadge label="Claude" covered={families.has("claude")} compact={compact} />
       <CoverageBadge label="GPT" covered={families.has("gpt")} compact={compact} />
     </div>
@@ -596,7 +606,7 @@ function ModelCoverage({ station, compact = false }: { station: TransitStation; 
 
 function CoverageBadge({ covered, label, compact }: { covered: boolean; label: string; compact: boolean }) {
   return (
-    <StatusChip tone={covered ? "success" : "muted"} className={compact ? "px-2 py-0.5 text-[11px]" : "px-2 py-0.5 text-[11px]"}>
+    <StatusChip tone={covered ? "success" : "muted"} className={compact ? "h-5 w-[76px] justify-center px-1.5 py-0 text-[10px]" : "h-5 w-[76px] justify-center px-1.5 py-0 text-[10px]"}>
       {label}{covered ? "" : " 未收录"}
     </StatusChip>
   );

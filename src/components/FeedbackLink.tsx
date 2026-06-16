@@ -17,8 +17,9 @@ const githubUrl = "https://github.com/physics-dimension/PriceAI";
 const telegramUrl = "https://t.me/priceaicc";
 
 type FeedbackType = "feature" | "data" | "channel" | "bug" | "ux" | "other";
+type FeedbackTypeOption = { value: FeedbackType; label: string; id?: string };
 
-const feedbackTypes: Array<{ value: FeedbackType; label: string }> = [
+const feedbackTypes: FeedbackTypeOption[] = [
   { value: "feature", label: "功能建议" },
   { value: "data", label: "数据问题" },
   { value: "channel", label: "渠道反馈" },
@@ -27,14 +28,27 @@ const feedbackTypes: Array<{ value: FeedbackType; label: string }> = [
   { value: "other", label: "其他" },
 ];
 
-export const transitStationFeedbackTypes: Array<{ value: FeedbackType; label: string }> = [
-  { value: "data", label: "价格/倍率不对" },
-  { value: "data", label: "模型不可用" },
-  { value: "channel", label: "渠道来源不实" },
-  { value: "channel", label: "分组/号池不对" },
-  { value: "data", label: "监测结果不符" },
-  { value: "other", label: "其他站点问题" },
+export const transitStationFeedbackTypes: FeedbackTypeOption[] = [
+  { id: "transit-price-rate", value: "data", label: "价格/倍率不对" },
+  { id: "transit-model-unavailable", value: "data", label: "模型不可用" },
+  { id: "transit-source-mismatch", value: "channel", label: "渠道来源不实" },
+  { id: "transit-pool-mismatch", value: "channel", label: "分组/号池不对" },
+  { id: "transit-monitor-mismatch", value: "data", label: "监测结果不符" },
+  { id: "transit-other", value: "other", label: "其他站点问题" },
 ];
+
+function feedbackOptionKey(option: FeedbackTypeOption) {
+  return option.id ?? option.value;
+}
+
+function getInitialFeedbackOptionId(
+  options: FeedbackTypeOption[],
+  initialType: FeedbackType,
+) {
+  return feedbackOptionKey(
+    options.find((option) => option.value === initialType) ?? options[0] ?? { value: initialType, label: initialType },
+  );
+}
 
 type HeaderActionLabelFrom = "sm" | "2xl" | "never";
 
@@ -160,7 +174,7 @@ type FeedbackDialogProps = {
   successMessage?: string;
   messagePrefix?: string;
   pageUrl?: string;
-  typeOptions?: Array<{ value: FeedbackType; label: string }>;
+  typeOptions?: FeedbackTypeOption[];
 };
 
 export function FeedbackDialog({
@@ -177,11 +191,13 @@ export function FeedbackDialog({
 }: FeedbackDialogProps) {
   const titleId = useId();
   const [type, setType] = useState<FeedbackType>(initialType);
+  const [selectedTypeId, setSelectedTypeId] = useState(() => getInitialFeedbackOptionId(typeOptions, initialType));
   const [message, setMessage] = useState("");
   const [contact, setContact] = useState("");
   const [website, setWebsite] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const selectedOption = typeOptions.find((option) => feedbackOptionKey(option) === selectedTypeId);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -203,7 +219,11 @@ export function FeedbackDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type,
-          message: [messagePrefix, message.trim()].filter(Boolean).join("\n\n"),
+          message: [
+            messagePrefix,
+            selectedOption?.label ? `反馈类型：${selectedOption.label}` : null,
+            message.trim(),
+          ].filter(Boolean).join("\n\n"),
           contact,
           pageUrl: pageUrl || window.location.href,
           website,
@@ -265,9 +285,13 @@ export function FeedbackDialog({
                 <button
                   key={`${item.value}-${item.label}`}
                   type="button"
-                  onClick={() => setType(item.value)}
+                  onClick={() => {
+                    setType(item.value);
+                    setSelectedTypeId(feedbackOptionKey(item));
+                  }}
+                  aria-pressed={selectedTypeId === feedbackOptionKey(item)}
                   className={`h-9 rounded-full px-3 text-xs font-semibold transition ${
-                    type === item.value
+                    selectedTypeId === feedbackOptionKey(item)
                       ? "bg-[#dde4e5] text-[#202829]"
                       : "bg-white text-[#5a6061] ring-1 ring-[#adb3b4]/20 hover:bg-[#f2f4f4]"
                   }`}

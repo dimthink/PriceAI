@@ -205,12 +205,6 @@ export default function TransitStationDetail({ station, backHref }: Props) {
             </div>
           </section>
 
-          <div className="rounded-lg border border-[#fff1cf] bg-[#fff7e8] p-4 text-xs leading-relaxed text-[#7a541b]">
-            <p className="mb-1 font-bold">免责声明</p>
-            <p>
-              PriceAI 只整理公开资料、公开价格和用户反馈，不售卖 API，也不替任何商家担保。首次使用建议控制充值金额，并在原站再次核验价格与规则。
-            </p>
-          </div>
         </aside>
       </div>
 
@@ -218,6 +212,7 @@ export default function TransitStationDetail({ station, backHref }: Props) {
         <PriceTable station={station} family="claude" />
         <PriceTable station={station} family="gpt" />
         <AvailabilityTable station={station} />
+        <DisclaimerNotice />
       </div>
 
       {feedbackOpen ? (
@@ -238,6 +233,15 @@ export default function TransitStationDetail({ station, backHref }: Props) {
           ].join("\n")}
         />
       ) : null}
+    </div>
+  );
+}
+
+function DisclaimerNotice() {
+  return (
+    <div className="rounded-lg border border-[#fff1cf] bg-[#fff7e8] px-4 py-3 text-xs leading-6 text-[#7a541b]">
+      <span className="font-bold">免责声明：</span>
+      PriceAI 只整理公开资料、公开价格和用户反馈，不售卖 API，也不替任何商家担保。首次使用建议控制充值金额，并在原站再次核验价格与规则。
     </div>
   );
 }

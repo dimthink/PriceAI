@@ -313,9 +313,11 @@ export function getStationComparisonSummary(
   const sampleScore = Math.min(stabilitySamples / 12, 12);
   const completenessScore = Math.min(sourceCompleteness * 1.5, 9);
   const commercialScore =
-    station.commercialRelation === "partner" || station.commercialRelation === "listed"
-      ? 2
-      : 0;
+    station.commercialRelation === "sponsored" ? 6 :
+      station.commercialRelation === "partner" ? 4 :
+        station.commercialRelation === "listed" ? 2 :
+          station.commercialRelation === "affiliate" ? 1 :
+            0;
   const stationSystem = getTransitStationSystem(station);
   const systemScore =
     stationSystem === "sub_to_api" ? 5 :
@@ -434,7 +436,17 @@ export function compareStations(
       );
     }
 
+    if (sortBy === "rate") {
+      return (
+        compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc") ||
+        compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
+        b.stabilitySamples - a.stabilitySamples ||
+        new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
+      );
+    }
+
     return (
+      b.overallScore - a.overallScore ||
       compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc") ||
       compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
       b.stabilitySamples - a.stabilitySamples ||
