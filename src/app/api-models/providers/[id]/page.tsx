@@ -5,7 +5,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ReturnToListLink } from "@/components/ReturnToListLink";
 import { SiteHeader } from "@/components/SiteHeader";
-import { API_MODELS_RETURN_INTENT_KEY } from "@/lib/list-return";
 import {
   apiProviderTypeLabels,
   formatApiDisplayText,
@@ -93,7 +92,6 @@ export default async function ApiProviderDetailPage({
           <ReturnToListLink
             allowedKeys={API_MODELS_RETURN_KEYS}
             basePath="/api-models"
-            intentKey={API_MODELS_RETURN_INTENT_KEY}
             label="返回 API 模型"
           />
         </div>

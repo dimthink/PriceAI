@@ -46,13 +46,11 @@ flowchart LR
     Local["本机 Mac 手动/定时"]
     GH["GitHub Actions"]
     VPS["云服务器 Worker"]
-    Vercel["Vercel Cron API"]
   end
 
   Local --> Runner
   GH --> Runner
   VPS --> Runner
-  Vercel --> Runner
 
   Runner --> Registry["按 collector_kind 选择解析器"]
   Registry --> External["原渠道站点/接口"]
@@ -75,7 +73,6 @@ flowchart LR
 | GitHub Actions 主采集 | 每 30 分钟采普通来源 | 排除 `dujiao` 和 `shopApi` | GitHub 出口 IP 可能被部分站点识别为数据中心 |
 | GitHub Actions Dujiao | 每 30 分钟采 `dujiao` | 并发 2 | 与其他节点重叠时会增加总请求频率 |
 | GitHub Actions ShopApi | 每 30 分钟采 `shopApi` | 并发 2，每轮链动小铺上限 10 | 与 VPS、本机同时跑时，上游看到的是叠加请求 |
-| Vercel Cron API | HTTP 方式触发采集 | 最长 300 秒 | 来源多时容易超时，不适合作为重采主力 |
 | 云服务器 Worker | 从 `collection_jobs` 领取任务 | `force: true`，默认跳过来源冷却 | 如果调度频繁，容易把同一个来源重复打得太勤 |
 | 本机手动补采 | 临时救火或验证 | 可精确点名、低频、便于观察输出 | 不代表长期定时跑也稳定 |
 | 浏览器兜底采集 | 动态页或轻量验证页 | 更接近真实用户访问 | 不适合大规模无人值守 |
@@ -316,7 +313,7 @@ flowchart TD
   FailReason -- 风控/验证/403 --> Waf["采集环境或频率问题：降频、换节点、浏览器兜底"]
   FailReason -- 空结果 --> Empty["解析器或入口问题：店铺下架、接口变更、商品分类没读到"]
   FailReason -- 网络错误 --> Network["节点网络问题：DNS、TLS、目标站故障"]
-  FailReason -- 写回失败 --> PostFail["检查 endpoint、密码、Vercel 状态、/api/admin/crawl-log"]
+  FailReason -- 写回失败 --> PostFail["检查 endpoint、密码、Cloudflare 状态、/api/admin/crawl-log"]
 
   DataLayer --> Frontend["最后再看前台缓存和聚合逻辑"]
 ```

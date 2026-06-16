@@ -217,6 +217,69 @@ create index if not exists collection_jobs_locked_until_idx on collection_jobs(l
 create index if not exists collector_heartbeats_last_seen_at_idx on collector_heartbeats(last_seen_at desc);
 create index if not exists collector_heartbeats_status_last_seen_at_idx on collector_heartbeats(status, last_seen_at desc);
 
+create or replace function priceai_public_offer_filter_tags(
+  p_source_title text,
+  p_tags text[] default '{}'
+)
+returns text[]
+language plpgsql
+immutable
+set search_path = public
+as $$
+declare
+  text_value text := regexp_replace(
+    lower(
+      regexp_replace(
+        coalesce(p_source_title, '') || ' ' || array_to_string(coalesce(p_tags, array[]::text[]), ' '),
+        '[[:space:]]+',
+        '',
+        'g'
+      )
+    ),
+    '[【】\[\]（）()]',
+    ' ',
+    'g'
+  );
+  output text[] := '{}';
+begin
+  if text_value !~ '(非拼车|不是拼车|不拼车|无拼车|拒绝拼车|非团购|不是团购|不团购|非共享|不是共享|不共享|无共享|非合租|不是合租|不合租|非车位|不是车位)'
+    and (
+      text_value ~ '(拼车|团购|拼团|车位|多人共享|多人共用|(二|两|双|三|四|五|六|七|八|九|十|[2-9]|[1-9][0-9])人(车|共享|共用|位)|多人车|车友|车队|家庭车|团号|团购车|拼车位|共享车)'
+      or (
+        text_value !~ '(独享|独立|一人一号|一人一户|专享)'
+        and text_value ~ '(共享|共用|合租|共享号)'
+      )
+    )
+  then
+    output := array_append(output, 'shared_access');
+  end if;
+
+  if text_value !~ '(仅支持?网页|只能网页|仅网页|网页号|不支持codex|无法使用codex|不能使用codex|不能直接登录codex|无法直接登录codex|无法codex|codex不售后|不可反代|无法反代|不能反代|不支持反代)'
+    and text_value ~ '(可反代|支持反代|反代\+?codex|可用codex|支持codex|直接登录codex|sub2|cpa|api格式|json格式|json文件|sub格式|cpa格式)'
+  then
+    output := array_append(output, 'proxy_supported');
+  end if;
+
+  if text_value !~ '(无.{0,4}质保|没.{0,4}质保|不质保|不保|不售后|售后不管|一律不售后|无售后|不作售后条件|不做售后|不管售后)'
+    and text_value !~ '(质保首登|保首登|包首登|首登质保|首次登录|首次登陆|质保首次|质保购买一小时内首登|质保[0-9]+h?内首登|质保(一|二|三|四|五|六|七|八|九|十)+小时内首登)'
+    and text_value !~ '(质保([1-9]|1[0-4]|一|二|三|四|五|六|七|八|九|十|十一|十二|十三|十四)天|(^|[^0-9])([1-9]|1[0-4])天质保|(一|二|三|四|五|六|七|八|九|十|十一|十二|十三|十四)天质保|质保(一周|1周|两周|2周|二周)|(一周|1周|两周|2周|二周)质保|7天售后|七天售后|质保[0-9]{1,2}h|质保(24|48|72)小时|质保[0-9]+小时|[0-9]+h质保|[0-9]+小时质保|质保(1|2|3|4|5|6|7|8|9|一|二|三|四|五|六|七|八|九)次成功接码|质保(1|2|3|4|5|6|7|8|9|一|二|三|四|五|六|七|八|九)次接码|质保(1|2|3|4|5|6|7|8|9|一|二|三|四|五|六|七|八|九)次|质保额度|质保不来码|质保开通|仅质保开通|只质保开通|质保充值成功|质保激活成功|质保到手)'
+    and text_value ~ '(质保(1[5-9]|[2-9][0-9]|[1-9][0-9]{2,})天|(1[5-9]|[2-9][0-9]|[1-9][0-9]{2,})天质保|质保(十五|二十|二十五|二十八|三十|一百八十)天|(十五|二十|二十五|二十八|三十|一百八十)天质保|质保(半个月|一个月|1个月|一月|两个月|2个月|二个月|三个月|3个月|一年|1年|12个月|180天)|(半个月|一个月|1个月|一月|两个月|2个月|二个月|三个月|3个月|一年|1年|12个月|180天)质保|质保.{0,8}订阅|订阅.{0,8}质保|质保.{0,8}掉订阅|掉订阅.{0,8}质保|质保.{0,8}封号\+?订阅|全程质保|全程保|包月售后|(月卡|整月|1个月|一个月|一月|官方直充|正规充值|官方代充|代充|成品号|充值卡密|ios充值|美区ios).{0,18}质保|质保.{0,18}(月卡|整月|1个月|一个月|一月|官方直充|正规充值|官方代充|代充|成品号|充值卡密|ios充值|美区ios))'
+  then
+    output := array_append(output, 'warranty_long');
+  end if;
+
+  return output;
+end;
+$$;
+
+alter table raw_offers
+  add column if not exists public_filter_tags text[]
+  generated always as (priceai_public_offer_filter_tags(source_title, tags)) stored;
+
+create index if not exists raw_offers_public_filter_tags_idx
+  on raw_offers using gin (public_filter_tags)
+  where hidden = false;
+
 create or replace function acquire_source_collection_lock(
   p_source_id text,
   p_owner text,
@@ -332,6 +395,11 @@ as $$
         then 0
         else 1
       end as availability_rank,
+      case
+        when coalesce(raw_offers.public_filter_tags, priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags)) @> array['shared_access']::text[]
+        then 1
+        else 0
+      end as shared_access_rank,
       coalesce(raw_offers.verified_at, raw_offers.last_seen_at, raw_offers.captured_at, raw_offers.source_updated_at) as public_updated_at,
       coalesce(raw_offers.source_store_name, raw_offers.source_name, '') as public_source_label
     from raw_offers
@@ -368,6 +436,7 @@ as $$
   from ranked
   order by
     ranked.availability_rank asc,
+    ranked.shared_access_rank asc,
     ranked.price asc nulls last,
     ranked.public_updated_at desc nulls last,
     ranked.public_source_label asc,
@@ -376,6 +445,177 @@ as $$
     ranked.id asc
   limit greatest(least(coalesce(p_limit, 80), 1200), 1)
   offset greatest(coalesce(p_offset, 0), 0);
+$$;
+
+drop function if exists get_public_product_summary(text);
+drop function if exists list_public_product_summaries();
+
+create or replace function list_public_product_summaries()
+returns table (
+  id text,
+  slug text,
+  display_name text,
+  platform text,
+  product_type text,
+  spec text,
+  summary text,
+  aliases text[],
+  updated_at timestamptz,
+  offer_count bigint,
+  in_stock_count bigint,
+  out_of_stock_count bigint,
+  lowest_price numeric,
+  warranty_lowest_price numeric,
+  warranty_offer_count bigint,
+  latest_seen_at timestamptz,
+  lowest_offer jsonb,
+  warranty_lowest_offer jsonb,
+  has_out_of_stock boolean,
+  offer_search_text text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with products as (
+    select *
+    from canonical_products
+    where is_active = true
+  ),
+  offers as (
+    select
+      raw_offers.*,
+      case
+        when raw_offers.status <> 'out_of_stock'
+          and raw_offers.price is not null
+          and raw_offers.url <> ''
+          and coalesce(raw_offers.effective_status, '') not in ('unavailable', 'stale', 'failed')
+          and coalesce(raw_offers.freshness_status, '') not in ('expired', 'failed')
+          and (raw_offers.expires_at is null or raw_offers.expires_at > now())
+        then true
+        else false
+      end as is_public_available,
+      coalesce(raw_offers.public_filter_tags, priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags)) as public_offer_filter_tags,
+      coalesce(raw_offers.verified_at, raw_offers.last_seen_at, raw_offers.captured_at, raw_offers.source_updated_at) as public_updated_at,
+      coalesce(raw_offers.source_store_name, raw_offers.source_name, '') as public_source_label
+    from raw_offers
+    join products on products.id = raw_offers.canonical_product_id
+    where raw_offers.hidden = false
+  ),
+  lowest_ranked as (
+    select
+      offers.*,
+      row_number() over (
+        partition by offers.canonical_product_id
+        order by
+          offers.price asc nulls last,
+          offers.public_updated_at desc nulls last,
+          offers.public_source_label asc,
+          offers.source_title asc,
+          offers.url asc,
+          offers.id asc
+      ) as lowest_rank
+    from offers
+    where offers.is_public_available = true
+      and not (offers.public_offer_filter_tags @> array['shared_access']::text[])
+  ),
+  warranty_lowest_ranked as (
+    select
+      offers.*,
+      row_number() over (
+        partition by offers.canonical_product_id
+        order by
+          offers.price asc nulls last,
+          offers.public_updated_at desc nulls last,
+          offers.public_source_label asc,
+          offers.source_title asc,
+          offers.url asc,
+          offers.id asc
+      ) as warranty_lowest_rank
+    from offers
+    where offers.is_public_available = true
+      and offers.public_offer_filter_tags @> array['warranty_long']::text[]
+      and not (offers.public_offer_filter_tags @> array['shared_access']::text[])
+  ),
+  stats as (
+    select
+      offers.canonical_product_id,
+      count(*) as offer_count,
+      count(*) filter (where offers.is_public_available = true) as in_stock_count,
+      count(*) filter (
+        where offers.is_public_available = true
+          and offers.public_offer_filter_tags @> array['warranty_long']::text[]
+      ) as warranty_offer_count,
+      count(*) filter (where offers.is_public_available = false) as out_of_stock_count,
+      max(offers.public_updated_at) as latest_seen_at,
+      bool_or(offers.is_public_available = false) as has_out_of_stock,
+      left(
+        string_agg(
+          distinct concat_ws(' ', offers.source_title, offers.source_name, offers.source_store_name),
+          ' '
+        ),
+        480
+      ) as offer_search_text
+    from offers
+    group by offers.canonical_product_id
+  )
+  select
+    products.id,
+    products.slug,
+    products.display_name,
+    products.platform,
+    products.product_type,
+    products.spec,
+    products.summary,
+    products.aliases,
+    products.updated_at,
+    coalesce(stats.offer_count, 0) as offer_count,
+    coalesce(stats.in_stock_count, 0) as in_stock_count,
+    coalesce(stats.out_of_stock_count, 0) as out_of_stock_count,
+    lowest.price as lowest_price,
+    warranty_lowest.price as warranty_lowest_price,
+    coalesce(stats.warranty_offer_count, 0) as warranty_offer_count,
+    stats.latest_seen_at,
+    case
+      when lowest.id is null then null
+      else jsonb_build_object(
+        'id', lowest.id,
+        'source_id', lowest.source_id,
+        'source_name', lowest.source_name,
+        'source_store_name', lowest.source_store_name,
+        'source_title', lowest.source_title,
+        'price', lowest.price,
+        'currency', lowest.currency,
+        'status', lowest.status,
+        'url', lowest.url
+      )
+    end as lowest_offer,
+    case
+      when warranty_lowest.id is null then null
+      else jsonb_build_object(
+        'id', warranty_lowest.id,
+        'source_id', warranty_lowest.source_id,
+        'source_name', warranty_lowest.source_name,
+        'source_store_name', warranty_lowest.source_store_name,
+        'source_title', warranty_lowest.source_title,
+        'price', warranty_lowest.price,
+        'currency', warranty_lowest.currency,
+        'status', warranty_lowest.status,
+        'url', warranty_lowest.url
+      )
+    end as warranty_lowest_offer,
+    coalesce(stats.has_out_of_stock, false) as has_out_of_stock,
+    coalesce(stats.offer_search_text, '') as offer_search_text
+  from products
+  left join stats on stats.canonical_product_id = products.id
+  left join lowest_ranked lowest
+    on lowest.canonical_product_id = products.id
+    and lowest.lowest_rank = 1
+  left join warranty_lowest_ranked warranty_lowest
+    on warranty_lowest.canonical_product_id = products.id
+    and warranty_lowest.warranty_lowest_rank = 1
+  order by products.platform, products.display_name, products.id;
 $$;
 
 create or replace function get_public_product_summary(p_product_key text)
@@ -393,113 +633,33 @@ returns table (
   in_stock_count bigint,
   out_of_stock_count bigint,
   lowest_price numeric,
+  warranty_lowest_price numeric,
+  warranty_offer_count bigint,
   latest_seen_at timestamptz,
   lowest_offer jsonb,
-  has_out_of_stock boolean
+  warranty_lowest_offer jsonb,
+  has_out_of_stock boolean,
+  offer_search_text text
 )
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  with product as (
-    select *
-    from canonical_products
-    where is_active = true
-      and (canonical_products.id = p_product_key or canonical_products.slug = p_product_key)
-    limit 1
-  ),
-  offers as (
-    select
-      raw_offers.*,
-      case
-        when raw_offers.status <> 'out_of_stock'
-          and raw_offers.price is not null
-          and raw_offers.url <> ''
-          and coalesce(raw_offers.effective_status, '') not in ('unavailable', 'stale', 'failed')
-          and coalesce(raw_offers.freshness_status, '') not in ('expired', 'failed')
-          and (raw_offers.expires_at is null or raw_offers.expires_at > now())
-        then true
-        else false
-      end as is_public_available,
-      coalesce(raw_offers.verified_at, raw_offers.last_seen_at, raw_offers.captured_at, raw_offers.source_updated_at) as public_updated_at,
-      coalesce(raw_offers.source_store_name, raw_offers.source_name, '') as public_source_label
-    from raw_offers
-    join product on product.id = raw_offers.canonical_product_id
-    where raw_offers.hidden = false
-  ),
-  lowest as (
-    select offers.*
-    from offers
-    where offers.is_public_available = true
-    order by
-      offers.price asc nulls last,
-      offers.public_updated_at desc nulls last,
-      offers.public_source_label asc,
-      offers.source_title asc,
-      offers.url asc,
-      offers.id asc
-    limit 1
-  ),
-  stats as (
-    select
-      count(*) as offer_count,
-      count(*) filter (where offers.is_public_available = true) as in_stock_count,
-      count(*) filter (where offers.is_public_available = false) as out_of_stock_count,
-      max(offers.public_updated_at) as latest_seen_at,
-      bool_or(offers.is_public_available = false) as has_out_of_stock
-    from offers
-  )
-  select
-    product.id,
-    product.slug,
-    product.display_name,
-    product.platform,
-    product.product_type,
-    product.spec,
-    product.summary,
-    product.aliases,
-    product.updated_at,
-    coalesce(stats.offer_count, 0) as offer_count,
-    coalesce(stats.in_stock_count, 0) as in_stock_count,
-    coalesce(stats.out_of_stock_count, 0) as out_of_stock_count,
-    lowest.price as lowest_price,
-    stats.latest_seen_at,
-    case
-      when lowest.id is null then null
-      else jsonb_build_object(
-        'id', lowest.id,
-        'source_id', lowest.source_id,
-        'source_name', lowest.source_name,
-        'source_store_name', lowest.source_store_name,
-        'source_title', lowest.source_title,
-        'price', lowest.price,
-        'currency', lowest.currency,
-        'status', lowest.status,
-        'url', lowest.url,
-        'tags', lowest.tags,
-        'stock_count', lowest.stock_count,
-        'hidden', lowest.hidden,
-        'canonical_product_id', lowest.canonical_product_id,
-        'category_slug', lowest.category_slug,
-        'captured_at', lowest.captured_at,
-        'source_updated_at', lowest.source_updated_at,
-        'last_seen_at', lowest.last_seen_at,
-        'verified_at', lowest.verified_at,
-        'expires_at', lowest.expires_at,
-        'source_priority', lowest.source_priority,
-        'confidence', lowest.confidence,
-        'effective_status', lowest.effective_status,
-        'freshness_status', lowest.freshness_status,
-        'last_failed_at', lowest.last_failed_at,
-        'failure_reason', lowest.failure_reason
-      )
-    end as lowest_offer,
-    coalesce(stats.has_out_of_stock, false) as has_out_of_stock
-  from product
-  cross join stats
-  left join lowest on true;
+  select *
+  from list_public_product_summaries()
+  where list_public_product_summaries.id = p_product_key
+    or list_public_product_summaries.slug = p_product_key
+  limit 1;
 $$;
+
+revoke execute on function priceai_public_offer_filter_tags(text, text[]) from anon, public;
+revoke execute on function list_public_product_summaries() from anon, public;
+revoke execute on function get_public_product_summary(text) from anon, public;
+
+grant execute on function priceai_public_offer_filter_tags(text, text[]) to service_role;
+grant execute on function list_public_product_summaries() to service_role;
+grant execute on function get_public_product_summary(text) to service_role;
 
 create or replace function claim_collection_job(
   p_worker text,

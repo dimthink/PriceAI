@@ -167,6 +167,8 @@ npm run dev
 npm run dev
 npm run build
 npm run lint
+npm run deploy:production -- --check
+npm run deploy:production
 npm run collect:prices -- --all --post
 npm run collect:prices -- --source aisou-pro --post
 npm run collect:browser -- --url https://aisou.pro/ --password your-admin-password --post

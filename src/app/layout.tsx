@@ -30,17 +30,17 @@ const themeInitScript = `
 export const metadata: Metadata = {
   metadataBase: new URL("https://priceai.cc"),
   title: {
-    default: "PriceAI | AI 订阅卡网与模型 API 比价雷达",
+    default: "PriceAI | AI 订阅与 API 购买前决策入口",
     template: "%s | PriceAI",
   },
-  description: "聚合 ChatGPT、Claude、Gemini、Grok、邮箱、API/CDK 和模型 API 等渠道报价，查看有货最低价、原始来源和更新时间。",
+  description: "购买 AI 订阅或接入 API 前，比较卡网订阅、官方订阅、官方 API 和中转 API 的价格、来源、库存和更新时间。",
   applicationName: "PriceAI",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "PriceAI | AI 订阅卡网与模型 API 比价雷达",
-    description: "把分散的 AI 订阅卡网、官方地区价和模型 API 渠道整理成可搜索、可比较、可核验的比价雷达。",
+    title: "PriceAI | AI 订阅与 API 购买前决策入口",
+    description: "把卡网订阅、官方订阅、官方 API 和中转 API 整理成可搜索、可比较、可核验的购买前参考。",
     url: "https://priceai.cc",
     siteName: "PriceAI",
     locale: "zh_CN",
@@ -48,8 +48,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "PriceAI | AI 订阅卡网与模型 API 比价雷达",
-    description: "查看 AI 订阅卡网和模型 API 渠道的有货最低价、原始来源和更新时间。",
+    title: "PriceAI | AI 订阅与 API 购买前决策入口",
+    description: "查看 AI 订阅和 API 获取方式的价格、来源、库存和更新时间。",
   },
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],

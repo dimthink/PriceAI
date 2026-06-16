@@ -213,6 +213,14 @@ npm run deploy:cloudflare
 - 部署后自动执行 `npm run smoke:cloudflare`，除 status/size 外，还校验首页、官方订阅、API 模型页不含 fallback/static 标记，并确认 `/api/health`、`/api/explorer`、`/api/offers` 使用真实 Supabase 数据。
 - Umami 的公开配置也作为构建必需变量检查，避免静态预渲染页面漏掉自部署 Umami 脚本。
 
+本地统一入口：
+
+```bash
+npm run deploy:production
+```
+
+该命令默认触发上述 Cloudflare workflow，避免本机缺少 Cloudflare secrets 时改走 Vercel。
+
 不建议让普通 push 自动切生产。Cloudflare Worker 部署仍使用手动触发，并保留回滚窗口。
 
 ## 阶段 5：生产切换
@@ -231,7 +239,7 @@ npm run deploy:cloudflare
 
 切换前准备：
 
-1. Vercel 生产继续可用，作为回滚目标。
+1. Vercel 曾作为短期回滚目标；清理阶段已移除生产主域 alias、断开 Git 自动部署，并删除旧 Vercel 项目。
 2. Cloudflare 测试域名全部验收通过。
 3. GitHub Actions / VPS 采集任务仍指向当前生产域名。
 4. 准备切换窗口，避免采集或后台修改高峰。
@@ -290,7 +298,7 @@ curl -sS -o /tmp/health.json -w '%{http_code} %{size_download} %{time_total}\n' 
 7. 增加手动 GitHub Actions 部署 workflow。
 8. 安排主域名切换窗口。
 9. 切 `priceai.cc` / `www.priceai.cc`。
-10. 连续观察 24-72 小时后，再清理旧 Vercel 账号依赖。
+10. 连续观察 24-72 小时后，再清理旧 Vercel 账号依赖：已移除主域 alias、断开 Git 自动部署、删除旧 Vercel 项目，并从仓库删除 `vercel.json`。
 
 ## 当前下一步
 

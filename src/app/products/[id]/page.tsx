@@ -202,6 +202,13 @@ function getOfficialPricePlanMapping(product: Pick<ExplorerProductSummary, "id" 
   return officialPlanByProductId[product.id] || officialPlanByProductId[product.slug] || null;
 }
 
+const platformBreadcrumbUrls: Record<string, string> = {
+  "API/CDK": "https://priceai.cc/platforms/api",
+  ChatGPT: "https://priceai.cc/platforms/chatgpt",
+  Claude: "https://priceai.cc/platforms/claude",
+  Gemini: "https://priceai.cc/platforms/gemini",
+};
+
 async function OfficialPriceReferenceSection({ product }: { product: ExplorerProductSummary }) {
   const mapping = getOfficialPricePlanMapping(product);
   if (!mapping) return null;
@@ -449,7 +456,7 @@ function buildProductJsonLd(
           "@type": "ListItem",
           position: 2,
           name: product.platform,
-          item: `https://priceai.cc/?platform=${encodeURIComponent(product.platform)}`,
+          item: platformBreadcrumbUrls[product.platform] || "https://priceai.cc",
         },
         {
           "@type": "ListItem",

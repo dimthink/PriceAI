@@ -2,7 +2,9 @@
 
 import { RotateCcw } from "lucide-react";
 import Link from "next/link";
+import { useEffect } from "react";
 import { SiteHeader } from "@/components/SiteHeader";
+import { reloadOnceForChunkLoadFailure } from "@/lib/chunk-load-recovery";
 
 export default function ErrorPage({
   error,
@@ -11,6 +13,10 @@ export default function ErrorPage({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    reloadOnceForChunkLoadFailure(error);
+  }, [error]);
+
   return (
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
       <SiteHeader />

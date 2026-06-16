@@ -214,7 +214,7 @@ export const guideReadingPaths: GuideReadingPath[] = [
         description: "如果要给工具接模型，先看充值系数、综合倍率、号池和稳定性。",
       },
       {
-        href: "/?stock=available",
+        href: "/channels?stock=available",
         label: "回到有货报价",
         description: "最后回到 PriceAI，按有货最低价、来源和更新时间筛选。",
       },

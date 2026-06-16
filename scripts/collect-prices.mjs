@@ -1952,7 +1952,14 @@ function compactObject(value) {
 }
 
 function offerIdsForSnapshot(offers) {
-  return offers.map((offer) => stableId(offer.sourceName, offer.sourceStoreName, offer.sourceTitle, offer.url));
+  return offers.map((offer) => stableOfferInputId(offer));
+}
+
+function stableOfferInputId(offer) {
+  const shopItemUrl = normalizeShopApiItemOfferUrl(offer.url);
+  if (shopItemUrl) return stableId("shop-api-offer", shopItemUrl);
+
+  return stableId(offer.sourceName, offer.sourceStoreName, offer.sourceTitle, offer.url);
 }
 
 function stableId(...parts) {
@@ -2784,10 +2791,25 @@ function compact(values) {
 function dedupeOffers(offers) {
   const map = new Map();
   for (const offer of offers) {
-    const key = `${offer.sourceId}|${offer.url}|${offer.sourceTitle}|${offer.price}`;
-    map.set(key, offer);
+    map.set(stableOfferInputId(offer), offer);
   }
   return Array.from(map.values());
+}
+
+function normalizeShopApiItemOfferUrl(value) {
+  try {
+    const parsed = new URL(value);
+    const host = normalizeHostname(parsed.hostname);
+    if (!["catfk.com", "ldxp.cn", "pay.ldxp.cn", "pay.qxvx.cn"].includes(host)) return null;
+
+    const pathGoodsKey = parsed.pathname.match(/^\/item\/([^/?#]+)/i)?.[1] || null;
+    const goodsKey = pathGoodsKey || parsed.searchParams.get("commodity") || parsed.searchParams.get("id");
+    if (!goodsKey) return null;
+
+    return `https://${host}/item/${encodeURIComponent(decodeURIComponent(goodsKey))}`;
+  } catch {
+    return null;
+  }
 }
 
 function chunks(values, size) {

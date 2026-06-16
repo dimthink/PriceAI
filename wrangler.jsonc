@@ -39,6 +39,10 @@
     {
       "binding": "NEXT_INC_CACHE_R2_BUCKET",
       "bucket_name": "priceai-cloudflare-poc-opennext-cache"
+    },
+    {
+      "binding": "FEEDBACK_EVIDENCE_BUCKET",
+      "bucket_name": "priceai-feedback-evidence"
     }
   ],
   "secrets": {

@@ -10,7 +10,7 @@ import ts from "typescript";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
-const { buildProductGroups, classifyOffer } = await loadCatalogModule();
+const { buildProductGroups, classifyOffer, isSharedAccessOffer } = await loadCatalogModule();
 
 const cases = [
   ["ChatGPT Plus 直充 卡密自助", "chatgpt-plus"],
@@ -57,12 +57,18 @@ const cases = [
   ["GPT team bug 子号 (质保首登，JSON格式)", "chatgpt-team-business"],
   ["codex-api 100刀/1000刀不限时 PRO plus号池 非team free / 规格3", "openai-api-cdk"],
   ["麦门Codex API 不限时 Plus和Pro号池 非Free和Team / 50$余额兑换码", "openai-api-cdk"],
+  ["ChatGPT 蜗的AI-中转-官方plus号池-100$", "openai-api-cdk"],
+  ["1天订阅 每天额度100刀 Codex plus号池 非team free", "openai-api-cdk"],
   ["渠道7 Chatgpt Plus(质保首登) （较稳定款）目前不知道能活多久 要稳买我的team，不保codex接码", "chatgpt-plus"],
   ["ChatGPT Plus 拼车｜专属席位｜月付", "chatgpt-plus"],
-  ["ChatGPT Go 激活码 月会员自助充值｜iOS 正规充值｜自动发货", "other-product"],
+  ["ChatGPT Go 激活码 月会员自助充值｜iOS 正规充值｜自动发货", "chatgpt-go"],
+  ["【质保定阅】GPT GO直充｜印区内购", "chatgpt-go"],
+  ["【30天质保】ChatGPT GO CDK", "chatgpt-go"],
+  ["ChatGPT Go-独享-年卡", "chatgpt-go"],
   ["Steam白号", "other-product"],
   ["Super Grok 激活码 月卡", "super-grok"],
   ["Grok 普号 体验号", "grok-account"],
+  ["【普号 SSO】 Grok AI > 长效微软邮箱 > 账号 SSO > 适合Super(30刀)，API等各类业务 > 取邮件API", "grok-account"],
   ["Claude Pro 月卡 直充", "claude-pro-month"],
   ["Claude Team 1.25x 30天质保订阅", "claude-team-standard"],
   ["claude pro team标准席位 全程质保，不怕封号,额度是pro的1.25倍，目前官方翻倍随便用", "claude-team-standard"],
@@ -70,9 +76,17 @@ const cases = [
   ["Claude Team 6.25x 30天质保订阅", "claude-team-premium"],
   ["claude pro team高级席位 全程质保，不怕封号 额度为pro的6.25倍左右", "claude-team-premium"],
   ["🥨Claude 6.25X【质保订阅】", "claude-team-premium"],
+  ["Claude Standard Seat | 25USD | 31天质保 | 官方订阅", "claude-team-standard"],
+  ["Claude Premium Seat | 125USD | 31天质保 | 官方订阅", "claude-team-premium"],
   ["Claude Max 5X直充月卡", "claude-max-5x"],
   ["Claude Max 20X 成品号", "claude-max-20x"],
   ["【20x质保一次掉订阅】cluade 20x成品", "claude-max-20x"],
+  ["Claude 20✖️Max成品号 无质保", "claude-max-20x"],
+  ["Claude max💲100订阅人工交付", "claude-max-5x"],
+  ["Claude max💲200订阅人工交付", "claude-max-20x"],
+  ["Claude 充值", "claude-pro-month"],
+  ["claude max 5X 独享成品号已过KYC", "claude-max-5x"],
+  ["claude 20x成品号（免kyc验证）", "claude-max-20x"],
   ["Gemini Pro 一年 12个月", "gemini-pro-year"],
   ["【反重力GCP可用】Gemini Pro 12个月成品【质保首登丨官方订阅】", "gemini-pro-year"],
   ["提取12个月优惠链接 一次 gemin pro（不会用别买不退不换，小白别买）", "gemini-pro-recharge"],
@@ -90,6 +104,11 @@ const cases = [
   ["OpenAI Codex接码，如需接码，找客服", "openai-phone-verification"],
   ["OpenAI Codex 手机接码（可绑定 3 个 Codex 账户）", "openai-phone-verification"],
   ["Claude SMS 接码-泰国 接码自助卡密", "phone-verification"],
+  ["Claude KYC认证", "identity-verification"],
+  ["Claude KYC 认证服务【秒封不收费】", "identity-verification"],
+  ["【欧美版】Claude Persona 人脸验证KYC", "identity-verification"],
+  ["Claude真人认证", "identity-verification"],
+  ["手工发货 Office 365 子号 Microsoft 365 Personal 个人版订阅", "other-product"],
   ["【长效接码链接】Google / Gemini 接码（90天左右）", "google-phone-verification"],
   ["Google/反重力可用/Claude", "google-phone-verification"],
   ["普拉斯 成品号，未接码（pix黑哥版）", "chatgpt-plus"],
@@ -110,6 +129,8 @@ const cases = [
   ["余额充值：100刀【不限时间,可用claude、gemini、gpt】", "openai-api-cdk"],
   ["AI 平台 直充 10000美元额度 -Claude Opus 4.7 / Codex / Gemini", "openai-api-cdk"],
   ["【24小时有效期】每天100刀claude code", "openai-api-cdk"],
+  ["【总共50刀】30天有效期-老Plus渠道", "openai-api-cdk"],
+  ["【总共100刀】30天有效期-老Plus渠道", "openai-api-cdk"],
   ["codex api 10刀卡(支持image2.0)（无free号）", "openai-api-cdk"],
   ["codex api 50刀卡(支持image2.0)（无free号）", "openai-api-cdk"],
   ["codex api 100刀卡(支持image2.0)（无free号）", "openai-api-cdk"],
@@ -230,6 +251,55 @@ assert.equal(plusGroup.outOfStockCount, 2, "Hidden offers are removed before sto
 assert.equal(plusGroup.offerCount, 3, "Hidden offers should not be counted.");
 assert.equal(plusGroup.lowestPriceLabel, "有货", "Available lowest offer should be labelled as in stock.");
 
+const warrantyGroups = buildProductGroups([
+  makeOffer({ id: "cheap-no-warranty", title: "ChatGPT Plus 月卡 无质保", price: 45, status: "in_stock" }),
+  makeOffer({ id: "short-warranty", title: "ChatGPT Plus 月卡 7天质保", price: 55, status: "in_stock" }),
+  makeOffer({ id: "long-warranty", title: "ChatGPT Plus 月卡 30天质保", price: 80, status: "in_stock" }),
+  makeOffer({ id: "cheap-long-unavailable", title: "ChatGPT Plus 月卡 30天质保", price: 10, status: "in_stock", effectiveStatus: "unavailable" }),
+  makeOffer({ id: "cheap-long-shared", title: "ChatGPT Plus 月卡 拼车套餐[3人车] 质保不掉订阅", price: 60, status: "in_stock" }),
+]);
+const warrantyPlusGroup = warrantyGroups.find((group) => group.id === "chatgpt-plus");
+assert.ok(warrantyPlusGroup, "ChatGPT Plus warranty group should exist.");
+assert.equal(warrantyPlusGroup.lowestOffer?.id, "cheap-no-warranty", "Regular lowest price may come from a non-warranty offer.");
+assert.equal(warrantyPlusGroup.warrantyLowestOffer?.id, "long-warranty", "Warranty lowest price should use the cheapest available non-shared long-warranty offer.");
+assert.equal(warrantyPlusGroup.warrantyLowestPrice, 80, "Warranty lowest price should be tracked separately.");
+assert.equal(warrantyPlusGroup.warrantyOfferCount, 2, "Available long-warranty offers should be counted even when shared-access offers do not drive the displayed warranty price.");
+
+const sharedAccessGroups = buildProductGroups([
+  makeOffer({ id: "cheap-people-car", title: "Claude Pro-三人车", price: 50, status: "in_stock" }),
+  makeOffer({ id: "regular-claude", title: "Claude Pro 月卡 直充", price: 129, status: "in_stock" }),
+  makeOffer({ id: "plus-shared-dedicated", title: "ChatGPT Plus 拼车｜GPT会话独享 或者 codex额度独享｜月付", price: 76, status: "in_stock" }),
+  makeOffer({ id: "exclusive-plus", title: "ChatGPT Plus 成品号 独享账号", price: 88, status: "in_stock" }),
+  makeOffer({ id: "grok-people-car", title: "SuperGrok-三人车", price: 70, status: "in_stock" }),
+  makeOffer({ id: "shared-double-car", title: "Claude Max 5X 双人车", price: 388, status: "in_stock" }),
+  makeOffer({ id: "team-boarding", title: "GPT Team 月卡Business 席位x1【质保上车】", price: 55, status: "in_stock" }),
+]);
+const sharedClaudeGroup = sharedAccessGroups.find((group) => group.id === "claude-pro-month");
+assert.ok(sharedClaudeGroup, "Claude Pro group should exist for shared-access sorting.");
+assert.equal(sharedClaudeGroup.lowestOffer?.id, "regular-claude", "People-car offers must not drive the displayed lowest price.");
+assert.equal(sharedClaudeGroup.offers.at(-1)?.id, "cheap-people-car", "Available shared-access offers should sort behind regular available offers.");
+assert.ok(isSharedAccessOffer(sharedClaudeGroup.offers.find((offer) => offer.id === "cheap-people-car")), "三人车 should be tagged as shared access.");
+assert.ok(
+  isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "plus-shared-dedicated")),
+  "Explicit 拼车 titles should stay shared even when a dedicated session or quota is mentioned.",
+);
+assert.ok(
+  !isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "exclusive-plus")),
+  "Plain 独享 account titles should not be tagged as shared access.",
+);
+assert.ok(
+  isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "grok-people-car")),
+  "Other product 人车 titles should also be tagged as shared access.",
+);
+assert.ok(
+  isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "shared-double-car")),
+  "双人车 should be tagged as shared access.",
+);
+assert.ok(
+  !isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "team-boarding")),
+  "Generic 质保上车 wording should not mark a Team seat as shared access.",
+);
+
 const outOnlyGroups = buildProductGroups([
   makeOffer({ id: "out-only", title: "ChatGPT Pro 20倍 官方充值", price: 200, status: "out_of_stock" }),
 ]);
@@ -322,10 +392,24 @@ async function loadCatalogModule() {
       isolatedModules: true,
       esModuleInterop: true,
     },
+  }).outputText.replace(/(["'])\.\/offer-filter-tags\1/g, "$1./offer-filter-tags.mjs$1");
+
+  const offerFilterTagsPath = path.join(repoRoot, "src", "lib", "offer-filter-tags.ts");
+  const offerFilterTagsSource = await readFile(offerFilterTagsPath, "utf8");
+  const offerFilterTagsOutput = ts.transpileModule(offerFilterTagsSource, {
+    fileName: offerFilterTagsPath,
+    compilerOptions: {
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      isolatedModules: true,
+      esModuleInterop: true,
+    },
   }).outputText;
 
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "priceai-catalog-test-"));
   const tempFile = path.join(tempDir, "catalog.mjs");
+  const offerFilterTagsFile = path.join(tempDir, "offer-filter-tags.mjs");
+  await writeFile(offerFilterTagsFile, offerFilterTagsOutput, "utf8");
   await writeFile(tempFile, output, "utf8");
 
   try {

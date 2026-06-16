@@ -28,7 +28,7 @@ const productEntrances = [
   {
     title: "查第三方订阅渠道",
     text: "适合想比较 ChatGPT、Claude、Gemini、Grok 等卡网渠道报价的人。选择平台或商品后，重点看价格、来源、库存、更新时间和原始商品标题。",
-    href: "/?stock=available",
+    href: "/channels?stock=available",
   },
   {
     title: "看官方订阅地区价",
@@ -52,14 +52,14 @@ const communityActions = [
   {
     title: "提交新渠道",
     text: "如果你手里有更低价、更稳定的 AI 订阅渠道，可以提交给 PriceAI。每个人发现的渠道都有限，但大家把自己的低价渠道贡献出来，后面所有人都能少翻 Telegram、少刷闲鱼，直接在 PriceAI 里完成比价。好的平台需要大家一起共创。",
-    href: "/?submit=channel",
+    href: "/channels#submit-channel",
     label: "提交渠道",
     icon: Send,
   },
   {
     title: "举报问题商品",
     text: "如果发现某个商品价格不对、链接下架、描述异常，或者疑似虚假渠道，可以在商品详情页反馈。我们会根据反馈判断是否下架商品或暂停渠道展示。",
-    href: "/?stock=available",
+    href: "/channels?stock=available",
     label: "查找商品",
     icon: Flag,
   },
@@ -121,7 +121,7 @@ export default function GuidesIndexPage() {
                 <ArrowRight size={15} />
               </a>
               <Link
-                href="/?stock=available"
+                href="/channels?stock=available"
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold text-[#2d3435] transition hover:bg-[#edf0f1]"
               >
                 回到比价工具

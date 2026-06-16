@@ -45,10 +45,20 @@ export function SubmissionFloater() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("submit") !== "channel") return;
 
-    const timer = window.setTimeout(() => setOpen(true), 0);
-    return () => window.clearTimeout(timer);
+    function openFromLocation() {
+      const queryWantsSubmit = new URLSearchParams(window.location.search).get("submit") === "channel";
+      if (queryWantsSubmit || window.location.hash === "#submit-channel") {
+        setOpen(true);
+      }
+    }
+
+    const timer = window.setTimeout(openFromLocation, 0);
+    window.addEventListener("hashchange", openFromLocation);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("hashchange", openFromLocation);
+    };
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

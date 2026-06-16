@@ -31,6 +31,10 @@ const productSeoProfiles: Record<string, ProductSeoProfile> = {
     metadataTitle: "ChatGPT Plus 充值代充价格对比：直充、代开、卡密和渠道报价",
     metadataDescription: "查看 ChatGPT Plus 充值代充有货最低价、直充、代开、卡密/CDK、渠道报价、库存和更新时间。",
   }),
+  "chatgpt-go": profile({
+    metadataTitle: "ChatGPT Go 价格对比：月卡、年卡、激活码和渠道报价",
+    metadataDescription: "查看 ChatGPT Go 有货最低价、月卡、年卡、激活码、直充、内购渠道报价、库存和更新时间。",
+  }),
   "chatgpt-team-business": profile({
     metadataTitle: "ChatGPT Team / Business 价格对比：Bug Team、团队邀请、母号和渠道报价",
     metadataDescription: "查看 ChatGPT Team / Business、Bug Team、团队邀请、母号、自动拉的有货最低价、渠道报价、库存和更新时间。",
@@ -130,6 +134,10 @@ const productSeoProfiles: Record<string, ProductSeoProfile> = {
   "phone-verification": profile({
     metadataTitle: "接码价格对比：短信验证、手机号验证和渠道报价",
     metadataDescription: "查看通用接码、短信验证、手机号验证服务的有货最低价、渠道报价、库存和更新时间。",
+  }),
+  "identity-verification": profile({
+    metadataTitle: "真人 / KYC 验证价格对比：人脸、实名和 Persona 验证服务",
+    metadataDescription: "查看真人 / KYC 验证、人脸验证、实名认证、Persona 验证服务的有货最低价、渠道报价、库存和更新时间。",
   }),
   "cursor-account": profile({
     metadataTitle: "Cursor 账号价格对比：会员账号、成品号和渠道报价",

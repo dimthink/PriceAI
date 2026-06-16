@@ -1,4 +1,5 @@
 import type { CanonicalProduct, ProductGroup, RawOffer } from "./types";
+import { offerMatchesFilterTags } from "./offer-filter-tags";
 
 export const platformOptions = [
   "ChatGPT",
@@ -96,6 +97,16 @@ export const canonicalCatalog: CanonicalProduct[] = [
       "plus 内购",
       "月卡批发",
     ],
+  },
+  {
+    id: "chatgpt-go",
+    slug: "chatgpt-go",
+    displayName: "ChatGPT Go",
+    platform: "ChatGPT",
+    productType: "订阅/会员",
+    spec: "Go",
+    summary: "ChatGPT Go 月卡、年卡、激活码、内购直充或成品权益。",
+    aliases: ["chatgpt go", "gpt go", "go 月卡", "go 年卡", "go 激活码", "go 直充"],
   },
   {
     id: "chatgpt-team-business",
@@ -338,6 +349,16 @@ export const canonicalCatalog: CanonicalProduct[] = [
     aliases: ["接码", "手机接码", "短信验证", "验证码", "一次性接码", "手机号验证", "通用接码"],
   },
   {
+    id: "identity-verification",
+    slug: "identity-verification",
+    displayName: "真人 / KYC 验证",
+    platform: "接码",
+    productType: "接码/验证",
+    spec: "KYC / 真人验证",
+    summary: "Claude、ChatGPT 或其他平台的人脸、实名、Persona、KYC 等人工验证服务。",
+    aliases: ["kyc", "真人认证", "实名认证", "人脸验证", "persona"],
+  },
+  {
     id: "cursor-account",
     slug: "cursor-account",
     displayName: "Cursor 账号",
@@ -568,15 +589,15 @@ function classifyOfferByTitle(
       return getCanonicalProduct("claude-team-standard");
     }
 
-    if (matches(value, ["20x", "x20", "20×", "max 20", "max x20"])) {
+    if (isClaudeMax20Product(value)) {
       return getCanonicalProduct("claude-max-20x");
     }
 
-    if (matches(value, ["5x", "x5", "5×", "max 5", "max x5"])) {
+    if (isClaudeMax5Product(value)) {
       return getCanonicalProduct("claude-max-5x");
     }
 
-    if (matches(value, ["pro", "尼区", "月卡", "直充", "代充", "激活码", "卡密"])) {
+    if (matches(value, ["pro", "尼区", "月卡", "直充", "代充", "充值", "续费", "订阅", "激活码", "卡密"])) {
       return getCanonicalProduct("claude-pro-month");
     }
 
@@ -584,6 +605,10 @@ function classifyOfferByTitle(
   }
 
   if (isGrokProduct(value)) {
+    if (isGrokFitForSuperInfrastructure(value)) {
+      return getCanonicalProduct("grok-account");
+    }
+
     if (matches(value, ["super", "supergrok", "heavy", "月卡", "年卡", "激活码", "卡密", "直充", "充值"])) {
       return getCanonicalProduct("super-grok");
     }
@@ -630,6 +655,10 @@ function classifyOfferByTitle(
 
     if (isMixedChatGptProTier(value)) {
       return getCanonicalProduct("other-product");
+    }
+
+    if (isChatGptGoProduct(value)) {
+      return getCanonicalProduct("chatgpt-go");
     }
 
     if (isChatGptTeamDominant(value)) {
@@ -712,6 +741,9 @@ export function buildProductGroups(
         lowestPriceLabel: "暂无价格",
         lowestPriceTone: "muted",
         lowestOffer: null,
+        warrantyLowestPrice: null,
+        warrantyLowestOffer: null,
+        warrantyOfferCount: 0,
         latestSeenAt: null,
         anomalyFlags: [],
       } satisfies ProductGroup);
@@ -725,13 +757,17 @@ export function buildProductGroups(
     product.offerCount = product.offers.length;
     product.inStockCount = product.offers.filter(isAvailable).length;
     product.outOfStockCount = Math.max(0, product.offers.length - product.inStockCount);
-    const displayLowestOffer = getDisplayLowestOffer(product.offers);
+    const displayLowestOffer = getDisplayLowestOffer(product.offers, { excludeSharedAccess: true });
+    const warrantyLowestOffer = getDisplayLowestOffer(product.offers.filter(isLongWarrantyOffer), { excludeSharedAccess: true });
     const priceMeta = getOfferPriceMeta(displayLowestOffer);
 
     product.lowestOffer = displayLowestOffer;
     product.lowestPrice = displayLowestOffer?.price ?? null;
     product.lowestPriceLabel = priceMeta.label;
     product.lowestPriceTone = priceMeta.tone;
+    product.warrantyLowestOffer = warrantyLowestOffer;
+    product.warrantyLowestPrice = warrantyLowestOffer?.price ?? null;
+    product.warrantyOfferCount = product.offers.filter((offer) => isAvailable(offer) && isLongWarrantyOffer(offer)).length;
     product.latestSeenAt = latestDate(
       product.offers.map((offer) => offer.verifiedAt || offer.lastSeenAt || offer.capturedAt || offer.sourceUpdatedAt),
     );
@@ -752,6 +788,9 @@ export function buildProductGroups(
 export function compareOffers(a: RawOffer, b: RawOffer): number {
   const availableDelta = Number(isAvailable(b)) - Number(isAvailable(a));
   if (availableDelta !== 0) return availableDelta;
+
+  const sharedAccessDelta = Number(isSharedAccessOffer(a)) - Number(isSharedAccessOffer(b));
+  if (isAvailable(a) && isAvailable(b) && sharedAccessDelta !== 0) return sharedAccessDelta;
 
   const priceDelta =
     (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER);
@@ -785,8 +824,14 @@ export function getOfferPriceMeta(
   return { label: "有货", tone: "good" };
 }
 
-function getDisplayLowestOffer(offers: RawOffer[]): RawOffer | null {
-  const displayPool = offers.filter((offer) => hasUsablePrice(offer) && isAvailable(offer));
+function getDisplayLowestOffer(
+  offers: RawOffer[],
+  options: { excludeSharedAccess?: boolean } = {},
+): RawOffer | null {
+  const displayPool = offers.filter((offer) => {
+    if (!hasUsablePrice(offer) || !isAvailable(offer)) return false;
+    return !options.excludeSharedAccess || !isSharedAccessOffer(offer);
+  });
   if (!displayPool.length) return null;
 
   return [...displayPool].sort((a, b) => {
@@ -797,6 +842,14 @@ function getDisplayLowestOffer(offers: RawOffer[]): RawOffer | null {
   })[0] ?? null;
 }
 
+function isLongWarrantyOffer(offer: RawOffer): boolean {
+  return offerMatchesFilterTags(offer, ["warranty_long"]);
+}
+
+export function isSharedAccessOffer(offer: RawOffer): boolean {
+  return offerMatchesFilterTags(offer, ["shared_access"]);
+}
+
 function hasUsablePrice(offer: RawOffer): offer is RawOffer & { price: number } {
   return typeof offer.price === "number" && Number.isFinite(offer.price);
 }
@@ -805,6 +858,7 @@ export function collectOfferFlags(offer: RawOffer): string[] {
   const flags = new Set<string>();
 
   if (!isAvailable(offer)) flags.add("缺货");
+  if (isSharedAccessOffer(offer)) flags.add("拼车/团购");
   if (offer.tags.some((tag) => tag.includes("无质保"))) flags.add("无质保");
 
   return Array.from(flags);
@@ -846,7 +900,8 @@ function normalizeTitle(title: string): string {
     .toLowerCase()
     .replace(/美國/g, "美国")
     .replace(/虛擬/g, "虚拟")
-    .replace(/[×]/g, "x")
+    .replace(/[×✕✖✘]/g, "x")
+    .replace(/[\ufe0e\ufe0f]/g, "")
     .replace(/[｜|/【】[\]()（）,，:：\-_/]+/g, " ")
     .replace(/gptplus/g, "gpt plus")
     .replace(/plus月卡/g, "plus 月卡")
@@ -980,6 +1035,10 @@ function isBundledVerificationAccount(value: string): boolean {
 }
 
 function isStandaloneVerificationService(value: string): boolean {
+  if (isIdentityVerificationService(value)) {
+    return true;
+  }
+
   if (matches(value, ["接码自助", "接码 自助", "接码自助卡密", "手机接码自助", "手机接码 自助"])) {
     return true;
   }
@@ -1041,6 +1100,45 @@ function isStandaloneVerificationService(value: string): boolean {
   }
 
   return false;
+}
+
+function isIdentityVerificationService(value: string): boolean {
+  if (!hasIdentityVerificationSignal(value)) return false;
+  return !hasIdentityVerificationBundleSignal(value);
+}
+
+function hasIdentityVerificationSignal(value: string): boolean {
+  return matches(value, ["kyc", "人脸验证", "真人认证", "实名认证"]) || /(^|[^a-z])persona([^a-z]|$)/.test(value);
+}
+
+function hasIdentityVerificationBundleSignal(value: string): boolean {
+  return matches(value, [
+    "成品号",
+    "成品账号",
+    "账号",
+    "账户",
+    "子号",
+    "max",
+    "pro",
+    "team",
+    "plus",
+    "会员",
+    "订阅",
+    "月卡",
+    "年卡",
+    "已过kyc",
+    "已过 kyc",
+    "以过kyc",
+    "以过 kyc",
+    "免kyc",
+    "免 kyc",
+    "免过kyc",
+    "免过 kyc",
+    "过kyc",
+    "过 kyc",
+    "已完成kyc",
+    "已完成 kyc",
+  ]);
 }
 
 function hasAccountBundleSignal(value: string): boolean {
@@ -1118,6 +1216,7 @@ function isEmailAccountWithVerificationNote(value: string): boolean {
 }
 
 function classifyVerificationService(value: string): string {
+  if (isIdentityVerificationService(value)) return "identity-verification";
   if (matches(value, ["paypal"])) return "paypal-phone-verification";
   if (matches(value, ["google", "谷歌", "gmail", "gemini", "pixel"])) return "google-phone-verification";
   if (matches(value, ["openai", "chatgpt", "gpt", "codex"])) return "openai-phone-verification";
@@ -1221,6 +1320,7 @@ function isNegatedPlus(value: string): boolean {
 }
 
 function isApiProduct(value: string): boolean {
+  if (isChatGptTransitOrApiCreditProduct(value)) return true;
   if (isModelApiCreditProduct(value)) return true;
   if (isClaudeCodeCreditProduct(value)) return true;
   if (isChatGptAccountOrSubscriptionDominant(value)) return false;
@@ -1238,6 +1338,30 @@ function isApiProduct(value: string): boolean {
   if (matches(value, ["余额兑换", "余额 兑换", "倍率"])) return true;
   if (matches(value, ["余额充值", "充值余额", "美元额度", "美金额度", "刀额度"])) return true;
   if (matches(value, ["额度"]) && matches(value, ["claude", "gemini", "gpt", "codex", "openai", "ai 平台"])) return true;
+
+  return false;
+}
+
+function isChatGptTransitOrApiCreditProduct(value: string): boolean {
+  if (!matches(value, ["chatgpt", "gpt", "openai", "codex", "plus"])) return false;
+
+  if (
+    matches(value, ["中转api", "中转 api", "api中转", "api 中转", "中转余额", "中转站额度"]) ||
+    /(api|codex)\s*(\d+\s*)?(刀|美元|美金).*(额度|余额|兑换码|刀卡)/.test(value)
+  ) {
+    return true;
+  }
+
+  if (matches(value, ["号池"]) && matches(value, ["api", "codex", "额度", "余额", "刀", "美元", "美金", "中转"])) {
+    return true;
+  }
+
+  if (
+    /(?:总共|共)\s*\d+\s*(?:刀|美元|美金)/.test(value) &&
+    matches(value, ["plus渠道", "plus 渠道", "plus号池", "plus 号池", "老plus渠道", "老 plus 渠道", "30天有效期"])
+  ) {
+    return true;
+  }
 
   return false;
 }
@@ -1334,21 +1458,27 @@ function isClaudeProduct(value: string): boolean {
 
 function isClaudeMax20Product(value: string): boolean {
   if (matches(value, ["chatgpt", "gpt", "openai", "gemini", "grok"])) return false;
-  if (!matches(value, ["max"])) return false;
+  const hasClaudeSignal = isClaudeProduct(value);
+  const hasMaxSignal = matches(value, ["max"]);
+  if (!hasClaudeSignal && !hasMaxSignal) return false;
 
-  return matches(value, ["max20", "max 20", "20x", "x20", "20倍"]);
+  if (matches(value, ["max20", "max 20", "20x", "x20", "20倍", "20 max", "20x max", "20xmax"])) return true;
+  return hasMaxSignal && /(?:max.*200|200\s*(?:usd|刀|美金|美元|订阅))/.test(value);
 }
 
 function isClaudeMax5Product(value: string): boolean {
   if (matches(value, ["chatgpt", "gpt", "openai", "gemini", "grok"])) return false;
-  if (!matches(value, ["max"])) return false;
+  const hasClaudeSignal = isClaudeProduct(value);
+  const hasMaxSignal = matches(value, ["max"]);
+  if (!hasClaudeSignal && !hasMaxSignal) return false;
   if (isClaudeMax20Product(value)) return false;
 
-  return matches(value, ["max5", "max 5", "5x", "x5", "5倍"]);
+  if (matches(value, ["max5", "max 5", "5x", "x5", "5倍", "5 max", "5x max", "5xmax"])) return true;
+  return hasMaxSignal && /(?:max.*100|100\s*(?:usd|刀|美金|美元|订阅))/.test(value);
 }
 
 function isClaudeTeamProduct(value: string): boolean {
-  return isClaudeProduct(value) && matches(value, ["team", "团队", "席位"]);
+  return isClaudeProduct(value) && matches(value, ["team", "团队", "席位", "seat"]);
 }
 
 function isClaudeTeamPremium(value: string): boolean {
@@ -1370,8 +1500,9 @@ function isClaudeTeamPremium(value: string): boolean {
 
 function isClaudeTeamStandard(value: string): boolean {
   if (!isClaudeTeamProduct(value)) return false;
+  if (isClaudeTeamPremium(value)) return false;
 
-  return true;
+  return matches(value, ["team", "团队", "席位", "seat", "standard", "标准", "1.25x", "1.25 x", "1.25倍", "1.25 倍"]);
 }
 
 function isGeminiProduct(value: string): boolean {
@@ -1482,6 +1613,13 @@ function isGrokProduct(value: string): boolean {
   return matches(value, ["grok", "supergrok"]);
 }
 
+function isGrokFitForSuperInfrastructure(value: string): boolean {
+  if (!isGrokProduct(value)) return false;
+  if (!matches(value, ["适合super", "适合 super", "取邮件api", "取邮件 api", "长效微软邮箱", "账号 sso"])) return false;
+
+  return matches(value, ["普号", "free", "sso", "邮箱", "取邮件"]);
+}
+
 function isChatGptProduct(value: string): boolean {
   if (matches(value, ["gemini", "claude", "grok"])) return false;
   if (matches(value, ["steam"])) return false;
@@ -1522,6 +1660,13 @@ function isChatGptFreeAccount(value: string): boolean {
   }
 
   return matches(value, ["长效"]) && !matches(value, ["plus", "pro", "team", "business"]);
+}
+
+function isChatGptGoProduct(value: string): boolean {
+  if (!matches(value, ["chatgpt", "gpt", "openai"])) return false;
+  if (matches(value, ["google", "gojek", "gopay"])) return false;
+
+  return /\bgo\b/.test(value) || /\bgo(?=\d|月|年|直充|充值|激活|会员|订阅|独享)/.test(value);
 }
 
 function isAmbiguousPlusPackage(value: string): boolean {

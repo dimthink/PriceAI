@@ -11,14 +11,14 @@ import { FeedbackDialog, FeedbackLink, GitHubLink, TelegramLink } from "@/compon
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const navItems = [
-  { key: "channels", href: "/", label: "卡网渠道", mobileLabel: "卡网", match: (pathname: string) => pathname === "/" || pathname.startsWith("/products") },
+  { key: "channels", href: "/channels", label: "卡网订阅", mobileLabel: "卡网", match: (pathname: string) => pathname.startsWith("/channels") || pathname.startsWith("/products") },
   { key: "official", href: "/official-prices", label: "官方订阅", mobileLabel: "订阅", match: (pathname: string) => pathname.startsWith("/official-prices") },
-  { key: "api", href: "/api-models", label: "模型 API", mobileLabel: "API", match: (pathname: string) => pathname.startsWith("/api-models") },
+  { key: "api", href: "/api-models", label: "官方 API", mobileLabel: "API", match: (pathname: string) => pathname.startsWith("/api-models") },
   { key: "transit", href: "/api-transit", label: "中转 API", mobileLabel: "中转", match: (pathname: string) => pathname.startsWith("/api-transit") },
-  { key: "guides", href: "/guides", label: "指南", mobileLabel: "指南", match: (pathname: string) => pathname.startsWith("/guides") },
 ];
 
-type SiteHeaderSection = (typeof navItems)[number]["key"];
+type SiteHeaderSection = (typeof navItems)[number]["key"] | "home" | "guides";
+const homeHref = "/?home=1";
 const githubUrl = "https://github.com/physics-dimension/PriceAI";
 const telegramUrl = "https://t.me/priceaicc";
 
@@ -36,17 +36,9 @@ export function SiteHeader({
   const pathname = usePathname();
   const aboutActive = pathname.startsWith("/about");
   const desktopCenterNavClassName = "hidden items-center rounded-full bg-[#e4e9ea] p-1 text-sm font-semibold text-[#5a6061] min-[720px]:flex";
-  const aboutButtonSizeClassName =
-    compactActionLabelFrom === "never"
-      ? "h-10 w-10 gap-0 px-0"
-      : compactActionLabelFrom === "2xl"
-      ? "h-9 w-9 gap-0 px-0 2xl:h-10 2xl:w-auto 2xl:gap-2 2xl:px-3.5"
-      : "h-9 w-9 gap-0 px-0 sm:h-10 sm:w-auto sm:gap-2 sm:px-3.5";
-  const aboutLabelClassName =
-    compactActionLabelFrom === "never" ? "hidden" : compactActionLabelFrom === "2xl" ? "hidden 2xl:inline" : "hidden sm:inline";
   const actionGroupGapClassName =
     compactActionLabelFrom === "never" ? "gap-1.5" : compactActionLabelFrom === "2xl" ? "gap-1.5 2xl:gap-3" : "gap-1.5 sm:gap-3";
-  const activeNavItem = navItems.find((item) => (activeSection ? item.key === activeSection : item.match(pathname))) || navItems[0];
+  const activeNavItem = navItems.find((item) => (activeSection && activeSection !== "home" && activeSection !== "guides" ? item.key === activeSection : item.match(pathname)));
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -57,13 +49,13 @@ export function SiteHeader({
           <button
             type="button"
             onClick={() => setMobileDrawerOpen(true)}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:bg-[#f5f7f7] hover:text-[#202829] min-[720px]:hidden"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:bg-[#f5f7f7] hover:text-[#202829] min-[720px]:hidden"
             aria-label="打开模块导航"
             aria-haspopup="dialog"
           >
             <Menu size={18} />
           </button>
-          <Link href="/" aria-label="PriceAI 首页" className="min-w-0 shrink-0">
+          <Link href={homeHref} aria-label="PriceAI 首页" className="inline-flex min-h-11 min-w-0 shrink-0 items-center">
             <AppLogo compact={logoCompact} />
           </Link>
         </div>
@@ -94,18 +86,6 @@ export function SiteHeader({
         </div>
 
         <div className={`relative z-10 hidden min-w-0 items-center justify-end justify-self-end min-[720px]:flex ${actionGroupGapClassName}`}>
-          <Link
-            href="/about"
-            className={`inline-flex shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:-translate-y-0.5 ${aboutButtonSizeClassName} ${
-              aboutActive
-                ? "bg-[#2d3435] text-[#f8f8f8]"
-                : "bg-white text-[#2d3435] hover:bg-[#f5f7f7] hover:text-[#202829]"
-            }`}
-            aria-current={aboutActive ? "page" : undefined}
-          >
-            <Info size={16} />
-            <span className={aboutLabelClassName}>关于</span>
-          </Link>
           <ThemeToggle compact labelFrom={compactActionLabelFrom} />
           <FeedbackLink compact labelFrom={compactActionLabelFrom} />
           <TelegramLink compact labelFrom={compactActionLabelFrom} />
@@ -115,7 +95,7 @@ export function SiteHeader({
 
       {mobileDrawerOpen ? (
         <MobileModuleDrawer
-          activeKey={activeNavItem.key}
+          activeKey={activeNavItem?.key}
           aboutActive={aboutActive}
           onClose={() => setMobileDrawerOpen(false)}
           onFeedback={() => {
@@ -135,7 +115,7 @@ function MobileModuleDrawer({
   onClose,
   onFeedback,
 }: {
-  activeKey: SiteHeaderSection;
+  activeKey?: (typeof navItems)[number]["key"];
   aboutActive: boolean;
   onClose: () => void;
   onFeedback: () => void;
@@ -164,7 +144,7 @@ function MobileModuleDrawer({
         aria-label="模块导航"
       >
         <div className="mb-4 flex items-center justify-between gap-3 px-1">
-          <Link href="/" aria-label="PriceAI 首页" className="min-w-0 shrink-0" onClick={onClose}>
+          <Link href={homeHref} aria-label="PriceAI 首页" className="min-w-0 shrink-0" onClick={onClose}>
             <AppLogo compact />
           </Link>
           <button
@@ -214,7 +194,7 @@ function MobileModuleDrawer({
             >
               <span className="inline-flex items-center gap-3">
                 <Info size={17} />
-                关于 PriceAI
+                边界与披露
               </span>
               {aboutActive ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" aria-hidden="true" /> : null}
             </Link>

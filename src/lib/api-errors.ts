@@ -24,5 +24,5 @@ export function safeApiErrorMessage(error: unknown, fallback: string): string {
 function isExpectedPublicError(error: unknown): error is Error {
   if (!(error instanceof Error)) return false;
 
-  return /未授权|无权|尚未配置|缺少|无效|不存在|无法解析|不支持/i.test(error.message);
+  return /未授权|无权|尚未配置|缺少|无效|不存在|无法解析|不支持|暂不可用|不能超过|过于频繁/i.test(error.message);
 }

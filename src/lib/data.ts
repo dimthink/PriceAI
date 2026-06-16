@@ -3,7 +3,7 @@ import "server-only";
 import { ADMIN_MANUAL_HIDE_REASON_PREFIX, listOfferFeedback, listSiteFeedback, listSubmissions } from "./admin";
 import { notifyOperationalIssue } from "./alerts";
 import { getApiTransitAdminData, getEmptyApiTransitAdminData } from "./api-transit-admin";
-import { buildProductGroups, canonicalCatalog, comparePlatformOrder, resolveOfferProduct } from "./catalog";
+import { buildProductGroups, canonicalCatalog, comparePlatformOrder, isSharedAccessOffer, resolveOfferProduct } from "./catalog";
 import { isSupabaseConfigured } from "./env";
 import { getApiModelAdminData } from "./api-models-db";
 import { normalizeCollectorKind } from "./collector-registry";
@@ -34,11 +34,13 @@ import type {
   DashboardData,
   ExplorerData,
   ExplorerProductSummary,
+  PublicOfferSummary,
   ProductGroup,
   RawOffer,
   Source,
   SourceOfferStats,
 } from "./types";
+import { publicOfferDedupeKey } from "./utils";
 
 const PUBLIC_OFFER_LIMIT = 1200;
 const SUPABASE_PAGE_SIZE = 1000;
@@ -49,6 +51,7 @@ const PRODUCT_OFFERS_CACHE_TTL_MS = 120_000;
 const DASHBOARD_DATA_CACHE_TTL_MS = 30_000;
 const ADMIN_DATA_CACHE_TTL_MS = 120_000;
 const ADMIN_OFFER_SAMPLE_LIMIT = 80;
+const EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH = 480;
 const RAW_OFFER_PUBLIC_SELECT = [
   "id",
   "source_id",
@@ -783,6 +786,7 @@ function stripProductOffersForAdmin(product: ProductGroup): ProductGroup {
     ...product,
     offers: [],
     lowestOffer: null,
+    warrantyLowestOffer: null,
   };
 }
 
@@ -797,6 +801,9 @@ function makeEmptyProductGroup(product: CanonicalProduct): ProductGroup {
     lowestPriceLabel: "暂无价格",
     lowestPriceTone: "muted",
     lowestOffer: null,
+    warrantyLowestPrice: null,
+    warrantyLowestOffer: null,
+    warrantyOfferCount: 0,
     latestSeenAt: null,
     anomalyFlags: [],
   };
@@ -1428,9 +1435,9 @@ async function loadPublicProductOffers(
     };
   }
 
-  const productOffers = publicData.offers
+  const productOffers = dedupePublicOffers(publicData.offers
     .filter((offer) => resolveOfferProduct(offer, products).id === product.id)
-    .sort(comparePublicOffers);
+    .sort(comparePublicOffers));
   const offers = productOffers
     .filter((offer) => offerMatchesFilterTags(offer, filterTags))
     .filter((offer) => offerMatchesProductOfferQuery(offer, query))
@@ -1599,7 +1606,7 @@ export async function listPublicOffers(filters: OfferListFilters = {}) {
   const limit = Math.min(Math.max(filters.limit || 80, 1), PUBLIC_OFFER_LIMIT);
   const offset = Math.max(filters.offset || 0, 0);
 
-  let rows = publicData.offers
+  let rows = dedupePublicOffers(publicData.offers)
     .filter((offer) => !offer.hidden)
     .map((offer) => {
       const product = resolveExplorerProduct(offer, productGroups);
@@ -1770,6 +1777,9 @@ function mapPublicOfferProductRow(row: PublicOfferPageRow): ExplorerProductSumma
     lowestPriceLabel: "",
     lowestPriceTone: "muted",
     lowestOffer: null,
+    warrantyLowestPrice: null,
+    warrantyLowestOffer: null,
+    warrantyOfferCount: 0,
     latestSeenAt: null,
     anomalyFlags: [],
     offerSearchText: "",
@@ -1825,7 +1835,10 @@ function toExplorerProductSummary(product: DashboardData["products"][number]): E
     lowestPrice: product.lowestPrice,
     lowestPriceLabel: product.lowestPriceLabel,
     lowestPriceTone: product.lowestPriceTone,
-    lowestOffer: product.lowestOffer,
+    lowestOffer: compactExplorerOffer(product.lowestOffer),
+    warrantyLowestPrice: product.warrantyLowestPrice,
+    warrantyLowestOffer: compactExplorerOffer(product.warrantyLowestOffer),
+    warrantyOfferCount: product.warrantyOfferCount,
     latestSeenAt: product.latestSeenAt,
     anomalyFlags: product.anomalyFlags,
     offerSearchText: buildOfferSearchText(product.offers),
@@ -1834,7 +1847,10 @@ function toExplorerProductSummary(product: DashboardData["products"][number]): E
 
 function mapPublicProductSummaryRow(row: Record<string, unknown>): ExplorerProductSummary {
   const lowestOffer = row.lowest_offer && typeof row.lowest_offer === "object"
-    ? mapRawOffer(row.lowest_offer as Record<string, unknown>)
+    ? mapPublicOfferSummary(row.lowest_offer as Record<string, unknown>)
+    : null;
+  const warrantyLowestOffer = row.warranty_lowest_offer && typeof row.warranty_lowest_offer === "object"
+    ? mapPublicOfferSummary(row.warranty_lowest_offer as Record<string, unknown>)
     : null;
   const inStockCount = Number(row.in_stock_count || 0);
   const outOfStockCount = Number(row.out_of_stock_count || 0);
@@ -1857,12 +1873,18 @@ function mapPublicProductSummaryRow(row: Record<string, unknown>): ExplorerProdu
     lowestPriceLabel: lowestOffer ? "有货" : "暂无有货价",
     lowestPriceTone: lowestOffer ? "good" : "muted",
     lowestOffer,
+    warrantyLowestPrice:
+      row.warranty_lowest_price === null || row.warranty_lowest_price === undefined
+        ? null
+        : Number(row.warranty_lowest_price),
+    warrantyLowestOffer,
+    warrantyOfferCount: Number(row.warranty_offer_count || 0),
     latestSeenAt: row.latest_seen_at ? String(row.latest_seen_at) : null,
     anomalyFlags: [
       ...(hasOutOfStock ? ["缺货"] : []),
       ...(!inStockCount && outOfStockCount ? ["全部缺货"] : []),
     ],
-    offerSearchText: "",
+    offerSearchText: String(row.offer_search_text || "").slice(0, EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH),
   };
 }
 
@@ -1876,7 +1898,37 @@ function buildOfferSearchText(offers: RawOffer[]): string {
       .forEach((value) => parts.add(value));
   }
 
-  return Array.from(parts).join(" ").slice(0, 1000);
+  return Array.from(parts).join(" ").slice(0, EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH);
+}
+
+function compactExplorerOffer(offer: RawOffer | null): PublicOfferSummary | null {
+  if (!offer) return null;
+
+  return {
+    id: offer.id,
+    sourceId: offer.sourceId,
+    sourceName: offer.sourceName,
+    sourceStoreName: offer.sourceStoreName,
+    sourceTitle: offer.sourceTitle,
+    price: offer.price,
+    currency: offer.currency,
+    status: offer.status,
+    url: offer.url,
+  };
+}
+
+function mapPublicOfferSummary(row: Record<string, unknown>): PublicOfferSummary {
+  return {
+    id: String(row.id),
+    sourceId: row.source_id ? String(row.source_id) : null,
+    sourceName: String(row.source_name || ""),
+    sourceStoreName: row.source_store_name ? String(row.source_store_name) : null,
+    sourceTitle: String(row.source_title || ""),
+    price: row.price === null || row.price === undefined ? null : Number(row.price),
+    currency: String(row.currency || "CNY"),
+    status: String(row.status || "unknown") as RawOffer["status"],
+    url: String(row.url || ""),
+  };
 }
 
 function resolveExplorerProduct(
@@ -1904,6 +1956,9 @@ function isOfferAvailableForPublicList(offer: RawOffer): boolean {
 function comparePublicOffers(a: RawOffer, b: RawOffer): number {
   const availableDelta = Number(isOfferAvailableForPublicList(b)) - Number(isOfferAvailableForPublicList(a));
   if (availableDelta !== 0) return availableDelta;
+
+  const sharedAccessDelta = Number(isSharedAccessOffer(a)) - Number(isSharedAccessOffer(b));
+  if (isOfferAvailableForPublicList(a) && isOfferAvailableForPublicList(b) && sharedAccessDelta !== 0) return sharedAccessDelta;
 
   const priceDelta = (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER);
   if (priceDelta !== 0) return priceDelta;
@@ -1944,6 +1999,45 @@ function offerTimestamp(offer: RawOffer): string | null | undefined {
 
 function sourceLabel(offer: RawOffer): string {
   return offer.sourceStoreName || offer.sourceName || "未记录渠道";
+}
+
+function dedupePublicOffers(offers: RawOffer[]): RawOffer[] {
+  const selected = new Map<string, RawOffer>();
+
+  for (const offer of offers) {
+    const key = publicOfferDedupeKey(offer);
+    const existing = selected.get(key);
+    if (!existing || comparePublicOfferKeepPriority(offer, existing) < 0) {
+      selected.set(key, offer);
+    }
+  }
+
+  return Array.from(selected.values());
+}
+
+function comparePublicOfferKeepPriority(a: RawOffer, b: RawOffer): number {
+  const availableDelta = Number(isOfferAvailableForPublicList(b)) - Number(isOfferAvailableForPublicList(a));
+  if (availableDelta !== 0) return availableDelta;
+
+  const priorityDelta = (b.sourcePriority ?? 0) - (a.sourcePriority ?? 0);
+  if (priorityDelta !== 0) return priorityDelta;
+
+  const confidenceDelta = (b.confidence ?? 0) - (a.confidence ?? 0);
+  if (confidenceDelta !== 0) return confidenceDelta;
+
+  const timestampDelta = compareText(offerTimestamp(b) || "", offerTimestamp(a) || "");
+  if (timestampDelta !== 0) return timestampDelta;
+
+  const sourceDelta = compareText(sourceLabel(a), sourceLabel(b));
+  if (sourceDelta !== 0) return sourceDelta;
+
+  const titleDelta = compareText(a.sourceTitle, b.sourceTitle);
+  if (titleDelta !== 0) return titleDelta;
+
+  const urlDelta = compareText(a.url, b.url);
+  if (urlDelta !== 0) return urlDelta;
+
+  return compareText(a.id, b.id);
 }
 
 export function mapSource(row: Record<string, unknown>): Source {

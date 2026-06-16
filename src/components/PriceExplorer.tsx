@@ -16,14 +16,14 @@ import {
   Table2,
 } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/components/CategoryTabBar";
 import { OfferActions, OfferFeedbackButton, OfferFeedbackDialog, OfferLink } from "@/components/ProductOffersPanel";
 import { SiteHeader } from "@/components/SiteHeader";
+import { listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
 import {
-  collectOfferFlags,
   comparePlatformOrder,
   isAvailable,
   platformOptions,
@@ -86,7 +86,6 @@ const EXPLORER_CACHE_KEY = "priceai:explorer:v3";
 const EXPLORER_CACHE_TTL_MS = 2 * 60 * 1000;
 const OFFER_LIST_CACHE_TTL_MS = 2 * 60 * 1000;
 const OFFER_LIST_MEMORY_CACHE_LIMIT = 40;
-const RETURN_HOME_INTENT_KEY = "priceai:return-home-intent";
 const stockOptions = ["all", "available", "out_of_stock"] as const;
 const sortOptions = ["available_price", "price", "updated", "channels"] as const;
 const viewOptions = ["cards", "table"] as const;
@@ -262,7 +261,7 @@ export function PriceExplorer({
   const totalOutOfStock = explorerData.products.reduce((sum, product) => sum + product.outOfStockCount, 0);
   const showingOffers = scopeMode === "offers";
   const title = buildTitle(platform, productType, showingOffers);
-  const activeFilters = buildActiveFilters({ platform, productType, stock, minPrice, maxPrice });
+  const activeFilterChips = buildActiveFilterChips({ productType, stock, minPrice, maxPrice });
   const platformOffers = offerResponse?.rows ?? [];
   const resultCount = showingOffers ? offerResponse?.total ?? 0 : products.length;
   const hasMoreOffers = showingOffers && Boolean(offerResponse) && platformOffers.length < (offerResponse?.total ?? 0);
@@ -590,7 +589,7 @@ export function PriceExplorer({
                 </button>
               </div>
               <p className="mt-3 hidden max-w-[78ch] text-sm leading-7 text-[#5a6061] md:block">
-                PriceAI 聚合 AI 订阅卡网渠道、官方地区价和模型 API 渠道报价。本站不卖货、不担保，价格仅供参考，实际交易和售后规则以原平台为准。
+                PriceAI 聚合 AI 订阅卡网渠道报价。本站不卖货、不担保，价格仅供参考，实际交易和售后规则以原平台为准。
               </p>
             </div>
 
@@ -678,7 +677,7 @@ export function PriceExplorer({
               className="inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[#e4e9ea] px-5 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
             >
               <Filter size={17} />
-              筛选{activeFilters.length ? ` ${activeFilters.length}` : ""}
+              筛选{activeFilterChips.length ? ` ${activeFilterChips.length}` : ""}
             </button>
             <div className="inline-flex h-11 shrink-0 items-center rounded-full bg-[#e4e9ea] p-1">
               <ViewToggleButton
@@ -732,9 +731,9 @@ export function PriceExplorer({
               提交渠道
             </button>
           </div>
-          {activeFilters.length ? (
+          {activeFilterChips.length ? (
             <div className="hidden flex-wrap items-center gap-2 md:flex">
-              {activeFilters.map((filter) => (
+              {activeFilterChips.map((filter) => (
                 <span
                   key={filter}
                   className="rounded-full bg-[#e4e9ea] px-3 py-1 text-xs font-medium text-[#2d3435]"
@@ -898,13 +897,14 @@ function ProductTable({
   return (
     <div className="overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
       <div className="overflow-x-auto">
-        <table className="min-w-[1040px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1160px] w-full border-collapse text-left text-sm">
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
               <TableHead>标准商品</TableHead>
               <TableHead>平台</TableHead>
               <TableHead>类型</TableHead>
               <TableHead>最低价</TableHead>
+              <TableHead>质保最低价</TableHead>
               <TableHead>库存</TableHead>
               <TableHead>渠道</TableHead>
               <TableHead>最低渠道</TableHead>
@@ -917,13 +917,14 @@ function ProductTable({
               const previewOffer = product.lowestOffer;
               const isAvailable = product.inStockCount > 0;
               const productHref = productDetailHref(product.slug, returnQuery);
+              const handleProductClick = listDetailClickHandler(productHref, returnQuery, () => trackProductDetailOpen(product));
 
               return (
                 <tr key={product.id} className="transition hover:bg-[#f7f9f9]">
                   <td className="max-w-[310px] px-5 py-4">
                     <Link
                       href={productHref}
-                      onClick={() => trackProductDetailOpen(product)}
+                      onClick={handleProductClick}
                       className="group flex min-w-0 items-center gap-3"
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5e5e5e]">
@@ -942,14 +943,27 @@ function ProductTable({
                     {productTypeLabels[product.productType] || product.productType}
                   </td>
                   <td className="px-5 py-4">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-lg font-bold text-[#202829]">
+                    <Link
+                      href={productHref}
+                      onClick={handleProductClick}
+                      aria-label={`查看 ${product.displayName} 最低价报价`}
+                      title="查看最低价报价"
+                      className="group inline-flex flex-col gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5a6061]/30 focus-visible:ring-offset-2"
+                    >
+                      <span className="text-lg font-bold text-[#202829] group-hover:text-[#5e5e5e]">
                         {formatCurrency(product.lowestPrice, previewOffer?.currency)}
                       </span>
-                      <span className={`w-fit rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${tableStatusClass(isAvailable)}`}>
+                      <span className={`w-fit rounded-full px-2 py-0.5 text-[0.65rem] font-semibold transition group-hover:brightness-95 ${tableStatusClass(isAvailable)}`}>
                         {isAvailable ? "有货" : "缺货"}
                       </span>
-                    </div>
+                    </Link>
+                  </td>
+                  <td className="px-5 py-4">
+                    <WarrantyLowestPrice
+                      product={product}
+                      returnQuery={returnQuery}
+                      mode="table"
+                    />
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-2">
@@ -972,7 +986,7 @@ function ProductTable({
                   <td className="px-5 py-4">
                     <Link
                       href={productHref}
-                      onClick={() => trackProductDetailOpen(product)}
+                      onClick={handleProductClick}
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
                     >
                       查看
@@ -1241,7 +1255,7 @@ function ProductTableSkeleton({ viewMode }: { viewMode: ViewMode }) {
             </div>
             <div className="divide-y divide-[#edf0f1]">
               {PRODUCT_SKELETON_ROWS.map((row) => (
-                <div key={row} className="grid min-h-[74px] grid-cols-[2fr_1fr_1fr_1fr_1fr] items-center gap-5 px-5 py-4">
+                <div key={row} className="grid min-h-[74px] grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] items-center gap-5 px-5 py-4">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-[#edf0f1]" />
                     <div className="space-y-2">
@@ -1249,6 +1263,7 @@ function ProductTableSkeleton({ viewMode }: { viewMode: ViewMode }) {
                       <div className="h-3 w-32 rounded-full bg-[#edf0f1]" />
                     </div>
                   </div>
+                  <div className="h-3.5 rounded-full bg-[#edf0f1]" />
                   <div className="h-3.5 rounded-full bg-[#edf0f1]" />
                   <div className="h-3.5 rounded-full bg-[#edf0f1]" />
                   <div className="h-3.5 rounded-full bg-[#edf0f1]" />
@@ -1275,8 +1290,9 @@ function ProductCard({
   returnQuery: string;
 }) {
   const previewOffer = product.lowestOffer;
-  const flags = previewOffer ? collectOfferFlags(previewOffer).slice(0, 2) : [];
+  const flags = previewOffer?.sourceTitle.includes("无质保") ? ["无质保"] : [];
   const productHref = productDetailHref(product.slug, returnQuery);
+  const handleProductClick = listDetailClickHandler(productHref, returnQuery, () => trackProductDetailOpen(product));
 
   return (
       <article className="group relative flex min-h-[340px] flex-col overflow-hidden rounded-lg bg-white p-6 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 transition hover:-translate-y-0.5 hover:shadow-[0_24px_65px_rgba(45,52,53,0.07)]">
@@ -1298,7 +1314,7 @@ function ProductCard({
 
       <Link
         href={productHref}
-        onClick={() => trackProductDetailOpen(product)}
+        onClick={handleProductClick}
         className="block"
       >
         <h2 className="font-serif text-2xl font-semibold leading-tight tracking-normal text-[#202829] transition group-hover:text-[#5e5e5e]">
@@ -1315,6 +1331,12 @@ function ProductCard({
           </span>
         </div>
       </div>
+
+      <WarrantyLowestPrice
+        product={product}
+        returnQuery={returnQuery}
+        mode="card"
+      />
 
       <div className="mt-5 flex flex-wrap gap-2 text-xs">
         <CountBadge tone="good">有货 {product.inStockCount}</CountBadge>
@@ -1340,7 +1362,7 @@ function ProductCard({
       <div className="mt-auto pt-6">
         <Link
           href={productHref}
-          onClick={() => trackProductDetailOpen(product)}
+          onClick={handleProductClick}
           className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-[#5e5e5e] to-[#525252] px-5 text-sm font-semibold text-[#f8f8f8] transition hover:opacity-90"
         >
           查看对比
@@ -1361,6 +1383,7 @@ function MobileProductCard({
   const previewOffer = product.lowestOffer;
   const available = product.inStockCount > 0;
   const productHref = productDetailHref(product.slug, returnQuery);
+  const handleProductClick = listDetailClickHandler(productHref, returnQuery, () => trackProductDetailOpen(product));
 
   return (
     <article className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.04)] ring-1 ring-[#adb3b4]/15 md:hidden">
@@ -1385,10 +1408,15 @@ function MobileProductCard({
           <p className="mt-1 truncate text-xs text-[#5a6061]">
             {previewOffer?.sourceStoreName || previewOffer?.sourceName || "暂无最低渠道"} · <RelativeTime value={product.latestSeenAt} />
           </p>
+          <WarrantyLowestPrice
+            product={product}
+            returnQuery={returnQuery}
+            mode="mobile"
+          />
         </div>
         <Link
           href={productHref}
-          onClick={() => trackProductDetailOpen(product)}
+          onClick={handleProductClick}
           className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
         >
           查看
@@ -1406,6 +1434,82 @@ function MobileProductCard({
         <p className="mt-3 line-clamp-1 text-xs leading-5 text-[#5a6061]">{previewOffer.sourceTitle}</p>
       ) : null}
     </article>
+  );
+}
+
+function WarrantyLowestPrice({
+  product,
+  returnQuery,
+  mode,
+}: {
+  product: ExplorerProductSummary;
+  returnQuery: string;
+  mode: "table" | "card" | "mobile";
+}) {
+  const warrantyOffer = product.warrantyLowestOffer;
+  const hasWarrantyPrice = product.warrantyLowestPrice !== null && warrantyOffer;
+  const href = productDetailHref(product.slug, returnQuery);
+  const handleWarrantyClick = listDetailClickHandler(href, returnQuery, () => trackProductDetailOpen(product), {
+    tags: "warranty_long",
+  });
+
+  if (mode === "table") {
+    if (!hasWarrantyPrice) {
+      return (
+        <span
+          title="暂无明确长期质保报价"
+          className="text-sm font-semibold text-[#9aa2a3]"
+        >
+          -
+        </span>
+      );
+    }
+
+    return (
+      <Link
+        href={href}
+        onClick={handleWarrantyClick}
+        title="查看长期质保报价"
+        className="group inline-flex flex-col gap-1"
+      >
+        <span className="text-lg font-bold text-[#202829] group-hover:text-[#5e5e5e]">
+          {formatCurrency(product.warrantyLowestPrice, warrantyOffer.currency)}
+        </span>
+        <span className="w-fit rounded-full bg-[#eef3f8] px-2 py-0.5 text-[0.65rem] font-semibold text-[#47657a]">
+          质保
+        </span>
+      </Link>
+    );
+  }
+
+  if (mode === "mobile") {
+    if (!hasWarrantyPrice) return null;
+
+    return (
+      <Link
+        href={href}
+        onClick={handleWarrantyClick}
+        className="mt-1 inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-[#47657a]"
+      >
+        <span className="shrink-0 rounded-full bg-[#eef3f8] px-2 py-0.5">质保</span>
+        <span className="truncate">{formatCurrency(product.warrantyLowestPrice, warrantyOffer.currency)}</span>
+      </Link>
+    );
+  }
+
+  if (!hasWarrantyPrice) return null;
+
+  return (
+    <Link
+      href={href}
+      onClick={handleWarrantyClick}
+      className="mt-3 flex min-h-[40px] items-center justify-between gap-3 rounded-lg bg-[#eef3f8] px-4 py-2 text-sm text-[#47657a] transition hover:bg-[#e3edf5]"
+    >
+      <span className="font-semibold">质保最低价</span>
+      <span className="shrink-0 font-bold text-[#202829]">
+        {formatCurrency(product.warrantyLowestPrice, warrantyOffer.currency)}
+      </span>
+    </Link>
   );
 }
 
@@ -1654,9 +1758,23 @@ function tableStatusClass(isAvailable: boolean): string {
   return isAvailable ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-[#fbe9e7] text-[#9b3328]";
 }
 
-function productDetailHref(slug: string, returnQuery: string): string {
-  const path = `/products/${slug}`;
-  return `${path}?back=${encodeURIComponent(returnQuery || "home")}`;
+function productDetailHref(slug: string, _returnQuery: string): string {
+  void _returnQuery;
+  return `/products/${slug}`;
+}
+
+function listDetailClickHandler(
+  path: string,
+  returnQuery: string,
+  onOpen: () => void,
+  extraParams: Record<string, string> = {},
+) {
+  return (event: MouseEvent<HTMLAnchorElement>) => {
+    onOpen();
+    if (!shouldHandleListDetailClick(event)) return;
+    event.preventDefault();
+    window.location.assign(listDetailNavigationHref(path, returnQuery, extraParams));
+  };
 }
 
 async function fetchOfferPage(
@@ -1794,12 +1912,6 @@ function sourceSecondaryLabel(offer: RawOffer): string | null {
 }
 
 function trackProductDetailOpen(product: Pick<CanonicalProduct, "id" | "platform" | "productType">) {
-  try {
-    window.sessionStorage.setItem(RETURN_HOME_INTENT_KEY, String(Date.now()));
-  } catch {
-    // Returning home still works through the href fallback if session storage is unavailable.
-  }
-
   trackAnalyticsEvent("product_detail_open", {
     product_id: product.id,
     platform: product.platform,
@@ -1807,21 +1919,18 @@ function trackProductDetailOpen(product: Pick<CanonicalProduct, "id" | "platform
   });
 }
 
-function buildActiveFilters({
-  platform,
+function buildActiveFilterChips({
   productType,
   stock,
   minPrice,
   maxPrice,
 }: {
-  platform: string;
   productType: string;
   stock: string;
   minPrice: string;
   maxPrice: string;
 }): string[] {
   const filters: string[] = [];
-  if (platform !== "全部") filters.push(platform);
   if (productType !== "全部") filters.push(productTypeLabels[productType] || productType);
   if (stock === "available") filters.push("有货");
   if (stock === "out_of_stock") filters.push("缺货");
@@ -1849,7 +1958,7 @@ function advancedFilterCount({
 
 function buildTitle(platform: string, productType: string, showingOffers = false): string {
   if (platform === "全部" && productType === "全部" && !showingOffers) {
-    return "PriceAI：AI 订阅卡网与模型 API 比价雷达";
+    return "卡网订阅比价";
   }
 
   const platformName = platform === "全部" ? "全平台" : platform;

@@ -1,29 +1,52 @@
 # 部署与定时采集
 
-PriceAI 当前主运行时是 Cloudflare Workers + OpenNext，Supabase 保存数据，GitHub Actions 或云服务器负责定时采集。Cloudflare/OpenNext 发布流程以 `docs/cloudflare-deployment-runbook.md` 为准；Vercel 内容仅保留为历史部署和短期回滚参考。
+PriceAI 生产主站运行在 Cloudflare Workers + OpenNext，Supabase 保存数据，GitHub Actions 或云服务器负责定时采集。
 
-## Vercel 部署
+## 生产部署
 
-在 Vercel 配置生产环境变量：
+默认只使用 Cloudflare 部署入口：
 
+```bash
+npm run deploy:production
+```
+
+这个命令会触发 GitHub Actions workflow `.github/workflows/deploy-cloudflare-worker.yml`，由 GitHub secrets 提供 Cloudflare 部署环境变量。本机缺少 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`、后台密钥或 Umami 配置时，不再阻塞默认生产部署。
+
+需要等待 workflow 完成并在本机再跑一次线上 smoke 时使用：
+
+```bash
+npm run deploy:production -- --wait
+```
+
+只检查当前生产目标和本机环境，不触发部署：
+
+```bash
+npm run deploy:production -- --check
+```
+
+只有确认本机已经具备完整 Cloudflare 生产部署环境时，才使用本地直发：
+
+```bash
+npm run deploy:production -- --local
+```
+
+不要默认运行 `vercel deploy --prod --yes`。旧 Vercel 项目已删除；如果必须回滚到 Vercel，应先重建 Vercel 项目，并确认 `priceai.cc` / `www.priceai.cc` 的 Cloudflare route、Vercel alias、cron owner 和 `COLLECT_PRICES_URL` 切换方案。
+
+Cloudflare / GitHub Actions 生产环境需要维护：
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `ADMIN_PASSWORD`
+- `ADMIN_SESSION_SECRET`
+- `ADMIN_SESSION_VERSION`
 - `CRON_SECRET`
-- `CRON_PUBLIC_BASE_URL`
 - `NEXT_PUBLIC_GA_MEASUREMENT_ID`
 - `NEXT_PUBLIC_UMAMI_WEBSITE_ID`
 - `NEXT_PUBLIC_UMAMI_SCRIPT_URL`
 - `NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS`
-
-部署命令：
-
-```bash
-vercel deploy --prod --yes
-```
-
-`CRON_PUBLIC_BASE_URL` 建议填写正式域名，例如 `https://priceai.cc`。
 
 `NEXT_PUBLIC_UMAMI_WEBSITE_ID` 为可选项。当前生产环境使用自部署 Umami：`NEXT_PUBLIC_UMAMI_SCRIPT_URL` 填 `https://umami.dimthink.com/script.js`，`NEXT_PUBLIC_UMAMI_WEBSITE_ID` 填自部署 Umami 中 PriceAI 对应的 Website ID。`NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS` 可填 `priceai.cc,www.priceai.cc`，避免本地和预览域名上报统计。
 
@@ -41,7 +64,7 @@ vercel deploy --prod --yes
 | Secret | 用途 |
 | --- | --- |
 | `COLLECT_PRICES_URL` | 采集入口，例如 `https://priceai.cc/api/cron/collect-prices` |
-| `CRON_SECRET` | 与 Vercel 中的 `CRON_SECRET` 保持一致 |
+| `CRON_SECRET` | 与 Cloudflare Worker / 采集节点使用的 `CRON_SECRET` 保持一致 |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目地址 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 采集写入数据库使用 |
 

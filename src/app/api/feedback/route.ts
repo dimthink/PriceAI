@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createOfferFeedback } from "@/lib/admin";
+import { isFeedbackEvidenceReference } from "@/lib/feedback-evidence";
 import { offerFeedbackReasonValues } from "@/lib/types";
 
 const reasonSchema = z.enum(offerFeedbackReasonValues);
@@ -23,11 +24,24 @@ const schema = z.object({
   reason: reasonSchema,
   userExpectedAction: userExpectedActionSchema.nullable().optional(),
   evidenceText: z.string().trim().max(1000).nullable().optional(),
-  evidenceUrls: z.array(z.string().url().max(2048)).max(10).nullable().optional(),
+  evidenceUrls: z.array(
+    z.string().max(2048).refine((value) => isAllowedEvidenceUrl(value), "证据链接格式不正确。"),
+  ).max(10).nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
   contact: z.string().trim().max(200).nullable().optional(),
   website: z.string().max(200).nullable().optional(),
 });
+
+function isAllowedEvidenceUrl(value: string): boolean {
+  if (value.startsWith("r2:")) return isFeedbackEvidenceReference(value);
+  if (isFeedbackEvidenceReference(value)) return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 function getClientIp(request: Request): string | null {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -36,7 +50,7 @@ function getClientIp(request: Request): string | null {
 }
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof z.ZodError) return "反馈内容格式不正确。";
+  if (error instanceof z.ZodError) return error.issues[0]?.message || "反馈内容格式不正确。";
   if (error instanceof Error) return error.message;
   return "反馈提交失败。";
 }

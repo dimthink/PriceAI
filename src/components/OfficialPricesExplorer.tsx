@@ -9,11 +9,11 @@ import {
   Search,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/components/CategoryTabBar";
 import { SiteHeader } from "@/components/SiteHeader";
-import { OFFICIAL_PRICE_RETURN_INTENT_KEY, listDetailHref, markListReturnIntent } from "@/lib/list-return";
+import { listDetailHref, listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
 import {
   buildOfficialPriceOfferRows,
   buildOfficialPricePlanSummaries,
@@ -254,7 +254,7 @@ function OfficialPlanMobileList({
           <Link
             key={summary.id}
             href={href}
-            onClick={trackOfficialDetailOpen}
+            onClick={listDetailClickHandler(href, returnQuery)}
             className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 transition active:scale-[0.995]"
           >
             <div className="flex min-w-0 items-start gap-3">
@@ -317,7 +317,7 @@ function OfficialPlanTable({
               return (
                 <tr key={summary.id} className="transition hover:bg-[#f7f9f9]">
                   <td className="max-w-[320px] px-5 py-4">
-                    <Link href={href} onClick={trackOfficialDetailOpen} className="group flex min-w-0 items-center gap-3">
+                    <Link href={href} onClick={listDetailClickHandler(href, returnQuery)} className="group flex min-w-0 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4]">
                         <BrandIcon platform={summary.platform} className="h-[18px] w-[18px]" />
                       </span>
@@ -345,7 +345,7 @@ function OfficialPlanTable({
                   <td className="w-[120px] px-5 py-4 text-center">
                     <Link
                       href={href}
-                      onClick={trackOfficialDetailOpen}
+                      onClick={listDetailClickHandler(href, returnQuery)}
                       className="inline-flex h-9 min-w-[76px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
                     >
                       查看
@@ -372,48 +372,59 @@ function OfficialOfferMobileList({
   return (
     <section className="grid grid-cols-1 gap-3 md:hidden">
       {rows.map((row) => (
-        <article
-          key={row.id}
-          className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15"
-        >
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
-              <BrandIcon platform={row.app.displayName} className="h-5 w-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <Link
-                    href={officialDetailHref(`${row.appSlug}__${row.planSlug}`, returnQuery)}
-                    onClick={trackOfficialDetailOpen}
-                    className="block truncate text-base font-bold leading-6 text-[#202829]"
-                  >
-                    {row.plan.label}
-                  </Link>
-                  <p className="mt-0.5 truncate text-sm text-[#5a6061]">{row.app.displayName} · {billingPeriodLabel(row.plan.billingPeriod)}</p>
-                </div>
-                <p className="shrink-0 text-right text-lg font-bold tabular-nums text-[#202829]">{formatCurrency(row.cnyPrice, "CNY")}</p>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-[#5a6061]">
-                <span><strong className="font-semibold text-[#202829]">{row.countryLabel}</strong> {row.countryCode}</span>
-                <span>{row.priceText} · {row.currencyCode}</span>
-                <span>1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}</span>
-                <span>{formatRelativeTime(row.fetchedAt)}</span>
-              </div>
-              <a
-                href={row.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full bg-[#e4e9ea] px-3 text-xs font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
-              >
-                App Store
-                <ExternalLink size={13} />
-              </a>
-            </div>
-          </div>
-        </article>
+        <OfficialOfferMobileCard key={row.id} row={row} returnQuery={returnQuery} />
       ))}
     </section>
+  );
+}
+
+function OfficialOfferMobileCard({ row, returnQuery }: { row: OfficialPriceOfferRow; returnQuery: string }) {
+  const href = officialDetailHref(`${row.appSlug}__${row.planSlug}`, returnQuery);
+
+  return (
+    <article className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
+          <BrandIcon platform={row.app.displayName} className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Link
+                href={href}
+                onClick={listDetailClickHandler(href, returnQuery)}
+                className="block truncate text-base font-bold leading-6 text-[#202829]"
+              >
+                {row.plan.label}
+              </Link>
+              <p className="mt-0.5 truncate text-sm text-[#5a6061]">
+                {row.app.displayName} · {billingPeriodLabel(row.plan.billingPeriod)}
+              </p>
+            </div>
+            <p className="shrink-0 text-right text-lg font-bold tabular-nums text-[#202829]">
+              {formatCurrency(row.cnyPrice, "CNY")}
+            </p>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-[#5a6061]">
+            <span>
+              <strong className="font-semibold text-[#202829]">{row.countryLabel}</strong> {row.countryCode}
+            </span>
+            <span>{row.priceText} · {row.currencyCode}</span>
+            <span>1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}</span>
+            <span>{formatRelativeTime(row.fetchedAt)}</span>
+          </div>
+          <a
+            href={row.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-full bg-[#e4e9ea] px-3 text-xs font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
+          >
+            App Store
+            <ExternalLink size={13} />
+          </a>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -441,50 +452,54 @@ function OfficialOfferTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-[#edf0f1]">
-            {rows.map((row) => (
-              <tr key={row.id} className="transition hover:bg-[#f7f9f9]">
-                <td className="px-5 py-4">
-                  <span className="inline-flex items-center gap-2 font-semibold text-[#202829]">
-                    <BrandIcon platform={row.app.displayName} className="h-[17px] w-[17px]" />
-                    {row.app.displayName}
-                  </span>
-                </td>
-                <td className="max-w-[260px] px-5 py-4">
-                  <Link
-                    href={officialDetailHref(`${row.appSlug}__${row.planSlug}`, returnQuery)}
-                    onClick={trackOfficialDetailOpen}
-                    className="block truncate font-semibold text-[#202829] hover:text-[#2f7a4b]"
-                  >
-                    {row.plan.label}
-                  </Link>
-                  <span className="mt-1 block text-xs text-[#5a6061]">{billingPeriodLabel(row.plan.billingPeriod)}</span>
-                </td>
-                <td className="px-5 py-4">
-                  <span className="font-semibold text-[#202829]">{row.countryLabel}</span>
-                  <span className="ml-2 text-xs font-medium text-[#5a6061]">{row.countryCode}</span>
-                </td>
-                <td className="px-5 py-4">
-                  <span className="font-semibold text-[#202829]">{row.priceText}</span>
-                  <span className="ml-2 text-xs text-[#5a6061]">{row.currencyCode}</span>
-                </td>
-                <td className="px-5 py-4 text-lg font-bold text-[#202829]">{formatCurrency(row.cnyPrice, "CNY")}</td>
-                <td className="px-5 py-4 text-[#5a6061]">
-                  1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}
-                </td>
-                <td className="px-5 py-4 text-[#5a6061]">{formatRelativeTime(row.fetchedAt)}</td>
-                <td className="px-5 py-4">
-                  <a
-                    href={row.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full bg-[#e4e9ea] px-3 text-xs font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
-                  >
-                    App Store
-                    <ExternalLink size={13} />
-                  </a>
-                </td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const href = officialDetailHref(`${row.appSlug}__${row.planSlug}`, returnQuery);
+
+              return (
+                <tr key={row.id} className="transition hover:bg-[#f7f9f9]">
+                  <td className="px-5 py-4">
+                    <span className="inline-flex items-center gap-2 font-semibold text-[#202829]">
+                      <BrandIcon platform={row.app.displayName} className="h-[17px] w-[17px]" />
+                      {row.app.displayName}
+                    </span>
+                  </td>
+                  <td className="max-w-[260px] px-5 py-4">
+                    <Link
+                      href={href}
+                      onClick={listDetailClickHandler(href, returnQuery)}
+                      className="block truncate font-semibold text-[#202829] hover:text-[#2f7a4b]"
+                    >
+                      {row.plan.label}
+                    </Link>
+                    <span className="mt-1 block text-xs text-[#5a6061]">{billingPeriodLabel(row.plan.billingPeriod)}</span>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className="font-semibold text-[#202829]">{row.countryLabel}</span>
+                    <span className="ml-2 text-xs font-medium text-[#5a6061]">{row.countryCode}</span>
+                  </td>
+                  <td className="px-5 py-4">
+                    <span className="font-semibold text-[#202829]">{row.priceText}</span>
+                    <span className="ml-2 text-xs text-[#5a6061]">{row.currencyCode}</span>
+                  </td>
+                  <td className="px-5 py-4 text-lg font-bold text-[#202829]">{formatCurrency(row.cnyPrice, "CNY")}</td>
+                  <td className="px-5 py-4 text-[#5a6061]">
+                    1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}
+                  </td>
+                  <td className="px-5 py-4 text-[#5a6061]">{formatRelativeTime(row.fetchedAt)}</td>
+                  <td className="px-5 py-4">
+                    <a
+                      href={row.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full bg-[#e4e9ea] px-3 text-xs font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
+                    >
+                      App Store
+                      <ExternalLink size={13} />
+                    </a>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -555,8 +570,12 @@ function officialDetailHref(id: string, returnQuery: string): string {
   return listDetailHref(`/official-prices/${id}`, returnQuery);
 }
 
-function trackOfficialDetailOpen() {
-  markListReturnIntent(OFFICIAL_PRICE_RETURN_INTENT_KEY);
+function listDetailClickHandler(path: string, returnQuery: string) {
+  return (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!shouldHandleListDetailClick(event)) return;
+    event.preventDefault();
+    window.location.assign(listDetailNavigationHref(path, returnQuery));
+  };
 }
 
 function buildOfficialSearchParams({

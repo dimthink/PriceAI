@@ -22,9 +22,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: siteUrl,
+      lastModified: now,
+      changeFrequency: "daily",
+      priority: 1,
+    },
+    {
+      url: `${siteUrl}/channels`,
       lastModified: data.generatedAt ? new Date(data.generatedAt) : now,
       changeFrequency: "hourly",
-      priority: 1,
+      priority: 0.92,
     },
     {
       url: `${siteUrl}/about`,

@@ -21,6 +21,96 @@ export function stableId(...parts: Array<string | number | null | undefined>): s
   return `id-${(hash >>> 0).toString(36)}`;
 }
 
+const SHOP_API_OFFER_HOSTS = new Set([
+  "catfk.com",
+  "ldxp.cn",
+  "pay.ldxp.cn",
+  "pay.qxvx.cn",
+]);
+
+export function stableOfferInputId(offer: {
+  sourceName?: string | null;
+  sourceStoreName?: string | null;
+  sourceTitle?: string | null;
+  url?: string | null;
+}): string {
+  const shopItemUrl = normalizeShopApiItemOfferUrl(offer.url);
+  if (shopItemUrl) return stableId("shop-api-offer", shopItemUrl);
+
+  return stableId(offer.sourceName, offer.sourceStoreName, offer.sourceTitle, offer.url);
+}
+
+export function publicOfferDedupeKey(offer: {
+  canonicalProductId?: string | null;
+  sourceTitle?: string | null;
+  price?: number | null;
+  url?: string | null;
+}): string {
+  return [
+    offer.canonicalProductId || "",
+    normalizeOfferUrlForDedupe(offer.url),
+    normalizeDedupeText(offer.sourceTitle),
+    normalizeDedupePrice(offer.price),
+  ].join("|");
+}
+
+export function normalizeShopApiItemOfferUrl(value: string | null | undefined): string | null {
+  const parsed = parseUrl(value);
+  if (!parsed) return null;
+
+  const host = normalizeHostname(parsed.hostname);
+  if (!SHOP_API_OFFER_HOSTS.has(host)) return null;
+
+  const pathGoodsKey = parsed.pathname.match(/^\/item\/([^/?#]+)/i)?.[1] || null;
+  const goodsKey = pathGoodsKey || parsed.searchParams.get("commodity") || parsed.searchParams.get("id");
+  if (!goodsKey) return null;
+
+  return `https://${host}/item/${encodeURIComponent(decodeURIComponent(goodsKey))}`;
+}
+
+export function normalizeOfferUrlForDedupe(value: string | null | undefined): string {
+  const shopItemUrl = normalizeShopApiItemOfferUrl(value);
+  if (shopItemUrl) return shopItemUrl;
+
+  const parsed = parseUrl(value);
+  if (!parsed) return String(value || "").trim().replace(/\/+$/, "");
+
+  parsed.hostname = normalizeHostname(parsed.hostname);
+  if (parsed.pathname !== "/") parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function normalizeDedupeText(value: string | null | undefined): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function normalizeDedupePrice(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "";
+  return Number(value).toFixed(4).replace(/\.?0+$/, "");
+}
+
+function parseUrl(value: string | null | undefined): URL | null {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return null;
+
+  try {
+    return new URL(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHostname(value: string): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "");
+}
+
 export function parseTags(value: string | string[] | null | undefined): string[] {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (!value) return [];

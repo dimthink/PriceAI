@@ -1,0 +1,9 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"检查举报弹窗、上传控件、证据展示的可用性、无障碍和移动端表现。"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"检查上传/提交状态、错误保留、证据列表和筛选分页状态不会相互污染。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查公开路径质量、390px 不溢出、lint/build 和禁止模式。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"检查新增字段和输入校验没有类型逃逸。"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"检查最低价口径、公开 RPC、fallback 和 tag 派生一致性。"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"检查新增/修改 API 缓存头和公开报价 API 行为。"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"检查 Cloudflare R2 binding、migration、构建、部署和生产验收。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查跨层数据流闭环和边界错误处理。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查没有重复实现筛选、证据和最低价规则。"}

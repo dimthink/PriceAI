@@ -96,11 +96,13 @@ function buildSuspiciousChecks(items) {
     "google-phone-verification",
     "paypal-phone-verification",
     "phone-verification",
+    "identity-verification",
   ]);
   const aiProductIds = new Set([
     "chatgpt-free-account",
     "chatgpt-plus",
     "chatgpt-plus-recharge",
+    "chatgpt-go",
     "chatgpt-team-business",
     "chatgpt-pro-5x",
     "chatgpt-pro-20x",
@@ -117,6 +119,32 @@ function buildSuspiciousChecks(items) {
     "grok-account",
   ]);
   const checks = [
+    {
+      key: "grok_super_maybe_account_infrastructure",
+      label: "Super Grok 中疑似普号/SSO/邮箱/API 基础设施",
+      expected: "grok-account",
+      filter: (offer) =>
+        offer.nextProductId === "super-grok" &&
+        /(普号|free|sso|长效微软邮箱|账号\s*sso|取邮件\s*api|适合\s*super)/i.test(offer.normalizedTitle) &&
+        !/(月卡|年卡|充值|直充|卡密|激活码|订阅|会员|heavy|3天号|三天号|体验卡|独享成品号)/i.test(offer.normalizedTitle),
+    },
+    {
+      key: "plus_maybe_api_transit_or_credit",
+      label: "Plus 中疑似中转/API/额度/号池",
+      expected: "openai-api-cdk",
+      filter: (offer) =>
+        offer.nextProductId === "chatgpt-plus" &&
+        /(中转\s*api|api\s*中转|中转站|中转余额|api.*额度|api.*余额|号池|总共\s*\d+\s*(刀|美元|美金)|老\s*plus\s*渠道|30天有效期)/i.test(offer.normalizedTitle) &&
+        !/(账号|成品号|首登|直登|月卡|会员|正规充值|官方|ios|内购|pix)/i.test(offer.normalizedTitle),
+    },
+    {
+      key: "other_maybe_chatgpt_go",
+      label: "其他中疑似 ChatGPT Go",
+      expected: "chatgpt-go",
+      filter: (offer) =>
+        offer.nextProductId === "other-product" &&
+        /(?:chatgpt|gpt)\s*go/i.test(offer.normalizedTitle),
+    },
     {
       key: "ai_product_maybe_standalone_verification",
       label: "订阅/账号中疑似独立接码服务",
@@ -162,6 +190,42 @@ function buildSuspiciousChecks(items) {
         /(team|团队|席位|1\.25\s*x|1\.25\s*倍|6\.25\s*x|6\.25\s*倍)/i.test(offer.normalizedTitle),
     },
     {
+      key: "claude_account_maybe_team_seat",
+      label: "Claude 普号中疑似 Team Seat",
+      expected: "claude-team-standard/claude-team-premium",
+      filter: (offer) =>
+        offer.nextProductId === "claude-account" &&
+        /claude|克劳德/i.test(offer.normalizedTitle) &&
+        /(standard\s*seat|premium\s*seat|team|团队|席位|seat|1\.25\s*x|1\.25\s*倍|6\.25\s*x|6\.25\s*倍)/i.test(offer.normalizedTitle),
+    },
+    {
+      key: "claude_account_maybe_max",
+      label: "Claude 普号中疑似 Max 商品",
+      expected: "claude-max-5x/claude-max-20x",
+      filter: (offer) =>
+        offer.nextProductId === "claude-account" &&
+        /claude|克劳德/i.test(offer.normalizedTitle) &&
+        /max|20\s*[x✕✖×]|5\s*[x✕✖×]|20\s*倍|5\s*倍/.test(offer.normalizedTitle),
+    },
+    {
+      key: "claude_account_maybe_verification",
+      label: "Claude 普号中疑似 KYC / 真人验证",
+      expected: "identity-verification",
+      filter: (offer) =>
+        offer.nextProductId === "claude-account" &&
+        /claude|克劳德/i.test(offer.normalizedTitle) &&
+        isStandaloneIdentityVerificationTitle(offer.normalizedTitle),
+    },
+    {
+      key: "claude_account_maybe_recharge",
+      label: "Claude 普号中疑似充值 / 订阅服务",
+      expected: "claude-pro-month",
+      filter: (offer) =>
+        offer.nextProductId === "claude-account" &&
+        /claude|克劳德/i.test(offer.normalizedTitle) &&
+        /(充值|直充|代充|续费|订阅|月卡|卡密|激活码|cdk)/i.test(offer.normalizedTitle),
+    },
+    {
       key: "ultra_maybe_gemini_pro",
       label: "Ultra 中疑似 Gemini Pro",
       expected: "gemini-pro-year/gemini-pro-recharge",
@@ -203,6 +267,29 @@ function buildSuspiciousChecks(items) {
         offer.nextProductId === "other-product" &&
         /(中转\s*api|中转api|api.*兑换码|\d+刀兑换码|codex\s*api.*\d+\s*刀\s*卡|api.*\d+\s*刀\s*卡|官方1:1|api\s*\|)/i.test(offer.normalizedTitle),
     },
+    {
+      key: "token_non_api_review",
+      label: "Token/凭证 非 API 分类候选",
+      expected: "人工确认：账号自带凭证或 API/额度",
+      filter: (offer) =>
+        offer.nextProductId !== "openai-api-cdk" &&
+        /\btoken\b|access[_\s-]*token|refresh[_\s-]*token|令牌|凭证/i.test(offer.normalizedTitle),
+    },
+    {
+      key: "rt_api_credential_review",
+      label: "RT + API/sub2api/JSON 凭证候选",
+      expected: "人工确认：账号交付格式或 API/凭证包",
+      filter: (offer) =>
+        /(^|[^a-z])rt([^a-z]|$)|带rt|含rt|rt号|rt\s*号|rt凭证|rt\s*凭证/i.test(offer.normalizedTitle) &&
+        /(api|中转|额度|余额|号池|sub2api|sub2|cpa|json|兑换码|key|apikey)/i.test(offer.normalizedTitle),
+    },
+    {
+      key: "host_or_site_review",
+      label: "HOST/站点/镜像/中转站候选",
+      expected: "人工确认：API 中转或其他站点服务",
+      filter: (offer) =>
+        /\bhost\b|host口|host号|host池|hostname|镜像站|中转站/i.test(offer.normalizedTitle),
+    },
   ];
 
   return checks.map((check) => {
@@ -218,6 +305,10 @@ function buildSuspiciousChecks(items) {
 }
 
 function isStandaloneVerificationTitle(value) {
+  if (isStandaloneIdentityVerificationTitle(value)) {
+    return true;
+  }
+
   if (/(接码\s*自助|接码自助|手机接码\s*自助|实卡接码|实体卡接码|单次接码|一次性接码|sms\s*接码|短信\s*接码)/i.test(value)) {
     return true;
   }
@@ -231,6 +322,12 @@ function isStandaloneVerificationTitle(value) {
   }
 
   return false;
+}
+
+function isStandaloneIdentityVerificationTitle(value) {
+  if (!/(kyc|人脸验证|真人认证|实名认证|(^|[^a-z])persona([^a-z]|$))/i.test(value)) return false;
+
+  return !/(成品号|成品账号|账号|账户|子号|max|pro|team|plus|会员|订阅|月卡|年卡|已过\s*kyc|以过\s*kyc|免\s*过?\s*kyc|过\s*kyc|已完成\s*kyc)/i.test(value);
 }
 
 function isAccountBundleTitle(value) {
@@ -332,10 +429,24 @@ async function loadCatalogModule() {
       isolatedModules: true,
       esModuleInterop: true,
     },
+  }).outputText.replace(/(["'])\.\/offer-filter-tags\1/g, "$1./offer-filter-tags.mjs$1");
+
+  const offerFilterTagsPath = path.join(repoRoot, "src", "lib", "offer-filter-tags.ts");
+  const offerFilterTagsSource = await readFile(offerFilterTagsPath, "utf8");
+  const offerFilterTagsOutput = ts.transpileModule(offerFilterTagsSource, {
+    fileName: offerFilterTagsPath,
+    compilerOptions: {
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      isolatedModules: true,
+      esModuleInterop: true,
+    },
   }).outputText;
 
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "priceai-catalog-audit-"));
   const tempFile = path.join(tempDir, "catalog.mjs");
+  const offerFilterTagsFile = path.join(tempDir, "offer-filter-tags.mjs");
+  await writeFile(offerFilterTagsFile, offerFilterTagsOutput, "utf8");
   await writeFile(tempFile, output, "utf8");
 
   try {

@@ -477,7 +477,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const existing = existingSourceForSubmission(s, sourceById);
       const suggestedCollector = collectorKindMeta(meta, "suggested_collector_kind");
       const hasValidSourceUrl = Boolean(displayableCanonicalSourceUrlForSubmission(s) || stringMeta(meta, "submitted_url_type") !== "product");
-      if (hasValidSourceUrl && (existing || (probe?.status === "success" && probe.offerCount > 0) || isRunnableCollector(suggestedCollector))) {
+      if (!isDuplicatePendingSubmission(s) && hasValidSourceUrl && (existing || (probe?.status === "success" && probe.offerCount > 0) || isRunnableCollector(suggestedCollector))) {
         ids.add(s.id);
       }
     }
@@ -3140,6 +3140,7 @@ function SubmissionCard({
   const canonicalSourceUrl = displayableCanonicalSourceUrlForSubmission(submission);
   const canonicalSourceStatus = stringMeta(meta, "canonical_source_status");
   const canonicalSourceReason = stringMeta(meta, "canonical_source_reason");
+  const duplicatePendingName = stringMeta(meta, "duplicate_pending_submission_name");
   const submittedUrlType = stringMeta(meta, "submitted_url_type");
   const parseError = typeof meta.parse_error === "string" ? meta.parse_error : null;
   const productPreview = submissionProductPreviewFromMeta(meta);
@@ -3147,7 +3148,8 @@ function SubmissionCard({
   const hasSuccessfulProbe = currentProbe?.status === "success" && currentProbe.offerCount > 0;
   const hasKnownCollector = isRunnableCollector(suggestedCollector);
   const hasValidSourceUrl = Boolean(canonicalSourceUrl || submittedUrlType !== "product");
-  const canApprove = hasValidSourceUrl && Boolean(existingSource || hasSuccessfulProbe || hasKnownCollector);
+  const duplicatePending = Boolean(duplicatePendingName || stringMeta(meta, "duplicate_pending_submission_id"));
+  const canApprove = !duplicatePending && hasValidSourceUrl && Boolean(existingSource || hasSuccessfulProbe || hasKnownCollector);
 
   const [mode, setMode] = useState<"idle" | "approve" | "todo" | "reject">("idle");
   const [name, setName] = useState(submission.name || suggestedName || submission.parsedTitle || "");
@@ -3242,6 +3244,7 @@ function SubmissionCard({
               {platform && <Badge>{platform}</Badge>}
               {productType && <Badge>{productType}</Badge>}
               {existingSource && <Badge tone="info">已有源: {existingSource.name}</Badge>}
+              {duplicatePending && <Badge tone="warn">重复待审</Badge>}
               {parseError && <Badge tone="warn">解析失败</Badge>}
             </div>
           </div>
@@ -3312,6 +3315,7 @@ function SubmissionCard({
             <p><span className="font-medium text-[#2d3435]">初步判断：</span>{supportReason || "已完成基础链接解析。"}</p>
             {canonicalSourceReason && <p><span className="font-medium text-[#2d3435]">渠道解析：</span>{canonicalSourceReason}</p>}
             {existingSource && <p><span className="font-medium text-[#2d3435]">合并目标：</span>{existingSource.name}</p>}
+            {duplicatePending && <p><span className="font-medium text-[#2d3435]">重复待审：</span>{duplicatePendingName || "已有更新记录"}</p>}
           </div>
 
           {productPreview && <SubmissionProductPreviewPanel preview={productPreview} />}
@@ -3856,18 +3860,9 @@ function OfferFeedbackList({
                     <p className="font-semibold text-[#2d3435]">证据</p>
                     {item.evidenceText ? <p className="mt-1 whitespace-pre-wrap break-words">{item.evidenceText}</p> : null}
                     {item.evidenceUrls.length ? (
-                      <div className="mt-1 space-y-1">
+                      <div className="mt-2 space-y-2">
                         {item.evidenceUrls.map((url) => (
-                          <a
-                            key={url}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex max-w-full items-center gap-1 break-all text-[#47657a] hover:text-[#2d3435]"
-                          >
-                            <span className="break-all">{url}</span>
-                            <ExternalLink size={12} className="shrink-0" />
-                          </a>
+                          <FeedbackEvidenceLink key={url} url={url} />
                         ))}
                       </div>
                     ) : null}
@@ -4137,6 +4132,46 @@ function FeedbackFact({
       <p className={`mt-1 truncate text-sm ${strong ? "font-semibold" : "font-medium"} ${toneClass}`}>{value}</p>
     </div>
   );
+}
+
+function FeedbackEvidenceLink({ url }: { url: string }) {
+  if (isFeedbackEvidenceImageReference(url)) {
+    const imageUrl = `/api/admin/feedback-evidence?ref=${encodeURIComponent(url)}`;
+    return (
+      <a
+        href={imageUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group inline-flex max-w-full items-center gap-3 rounded-md bg-white px-2 py-2 text-[#47657a] ring-1 ring-[#adb3b4]/20 transition hover:text-[#2d3435] hover:ring-[#adb3b4]/35"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt="用户上传的图片证据"
+          className="h-16 w-24 shrink-0 rounded object-cover ring-1 ring-[#adb3b4]/20"
+          loading="lazy"
+        />
+        <span className="min-w-0 truncate text-xs font-semibold">图片证据</span>
+        <ExternalLink size={12} className="shrink-0 opacity-70 transition group-hover:opacity-100" />
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex max-w-full items-center gap-1 break-all text-[#47657a] hover:text-[#2d3435]"
+    >
+      <span className="break-all">{url}</span>
+      <ExternalLink size={12} className="shrink-0" />
+    </a>
+  );
+}
+
+function isFeedbackEvidenceImageReference(url: string): boolean {
+  return url.startsWith("r2://feedback-evidence/");
 }
 
 function EmptyState({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
@@ -7687,15 +7722,20 @@ function buildCollectorContext(submission: ChannelSubmission): string {
 }
 
 function existingSourceForSubmission(submission: ChannelSubmission, sourceById: Map<string, Source>): Source | null {
-  const sourceId = suggestedSourceIdForSubmission(submission);
+  const meta = submission.parsedMeta || {};
+  const sourceId = stringMeta(meta, "existing_source_id") || suggestedSourceIdForSubmission(submission);
   if (!sourceId) return null;
 
-  const meta = submission.parsedMeta || {};
   if (stringMeta(meta, "submitted_url_type") === "product" && !displayableCanonicalSourceUrlForSubmission(submission)) {
     return null;
   }
 
   return sourceById.get(sourceId) || null;
+}
+
+function isDuplicatePendingSubmission(submission: ChannelSubmission): boolean {
+  const meta = submission.parsedMeta || {};
+  return Boolean(stringMeta(meta, "duplicate_pending_submission_id"));
 }
 
 function reparseFeedbackText(submission: ChannelSubmission): string {

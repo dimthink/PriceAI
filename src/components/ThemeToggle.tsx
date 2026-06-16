@@ -9,7 +9,7 @@ type ThemeMode = "light" | "dark";
 type HeaderActionLabelFrom = "sm" | "2xl" | "never";
 
 function getCompactButtonClassName(labelFrom: HeaderActionLabelFrom) {
-  if (labelFrom === "never") return "h-10 w-10 gap-0 px-0";
+  if (labelFrom === "never") return "h-11 w-11 gap-0 px-0";
   return labelFrom === "2xl"
     ? "h-9 w-9 gap-0 px-0 2xl:h-10 2xl:w-auto 2xl:gap-2 2xl:px-3"
     : "h-9 w-9 gap-0 px-0 sm:h-10 sm:w-auto sm:gap-2 sm:px-3";

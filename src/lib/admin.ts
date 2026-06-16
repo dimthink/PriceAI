@@ -10,6 +10,7 @@ import {
 } from "./collector-registry";
 import { pruneOperationalLogs } from "./operational-logs";
 import { safeFetch } from "./safe-fetch";
+import { isFeedbackEvidenceReference } from "./feedback-evidence";
 import { getSupabaseServerClient } from "./supabase";
 import type {
   ChannelSubmission,
@@ -29,12 +30,13 @@ import type {
   Source,
   SubmissionStatus,
 } from "./types";
-import { normalizeStatus, parseTags, slugify, stableId } from "./utils";
+import { normalizeStatus, parseTags, slugify, stableId, stableOfferInputId } from "./utils";
 
 export const ADMIN_SOURCE_HIDE_REASON_PREFIX = "管理员手动下架渠道";
 export const ADMIN_OFFER_HIDE_REASON_PREFIX = "管理员手动下架报价";
 export const ADMIN_MANUAL_HIDE_REASON_PREFIX = "管理员手动下架";
 const UNCHANGED_OFFER_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const RAW_OFFER_WRITE_CHUNK_SIZE = 5;
 
 export type RawOfferUpsertResult = {
   receivedCount: number;
@@ -77,6 +79,12 @@ type ShopGoodsLookupResult = {
   error?: string | null;
 };
 
+type SubmissionParseContext = {
+  submissionId?: string | null;
+  submittedName?: string | null;
+  submittedAt?: string | null;
+};
+
 export function getAdminPasswordFromRequest(request: Request): string | null {
   const header = request.headers.get("x-admin-password");
   if (header) return header;
@@ -110,6 +118,9 @@ export async function upsertSource(input: {
 
   const normalizedEntryUrl = normalizeSourceEntryUrl(input.entryUrl) || input.entryUrl;
   let id = input.id || slugify(input.name || normalizedEntryUrl);
+  const existingByEntryUrl = await findSourceRowByEntryUrl(normalizedEntryUrl);
+  if (existingByEntryUrl?.id) id = String(existingByEntryUrl.id);
+
   const { data: existing, error: existingError } = await supabase
     .from("sources")
     .select("*")
@@ -117,12 +128,8 @@ export async function upsertSource(input: {
     .maybeSingle();
   if (existingError) throw existingError;
 
-  let matchedExisting = existing;
-  const matchedByEntryUrl = !matchedExisting;
-  if (!matchedExisting) {
-    matchedExisting = await findSourceRowByEntryUrl(normalizedEntryUrl);
-    if (matchedExisting?.id) id = String(matchedExisting.id);
-  }
+  const matchedExisting = existing || existingByEntryUrl;
+  const matchedByEntryUrl = Boolean(existingByEntryUrl?.id);
   const sourceName = matchedByEntryUrl && matchedExisting?.name
     ? String(matchedExisting.name)
     : input.name;
@@ -362,7 +369,7 @@ export async function upsertRawOffers(
 
   await ensureCanonicalProducts(supabase);
 
-  const rows = [];
+  const collectedRows = [];
   const collectionMethod = options.collectionMethod || "browser";
   const sourceCache = new Map<string, Source>();
   const checkedAt = normalizedDateString(options.checkedAt) || new Date().toISOString();
@@ -416,9 +423,10 @@ export async function upsertRawOffers(
       freshnessStatus: trustFields.freshness_status,
     });
     row.updated_at = checkedAt;
-    rows.push(row);
+    collectedRows.push(row);
   }
 
+  const rows = dedupeRawOfferRowsById(collectedRows);
   if (!rows.length) return { receivedCount: 0, writtenCount: 0, unchangedCount: 0, refreshedCount: 0 };
 
   const manualHiddenById = await getManualHiddenOffersById(rows.map((row) => String(row.id)));
@@ -445,8 +453,8 @@ export async function upsertRawOffers(
     }
   }
 
-  if (changedRows.length) {
-    const { error } = await supabase.from("raw_offers").upsert(changedRows);
+  for (const rowChunk of chunks(changedRows, RAW_OFFER_WRITE_CHUNK_SIZE)) {
+    const { error } = await supabase.from("raw_offers").upsert(rowChunk);
     if (error) throw error;
   }
 
@@ -512,6 +520,39 @@ function shouldRefreshUnchangedOffer(next: Record<string, unknown>, existing?: R
   return nextTime - existingTime >= UNCHANGED_OFFER_REFRESH_INTERVAL_MS;
 }
 
+function dedupeRawOfferRowsById(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const byId = new Map<string, Record<string, unknown>>();
+
+  for (const row of rows) {
+    const id = String(row.id || "");
+    if (!id) continue;
+    const existing = byId.get(id);
+    byId.set(id, existing ? preferredRawOfferRow(existing, row) : row);
+  }
+
+  return Array.from(byId.values());
+}
+
+function preferredRawOfferRow(left: Record<string, unknown>, right: Record<string, unknown>): Record<string, unknown> {
+  const statusDiff = offerStatusRank(right.status) - offerStatusRank(left.status);
+  if (statusDiff > 0) return right;
+  if (statusDiff < 0) return left;
+
+  const rightTitleLength = String(right.source_title || "").length;
+  const leftTitleLength = String(left.source_title || "").length;
+  if (rightTitleLength > leftTitleLength) return right;
+
+  return left;
+}
+
+function offerStatusRank(value: unknown): number {
+  if (value === "in_stock") return 4;
+  if (value === "low_stock") return 3;
+  if (value === "unknown") return 2;
+  if (value === "out_of_stock") return 1;
+  return 0;
+}
+
 async function refreshSeenRawOfferRows(rows: Array<Record<string, unknown>>): Promise<number> {
   const supabase = getSupabaseServerClient();
   if (!supabase || !rows.length) return 0;
@@ -539,7 +580,7 @@ async function refreshSeenRawOfferRows(rows: Array<Record<string, unknown>>): Pr
 
   let refreshedCount = 0;
   for (const group of groups.values()) {
-    for (const ids of chunks(group.ids, 100)) {
+    for (const ids of chunks(group.ids, RAW_OFFER_WRITE_CHUNK_SIZE)) {
       const { count, error } = await supabase
         .from("raw_offers")
         .update(group.update, { count: "exact" })
@@ -703,7 +744,7 @@ async function ensureCanonicalProductsOnce(supabase: NonNullable<ReturnType<type
 }
 
 export function rawOfferInputId(offer: Pick<OfferInput, "sourceName" | "sourceStoreName" | "sourceTitle" | "url">): string {
-  return stableId(offer.sourceName, offer.sourceStoreName, offer.sourceTitle, offer.url);
+  return stableOfferInputId(offer);
 }
 
 export async function recordSourceCollectionResult(input: {
@@ -1083,7 +1124,7 @@ function sanitizeFeedbackEvidenceUrls(value: string[]): string[] {
     .filter((item) => {
       try {
         const url = new URL(item);
-        return url.protocol === "http:" || url.protocol === "https:";
+        return url.protocol === "http:" || url.protocol === "https:" || isFeedbackEvidenceReference(item);
       } catch {
         return false;
       }
@@ -1141,7 +1182,7 @@ const MAX_FETCH_BYTES = 256 * 1024;
 const FETCH_TIMEOUT_MS = 5000;
 const SHOP_API_TIMEOUT_MS = 8000;
 const CURRENCY_PRICE_RE = /[¥￥]\s*\d+(?:\.\d{1,2})?/;
-export async function parseSubmissionMetadata(rawUrl: string): Promise<{
+export async function parseSubmissionMetadata(rawUrl: string, context: SubmissionParseContext = {}): Promise<{
   url: string;
   parsedTitle: string | null;
   parsedMeta: Record<string, unknown>;
@@ -1160,9 +1201,10 @@ export async function parseSubmissionMetadata(rawUrl: string): Promise<{
   }
 
   meta.domain = parsed.host;
-  Object.assign(meta, analyzeSubmissionUrl(parsed, null));
+  const initialSourceNameHint = context.submittedName || null;
+  Object.assign(meta, analyzeSubmissionUrl(parsed, initialSourceNameHint));
 
-  Object.assign(meta, await resolveSubmittedSource(parsed, null));
+  Object.assign(meta, await resolveSubmittedSource(parsed, initialSourceNameHint, null, context));
   parsedTitle = submittedProductTitleFromMeta(meta);
   if (parsedTitle) {
     Object.assign(meta, classifySubmissionTitleMeta(parsedTitle));
@@ -1183,11 +1225,11 @@ export async function parseSubmissionMetadata(rawUrl: string): Promise<{
     meta.http_status = response.status;
     if (!response.ok) {
       meta.parse_error = `HTTP ${response.status}`;
-      return { url: parsed.toString(), parsedTitle, parsedMeta: meta };
+      return { url: parsed.toString(), parsedTitle, parsedMeta: await enrichSubmissionReviewMeta(meta, context) };
     }
     const reader = response.body?.getReader();
     if (!reader) {
-      return { url: parsed.toString(), parsedTitle, parsedMeta: meta };
+      return { url: parsed.toString(), parsedTitle, parsedMeta: await enrichSubmissionReviewMeta(meta, context) };
     }
 
     const decoder = new TextDecoder("utf-8", { fatal: false });
@@ -1217,7 +1259,7 @@ export async function parseSubmissionMetadata(rawUrl: string): Promise<{
     if (parsedTitle) {
       Object.assign(meta, classifySubmissionTitleMeta(parsedTitle));
       if (!stringValue(meta.canonical_source_url)) {
-        Object.assign(meta, await resolveSubmittedSource(parsed, parsedTitle, html));
+        Object.assign(meta, await resolveSubmittedSource(parsed, parsedTitle, html, context));
       }
     }
     Object.assign(meta, refineSubmissionCollectorFromHtml(parsed, html, meta));
@@ -1227,7 +1269,7 @@ export async function parseSubmissionMetadata(rawUrl: string): Promise<{
     clearTimeout(timer);
   }
 
-  return { url: parsed.toString(), parsedTitle, parsedMeta: meta };
+  return { url: parsed.toString(), parsedTitle, parsedMeta: await enrichSubmissionReviewMeta(meta, context) };
 }
 
 function classifySubmissionTitleMeta(title: string): Record<string, unknown> {
@@ -1284,18 +1326,19 @@ async function resolveSubmittedSource(
   parsed: URL,
   parsedTitle: string | null,
   html: string | null = null,
+  context: SubmissionParseContext = {},
 ): Promise<Record<string, unknown>> {
   const host = normalizeHostname(parsed.hostname);
   const baseMeta = analyzeSubmissionUrl(parsed, parsedTitle);
   const knownSourceMeta = await resolveSourceFromKnownOffer(parsed, parsedTitle, baseMeta);
   if (knownSourceMeta) return knownSourceMeta;
 
-  if ((host !== "pay.ldxp.cn" && host !== "pay.qxvx.cn") || !getGoodsKey(parsed.pathname) || getShopToken(parsed.pathname)) {
+  const goodsKey = getSubmittedGoodsKey(parsed);
+  if ((host !== "pay.ldxp.cn" && host !== "pay.qxvx.cn") || !goodsKey || getShopToken(parsed.pathname)) {
     return baseMeta;
   }
 
   const baseUrl = `${parsed.protocol}//${parsed.host}`;
-  const goodsKey = getGoodsKey(parsed.pathname) || "";
   const tokenFromHtml = getShopTokenFromHtml(html);
   const goodsLookup = tokenFromHtml
     ? null
@@ -1304,6 +1347,9 @@ async function resolveSubmittedSource(
   const productMeta = goodsLookup ? shopGoodsLookupMeta(goodsLookup) : {};
   const sourceToken = tokenFromHtml || tokenFromApi;
   if (!sourceToken) {
+    const peerSourceMeta = await resolveSourceFromPeerSubmission(parsed, parsedTitle, baseMeta, productMeta, context);
+    if (peerSourceMeta) return peerSourceMeta;
+
     const detail = goodsLookup?.apiMessage || goodsLookup?.error;
     return {
       ...baseMeta,
@@ -1329,6 +1375,230 @@ async function resolveSubmittedSource(
     suggested_source_name: suggestedName,
     suggested_source_id: inferSubmittedSourceId(host, suggestedName, sourceToken),
   };
+}
+
+async function enrichSubmissionReviewMeta(
+  meta: Record<string, unknown>,
+  context: SubmissionParseContext = {},
+): Promise<Record<string, unknown>> {
+  const next = { ...meta };
+  const canonicalSourceUrl = stringValue(meta.canonical_source_url);
+  const reviewUrl = canonicalSourceUrl || stringValue(meta.normalized_url);
+  delete next.matched_existing_source;
+  delete next.existing_source_id;
+  delete next.existing_source_name;
+  delete next.duplicate_pending_submission_id;
+  delete next.duplicate_pending_submission_name;
+  delete next.duplicate_pending_submission_url;
+  delete next.duplicate_pending_reason;
+
+  if (canonicalSourceUrl) {
+    const existing = await findSourceRowByEntryUrl(canonicalSourceUrl);
+    if (existing?.id) {
+      next.matched_existing_source = true;
+      next.existing_source_id = String(existing.id);
+      next.existing_source_name = existing.name ? String(existing.name) : String(existing.id);
+    }
+  }
+
+  if (!reviewUrl) return next;
+
+  const duplicate = await findNewerPendingSubmissionByCanonicalUrl(reviewUrl, context);
+  if (duplicate) {
+    next.duplicate_pending_submission_id = duplicate.id;
+    next.duplicate_pending_submission_name = duplicate.name || duplicate.parsedTitle || duplicate.suggestedSourceName || duplicate.url;
+    next.duplicate_pending_submission_url = duplicate.url;
+    next.duplicate_pending_reason = "same_canonical_source_url";
+  }
+
+  return next;
+}
+
+async function findNewerPendingSubmissionByCanonicalUrl(
+  canonicalSourceUrl: string,
+  context: SubmissionParseContext = {},
+): Promise<{
+  id: string;
+  url: string;
+  name: string | null;
+  parsedTitle: string | null;
+  suggestedSourceName: string | null;
+  createdAt: string | null;
+} | null> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+
+  const normalizedCanonical = normalizeSourceEntryUrl(canonicalSourceUrl);
+  const normalizedSubmission = normalizeSubmissionUrlForReview(canonicalSourceUrl);
+  if (!normalizedCanonical && !normalizedSubmission) return null;
+
+  const submittedAt = context.submittedAt ? Date.parse(context.submittedAt) : NaN;
+  const { data, error } = await supabase
+    .from("channel_submissions")
+    .select("id,url,name,parsed_title,parsed_meta,created_at,status")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(300);
+  if (error) throw error;
+
+  for (const row of data || []) {
+    if (context.submissionId && row.id === context.submissionId) continue;
+
+    const rowMeta = row.parsed_meta && typeof row.parsed_meta === "object" && !Array.isArray(row.parsed_meta)
+      ? row.parsed_meta as Record<string, unknown>
+      : {};
+    const rowCanonicalUrl = stringValue(rowMeta.canonical_source_url) || stringValue(row.url);
+    if (!rowCanonicalUrl) continue;
+    const normalizedRowCanonical = normalizeSourceEntryUrl(rowCanonicalUrl);
+    const normalizedRowSubmission = normalizeSubmissionUrlForReview(rowCanonicalUrl);
+    const canonicalMatches = Boolean(normalizedCanonical && normalizedRowCanonical === normalizedCanonical);
+    const submissionMatches = Boolean(normalizedSubmission && normalizedRowSubmission === normalizedSubmission);
+    if (!canonicalMatches && !submissionMatches) {
+      continue;
+    }
+
+    const rowCreatedAt = row.created_at ? String(row.created_at) : null;
+    const rowCreatedMs = rowCreatedAt ? Date.parse(rowCreatedAt) : NaN;
+    if (Number.isFinite(submittedAt) && Number.isFinite(rowCreatedMs) && rowCreatedMs <= submittedAt) continue;
+
+    return {
+      id: String(row.id),
+      url: String(row.url || ""),
+      name: row.name ? String(row.name) : null,
+      parsedTitle: row.parsed_title ? String(row.parsed_title) : null,
+      suggestedSourceName: stringValue(rowMeta.suggested_source_name),
+      createdAt: rowCreatedAt,
+    };
+  }
+
+  return null;
+}
+
+function normalizeSubmissionUrlForReview(value: string | null | undefined): string | null {
+  const parsed = safeUrl(value);
+  if (!parsed) return null;
+
+  const host = normalizeHostname(parsed.hostname);
+  const goodsKey = getSubmittedGoodsKey(parsed);
+  if (goodsKey && isSharedShopApiPlatformHost(host)) {
+    return `${parsed.protocol}//${host}/item/${encodeURIComponent(goodsKey)}`;
+  }
+
+  parsed.hostname = host;
+  parsed.hash = "";
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+  return parsed.toString().replace(/\/$/, parsed.pathname === "/" ? "/" : "");
+}
+
+async function resolveSourceFromPeerSubmission(
+  parsed: URL,
+  parsedTitle: string | null,
+  baseMeta: Record<string, unknown>,
+  productMeta: Record<string, unknown>,
+  context: SubmissionParseContext,
+): Promise<Record<string, unknown> | null> {
+  const submittedName = context.submittedName || parsedTitle;
+  if (!submittedName || isGenericSubmissionSourceName(submittedName)) return null;
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+
+  const host = normalizeHostname(parsed.hostname);
+  const submittedAt = context.submittedAt ? Date.parse(context.submittedAt) : NaN;
+  const since = Number.isFinite(submittedAt)
+    ? new Date(submittedAt - 3 * 24 * 60 * 60 * 1000).toISOString()
+    : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("channel_submissions")
+    .select("id,url,name,parsed_title,parsed_meta,created_at,status")
+    .eq("status", "pending")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(300);
+  if (error) throw error;
+
+  for (const row of data || []) {
+    if (context.submissionId && row.id === context.submissionId) continue;
+
+    const rowMeta = row.parsed_meta && typeof row.parsed_meta === "object" && !Array.isArray(row.parsed_meta)
+      ? row.parsed_meta as Record<string, unknown>
+      : {};
+    const sourceUrl = stringValue(rowMeta.canonical_source_url) || stringValue(row.url);
+    const source = safeUrl(sourceUrl);
+    if (!source || normalizeHostname(source.hostname) !== host) continue;
+
+    const shopToken = getShopToken(source.pathname);
+    if (!shopToken) continue;
+
+    const rowCreatedAt = row.created_at ? Date.parse(String(row.created_at)) : NaN;
+    if (Number.isFinite(submittedAt) && Number.isFinite(rowCreatedAt)) {
+      const diffMs = Math.abs(submittedAt - rowCreatedAt);
+      if (diffMs > 3 * 24 * 60 * 60 * 1000) continue;
+    }
+
+    if (!matchesPeerSubmissionName(submittedName, [
+      stringValue(row.name),
+      stringValue(row.parsed_title),
+      stringValue(rowMeta.suggested_source_name),
+    ])) {
+      continue;
+    }
+
+    const canonicalSourceUrl = normalizeSourceEntryUrl(source.toString()) || source.toString();
+    const sourceName =
+      stringValue(rowMeta.suggested_source_name) ||
+      stringValue(row.name) ||
+      inferSubmittedSourceName(host, parsedTitle, shopToken);
+
+    return {
+      ...baseMeta,
+      ...productMeta,
+      submitted_url_type: "product",
+      canonical_source_status: "resolved",
+      canonical_source_reason: "商品接口未返回店铺入口，已按同名待审店铺链接补齐渠道入口。",
+      canonical_source_url: canonicalSourceUrl,
+      shop_token: shopToken,
+      suggested_source_name: sourceName,
+      suggested_source_id: inferSubmittedSourceId(host, sourceName, shopToken),
+      duplicate_submission_id: String(row.id),
+      duplicate_submission_reason: "same_pending_shop_submission",
+    };
+  }
+
+  return null;
+}
+
+function matchesPeerSubmissionName(submittedName: string, candidates: Array<string | null>): boolean {
+  const normalized = normalizeSubmissionNameForMatch(submittedName);
+  if (!normalized || normalized.length < 2) return false;
+  return candidates.some((candidate) => normalizeSubmissionNameForMatch(candidate) === normalized);
+}
+
+function normalizeSubmissionNameForMatch(value: string | null): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "")
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fa5]+/gu, "")
+    .trim();
+}
+
+function isGenericSubmissionSourceName(value: string): boolean {
+  const normalized = normalizeSubmissionNameForMatch(value);
+  return new Set([
+    "ai",
+    "openai",
+    "chatgpt",
+    "gpt",
+    "gptplus",
+    "plus",
+    "claude",
+    "gemini",
+    "账号",
+    "卡网",
+    "商店",
+    "小店",
+  ]).has(normalized);
 }
 
 async function resolveSourceFromKnownOffer(
@@ -1424,8 +1694,7 @@ function inferSubmittedSourceName(host: string, parsedTitle: string | null, shop
 
 function getSubmittedUrlType(parsed: URL): "source" | "product" | "unknown" {
   if (getShopToken(parsed.pathname)) return "source";
-  if (getGoodsKey(parsed.pathname)) return "product";
-  if (parsed.searchParams.has("commodity") || parsed.searchParams.has("id")) return "product";
+  if (getSubmittedGoodsKey(parsed)) return "product";
   if (parsed.pathname.match(/\/products\/[^/?#]+/i)) return "product";
   return parsed.pathname === "/" || parsed.pathname === "" ? "source" : "unknown";
 }
@@ -1455,6 +1724,16 @@ function getShopToken(pathname: string): string | null {
 function getGoodsKey(pathname: string): string | null {
   const match = pathname.match(/\/item\/([^/?#]+)/i);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function getSubmittedGoodsKey(parsed: URL): string | null {
+  const raw = getGoodsKey(parsed.pathname) || parsed.searchParams.get("commodity") || parsed.searchParams.get("id");
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function getShopTokenFromHtml(html: string | null): string | null {
@@ -1753,11 +2032,19 @@ export async function createSubmission(input: {
   let parsedTitle: string | null = null;
   let parsedMeta: Record<string, unknown> = {};
   try {
-    const parsed = await parseSubmissionMetadata(normalizedUrl);
+    const parsed = await parseSubmissionMetadata(normalizedUrl, {
+      submittedName: input.name?.trim() || null,
+    });
     parsedTitle = parsed.parsedTitle || submittedProductTitleFromMeta(parsed.parsedMeta);
     parsedMeta = parsed.parsedMeta;
   } catch (error) {
     parsedMeta = buildFallbackSubmissionMeta(normalizedUrl, error);
+  }
+
+  const canonicalSourceUrl = stringValue(parsedMeta.canonical_source_url) || stringValue(parsedMeta.normalized_url) || normalizedUrl;
+  const duplicatePending = await findNewerPendingSubmissionByCanonicalUrl(canonicalSourceUrl);
+  if (duplicatePending) {
+    throw new Error("该渠道已有待审记录，请勿重复提交。");
   }
 
   const id = stableId("submission", normalizedUrl, ip || "", Date.now().toString());
@@ -2051,7 +2338,11 @@ export async function reparseSubmission(id: string): Promise<ChannelSubmission> 
   let parsedTitle: string | null = null;
   let parsedMeta: Record<string, unknown> = {};
   try {
-    const parsed = await parseSubmissionMetadata(submission.url);
+    const parsed = await parseSubmissionMetadata(submission.url, {
+      submissionId: submission.id,
+      submittedName: submission.name,
+      submittedAt: submission.createdAt,
+    });
     parsedTitle = parsed.parsedTitle || submittedProductTitleFromMeta(parsed.parsedMeta);
     parsedMeta = parsed.parsedMeta;
   } catch (parseError) {
@@ -2121,7 +2412,7 @@ export async function recordSubmissionProbeResult(
   const resolvedSourceMeta = success
     ? resolveSubmissionSourceFromProbeResult(submission, result, collectorKind)
     : {};
-  const nextMeta = {
+  const nextMeta = await enrichSubmissionReviewMeta({
     ...submission.parsedMeta,
     ...resolvedSourceMeta,
     probe_result: result,
@@ -2130,7 +2421,7 @@ export async function recordSubmissionProbeResult(
     review_stage: success ? "ready_to_approve" : knownCollector ? "known_collector_probe_failed" : "needs_collector_review",
     support_status: supportStatus,
     support_reason: supportReason,
-  };
+  });
 
   const { data: updated, error: updateError } = await supabase
     .from("channel_submissions")
@@ -2210,12 +2501,21 @@ export async function approveSubmission(
   const submission = mapSubmissionRow(row);
   const manualSourceUrl = normalizeOverrideSourceUrl(overrides.sourceUrl);
   const canonicalSourceUrl = manualSourceUrl || getCanonicalSourceUrl(submission.parsedMeta) || submission.url;
+  const duplicatePending = await findNewerPendingSubmissionByCanonicalUrl(canonicalSourceUrl, {
+    submissionId: submission.id,
+    submittedName: submission.name,
+    submittedAt: submission.createdAt,
+  });
+  if (duplicatePending) {
+    throw new Error(`该渠道已有更新的待审记录：${duplicatePending.name || duplicatePending.parsedTitle || duplicatePending.url}。请处理主记录或拒绝重复提交。`);
+  }
   const baseUrl = deriveBaseUrl(canonicalSourceUrl);
   const suggestedMethod = getSuggestedCollectionMethod(submission.parsedMeta);
   const suggestedCollectorKind = getSuggestedCollectorKind(submission.parsedMeta);
   const selectedCollectorKind = overrides.collectorKind || suggestedCollectorKind;
   const suggestedId = getSuggestedSourceId(submission.parsedMeta);
-  const existingSource = await findExistingSourceForApproval(suggestedId, canonicalSourceUrl);
+  const existingSourceId = getExistingSourceId(submission.parsedMeta);
+  const existingSource = await findExistingSourceForApproval(existingSourceId || suggestedId, canonicalSourceUrl);
   const fallbackName =
     overrides.name?.trim() ||
     submission.name ||
@@ -2361,11 +2661,11 @@ async function getSourceById(id: string): Promise<Source | null> {
 }
 
 async function findExistingSourceForApproval(suggestedId: string | null, sourceUrl: string): Promise<Source | null> {
-  const byId = suggestedId ? await getSourceById(suggestedId) : null;
-  if (byId) return byId;
-
   const byEntryUrl = await findSourceRowByEntryUrl(sourceUrl);
-  return byEntryUrl ? mapSourceRow(byEntryUrl) : null;
+  if (byEntryUrl) return mapSourceRow(byEntryUrl);
+
+  const byId = suggestedId ? await getSourceById(suggestedId) : null;
+  return byId;
 }
 
 function getProbeOffersForImport(
@@ -2473,6 +2773,12 @@ function getSuggestedSourceName(meta: Record<string, unknown>): string | null {
 function getSuggestedSourceId(meta: Record<string, unknown>): string | null {
   return typeof meta.suggested_source_id === "string" && meta.suggested_source_id.trim()
     ? meta.suggested_source_id.trim()
+    : null;
+}
+
+function getExistingSourceId(meta: Record<string, unknown>): string | null {
+  return typeof meta.existing_source_id === "string" && meta.existing_source_id.trim()
+    ? meta.existing_source_id.trim()
     : null;
 }
 

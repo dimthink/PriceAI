@@ -102,11 +102,29 @@ export type ProductGroup = CanonicalProduct & {
   lowestPriceLabel: string;
   lowestPriceTone: "good" | "warn" | "info" | "muted" | "danger";
   lowestOffer: RawOffer | null;
+  warrantyLowestPrice: number | null;
+  warrantyLowestOffer: RawOffer | null;
+  warrantyOfferCount: number;
   latestSeenAt: string | null;
   anomalyFlags: string[];
 };
 
-export type ExplorerProductSummary = Omit<ProductGroup, "offers"> & {
+export type PublicOfferSummary = Pick<
+  RawOffer,
+  | "id"
+  | "sourceId"
+  | "sourceName"
+  | "sourceStoreName"
+  | "sourceTitle"
+  | "price"
+  | "currency"
+  | "status"
+  | "url"
+>;
+
+export type ExplorerProductSummary = Omit<ProductGroup, "offers" | "lowestOffer" | "warrantyLowestOffer"> & {
+  lowestOffer: PublicOfferSummary | null;
+  warrantyLowestOffer: PublicOfferSummary | null;
   offerSearchText: string;
 };
 

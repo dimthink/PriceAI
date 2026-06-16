@@ -53,6 +53,7 @@ export const platformPageConfigs = {
     productIds: [
       "chatgpt-free-account",
       "chatgpt-plus",
+      "chatgpt-go",
       "chatgpt-team-business",
       "chatgpt-pro-5x",
       "chatgpt-pro-20x",
@@ -82,6 +83,11 @@ export const platformPageConfigs = {
         title: "Plus",
         text: "最常见的月度会员，渠道标题里可能写直充、代充、Plus CDK、卡密、成品号、账号购买或自助开通。",
         icon: "check",
+      },
+      {
+        title: "Go",
+        text: "较低档的 ChatGPT 订阅权益，渠道里常见 Go 月卡、年卡、激活码、iOS 内购或直充。",
+        icon: "zap",
       },
       {
         title: "Pro",
@@ -262,11 +268,18 @@ export const platformPageConfigs = {
     platform: "Claude",
     iconPlatform: "Claude",
     pageUrl: "https://priceai.cc/platforms/claude",
-    productIds: ["claude-pro-month", "claude-max-5x", "claude-max-20x", "claude-account"],
+    productIds: [
+      "claude-pro-month",
+      "claude-team-standard",
+      "claude-team-premium",
+      "claude-max-5x",
+      "claude-max-20x",
+      "claude-account",
+    ],
     badge: "Claude 平台价格页",
     title: "Claude Pro 与 Max 订阅渠道价格",
     intro:
-      "这里聚合 Claude Pro、Claude Max 5x、Claude Max 20x、Claude 普号 / 兑换号等报价。你可以先看有货最低价，再结合官方参考价和第三方渠道风险判断。",
+      "这里聚合 Claude Pro、Claude Team Standard、Claude Team Premium、Claude Max 5x、Claude Max 20x、Claude 普号 / 兑换号等报价。你可以先看有货最低价，再结合官方参考价和第三方渠道风险判断。",
     primaryHref: "/?platform=Claude&stock=available",
     primaryLabel: "查看 Claude 有货报价",
     secondaryHref: "/?platform=Claude&scope=offers&stock=available",
@@ -274,14 +287,19 @@ export const platformPageConfigs = {
     tableTitle: "当前收录的 Claude 标准商品",
     tableDescription: "Claude 商品页和平台页的最低价只取有货报价；缺货或隐藏报价不会作为当前可买价格展示。",
     optionsEyebrow: "Plans",
-    optionsTitle: "Claude 先分 Pro、Max 和账号类。",
+    optionsTitle: "Claude 先分 Pro、Team、Max 和账号类。",
     optionsIntro:
-      "Claude 渠道里常见 Pro 月卡、Max 5x、Max 20x、成品号、兑换号、直充或代订。它们对应的额度和交付方式不同，不适合混在一起只看价格。",
+      "Claude 渠道里常见 Pro 月卡、Team Standard / Premium 席位、Max 5x、Max 20x、成品号、兑换号、直充或代订。它们对应的额度和交付方式不同，不适合混在一起只看价格。",
     optionCards: [
       {
         title: "Claude Pro",
         text: "常见个人订阅档，渠道标题可能写月卡、直充、代订、成品号或地区价。",
         icon: "check",
+      },
+      {
+        title: "Claude Team",
+        text: "Standard Seat 通常对应 1.25x 标准席位，Premium Seat 通常对应 6.25x 高级席位。",
+        icon: "layers",
       },
       {
         title: "Claude Max",
@@ -302,8 +320,8 @@ export const platformPageConfigs = {
     darkTitle: "Claude 的核心是确认套餐档位和账号归属。",
     darkCards: [
       {
-        title: "Pro / Max 不混看",
-        text: "Pro、Max 5x、Max 20x 的权益和价格基准不同，低价前先确认是否同款。",
+        title: "Pro / Team / Max 不混看",
+        text: "Pro、Team Standard、Team Premium、Max 5x、Max 20x 的权益和价格基准不同，低价前先确认是否同款。",
       },
       {
         title: "账号交付要谨慎",
@@ -313,7 +331,7 @@ export const platformPageConfigs = {
     faqs: [
       [
         "Claude Pro 和 Claude Max 有什么区别？",
-        "Claude Pro 是常见个人订阅档，Claude Max 通常对应更高额度套餐。第三方渠道可能把 Pro、Max、账号和代订混写，购买前要确认真实权益。",
+        "Claude Pro 是常见个人订阅档，Claude Max 通常对应更高额度套餐。第三方渠道可能把 Pro、Team、Max、账号和代订混写，购买前要确认真实权益。",
       ],
       [
         "Claude Max 5x / 20x 为什么要分开？",

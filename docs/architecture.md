@@ -52,4 +52,4 @@ PriceAI 是一个 Next.js + Supabase 的 AI 订阅报价聚合工具。核心思
 - Tailwind CSS
 - Supabase
 - GitHub Actions
-- Vercel
+- Cloudflare Workers + OpenNext

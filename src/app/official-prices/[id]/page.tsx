@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { BrandIcon } from "@/components/BrandIcon";
 import { ReturnToListLink } from "@/components/ReturnToListLink";
 import { SiteHeader } from "@/components/SiteHeader";
-import { OFFICIAL_PRICE_RETURN_INTENT_KEY } from "@/lib/list-return";
 import {
   buildOfficialPricePlanSummaries,
   getOfficialPricePlanSummaryFromDataset,
@@ -80,7 +79,6 @@ export default async function OfficialPriceDetailPage({
           <ReturnToListLink
             allowedKeys={OFFICIAL_RETURN_KEYS}
             basePath="/official-prices"
-            intentKey={OFFICIAL_PRICE_RETURN_INTENT_KEY}
             label="返回官方地区价"
           />
         </div>
