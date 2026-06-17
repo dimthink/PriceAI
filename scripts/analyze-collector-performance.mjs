@@ -298,6 +298,14 @@ function classifyFailure(row) {
     };
   }
 
+  if (text.includes("记录采集结果失败") || text.includes("upload failed after") || text.includes("crawl-log upload failed")) {
+    return {
+      key: "writeback",
+      label: "采集结果写回失败",
+      action: "不要判定源站异常；检查 crawl-log 写入耗时、批量大小、后台接口和节点到后台网络。",
+    };
+  }
+
   if (text.includes("no shop token")) {
     return {
       key: "missing-shop-token",

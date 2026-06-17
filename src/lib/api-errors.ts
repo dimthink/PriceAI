@@ -6,6 +6,17 @@ export function logApiError(scope: string, error: unknown): void {
     return;
   }
 
+  if (error && typeof error === "object") {
+    const details = Object.fromEntries(
+      ["message", "code", "details", "hint", "name"].flatMap((key) => {
+        const value = (error as Record<string, unknown>)[key];
+        return value === undefined ? [] : [[key, value]];
+      }),
+    );
+    console.error(`${scope}:`, Object.keys(details).length ? details : error);
+    return;
+  }
+
   console.error(`${scope}:`, error);
 }
 

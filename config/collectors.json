@@ -10,8 +10,8 @@
         "ai666.id",
         "aisou.pro",
         "caowo.store",
-        "dimosky.com",
         "douyiner.cn",
+        "faka.redeemai.me",
         "faka.redeemgpt.com",
         "feifei.shop",
         "fk.gptcz.cc",
@@ -21,6 +21,7 @@
         "hiemail.store",
         "lynnzee.myweb999.cfd",
         "nikoers.com",
+        "shop.558686.xyz",
         "shop.bmoplus.com",
         "shop.gpt365.wiki",
         "shopcardai.click",
@@ -28,6 +29,7 @@
         "talkai.cyou",
         "tehuio.com",
         "web3chirou.com",
+        "wiki123.top",
         "yh-mo.xyz",
         "zhanghao66.com",
         "zzshu.com"
@@ -38,11 +40,13 @@
       "label": "独角数卡",
       "hosts": [
         "11.id2323.top",
+        "98-xj.com",
         "ac-card.org",
         "burstpro-ai.online",
         "card.kxandyou.com",
         "ccdawang.win",
         "fk.txspvip.xyz",
+        "geekaihub.com",
         "gmail91.shop",
         "kapay.shop",
         "morimm.com",
@@ -136,11 +140,20 @@
       ]
     },
     {
+      "kind": "blackcatWholesale",
+      "label": "BlackCat 批发",
+      "hosts": [
+        "autopixel.qzz.io"
+      ]
+    },
+    {
       "kind": "genericHtml",
       "label": "通用 HTML",
       "hosts": [
         "19cm.tech",
+        "lemon-watermelon.com",
         "of365.vip",
+        "sulanjun.cc",
         "woaimaihao.com",
         "xingbao-ai.shop",
         "xxxyan.cc"

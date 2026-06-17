@@ -12,6 +12,8 @@ const DEFAULT_INTERVAL_SECONDS = 300;
 const DEFAULT_MAX_ROUND_TASKS = 200;
 const DEFAULT_WIND_CONTROL_COOLDOWN_SECONDS = 300;
 const DEFAULT_WIND_CONTROL_THRESHOLD = 3;
+const DEFAULT_POST_BATCH_SIZE = 100;
+const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
 const MAX_DISCOVERED_TOKENS = 3;
 const MAX_CATEGORY_PAGES = 10;
 
@@ -41,6 +43,8 @@ const config = {
   maxRoundTasks: integerInRange(args.maxRoundTasks || args["max-round-tasks"] || process.env.PRICEAI_AGENT_MAX_ROUND_TASKS, 1, 1000, DEFAULT_MAX_ROUND_TASKS),
   windControlCooldownSeconds: integerInRange(args.windControlCooldownSeconds || args["wind-control-cooldown-seconds"] || process.env.PRICEAI_AGENT_WIND_CONTROL_COOLDOWN_SECONDS, 30, 3600, DEFAULT_WIND_CONTROL_COOLDOWN_SECONDS),
   windControlThreshold: integerInRange(args.windControlThreshold || args["wind-control-threshold"] || process.env.PRICEAI_AGENT_WIND_CONTROL_THRESHOLD, 1, 20, DEFAULT_WIND_CONTROL_THRESHOLD),
+  postBatchSize: integerInRange(args.postBatchSize || args["post-batch-size"] || process.env.PRICEAI_AGENT_POST_BATCH_SIZE, 10, 500, DEFAULT_POST_BATCH_SIZE),
+  fullSnapshotOfferLimit: integerInRange(args.fullSnapshotOfferLimit || args["full-snapshot-offer-limit"] || process.env.PRICEAI_AGENT_FULL_SNAPSHOT_OFFER_LIMIT, 0, 2000, DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT),
   loop: truthy(args.loop) || truthy(process.env.PRICEAI_AGENT_LOOP),
   maxCycles: explicitMaxCycles ? integerInRange(explicitMaxCycles, 1, 1000000, 1) : null,
   dryRun: truthy(args.dryRun) || truthy(args["dry-run"]) || truthy(process.env.PRICEAI_AGENT_DRY_RUN),
@@ -92,6 +96,7 @@ async function main() {
           details: {
             cycle,
             processed: summary.processed,
+            uploadFailed: summary.uploadFailed,
             maxRoundTasks: config.maxRoundTasks,
           },
         }).catch((error) => {
@@ -123,6 +128,7 @@ async function runCycle(startedAt = new Date().toISOString()) {
   let failed = 0;
   let offers = 0;
   let processed = 0;
+  let uploadFailed = 0;
   let consecutiveWindControl = 0;
   const processedSourceIds = new Set();
   const staleBefore = config.round ? new Date().toISOString() : null;
@@ -142,41 +148,29 @@ async function runCycle(startedAt = new Date().toISOString()) {
       console.log(`\n==> ${target.sourceName} [${target.kind}]`);
       const startedAt = Date.now();
 
+      let collection;
+      let collectedOffers;
+      let status;
+      let message;
       try {
-        const collection = await collectShopApi(target);
-        const collectedOffers = dedupeOffers(collection.offers);
-        const status = collectedOffers.length ? "success" : "failed";
-        const message = collectedOffers.length
+        collection = await collectShopApi(target);
+        collectedOffers = dedupeOffers(collection.offers);
+        status = collectedOffers.length ? "success" : "failed";
+        message = collectedOffers.length
           ? `Edge collector found ${collectedOffers.length} offers.`
           : "Edge collector found no offers.";
-
-        await postCrawlRun(target, status, message, collectedOffers, {
-          durationMs: Date.now() - startedAt,
-          fullSnapshot: status === "success" && collection.fullSnapshot,
-          partialReason: collection.partialReason || null,
-        });
-
-        if (status === "success") {
-          success += 1;
-          offers += collectedOffers.length;
-          consecutiveWindControl = 0;
-          printOfferPreview(collectedOffers);
-        } else {
-          failed += 1;
-          consecutiveWindControl = 0;
-          console.log(message);
-        }
       } catch (error) {
         failed += 1;
-        const message = errorMessage(error);
+        const failureMessage = errorMessage(error);
         const windControl = isWindControlError(error);
         if (windControl) consecutiveWindControl += 1;
         else consecutiveWindControl = 0;
 
-        console.error(`Failed: ${message}`);
-        await postCrawlRun(target, "failed", message, [], {
+        console.error(`Failed: ${failureMessage}`);
+        await postCrawlRun(target, "failed", failureMessage, [], {
           durationMs: Date.now() - startedAt,
           windControl,
+          failurePhase: "collect",
         }).catch((postError) => {
           console.error(`Failed to upload failure log: ${errorMessage(postError)}`);
         });
@@ -188,6 +182,35 @@ async function runCycle(startedAt = new Date().toISOString()) {
           await delay(config.windControlCooldownSeconds * 1000);
           consecutiveWindControl = 0;
         }
+        continue;
+      }
+
+      try {
+        await postCrawlRun(target, status, message, collectedOffers, {
+          durationMs: Date.now() - startedAt,
+          fullSnapshot: status === "success" && collection.fullSnapshot,
+          partialReason: collection.partialReason || null,
+          failurePhase: status === "success" ? null : "collect",
+        });
+      } catch (error) {
+        failed += 1;
+        uploadFailed += 1;
+        consecutiveWindControl = 0;
+        console.error(
+          `Upload failed after ${status} collection for ${target.sourceName}; source health was not overwritten: ${errorMessage(error)}`,
+        );
+        continue;
+      }
+
+      if (status === "success") {
+        success += 1;
+        offers += collectedOffers.length;
+        consecutiveWindControl = 0;
+        printOfferPreview(collectedOffers);
+      } else {
+        failed += 1;
+        consecutiveWindControl = 0;
+        console.log(message);
       }
 
       if (config.round && processed >= config.maxRoundTasks) {
@@ -200,8 +223,8 @@ async function runCycle(startedAt = new Date().toISOString()) {
   } while (true);
 
   const finishedAt = new Date().toISOString();
-  console.log(`\n[priceai-edge] done: processed=${processed} success=${success} failed=${failed} offers=${offers}`);
-  return { processed, success, failed, offers, startedAt, finishedAt };
+  console.log(`\n[priceai-edge] done: processed=${processed} success=${success} failed=${failed} uploadFailed=${uploadFailed} offers=${offers}`);
+  return { processed, success, failed, uploadFailed, offers, startedAt, finishedAt };
 }
 
 async function fetchTasks(options = {}) {
@@ -362,7 +385,68 @@ async function postCrawlRun(target, status, message, offers, extraDetails = {}) 
     return;
   }
 
-  const payload = {
+  const payloads = crawlRunPayloads(target, status, message, offers, extraDetails);
+  const totals = { successCount: 0, writtenCount: 0, refreshedCount: 0, unchangedCount: 0, runCount: 0 };
+
+  for (const payload of payloads) {
+    const body = await uploadCrawlRunPayload(payload);
+    totals.successCount += Number(body.successCount || 0);
+    totals.writtenCount += Number(body.writtenCount || 0);
+    totals.refreshedCount += Number(body.refreshedCount || 0);
+    totals.unchangedCount += Number(body.unchangedCount || 0);
+    totals.runCount += 1;
+  }
+
+  console.log(
+    `Uploaded ${status}: runCount=${totals.runCount} successCount=${totals.successCount} written=${totals.writtenCount} refreshed=${totals.refreshedCount}`,
+  );
+  return totals;
+}
+
+function crawlRunPayloads(target, status, message, offers, extraDetails = {}) {
+  const fullSnapshot = shouldIncludeFullSnapshot(status, offers, extraDetails);
+
+  if (status !== "success" || offers.length <= config.postBatchSize) {
+    return [
+      crawlRunPayload(target, status, message, offers, compactObject({
+        ...extraDetails,
+        fullSnapshot,
+        seenOfferIds: fullSnapshot ? offerIdsForSnapshot(offers) : null,
+        deferredFullSnapshot: status === "success" && !fullSnapshot,
+      })),
+    ];
+  }
+
+  const batches = chunks(offers, config.postBatchSize);
+  const seenOfferIds = fullSnapshot ? offerIdsForSnapshot(offers) : null;
+
+  return batches.map((batch, index) => {
+    const batchIndex = index + 1;
+    const isLast = batchIndex === batches.length;
+    return crawlRunPayload(
+      target,
+      isLast ? "success" : "partial",
+      `${message} 分批写入 ${batchIndex}/${batches.length}。`,
+      batch,
+      compactObject({
+        ...extraDetails,
+        fullSnapshot: isLast && fullSnapshot,
+        seenOfferIds: isLast && fullSnapshot ? seenOfferIds : null,
+        deferredFullSnapshot: isLast && !fullSnapshot,
+        batchIndex,
+        batchCount: batches.length,
+        originalOfferCount: offers.length,
+      }),
+    );
+  });
+}
+
+function shouldIncludeFullSnapshot(status, offers, extraDetails = {}) {
+  return status === "success" && Boolean(extraDetails.fullSnapshot) && offers.length <= config.fullSnapshotOfferLimit;
+}
+
+function crawlRunPayload(target, status, message, offers, extraDetails = {}) {
+  return {
     sourceId: target.sourceId,
     sourceName: target.sourceName,
     sourceUrl: target.sourceUrl,
@@ -370,7 +454,7 @@ async function postCrawlRun(target, status, message, offers, extraDetails = {}) 
     status,
     message,
     offers,
-    details: {
+    details: compactObject({
       collector: target.kind,
       collectorNode: collectorNodeDetails(),
       edgeRunner: {
@@ -378,12 +462,15 @@ async function postCrawlRun(target, status, message, offers, extraDetails = {}) 
         family: config.family,
         shardCount: config.shardCount,
         shardIndex: config.shardIndex,
+        postBatchSize: config.postBatchSize,
       },
       fullSnapshot: false,
       ...extraDetails,
-    },
+    }),
   };
+}
 
+async function uploadCrawlRunPayload(payload) {
   const body = await fetchJson(`${config.endpoint}/api/admin/crawl-log`, {
     method: "POST",
     headers: {
@@ -394,10 +481,7 @@ async function postCrawlRun(target, status, message, offers, extraDetails = {}) 
     signal: AbortSignal.timeout(30_000),
   });
   if (!body.ok) throw new Error(body.message || "Upload failed.");
-
-  console.log(
-    `Uploaded ${status}: successCount=${Number(body.successCount || 0)} written=${Number(body.writtenCount || 0)} refreshed=${Number(body.refreshedCount || 0)}`,
-  );
+  return body;
 }
 
 async function postCollectorHeartbeat(status, input = {}) {
@@ -579,12 +663,50 @@ function dedupeOffers(offers) {
   const seen = new Set();
   const output = [];
   for (const offer of offers) {
-    const key = `${offer.sourceName}|${offer.sourceStoreName}|${offer.sourceTitle}|${offer.url}`;
+    const key = stableOfferInputId(offer);
     if (seen.has(key)) continue;
     seen.add(key);
     output.push(offer);
   }
   return output;
+}
+
+function offerIdsForSnapshot(offers) {
+  return offers.map((offer) => stableOfferInputId(offer));
+}
+
+function stableOfferInputId(offer) {
+  const shopItemUrl = normalizeShopApiItemOfferUrl(offer.url);
+  if (shopItemUrl) return stableId("shop-api-offer", shopItemUrl);
+
+  return stableId(offer.sourceName, offer.sourceStoreName, offer.sourceTitle, offer.url);
+}
+
+function normalizeShopApiItemOfferUrl(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    const host = normalizeHostname(parsed.hostname);
+    if (!["catfk.com", "ldxp.cn", "pay.ldxp.cn", "pay.qxvx.cn"].includes(host)) return null;
+
+    const pathGoodsKey = parsed.pathname.match(/^\/item\/([^/?#]+)/i)?.[1] || null;
+    const goodsKey = pathGoodsKey || parsed.searchParams.get("commodity") || parsed.searchParams.get("id");
+    if (!goodsKey) return null;
+
+    return `https://${host}/item/${encodeURIComponent(decodeURIComponent(goodsKey))}`;
+  } catch {
+    return null;
+  }
+}
+
+function stableId(...parts) {
+  const input = parts.filter((part) => part !== null && part !== undefined).join("|");
+  let hash = 5381;
+
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash * 33) ^ input.charCodeAt(index);
+  }
+
+  return `id-${(hash >>> 0).toString(36)}`;
 }
 
 function printOfferPreview(offers) {
@@ -636,6 +758,14 @@ function numberOrNull(value) {
 
 function compact(values) {
   return values.filter((value) => value !== null && value !== undefined && value !== "");
+}
+
+function chunks(values, size) {
+  const output = [];
+  for (let index = 0; index < values.length; index += size) {
+    output.push(values.slice(index, index + size));
+  }
+  return output;
 }
 
 function compactObject(value) {

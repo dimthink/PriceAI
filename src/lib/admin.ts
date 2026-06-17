@@ -37,6 +37,8 @@ export const ADMIN_OFFER_HIDE_REASON_PREFIX = "管理员手动下架报价";
 export const ADMIN_MANUAL_HIDE_REASON_PREFIX = "管理员手动下架";
 const UNCHANGED_OFFER_REFRESH_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const RAW_OFFER_WRITE_CHUNK_SIZE = 5;
+const MISSING_OFFER_HIDE_CHUNK_SIZE = 25;
+const MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION = 100;
 
 export type RawOfferUpsertResult = {
   receivedCount: number;
@@ -774,6 +776,9 @@ export async function recordSourceCollectionResult(input: {
   if (input.status === "skipped") {
     return { changedOfferCount: 0 };
   }
+  if (input.status === "failed" && isCollectorWritebackFailureMessage(input.message)) {
+    return { changedOfferCount: 0 };
+  }
 
   const consecutiveFailures = input.status === "failed" ? previousFailures + 1 : 0;
   const healthStatus =
@@ -811,6 +816,15 @@ export async function recordSourceCollectionResult(input: {
   }
 
   return { changedOfferCount };
+}
+
+function isCollectorWritebackFailureMessage(message: string | null | undefined): boolean {
+  const text = String(message || "").toLowerCase();
+  return (
+    text.includes("记录采集结果失败") ||
+    text.includes("upload failed after") ||
+    text.includes("crawl-log upload failed")
+  );
 }
 
 async function recordOfferCollectionFailure(
@@ -880,18 +894,22 @@ async function hideMissingOffersAsDelisted(sourceId: string, seenOfferIds: strin
   const seen = new Set(seenOfferIds);
   const { data, error } = await supabase
     .from("raw_offers")
-    .select("id")
+    .select("id,last_seen_at")
     .eq("source_id", sourceId)
-    .eq("hidden", false);
+    .eq("hidden", false)
+    .or(`last_seen_at.is.null,last_seen_at.lt.${checkedAt}`)
+    .order("last_seen_at", { ascending: true, nullsFirst: true })
+    .limit(MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION + seenOfferIds.length);
 
   if (error) throw error;
 
   const missingIds = (data || [])
     .map((row) => String(row.id))
-    .filter((id) => !seen.has(id));
+    .filter((id) => !seen.has(id))
+    .slice(0, MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION);
 
   let changedCount = 0;
-  for (const ids of chunks(missingIds, 100)) {
+  for (const ids of chunks(missingIds, MISSING_OFFER_HIDE_CHUNK_SIZE)) {
     const { count, error: updateError } = await supabase
       .from("raw_offers")
       .update({

@@ -477,12 +477,23 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const existing = existingSourceForSubmission(s, sourceById);
       const suggestedCollector = collectorKindMeta(meta, "suggested_collector_kind");
       const hasValidSourceUrl = Boolean(displayableCanonicalSourceUrlForSubmission(s) || stringMeta(meta, "submitted_url_type") !== "product");
-      if (!isDuplicatePendingSubmission(s) && hasValidSourceUrl && (existing || (probe?.status === "success" && probe.offerCount > 0) || isRunnableCollector(suggestedCollector))) {
+      if (hasValidSourceUrl && (existing || (probe?.status === "success" && probe.offerCount > 0) || isRunnableCollector(suggestedCollector))) {
         ids.add(s.id);
       }
     }
     return ids;
   }, [filteredReview, probeResults, sourceById]);
+  const sameChannelSubmissionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const submission of filteredReview) {
+      if (isSameChannelPendingSubmission(submission)) ids.add(submission.id);
+    }
+    return ids;
+  }, [filteredReview]);
+  const selectedSameChannelReviewCount = useMemo(
+    () => filteredReview.filter((submission) => selectedIds.has(submission.id) && sameChannelSubmissionIds.has(submission.id)).length,
+    [filteredReview, sameChannelSubmissionIds, selectedIds],
+  );
 
   useEffect(() => {
     if (rowFeedback) {
@@ -1896,6 +1907,29 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
   }
 
+  async function ignoreSameChannelSubmission(submission: ChannelSubmission) {
+    setLoadingAction(`ignore-same-channel-${submission.id}`);
+    const result = await request("/api/admin/submissions/reject", password, {
+      id: submission.id,
+      reviewerNote: sameChannelSubmissionReviewerNote(submission),
+    });
+    setLoadingAction(null);
+    if (result.ok || isAlreadyHandled(result.message)) {
+      showRowFeedback(submission.id, "success", "已忽略同渠道提交。");
+      setTimeout(() => {
+        setSubmissions((prev) => prev.filter((item) => item.id !== submission.id));
+        setProbeResults((prev) => omitKey(prev, submission.id));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(submission.id);
+          return next;
+        });
+      }, result.ok ? 900 : 0);
+    } else {
+      showRowFeedback(submission.id, "error", result.message || "忽略同渠道项失败。");
+    }
+  }
+
   async function batchApprove() {
     const items = filteredReview.filter((s) => selectedIds.has(s.id) && approvableSubmissionIds.has(s.id));
     if (!items.length) return;
@@ -1980,6 +2014,31 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     setGlobalMessage({
       type: successCount === items.length ? "success" : "info",
       text: `批量拒绝完成：${successCount}/${items.length} 条成功。`,
+    });
+  }
+
+  async function batchIgnoreSameChannel() {
+    const items = filteredReview.filter((submission) => selectedIds.has(submission.id) && sameChannelSubmissionIds.has(submission.id));
+    if (!items.length) return;
+
+    setLoadingAction("batch-ignore-same-channel");
+    let successCount = 0;
+    for (const item of items) {
+      const result = await request("/api/admin/submissions/reject", password, {
+        id: item.id,
+        reviewerNote: sameChannelSubmissionReviewerNote(item),
+      });
+      if (result.ok || isAlreadyHandled(result.message)) {
+        successCount++;
+        setSubmissions((prev) => prev.filter((submission) => submission.id !== item.id));
+        setProbeResults((prev) => omitKey(prev, item.id));
+      }
+    }
+    setLoadingAction(null);
+    setSelectedIds(new Set());
+    setGlobalMessage({
+      type: successCount === items.length ? "success" : "info",
+      text: `同渠道项忽略完成：${successCount}/${items.length} 条成功。`,
     });
   }
 
@@ -2296,6 +2355,17 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       批量通过 ({filteredReview.filter((s) => selectedIds.has(s.id) && approvableSubmissionIds.has(s.id)).length})
                     </button>
                   )}
+                  {selectedSameChannelReviewCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={batchIgnoreSameChannel}
+                      disabled={loadingAction === "batch-ignore-same-channel"}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#9b3328]/25 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-60"
+                    >
+                      {loadingAction === "batch-ignore-same-channel" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      忽略同渠道项 ({selectedSameChannelReviewCount})
+                    </button>
+                  )}
                   {selectedIds.size > 0 && (
                     <button
                       type="button"
@@ -2350,6 +2420,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         onReparse={reparseSubmission}
                         onTodo={todoSubmission}
                         onReject={rejectSubmission}
+                        onIgnoreSameChannel={ignoreSameChannelSubmission}
                       />
                     ))
                   ) : (
@@ -3110,6 +3181,7 @@ function SubmissionCard({
   onReparse,
   onTodo,
   onReject,
+  onIgnoreSameChannel,
 }: {
   submission: ChannelSubmission;
   existingSource?: Source | null;
@@ -3127,6 +3199,7 @@ function SubmissionCard({
   onReparse: (submission: ChannelSubmission) => void;
   onTodo: (submission: ChannelSubmission, note: string) => void;
   onReject: (submission: ChannelSubmission, note: string) => void;
+  onIgnoreSameChannel: (submission: ChannelSubmission) => void;
 }) {
   const meta = submission.parsedMeta || {};
   const domain = typeof meta.domain === "string" ? meta.domain : safeDomain(submission.url);
@@ -3140,7 +3213,8 @@ function SubmissionCard({
   const canonicalSourceUrl = displayableCanonicalSourceUrlForSubmission(submission);
   const canonicalSourceStatus = stringMeta(meta, "canonical_source_status");
   const canonicalSourceReason = stringMeta(meta, "canonical_source_reason");
-  const duplicatePendingName = stringMeta(meta, "duplicate_pending_submission_name");
+  const sameChannelPendingName = stringMeta(meta, "duplicate_pending_submission_name");
+  const sameChannelPendingId = stringMeta(meta, "duplicate_pending_submission_id");
   const submittedUrlType = stringMeta(meta, "submitted_url_type");
   const parseError = typeof meta.parse_error === "string" ? meta.parse_error : null;
   const productPreview = submissionProductPreviewFromMeta(meta);
@@ -3148,8 +3222,8 @@ function SubmissionCard({
   const hasSuccessfulProbe = currentProbe?.status === "success" && currentProbe.offerCount > 0;
   const hasKnownCollector = isRunnableCollector(suggestedCollector);
   const hasValidSourceUrl = Boolean(canonicalSourceUrl || submittedUrlType !== "product");
-  const duplicatePending = Boolean(duplicatePendingName || stringMeta(meta, "duplicate_pending_submission_id"));
-  const canApprove = !duplicatePending && hasValidSourceUrl && Boolean(existingSource || hasSuccessfulProbe || hasKnownCollector);
+  const sameChannelPending = Boolean(sameChannelPendingName || sameChannelPendingId);
+  const canApprove = hasValidSourceUrl && Boolean(existingSource || hasSuccessfulProbe || hasKnownCollector);
 
   const [mode, setMode] = useState<"idle" | "approve" | "todo" | "reject">("idle");
   const [name, setName] = useState(submission.name || suggestedName || submission.parsedTitle || "");
@@ -3170,6 +3244,7 @@ function SubmissionCard({
   const reparseLoading = loadingAction === `reparse-${submission.id}`;
   const todoLoading = loadingAction === `todo-${submission.id}`;
   const rejectLoading = loadingAction === `reject-${submission.id}`;
+  const ignoreSameChannelLoading = loadingAction === `ignore-same-channel-${submission.id}`;
 
   const probeStatusBadge = currentProbe ? (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -3244,7 +3319,7 @@ function SubmissionCard({
               {platform && <Badge>{platform}</Badge>}
               {productType && <Badge>{productType}</Badge>}
               {existingSource && <Badge tone="info">已有源: {existingSource.name}</Badge>}
-              {duplicatePending && <Badge tone="warn">重复待审</Badge>}
+              {sameChannelPending && <Badge tone="warn">同渠道还有提交</Badge>}
               {parseError && <Badge tone="warn">解析失败</Badge>}
             </div>
           </div>
@@ -3273,6 +3348,16 @@ function SubmissionCard({
               >
                 {probeLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />}
                 试采集
+              </button>
+            ) : sameChannelPending ? (
+              <button
+                type="button"
+                disabled={ignoreSameChannelLoading}
+                onClick={(e) => { e.stopPropagation(); onIgnoreSameChannel(submission); }}
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#9b3328]/25 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-60"
+              >
+                {ignoreSameChannelLoading ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                忽略此项
               </button>
             ) : (
               <span className="inline-flex h-8 items-center rounded-lg bg-[#fff7e8] px-3 text-xs font-medium text-[#7a541b]">
@@ -3315,10 +3400,17 @@ function SubmissionCard({
             <p><span className="font-medium text-[#2d3435]">初步判断：</span>{supportReason || "已完成基础链接解析。"}</p>
             {canonicalSourceReason && <p><span className="font-medium text-[#2d3435]">渠道解析：</span>{canonicalSourceReason}</p>}
             {existingSource && <p><span className="font-medium text-[#2d3435]">合并目标：</span>{existingSource.name}</p>}
-            {duplicatePending && <p><span className="font-medium text-[#2d3435]">重复待审：</span>{duplicatePendingName || "已有更新记录"}</p>}
+            {sameChannelPending && <p><span className="font-medium text-[#2d3435]">同渠道提交：</span>{sameChannelPendingName || "还有一条同渠道提交"}</p>}
           </div>
 
-          {productPreview && <SubmissionProductPreviewPanel preview={productPreview} />}
+          {sameChannelPending && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-[#fff7e8]/70 px-3 py-2.5 text-xs text-[#7a541b]">
+              <Trash2 size={14} className="mt-0.5 shrink-0" />
+              <span>还有一条同渠道提交待处理；这只是提示，不影响当前记录通过。确认要保留另一条时，再忽略当前项。</span>
+            </div>
+          )}
+
+          {productPreview && <SubmissionProductPreviewPanel preview={productPreview} productUrl={submittedUrlType === "product" ? submission.url : null} />}
 
           {submission.notes && <p className="mt-2 text-xs text-[#5a6061]">备注：{submission.notes}</p>}
 
@@ -3329,7 +3421,9 @@ function SubmissionCard({
             <div className="mt-3 flex items-start gap-2 rounded-lg bg-[#fff7e8] px-3 py-2.5 text-xs text-[#7a541b]">
               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
               <span>
-                {hasKnownCollector
+                {sameChannelPending
+                  ? "这条还有同渠道提交；如果保留另一条，可以忽略这条。"
+                  : hasKnownCollector
                   ? "已识别可用解析器，但本次试采集失败；可以先确认解析器入库，后续云端和本地采集脚本都会继续尝试。"
                   : "该渠道暂不支持自动采集，建议转入采集器待办或拒绝。"}
               </span>
@@ -3363,6 +3457,17 @@ function SubmissionCard({
                   编辑后通过
                 </button>
               )}
+              {sameChannelPending && (
+                <button
+                  type="button"
+                  disabled={ignoreSameChannelLoading}
+                  onClick={() => onIgnoreSameChannel(submission)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#9b3328]/25 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-60"
+                >
+                  {ignoreSameChannelLoading ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  忽略此项
+                </button>
+              )}
               {!currentProbe && (
                 <button
                   type="button"
@@ -3394,7 +3499,7 @@ function SubmissionCard({
                   重新试采集
                 </button>
               )}
-              {currentProbe && !canApprove && (
+              {currentProbe && !canApprove && !sameChannelPending && (
                 <button
                   type="button"
                   onClick={() => setMode("todo")}
@@ -3564,7 +3669,7 @@ function SubmissionCard({
   );
 }
 
-function SubmissionProductPreviewPanel({ preview }: { preview: SubmissionProductPreview }) {
+function SubmissionProductPreviewPanel({ preview, productUrl }: { preview: SubmissionProductPreview; productUrl?: string | null }) {
   const hasPrice = typeof preview.price === "number";
   const statusText = preview.statusText || preview.status || null;
   return (
@@ -3608,6 +3713,11 @@ function SubmissionProductPreviewPanel({ preview }: { preview: SubmissionProduct
         {preview.sourceUrl && (
           <a href={preview.sourceUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-[#47657a] hover:text-[#2d3435]">
             店铺入口
+          </a>
+        )}
+        {productUrl && (
+          <a href={productUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-[#47657a] hover:text-[#2d3435]">
+            商品详情
           </a>
         )}
         {preview.checkedAt && <span>接口：{formatRelativeTime(preview.checkedAt)}</span>}
@@ -7733,9 +7843,17 @@ function existingSourceForSubmission(submission: ChannelSubmission, sourceById: 
   return sourceById.get(sourceId) || null;
 }
 
-function isDuplicatePendingSubmission(submission: ChannelSubmission): boolean {
+function isSameChannelPendingSubmission(submission: ChannelSubmission): boolean {
   const meta = submission.parsedMeta || {};
-  return Boolean(stringMeta(meta, "duplicate_pending_submission_id"));
+  return Boolean(stringMeta(meta, "duplicate_pending_submission_id") || stringMeta(meta, "duplicate_pending_submission_name"));
+}
+
+function sameChannelSubmissionReviewerNote(submission: ChannelSubmission): string {
+  const meta = submission.parsedMeta || {};
+  const sameChannelName = stringMeta(meta, "duplicate_pending_submission_name");
+  const sameChannelUrl = stringMeta(meta, "duplicate_pending_submission_url");
+  const target = sameChannelName || sameChannelUrl;
+  return target ? `同渠道还有提交，已忽略此项；保留主记录：${target}。` : "同渠道还有提交，已忽略此项；保留主记录。";
 }
 
 function reparseFeedbackText(submission: ChannelSubmission): string {

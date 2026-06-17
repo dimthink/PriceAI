@@ -31,6 +31,7 @@ export type CollectorKind =
   | "shopUserProductsApi"
   | "unicornHtml"
   | "mooncakeCatalog"
+  | "blackcatWholesale"
   | "genericHtml"
   | "browser"
   | "unsupported";

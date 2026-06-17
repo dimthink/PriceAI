@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { safeFetch } from "./safe-fetch.mjs";
 import collectorRegistry from "../config/collectors.json" with { type: "json" };
@@ -10,6 +11,7 @@ const env = readEnvFile(".env.local");
 
 const PRICE_VALUE_PATTERN = String.raw`(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)`;
 const CURRENCY_PRICE_RE = new RegExp(String.raw`[¥￥]\s*${PRICE_VALUE_PATTERN}`);
+const SUFFIX_PRICE_RE = new RegExp(String.raw`${PRICE_VALUE_PATTERN}\s*(?:CNY|RMB|元)`, "i");
 const DEFAULT_COOLDOWN_MINUTES = 25;
 const DEFAULT_LOCK_SECONDS = 10 * 60;
 const DEFAULT_LIANDONG_SHOP_BULK_LIMIT = 20;
@@ -32,6 +34,7 @@ const AUTO_DETECT_COLLECTOR_KINDS = [
   "opensoraHtml",
   "makerichHtml",
   "beibeiHtml",
+  "blackcatWholesale",
   "genericHtml",
 ];
 
@@ -514,6 +517,7 @@ async function collectTarget(target, options = {}) {
   if (target.kind === "shopUserProductsApi") return collectShopUserProductsApi(target, options);
   if (target.kind === "unicornHtml") return collectUnicornHtml(target, options);
   if (target.kind === "mooncakeCatalog") return collectMooncakeCatalog(target);
+  if (target.kind === "blackcatWholesale") return collectBlackcatWholesale(target);
   if (target.kind === "genericHtml") return collectGenericHtml(target);
 
   throw new Error(`Unsupported collector kind: ${target.kind}`);
@@ -1159,8 +1163,162 @@ async function collectMooncakeCatalog(target) {
   return offers;
 }
 
+async function collectBlackcatWholesale(target) {
+  const products = await fetchBlackcatWholesaleProducts(target);
+  const tab = blackcatSelectedTab(target);
+  const offers = [];
+
+  for (const product of products) {
+    if (product?.is_archived === true) continue;
+    if (product?.active === false || product?.is_active === false) continue;
+    if (product?.is_wholesale_active === false) continue;
+
+    const category = cleanText(product.category);
+    if (tab && category.toLowerCase() !== tab.toLowerCase()) continue;
+
+    const title = cleanText(product.wholesale_name || product.name || product.title);
+    const price = blackcatPrice(product);
+    if (!title || price === null || isNonComparableTitle(title)) continue;
+
+    const rawStockCount = numberOrNull(product.stock_count ?? product.stockCount ?? product.stock);
+    const stockCount = typeof rawStockCount === "number" && rawStockCount >= 0 ? rawStockCount : null;
+    const status = rawStockCount === 0 ? "out_of_stock" : statusFromStock(stockCount);
+
+    offers.push(
+      makeOffer(target, {
+        title,
+        price,
+        status,
+        stockCount,
+        url: blackcatProductUrl(target, product),
+        tags: compact([
+          category,
+          product.badge,
+          product.delivery_type === "static" ? "自动发货" : null,
+          product.delivery_category,
+          "BlackCat",
+        ]),
+      }),
+    );
+  }
+
+  return dedupeOffers(offers).slice(0, 200);
+}
+
+async function fetchBlackcatWholesaleProducts(target) {
+  const actionId = "00a331b1067730509e93f1d2510d15a4c140650760";
+  const response = await safeFetch(target.sourceUrl, {
+    method: "POST",
+    headers: {
+      ...defaultHeaders(target.sourceUrl),
+      accept: "text/x-component",
+      "content-type": "text/plain;charset=UTF-8",
+      "next-action": actionId,
+      origin: target.baseUrl,
+      referer: target.sourceUrl,
+    },
+    body: "[]",
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  if (!response.ok) throw new Error(`${target.sourceUrl} returned HTTP ${response.status}`);
+
+  const payload = parseNextActionData(await response.text());
+  if (payload?.success === false) {
+    throw new Error(cleanText(payload.error || payload.message) || "BlackCat product action failed.");
+  }
+
+  if (!Array.isArray(payload?.data)) {
+    throw new Error("BlackCat product action did not return a product list.");
+  }
+
+  return payload.data;
+}
+
+function parseNextActionData(text) {
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex < 0) continue;
+
+    const rawPayload = line.slice(separatorIndex + 1).trim();
+    if (!rawPayload.startsWith("{")) continue;
+
+    try {
+      const payload = JSON.parse(rawPayload);
+      if (payload && typeof payload === "object" && ("data" in payload || "success" in payload)) return payload;
+    } catch {
+      // Ignore non-data React transport chunks.
+    }
+  }
+
+  throw new Error("Next action response did not include JSON data.");
+}
+
+function blackcatSelectedTab(target) {
+  const parsed = safeUrl(target.sourceUrl);
+  const tab = cleanText(parsed?.searchParams.get("tab") || "");
+  return tab && !/^all$/i.test(tab) ? tab : "";
+}
+
+function blackcatPrice(product) {
+  const tierPrice = blackcatBulkTierPrice(product.bulk_tiers_wholesale);
+  return tierPrice ?? numberOrNull(product.wholesale_price ?? product.price);
+}
+
+function blackcatBulkTierPrice(value) {
+  let tiers = value;
+  if (typeof tiers === "string") {
+    try {
+      tiers = JSON.parse(tiers);
+    } catch {
+      tiers = null;
+    }
+  }
+
+  if (!Array.isArray(tiers)) return null;
+  const prices = tiers
+    .map((tier) => numberOrNull(tier?.unitPrice ?? tier?.unit_price ?? tier?.price))
+    .filter((price) => price !== null);
+  return prices.length ? Math.min(...prices) : null;
+}
+
+function blackcatProductUrl(target, product) {
+  const parsed = safeUrl(target.sourceUrl) || safeUrl(`${target.baseUrl}/blackcat`);
+  if (!parsed) return target.sourceUrl;
+
+  const category = cleanText(product.category);
+  if (category && !parsed.searchParams.get("tab")) parsed.searchParams.set("tab", category);
+  if (product.id) parsed.hash = `product-${encodeURIComponent(String(product.id))}`;
+  return parsed.toString();
+}
+
+function decodeKnownEncryptedHtml(html) {
+  const text = String(html || "");
+  if (!/CryptoJS|AES\.decrypt/i.test(text)) return null;
+
+  const key = text.match(/var\s+_0x[a-f0-9]+\s*=\s*\[\s*["']([A-Za-z0-9]{16,32})["']/i)?.[1];
+  const ciphertext = text.match(/["']VvdIy["']\s*:\s*["']([^"']+)["']/)?.[1];
+  if (!key || !ciphertext) return null;
+
+  const keyBuffer = Buffer.from(key, "utf8");
+  if (![16, 24, 32].includes(keyBuffer.length)) return null;
+
+  try {
+    const decipher = crypto.createDecipheriv(`aes-${keyBuffer.length * 8}-cbc`, keyBuffer, keyBuffer.subarray(0, 16));
+    const decoded = Buffer.concat([
+      decipher.update(Buffer.from(ciphertext, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+
+    return /<html|<body|class=["'][^"']*(?:shop-item|product)/i.test(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 async function collectGenericHtml(target) {
-  const html = await fetchText(target.sourceUrl);
+  const rawHtml = await fetchText(target.sourceUrl);
+  const html = decodeKnownEncryptedHtml(rawHtml) || rawHtml;
   const cardOffers = collectGenericHtmlProductCards(target, html);
   if (cardOffers.length >= 2) return dedupeOffers(cardOffers).slice(0, 200);
 
@@ -1216,10 +1374,10 @@ async function collectGenericHtml(target) {
 
 function collectGenericHtmlProductCards(target, html) {
   const offers = [];
-  const cards = [...String(html || "").matchAll(/<article\b[\s\S]*?<\/article>/gi)].map((match) => match[0]);
+  const cards = extractGenericProductCards(html);
 
   for (const card of cards) {
-    const price = numberOrNull(card.match(CURRENCY_PRICE_RE)?.[0]);
+    const price = priceFromGenericProductCard(card);
     if (price === null) continue;
 
     const title = titleFromGenericProductCard(card);
@@ -1250,8 +1408,59 @@ function collectGenericHtmlProductCards(target, html) {
   return offers;
 }
 
+function extractGenericProductCards(html) {
+  const source = String(html || "");
+  const patterns = [
+    /<article\b[\s\S]*?<\/article>/gi,
+    /<a\b(?=[^>]*class=["'][^"']*(?:df-product-card|shop-item)[^"']*["'])[\s\S]*?<\/a>/gi,
+  ];
+  const cards = [];
+  const seen = new Set();
+
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const card = match[0];
+      if (seen.has(card)) continue;
+      seen.add(card);
+      cards.push(card);
+    }
+  }
+
+  return cards;
+}
+
+function priceFromGenericProductCard(card) {
+  const priceBlock = genericClassText(card, [
+    "df-product-price",
+    "shop-item-price",
+    "product-price",
+    "price",
+    "amount",
+    "money",
+  ]);
+  const candidates = [priceBlock, stripHtml(card)];
+
+  for (const candidate of candidates) {
+    const text = String(candidate || "");
+    const currencyMatch = text.match(CURRENCY_PRICE_RE);
+    if (currencyMatch) return numberOrNull(currencyMatch[0]);
+
+    const suffixMatch = text.match(SUFFIX_PRICE_RE);
+    if (suffixMatch) return numberOrNull(suffixMatch[0]);
+  }
+
+  return null;
+}
+
 function titleFromGenericProductCard(card) {
-  const tags = genericProductCardTags(card).join(" ");
+  const namedTitle = genericClassText(card, [
+    "df-product-name",
+    "shop-item-name",
+    "product-title",
+    "product-name",
+    "title",
+  ]);
+  const titleAttr = cleanText(card.match(/\btitle=["']([^"']+)["']/i)?.[1]);
   const heading = cleanText(card.match(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/i)?.[1]);
   const imageAlt = cleanText(card.match(/<img[^>]+alt=["']([^"']+)["']/i)?.[1]);
   const highlight = cleanText(
@@ -1259,7 +1468,15 @@ function titleFromGenericProductCard(card) {
   );
   const description = genericProductCardParagraphs(card).find((paragraph) => paragraph !== highlight) || "";
 
-  return compact([tags, heading || imageAlt, highlight, description]).join(" ").slice(0, 180);
+  return compact([namedTitle || titleAttr || heading || imageAlt, highlight, description]).join(" ").slice(0, 180);
+}
+
+function genericClassText(card, classNames) {
+  const classPattern = classNames.map(escapeRegExp).join("|");
+  const match = String(card || "").match(
+    new RegExp(String.raw`<[^>]+class=["'][^"']*(?:${classPattern})[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>`, "i"),
+  );
+  return cleanText(match?.[1]);
 }
 
 function genericProductCardParagraphs(card) {
@@ -1529,12 +1746,15 @@ function crawlLogPayloadFor(target, offers, status, message, options = {}, detai
 }
 
 function crawlLogPayloadsFor(target, offers, status, message, options = {}, details = {}) {
+  const fullSnapshot = shouldIncludeFullSnapshot(offers, status, options);
+
   if (status !== "success" || offers.length <= postBatchSizeFor(options)) {
     return [
       crawlLogPayloadFor(target, offers, status, message, options, {
         ...details,
-        fullSnapshot: status === "success",
-        seenOfferIds: status === "success" ? offerIdsForSnapshot(offers) : undefined,
+        fullSnapshot,
+        seenOfferIds: fullSnapshot ? offerIdsForSnapshot(offers) : undefined,
+        deferredFullSnapshot: status === "success" && !fullSnapshot,
       }),
     ];
   }
@@ -1555,8 +1775,9 @@ function crawlLogPayloadsFor(target, offers, status, message, options = {}, deta
         batchIndex: index + 1,
         batchCount: batches.length,
         originalOfferCount: offers.length,
-        fullSnapshot: isLast,
-        seenOfferIds: isLast ? seenOfferIds : undefined,
+        fullSnapshot: isLast && fullSnapshot,
+        seenOfferIds: isLast && fullSnapshot ? seenOfferIds : undefined,
+        deferredFullSnapshot: isLast && !fullSnapshot,
       },
     );
   });
@@ -1743,7 +1964,8 @@ async function postSkippedCrawlLog(target, skip, options = {}, logger = null) {
 function createCrawlLogWriteQueue(options = {}, logger = null) {
   const flushSourceCount = flushSourceCountFor(options);
   const flushIntervalMs = flushIntervalMsFor(options);
-  const maxRunsPerRequest = 50;
+  const maxRunsPerRequest = postRunBatchSizeFor(options);
+  const maxOffersPerRequest = postRequestOfferLimitFor(options);
   let pendingRuns = [];
   let pendingSourceCount = 0;
   let firstQueuedAt = 0;
@@ -1786,7 +2008,7 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
     let requestCount = 0;
 
     try {
-      for (const batch of chunks(runs, maxRunsPerRequest)) {
+      for (const batch of crawlLogRequestBatches(runs, maxRunsPerRequest, maxOffersPerRequest)) {
         const posted = await postCrawlLogPayloadBatch(batch, options, {
           reason,
           sourceCount,
@@ -1849,10 +2071,75 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
   };
 }
 
+function crawlLogRequestBatches(runs, maxRunsPerRequest, maxOffersPerRequest) {
+  const batches = [];
+  let current = [];
+  let currentOffers = 0;
+
+  for (const run of runs) {
+    const offerCount = Array.isArray(run.offers) ? run.offers.length : 0;
+    const wouldExceedRunLimit = current.length >= maxRunsPerRequest;
+    const wouldExceedOfferLimit = current.length > 0 && currentOffers + offerCount > maxOffersPerRequest;
+
+    if (wouldExceedRunLimit || wouldExceedOfferLimit) {
+      batches.push(current);
+      current = [];
+      currentOffers = 0;
+    }
+
+    current.push(run);
+    currentOffers += offerCount;
+  }
+
+  if (current.length) batches.push(current);
+  return batches;
+}
+
 function postBatchSizeFor(options = {}) {
   const value = Number(options.postBatchSize || options["post-batch-size"] || 200);
   if (!Number.isFinite(value)) return 200;
   return Math.max(50, Math.min(Math.trunc(value), 500));
+}
+
+function postRunBatchSizeFor(options = {}) {
+  const value = Number(
+    options.postRunBatchSize ||
+      options["post-run-batch-size"] ||
+      process.env.PRICEAI_COLLECT_POST_RUN_BATCH_SIZE ||
+      env.PRICEAI_COLLECT_POST_RUN_BATCH_SIZE ||
+      10,
+  );
+  if (!Number.isFinite(value)) return 10;
+  return Math.max(1, Math.min(Math.trunc(value), 50));
+}
+
+function postRequestOfferLimitFor(options = {}) {
+  const fallback = postBatchSizeFor(options);
+  const value = Number(
+    options.postRequestOfferLimit ||
+      options["post-request-offer-limit"] ||
+      process.env.PRICEAI_COLLECT_POST_REQUEST_OFFER_LIMIT ||
+      env.PRICEAI_COLLECT_POST_REQUEST_OFFER_LIMIT ||
+      fallback,
+  );
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.min(Math.trunc(value), 1000));
+}
+
+function fullSnapshotOfferLimitFor(options = {}) {
+  const value = Number(
+    options.fullSnapshotOfferLimit ||
+      options["full-snapshot-offer-limit"] ||
+      process.env.PRICEAI_COLLECT_FULL_SNAPSHOT_OFFER_LIMIT ||
+      env.PRICEAI_COLLECT_FULL_SNAPSHOT_OFFER_LIMIT ||
+      200,
+  );
+  if (!Number.isFinite(value)) return 200;
+  return Math.max(0, Math.min(Math.trunc(value), 2000));
+}
+
+function shouldIncludeFullSnapshot(offers, status, options = {}) {
+  return status === "success" && offers.length <= fullSnapshotOfferLimitFor(options);
 }
 
 function flushSourceCountFor(options = {}) {
@@ -2786,6 +3073,10 @@ function compact(values) {
   return values
     .map((value) => cleanText(value || ""))
     .filter(Boolean);
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function dedupeOffers(offers) {
