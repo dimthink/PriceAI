@@ -31,7 +31,7 @@ export function TransitPriceBreakdown({
   const metrics = mode === "compact" ? compactPriceMetrics : priceMetrics;
 
   return (
-    <div className="grid grid-cols-2 overflow-hidden rounded-md border border-[#dfe4e5] bg-white">
+    <div className="grid grid-cols-2 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-panel)]">
       {metrics.map(({ metric, label }, index) => (
         <RateChip
           key={metric}
@@ -65,27 +65,29 @@ function RateChip({
   const isMissing = convertedPrice === null;
   const isLeft = index % 2 === 0;
   const hasBottomBorder = index < total - 2;
-  const cellClassName = isMissing ? "bg-[#f2f4f4] text-[#5a6061]" : "bg-[#f6fbf8] text-[#202829]";
+  const cellClassName = isMissing
+    ? "bg-[var(--color-surface)] text-[var(--color-text-muted)]"
+    : "bg-[var(--color-panel-soft)] text-[var(--color-text-primary)]";
 
   return (
     <div
       className={`min-w-0 px-2 py-1.5 leading-tight ${cellClassName} ${
-        isLeft ? "border-r border-[#dfe4e5]" : ""
-      } ${hasBottomBorder ? "border-b border-[#dfe4e5]" : ""}`}
+        isLeft ? "border-r border-[var(--color-border)]" : ""
+      } ${hasBottomBorder ? "border-b border-[var(--color-border)]" : ""}`}
     >
       <div className="flex min-w-0 items-center justify-start gap-1.5">
-        <p className="truncate text-[10px] font-bold text-[#5a6061]">{label}</p>
-        <span className="shrink-0 rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-[#5a6061] ring-1 ring-[#adb3b4]/10">
+        <p className="truncate text-[10px] font-bold text-[var(--color-text-muted)]">{label}</p>
+        <span className="shrink-0 rounded-full bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-[var(--color-text-muted)] ring-1 ring-[var(--color-border-soft)]">
           {formatRate(effectiveRate)}
         </span>
       </div>
       <div className="mt-0.5 flex min-w-0 items-baseline gap-1.5">
         {officialPrice !== null ? (
-          <span className="shrink-0 text-[10px] font-semibold text-[#8b9192] line-through decoration-[#8b9192]/70">
+          <span className="shrink-0 text-[10px] font-semibold text-[var(--color-text-soft)] line-through decoration-[var(--color-text-soft)]/70">
             {formatUsdPerMTok(officialPrice)}
           </span>
         ) : null}
-        <span className="truncate text-[13px] font-extrabold tabular-nums text-[#202829]">
+        <span className="truncate text-[13px] font-extrabold tabular-nums text-[var(--color-text-primary)]">
           {formatUsdPerMTok(convertedPrice)}
         </span>
       </div>
