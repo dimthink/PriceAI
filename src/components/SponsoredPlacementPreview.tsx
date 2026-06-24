@@ -127,6 +127,7 @@ const placementCopy: Record<SponsoredPlacementKind, PlacementCopy> = {
 export function SponsoredPlacementPreview({ kind, className = "" }: SponsoredPlacementPreviewProps) {
   const copy = placementCopy[kind];
   const dismissStorageKey = `${dismissStoragePrefix}.${copy.id}.v2`;
+  const previewEnabled = useSponsorPreviewEnabled();
   const dismissed = useDismissedState(dismissStorageKey);
 
   const dismiss = useCallback(() => {
@@ -139,7 +140,7 @@ export function SponsoredPlacementPreview({ kind, className = "" }: SponsoredPla
     window.dispatchEvent(new Event(dismissEventName));
   }, [dismissStorageKey]);
 
-  if (!showSponsorPreview || dismissed) return null;
+  if (!previewEnabled || dismissed) return null;
 
   if (kind === "topBanner") {
     return <TopNoticeAd copy={copy} className={className} onDismiss={dismiss} />;
@@ -150,6 +151,28 @@ export function SponsoredPlacementPreview({ kind, className = "" }: SponsoredPla
   }
 
   return <DisplayAdCard copy={copy} className={className} onDismiss={dismiss} />;
+}
+
+function useSponsorPreviewEnabled() {
+  return useSyncExternalStore(subscribeSponsorPreviewEnabled, getSponsorPreviewEnabledSnapshot, getSponsorPreviewEnabledServerSnapshot);
+}
+
+function subscribeSponsorPreviewEnabled() {
+  return () => {};
+}
+
+function getSponsorPreviewEnabledSnapshot() {
+  if (showSponsorPreview) return true;
+
+  return isLocalPreviewHostname(window.location.hostname);
+}
+
+function getSponsorPreviewEnabledServerSnapshot() {
+  return showSponsorPreview;
+}
+
+function isLocalPreviewHostname(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
 function TopNoticeAd({

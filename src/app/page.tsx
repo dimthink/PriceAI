@@ -415,7 +415,8 @@ export default function Home() {
       </main>
 
       <footer className="bg-[var(--color-page)]">
-        <div className="mx-auto flex max-w-[1500px] flex-col items-center gap-3 border-x border-[var(--color-border-soft)] px-5 py-6 text-center text-sm text-[var(--color-text-muted)] sm:px-8">
+        <div className="mx-auto flex max-w-[1500px] flex-col items-center gap-5 border-x border-[var(--color-border-soft)] px-5 py-6 text-center text-sm text-[var(--color-text-muted)] sm:px-8">
+          <SponsoredPlacementPreview kind="listFooter" className="w-full max-w-4xl" />
           <div className="flex flex-wrap justify-center gap-4">
             <Link href="/guides" className="font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-primary-hover)]">
               指南
