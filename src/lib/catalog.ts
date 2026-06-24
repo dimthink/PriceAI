@@ -1366,6 +1366,7 @@ function isApiProduct(value: string): boolean {
   if (isGooglePlayOrPixelRechargeProduct(value)) return false;
   if (isChatGptTransitOrApiCreditProduct(value)) return true;
   if (isModelApiCreditProduct(value)) return true;
+  if (isModelPoolCreditProduct(value)) return true;
   if (isClaudeCodeCreditProduct(value)) return true;
   if (isChatGptAccountOrSubscriptionDominant(value)) return false;
   if (isChatGptTeam(value)) return false;
@@ -1421,6 +1422,27 @@ function isChatGptTransitOrApiCreditProduct(value: string): boolean {
   }
 
   return false;
+}
+
+function isModelPoolCreditProduct(value: string): boolean {
+  if (!matches(value, ["池", "号池", "pool"])) return false;
+  if (!matches(value, ["claude", "gemini", "gpt", "chatgpt", "codex", "openai"])) return false;
+  if (matches(value, ["team", "团队", "席位", "seat"])) return false;
+
+  if (
+    isClaudeProduct(value) &&
+    matches(value, ["max", "pro"]) &&
+    !matches(value, ["月卡", "月会员", "年卡", "订阅", "成品号", "账号", "直充", "代充"])
+  ) {
+    return true;
+  }
+
+  const hasStrongCreditSignal = matches(value, ["额度", "中转", "api", "刀", "美元", "美金", "余额"]);
+  if (hasStrongCreditSignal) return true;
+
+  if (matches(value, ["月会员", "会员兑换码", "月卡", "年卡", "订阅"])) return false;
+
+  return matches(value, ["兑换码", "token"]);
 }
 
 function isClaudeCodeCreditProduct(value: string): boolean {
@@ -1537,6 +1559,7 @@ function isChatGptPeripheralService(value: string): boolean {
   if (!matches(value, ["codex", "chatgpt", "gpt", "openai", "plus"])) return false;
   const hasPeripheralSignal =
     matches(value, ["重置额度", "额度重置", "刷新额度", "恢复额度"]) ||
+    (matches(value, ["重置"]) && matches(value, ["plus", "pro", "额度"])) ||
     matches(value, ["长链提取", "长链接提取", "链接提取", "提取服务", "提取服务包", "长链服务包"]) ||
     (matches(value, ["服务包"]) && matches(value, ["长链", "提取", "codex", "chatgpt", "gpt", "plus"]));
   if (!hasPeripheralSignal) return false;
@@ -2055,6 +2078,7 @@ function isChatGptTeamDominant(value: string): boolean {
   if (matches(value, ["gemini", "claude", "grok"])) return false;
   if (isChatGptTeamExclusion(value)) return false;
   if (isChatGptPlusCarpool(value)) return false;
+  if (isChatGptPlusAccountWithParentEmail(value)) return false;
 
   return matches(value, [
     "gpt team",
@@ -2091,6 +2115,13 @@ function isChatGptTeamDominant(value: string): boolean {
     "团队席位",
     "席位",
   ]);
+}
+
+function isChatGptPlusAccountWithParentEmail(value: string): boolean {
+  if (!matches(value, ["plus", "成品号"])) return false;
+  if (!matches(value, ["母号邮箱", "母号 邮箱"])) return false;
+
+  return matches(value, ["icloud", "gmail", "邮箱", "google", "outlook", "hotmail"]);
 }
 
 function isChatGptPlusCarpool(value: string): boolean {

@@ -15,6 +15,7 @@ const { buildProductGroups, classifyOffer, isSharedAccessOffer } = await loadCat
 const cases = [
   ["ChatGPT Plus 直充 卡密自助", "chatgpt-plus"],
   ["ChatGPT Plus 成品号 独享账号", "chatgpt-plus"],
+  ["UPI渠道-PLUS成品号30天（iCloud高权重母号邮箱）", "chatgpt-plus"],
   ["【推荐】GPT Plus充值CDK - pix 自动充值渠道非成品需自备账号，自己账号有team不能冲", "chatgpt-plus"],
   ["ChatGPT Plus成品会员账号｜提供邮箱账密，带RT 可直接导入中转站｜自动发货", "chatgpt-plus"],
   ["PLUS-成品-已接码rt-微软邮箱-支持登录网页端，支持直接登录codex-质保首登", "chatgpt-plus"],
@@ -133,7 +134,9 @@ const cases = [
   ["美区 2-4 年谷歌邮箱 跑gemini pro 失败的号（85%带gcp）", "gmail-account"],
   ["余额充值：100刀【不限时间,可用claude、gemini、gpt】", "openai-api-cdk"],
   ["AI 平台 直充 10000美元额度 -Claude Opus 4.7 / Codex / Gemini", "openai-api-cdk"],
+  ["直供实验室庞大稳定 Claude Max / Pro 池", "openai-api-cdk"],
   ["codex重置额度服务plus pro可用", "chatgpt-codex-service"],
+  ["plus pro重置（联系wx客服）", "chatgpt-codex-service"],
   ["GPT-Plus订阅PayPal长链提取服务-10次套餐包", "chatgpt-codex-service"],
   ["【24小时有效期】每天100刀claude code", "openai-api-cdk"],
   ["【总共50刀】30天有效期-老Plus渠道", "openai-api-cdk"],
