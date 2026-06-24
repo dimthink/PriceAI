@@ -1,0 +1,77 @@
+name: Collect API Transit
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Comma-separated API transit source ids"
+        required: false
+        default: "sub-callai-one"
+
+concurrency:
+  group: collect-api-transit
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --omit=dev
+
+      - name: Collect API transit prices
+        env:
+          REQUESTED_SOURCE: ${{ github.event.inputs.source }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CALLAI_PARTNER_PRICEAI_TOKEN: ${{ secrets.CALLAI_PARTNER_PRICEAI_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "缺少 NEXT_PUBLIC_SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY secret"
+            exit 1
+          fi
+          if [ -z "$CALLAI_PARTNER_PRICEAI_TOKEN" ]; then
+            echo "缺少 CALLAI_PARTNER_PRICEAI_TOKEN secret"
+            exit 1
+          fi
+
+          SOURCE="${REQUESTED_SOURCE:-sub-callai-one}"
+          npm run collect:api-transit -- --source "$SOURCE" --post --out /tmp/api-transit-latest.json
+
+      - name: Notify failure
+        if: failure()
+        env:
+          WEBHOOK_URL: ${{ secrets.PRICEAI_ALERT_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            exit 0
+          fi
+
+          node <<'NODE'
+          const payload = {
+            title: "PriceAI GitHub Actions 失败",
+            message: `${process.env.GITHUB_WORKFLOW} #${process.env.GITHUB_RUN_NUMBER} failed on ${process.env.GITHUB_REF_NAME}`,
+            severity: "warning",
+            source: "github-actions",
+            runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+          };
+
+          await fetch(process.env.WEBHOOK_URL, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          NODE

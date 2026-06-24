@@ -76,7 +76,7 @@ export async function collectApiTransitPrices(options = {}) {
         status: parsed.offers.length ? "success" : "partial",
         model_count: parsed.modelCount,
         offer_count: parsed.offers.length,
-        error_message: parsed.offers.length ? null : "未识别到 Claude/GPT MVP 模型。",
+        error_message: parsed.offers.length ? null : parsed.collectionError || "未识别到 Claude/GPT MVP 模型。",
         source_url: source.pricingEndpointUrl,
         started_at: runStartedAt,
         finished_at: new Date().toISOString(),
@@ -234,6 +234,7 @@ function parsePricingPayload(source, payload, collectedAt) {
   const deduped = dedupeBestOffers(selected);
   return {
     modelCount: items.length,
+    collectionError: null,
     station: buildStationRow(source, collectedAt, {
       status: deduped.length ? "success" : "partial",
       offerCount: deduped.length,
@@ -286,6 +287,7 @@ function parseCallaiPartnerStatusPayload(source, payload, collectedAt) {
 
   return {
     modelCount: entries.reduce((total, { entry }) => total + (Array.isArray(entry?.models) ? entry.models.length : 0), 0),
+    collectionError,
     station: buildStationRow(source, collectedAt, {
       status: deduped.length ? (collectionError ? "partial" : "success") : "partial",
       offerCount: deduped.length,
@@ -386,6 +388,7 @@ function buildCallaiPartnerOfferRow({
   const family = standard.startsWith("Claude") ? "claude" : "gpt";
   const groupMultiplier = numberValue(group?.rate_multiplier);
   if (groupMultiplier === null || groupMultiplier <= 0) return null;
+  if (shouldAutoPublishSource(source) && payload?.meta?.stale === true) return null;
 
   const basePrice = normalizePartnerBasePrice(model?.base_price);
   const official = officialTransitPrices[standard];
@@ -396,6 +399,7 @@ function buildCallaiPartnerOfferRow({
   const groupKey = normalizeSourceGroupName(source, rawGroupName);
   const checkedAt = stringOrNull(monitoring?.checked_at) || collectedAt;
   const availability = callaiAvailabilityFromMonitoring(monitoring, payload?.meta, collectedAt);
+  const autoPublish = shouldAutoPublishSource(source) && payload?.meta?.stale !== true;
 
   return {
     id: stableId("api-transit-offer", source.id, standard, groupKey),
@@ -420,7 +424,8 @@ function buildCallaiPartnerOfferRow({
     availability_last_checked_at: checkedAt,
     availability_note: availability.note,
     last_verified_at: checkedAt,
-    status: "needs_review",
+    status: autoPublish ? "active" : "needs_review",
+    auto_publish: autoPublish,
     raw_payload: {
       collector_kind: source.collectorKind,
       schema_version: stringOrNull(payload?.meta?.schema_version),
@@ -561,6 +566,7 @@ function summarizeCallaiPartnerAvailability(latest, collectedAt) {
 function buildStationRow(source, collectedAt, collection = {}) {
   const status = collection.status === "failed" ? "failed" : collection.status === "success" ? "success" : "partial";
   const availability = collection.availability || {};
+  const autoPublish = shouldAutoPublishSource(source) && status === "success";
   return {
     id: source.id,
     slug: source.slug || source.id,
@@ -581,7 +587,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
     refund_policy: source.refundPolicy || null,
     risk_labels: status === "success" ? ["insufficient_samples"] : ["insufficient_samples", "pending_feedback"],
     usage_advice: status === "success" ? "try_small" : "pending",
-    data_status: "pending_review",
+    data_status: autoPublish ? "verified" : "pending_review",
     availability_seven_day_rate: availability.rate ?? null,
     availability_seven_day_samples: availability.samples ?? 0,
     availability_last_checked_at: availability.lastCheckedAt ?? null,
@@ -597,8 +603,13 @@ function buildStationRow(source, collectedAt, collection = {}) {
     collection_error: collection.error || collection.collectionError || null,
     last_collected_at: collectedAt,
     last_updated_at: stringOrNull(collection?.meta?.generated_at || collection?.site?.generated_at) || collectedAt,
-    published: false,
-    admin_note: collection.offerCount ? `自动抓取到 ${collection.offerCount} 条 MVP 模型价格，待人工审核。` : "自动抓取未识别到 MVP 模型，待人工确认。",
+    published: autoPublish,
+    auto_publish: autoPublish,
+    admin_note: collection.offerCount
+      ? autoPublish
+        ? `自动抓取到 ${collection.offerCount} 条 API 中转价格，已按来源快照发布。`
+        : `自动抓取到 ${collection.offerCount} 条 MVP 模型价格，待人工审核。`
+      : "自动抓取未识别到 MVP 模型，待人工确认。",
     created_at: collectedAt,
   };
 }
@@ -632,7 +643,8 @@ function buildOfferRow(source, item, group, standard, collectedAt) {
     availability_last_checked_at: null,
     availability_note: "价格已抓取，尚未运行 API 可用性检测。",
     last_verified_at: collectedAt,
-    status: "needs_review",
+    status: shouldAutoPublishSource(source) ? "active" : "needs_review",
+    auto_publish: shouldAutoPublishSource(source),
     raw_payload: {
       model: item,
       group,
@@ -820,20 +832,72 @@ async function postRows(rows, options) {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for --post/--db.");
 
+  const autoPublishStationIds = collectSuccessfulAutoPublishStationIds(rows.stations);
+  const autoPublishOfferKeys = collectAutoPublishOfferKeys(rows.offers, autoPublishStationIds);
   const existingStations = await readExistingStations(supabase, rows.stations.map((station) => station.id));
   const stations = rows.stations.map((station) => mergeStationForRefresh(station, existingStations.get(station.id), options));
   const existingOffers = await readExistingOffers(supabase, rows.offers);
   const offers = rows.offers.map((offer) => mergeOfferForRefresh(offer, existingOffers.get(offerKey(offer)), options));
+  const staleOfferIds = findStaleAutoPublishOfferIds(existingOffers, autoPublishOfferKeys);
 
   await upsertRows(supabase, "api_transit_stations", stations, { onConflict: "id" });
   await upsertRows(supabase, "api_transit_offers", offers, { onConflict: "station_id,standard_model,group_name" });
+  await deactivateOffersById(supabase, staleOfferIds);
   await upsertRows(supabase, "api_transit_detection_runs", rows.runs, { onConflict: "id" });
 
   return {
     ...plan,
+    deactivatedOffers: staleOfferIds.length,
     skipped: false,
-    message: options.publish ? "API 中转公开价格已写入并发布。" : "API 中转公开价格已写入待审核队列。",
+    message: postRowsMessage(options, autoPublishOfferKeys),
   };
+}
+
+function collectSuccessfulAutoPublishStationIds(stations) {
+  return new Set(
+    stations
+      .filter((station) => station.auto_publish === true && station.collection_status === "success")
+      .map((station) => station.id),
+  );
+}
+
+function collectAutoPublishOfferKeys(offers, stationIds) {
+  const byStation = new Map();
+  for (const offer of offers) {
+    if (offer.auto_publish !== true || !stationIds.has(offer.station_id)) continue;
+    const stationId = String(offer.station_id || "");
+    if (!stationId) continue;
+    if (!byStation.has(stationId)) byStation.set(stationId, new Set());
+    byStation.get(stationId).add(offerKey(offer));
+  }
+  return byStation;
+}
+
+function findStaleAutoPublishOfferIds(existingOffers, autoPublishOfferKeys) {
+  const ids = [];
+  for (const existing of existingOffers.values()) {
+    const currentKeys = autoPublishOfferKeys.get(existing.station_id);
+    if (!currentKeys || existing.status !== "active") continue;
+    if (!currentKeys.has(offerKey(existing))) ids.push(existing.id);
+  }
+  return ids;
+}
+
+async function deactivateOffersById(supabase, offerIds) {
+  for (const chunk of chunks(offerIds, 300)) {
+    if (!chunk.length) continue;
+    const { error } = await supabase.from("api_transit_offers").update({ status: "inactive" }).in("id", chunk);
+    if (error) {
+      error.table = "api_transit_offers";
+      throw error;
+    }
+  }
+}
+
+function postRowsMessage(options, autoPublishOfferKeys) {
+  if (options.publish) return "API 中转公开价格已写入并发布。";
+  if (autoPublishOfferKeys.size) return "API 中转公开价格已写入；自动发布来源已按最新快照同步。";
+  return "API 中转公开价格已写入待审核队列。";
 }
 
 async function readExistingOffers(supabase, offers) {
@@ -852,12 +916,17 @@ async function readExistingOffers(supabase, offers) {
 }
 
 function mergeOfferForRefresh(offer, existing, options) {
+  const { auto_publish: autoPublish, ...row } = offer;
   return {
-    ...offer,
+    ...row,
     id: existing?.id || offer.id,
-    status: options.publish ? "active" : existing?.status || offer.status,
+    status: options.publish || autoPublish ? "active" : existing?.status || offer.status,
     created_at: existing?.created_at || offer.created_at,
   };
+}
+
+function shouldAutoPublishSource(source) {
+  return source.autoPublish === true || source.auto_publish === true;
 }
 
 function offerKey(offer) {
@@ -898,16 +967,19 @@ async function readExistingStations(supabase, stationIds) {
 }
 
 function mergeStationForRefresh(station, existing, options) {
+  const { auto_publish: autoPublish, ...row } = station;
+  const shouldPublish = options.publish || autoPublish;
   if (!existing) {
     return {
-      ...station,
-      published: Boolean(options.publish),
-      data_status: options.publish ? "verified" : station.data_status,
+      ...row,
+      published: Boolean(shouldPublish),
+      data_status: shouldPublish ? "verified" : station.data_status,
+      admin_note: row.admin_note,
     };
   }
 
   return {
-    ...station,
+    ...row,
     source_type: existing.source_type || station.source_type,
     commercial_relation: existing.commercial_relation || station.commercial_relation,
     summary: existing.summary || station.summary,
@@ -916,11 +988,11 @@ function mergeStationForRefresh(station, existing, options) {
     balance_expiry: existing.balance_expiry ?? station.balance_expiry,
     support_channels: Array.isArray(existing.support_channels) ? existing.support_channels : station.support_channels,
     refund_policy: existing.refund_policy ?? station.refund_policy,
-    data_status: options.publish ? "verified" : existing.data_status || station.data_status,
+    data_status: shouldPublish ? "verified" : existing.data_status || station.data_status,
     commercial_offers: existing.commercial_offers ?? station.commercial_offers,
     verification_events: existing.verification_events ?? station.verification_events,
-    published: options.publish ? true : Boolean(existing.published),
-    admin_note: existing.admin_note || station.admin_note,
+    published: shouldPublish ? true : Boolean(existing.published),
+    admin_note: shouldPublish && row.collection_status === "success" ? row.admin_note : existing.admin_note || station.admin_note,
     created_at: existing.created_at || station.created_at,
   };
 }

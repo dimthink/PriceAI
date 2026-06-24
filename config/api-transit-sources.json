@@ -8,6 +8,7 @@
     "pricingEndpointUrl": "https://sub.callai.one/partner-api/v1/status",
     "collectorKind": "sub2api_partner_status",
     "partnerTokenEnv": "CALLAI_PARTNER_PRICEAI_TOKEN",
+    "autoPublish": true,
     "groupAliases": {
       "claude-kiro": "kiro"
     },
