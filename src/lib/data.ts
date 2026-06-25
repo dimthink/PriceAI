@@ -166,6 +166,10 @@ type PublicOfferPageRow = Record<string, unknown> & {
   product_updated_at?: string | null;
 };
 
+type PublicMerchantRow = Record<string, unknown> & {
+  total_count?: number | string | null;
+};
+
 let publicOfferDataCache: { expiresAt: number; value: PublicOfferData } | null = null;
 let publicOfferDataPromise: Promise<PublicOfferData> | null = null;
 let explorerDataCache: { expiresAt: number; value: ExplorerData } | null = null;
@@ -220,11 +224,386 @@ export function clearPublicDataCache(): void {
   productOfferFacetsCache.clear();
 }
 
-export async function refreshPublicApiSnapshots(): Promise<{
-  explorer: boolean;
-  offers: boolean;
-  productOffers: Array<{ key: string; ok: boolean }>;
-}> {
+export async function markPublicApiSnapshotsDirty(
+  reason: string,
+  scope: PublicApiSnapshotDirtyScope = {},
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const current = await readPublicApiSnapshot<PublicApiSnapshotRefreshState>(
+    PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
+    PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY,
+  );
+  const state = normalizePublicApiSnapshotRefreshState(current?.value);
+  const nextProductIds = mergePublicSnapshotIds(state.affectedProductIds, scope.productIds);
+  const nextOfferIds = mergePublicSnapshotIds(state.affectedOfferIds, scope.offerIds);
+  const nextSourceIds = mergePublicSnapshotIds(state.affectedSourceIds, scope.sourceIds);
+  const reachedScopeLimit =
+    nextProductIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS ||
+    nextOfferIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS ||
+    nextSourceIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS;
+
+  return writePublicApiSnapshot({
+    kind: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
+    key: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY,
+    payload: {
+      ...state,
+      dirty: true,
+      dirtyAt: now,
+      reason,
+      refreshIntervalSeconds: secondsFromMs(PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS),
+      globalDirty: state.globalDirty || scope.global !== false,
+      fullRefreshRequired: state.fullRefreshRequired || Boolean(scope.full) || reachedScopeLimit,
+      affectedProductIds: nextProductIds,
+      affectedOfferIds: nextOfferIds,
+      affectedSourceIds: nextSourceIds,
+    },
+    generatedAt: now,
+  });
+}
+
+export async function refreshPublicApiSnapshotsIfDue({
+  force = false,
+  minIntervalMs = PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS,
+  globalIntervalMs = PUBLIC_API_SNAPSHOT_GLOBAL_REFRESH_MIN_INTERVAL_MS,
+  fullRefreshMaxIntervalMs = PUBLIC_API_SNAPSHOT_FULL_REFRESH_MAX_INTERVAL_MS,
+}: {
+  force?: boolean;
+  minIntervalMs?: number;
+  globalIntervalMs?: number;
+  fullRefreshMaxIntervalMs?: number;
+} = {}): Promise<PublicApiSnapshotRefreshDecision> {
+  const now = new Date();
+  const snapshot = await readPublicApiSnapshot<PublicApiSnapshotRefreshState>(
+    PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
+    PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY,
+  );
+  const state = normalizePublicApiSnapshotRefreshState(snapshot?.value);
+
+  if (!force && !state.dirty && snapshot) {
+    const lastFullRefreshTime = timestampMs(state.lastFullRefreshCompletedAt);
+    const fullRefreshDue = !lastFullRefreshTime || now.getTime() - lastFullRefreshTime >= fullRefreshMaxIntervalMs;
+    if (!fullRefreshDue) {
+      return { refreshed: false, skipped: true, reason: "clean", state, retryAfter: null };
+    }
+  }
+
+  const lastRefreshTime = state.lastRefreshCompletedAt
+    ? new Date(state.lastRefreshCompletedAt).getTime()
+    : 0;
+  const elapsedMs = lastRefreshTime ? now.getTime() - lastRefreshTime : Number.POSITIVE_INFINITY;
+  const lastFullRefreshTime = timestampMs(state.lastFullRefreshCompletedAt);
+  const fullRefreshDue = !lastFullRefreshTime || now.getTime() - lastFullRefreshTime >= fullRefreshMaxIntervalMs;
+  const shouldFullRefresh = force || !snapshot || state.fullRefreshRequired || fullRefreshDue;
+
+  if (!shouldFullRefresh && elapsedMs < minIntervalMs) {
+    return {
+      refreshed: false,
+      skipped: true,
+      reason: "cooldown",
+      state,
+      retryAfter: new Date(lastRefreshTime + minIntervalMs).toISOString(),
+    };
+  }
+
+  const startedAt = new Date().toISOString();
+  await writePublicApiSnapshot({
+    kind: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
+    key: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY,
+    payload: {
+      ...state,
+      dirty: true,
+      lastRefreshStartedAt: startedAt,
+      refreshIntervalSeconds: Math.round(minIntervalMs / 1000),
+    },
+    generatedAt: startedAt,
+  });
+
+  const lastGlobalRefreshTime = timestampMs(state.lastGlobalRefreshCompletedAt || state.lastRefreshCompletedAt);
+  const globalRefreshDue = !lastGlobalRefreshTime || now.getTime() - lastGlobalRefreshTime >= globalIntervalMs;
+  const scope = shouldFullRefresh
+    ? { productIds: [], fullRequired: true }
+    : await resolvePublicApiSnapshotRefreshScope(state);
+  if (!shouldFullRefresh && scope.fullRequired) {
+    state.fullRefreshRequired = true;
+  }
+
+  const mustRunFullRefresh = shouldFullRefresh || scope.fullRequired;
+  const refreshGlobal = mustRunFullRefresh || (state.globalDirty && globalRefreshDue);
+  if (!mustRunFullRefresh && !refreshGlobal && !scope.productIds.length) {
+    return {
+      refreshed: false,
+      skipped: true,
+      reason: "cooldown",
+      state,
+      retryAfter: new Date((lastGlobalRefreshTime || now.getTime()) + globalIntervalMs).toISOString(),
+    };
+  }
+
+  const result = mustRunFullRefresh
+    ? await refreshPublicApiSnapshots()
+    : await refreshPublicApiSnapshotsForScope({
+        productIds: scope.productIds,
+        refreshGlobal,
+      });
+  const completedAt = new Date().toISOString();
+  const latestSnapshot = await readPublicApiSnapshot<PublicApiSnapshotRefreshState>(
+    PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
+    PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY,
+  );
+  const latestState = normalizePublicApiSnapshotRefreshState(latestSnapshot?.value);
+  const latestDirtyAtMs = latestState.dirtyAt ? new Date(latestState.dirtyAt).getTime() : 0;
+  const startedAtMs = new Date(startedAt).getTime();
+  const dirtiedDuringRefresh = latestState.dirty &&
+    Number.isFinite(latestDirtyAtMs) &&
+    latestDirtyAtMs > startedAtMs;
+  const nextState = buildNextPublicApiSnapshotRefreshState({
+    completedAt,
+    dirtiedDuringRefresh,
+    globalRefreshed: mustRunFullRefresh || refreshGlobal,
+    fullRefreshed: mustRunFullRefresh,
+    latestState,
+    minIntervalMs,
+    previousState: state,
+    processedProductIds: result.productIds,
+    startedAt,
+  });
+
+  await writePublicApiSnapshot({
+    kind: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
+    key: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY,
+    payload: nextState,
+    generatedAt: completedAt,
+  });
+
+  return {
+    refreshed: true,
+    skipped: false,
+    reason: force ? "forced" : snapshot ? "dirty" : "missing_state",
+    state: nextState,
+    result,
+  };
+}
+
+function normalizePublicApiSnapshotRefreshState(value: unknown): PublicApiSnapshotRefreshState {
+  if (!value || typeof value !== "object") {
+    return {
+      dirty: false,
+      dirtyAt: null,
+      reason: null,
+      lastRefreshStartedAt: null,
+      lastRefreshCompletedAt: null,
+      lastGlobalRefreshCompletedAt: null,
+      lastFullRefreshCompletedAt: null,
+      refreshIntervalSeconds: secondsFromMs(PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS),
+      globalDirty: false,
+      fullRefreshRequired: false,
+      affectedProductIds: [],
+      affectedOfferIds: [],
+      affectedSourceIds: [],
+    };
+  }
+
+  const record = value as Partial<PublicApiSnapshotRefreshState>;
+  return {
+    dirty: record.dirty === true,
+    dirtyAt: typeof record.dirtyAt === "string" ? record.dirtyAt : null,
+    reason: typeof record.reason === "string" ? record.reason : null,
+    lastRefreshStartedAt: typeof record.lastRefreshStartedAt === "string" ? record.lastRefreshStartedAt : null,
+    lastRefreshCompletedAt: typeof record.lastRefreshCompletedAt === "string" ? record.lastRefreshCompletedAt : null,
+    lastGlobalRefreshCompletedAt: typeof record.lastGlobalRefreshCompletedAt === "string" ? record.lastGlobalRefreshCompletedAt : null,
+    lastFullRefreshCompletedAt: typeof record.lastFullRefreshCompletedAt === "string" ? record.lastFullRefreshCompletedAt : null,
+    refreshIntervalSeconds: Number.isFinite(record.refreshIntervalSeconds)
+      ? Number(record.refreshIntervalSeconds)
+      : secondsFromMs(PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS),
+    globalDirty: record.globalDirty === true,
+    fullRefreshRequired: record.fullRefreshRequired === true,
+    affectedProductIds: normalizePublicSnapshotIdList(record.affectedProductIds),
+    affectedOfferIds: normalizePublicSnapshotIdList(record.affectedOfferIds),
+    affectedSourceIds: normalizePublicSnapshotIdList(record.affectedSourceIds),
+  };
+}
+
+function secondsFromMs(value: number): number {
+  return Math.round(value / 1000);
+}
+
+function normalizePublicSnapshotIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean),
+  )).slice(0, PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS);
+}
+
+function mergePublicSnapshotIds(
+  current: string[] | null | undefined,
+  next: Array<string | null | undefined> | null | undefined,
+): string[] {
+  return normalizePublicSnapshotIdList([...(current || []), ...(next || [])]);
+}
+
+function timestampMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const output: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    output.push(items.slice(index, index + size));
+  }
+  return output;
+}
+
+async function resolvePublicApiSnapshotRefreshScope(
+  state: PublicApiSnapshotRefreshState,
+): Promise<{ productIds: string[]; fullRequired: boolean }> {
+  const productIds = normalizePublicSnapshotIdList(state.affectedProductIds);
+  const offerIds = normalizePublicSnapshotIdList(state.affectedOfferIds);
+  const sourceIds = normalizePublicSnapshotIdList(state.affectedSourceIds);
+  const scopeTooLarge =
+    productIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS ||
+    offerIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS ||
+    sourceIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS;
+  if (scopeTooLarge) return { productIds, fullRequired: true };
+
+  const resolved = await resolvePublicSnapshotProductIds({ offerIds, sourceIds });
+  return {
+    productIds: mergePublicSnapshotIds(productIds, resolved.productIds),
+    fullRequired: resolved.fullRequired,
+  };
+}
+
+async function resolvePublicSnapshotProductIds({
+  offerIds,
+  sourceIds,
+}: {
+  offerIds: string[];
+  sourceIds: string[];
+}): Promise<{ productIds: string[]; fullRequired: boolean }> {
+  if (!offerIds.length && !sourceIds.length) return { productIds: [], fullRequired: false };
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return { productIds: [], fullRequired: true };
+
+  const productIds = new Set<string>();
+  let fullRequired = false;
+
+  for (const ids of chunks(offerIds, 100)) {
+    const { data, error } = await supabase
+      .from("raw_offers")
+      .select("canonical_product_id,source_title,tags,price")
+      .in("id", ids)
+      .abortSignal(publicSupabaseReadSignal());
+    if (error) {
+      console.warn("Public snapshot offer scope lookup failed:", error.message);
+      fullRequired = true;
+      continue;
+    }
+    for (const row of (data || []) as Array<Record<string, unknown>>) {
+      const productId = productIdFromRawOfferScopeRow(row);
+      if (productId) productIds.add(productId);
+    }
+  }
+
+  for (const ids of chunks(sourceIds, 20)) {
+    const { data, error, count } = await supabase
+      .from("raw_offers")
+      .select("canonical_product_id,source_title,tags,price", { count: "exact" })
+      .in("source_id", ids)
+      .limit(PUBLIC_API_SNAPSHOT_SOURCE_PRODUCT_LOOKUP_LIMIT)
+      .abortSignal(publicSupabaseReadSignal());
+    if (error) {
+      console.warn("Public snapshot source scope lookup failed:", error.message);
+      fullRequired = true;
+      continue;
+    }
+    if ((count || 0) >= PUBLIC_API_SNAPSHOT_SOURCE_PRODUCT_LOOKUP_LIMIT) {
+      fullRequired = true;
+    }
+    for (const row of (data || []) as Array<Record<string, unknown>>) {
+      const productId = productIdFromRawOfferScopeRow(row);
+      if (productId) productIds.add(productId);
+    }
+  }
+
+  return {
+    productIds: normalizePublicSnapshotIdList([...productIds]),
+    fullRequired,
+  };
+}
+
+function productIdFromRawOfferScopeRow(row: Record<string, unknown>): string | null {
+  if (typeof row.canonical_product_id === "string" && row.canonical_product_id.trim()) {
+    return row.canonical_product_id.trim();
+  }
+  const tags = Array.isArray(row.tags) ? row.tags.map(String) : [];
+  return classifyOffer(String(row.source_title || ""), {
+    tags,
+    price: typeof row.price === "number" ? row.price : null,
+  }).id;
+}
+
+function buildNextPublicApiSnapshotRefreshState({
+  completedAt,
+  dirtiedDuringRefresh,
+  fullRefreshed,
+  globalRefreshed,
+  latestState,
+  minIntervalMs,
+  previousState,
+  processedProductIds,
+  startedAt,
+}: {
+  completedAt: string;
+  dirtiedDuringRefresh: boolean;
+  fullRefreshed: boolean;
+  globalRefreshed: boolean;
+  latestState: PublicApiSnapshotRefreshState;
+  minIntervalMs: number;
+  previousState: PublicApiSnapshotRefreshState;
+  processedProductIds: string[];
+  startedAt: string;
+}): PublicApiSnapshotRefreshState {
+  if (dirtiedDuringRefresh) {
+    return {
+      ...latestState,
+      lastRefreshStartedAt: startedAt,
+      lastRefreshCompletedAt: completedAt,
+      lastGlobalRefreshCompletedAt: globalRefreshed ? completedAt : latestState.lastGlobalRefreshCompletedAt,
+      lastFullRefreshCompletedAt: fullRefreshed ? completedAt : latestState.lastFullRefreshCompletedAt,
+      refreshIntervalSeconds: secondsFromMs(minIntervalMs),
+    };
+  }
+
+  const processed = new Set(processedProductIds);
+  const affectedProductIds = fullRefreshed
+    ? []
+    : previousState.affectedProductIds.filter((id) => !processed.has(id));
+  const globalDirty = !globalRefreshed && previousState.globalDirty;
+  const fullRefreshRequired = !fullRefreshed && previousState.fullRefreshRequired;
+  const dirty = affectedProductIds.length > 0 || globalDirty || fullRefreshRequired;
+
+  return {
+    dirty,
+    dirtyAt: dirty ? previousState.dirtyAt : null,
+    reason: dirty ? previousState.reason : null,
+    lastRefreshStartedAt: startedAt,
+    lastRefreshCompletedAt: completedAt,
+    lastGlobalRefreshCompletedAt: globalRefreshed ? completedAt : previousState.lastGlobalRefreshCompletedAt,
+    lastFullRefreshCompletedAt: fullRefreshed ? completedAt : previousState.lastFullRefreshCompletedAt,
+    refreshIntervalSeconds: secondsFromMs(minIntervalMs),
+    globalDirty,
+    fullRefreshRequired,
+    affectedProductIds,
+    affectedOfferIds: [],
+    affectedSourceIds: [],
+  };
+}
+
+export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefreshResult> {
   const explorerData = await buildExplorerData({ skipSnapshot: true });
   const explorer = !explorerData.degraded && await writePublicApiSnapshot({
     kind: "explorer",
@@ -245,14 +624,71 @@ export async function refreshPublicApiSnapshots(): Promise<{
     generatedAt: offersData.generatedAt,
   });
 
-  const products = explorerData.products
-    .filter((product) => product.offerCount > 0)
-    .sort((a, b) => {
-      const offerDelta = b.offerCount - a.offerCount;
-      if (offerDelta !== 0) return offerDelta;
-      return a.id.localeCompare(b.id);
-    });
+  const productRefs = explorerData.products
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((product) => ({ id: product.id, slug: product.slug }));
+  const productOffers = await refreshPublicProductOfferSnapshots(productRefs);
 
+  clearPublicDataCache();
+  return {
+    mode: "full",
+    explorer,
+    offers,
+    productOffers,
+    productIds: productRefs.map((product) => product.id),
+  };
+}
+
+async function refreshPublicApiSnapshotsForScope({
+  productIds,
+  refreshGlobal,
+}: {
+  productIds: string[];
+  refreshGlobal: boolean;
+}): Promise<PublicApiSnapshotRefreshResult> {
+  let explorer: boolean | undefined;
+  let offers: boolean | undefined;
+  let explorerProducts: Array<{ id: string; slug?: string | null }> = [];
+
+  if (refreshGlobal) {
+    const explorerData = await buildExplorerData({ skipSnapshot: true });
+    explorer = !explorerData.degraded && await writePublicApiSnapshot({
+      kind: "explorer",
+      key: PUBLIC_EXPLORER_SNAPSHOT_KEY,
+      payload: explorerData,
+      generatedAt: explorerData.generatedAt,
+    });
+    explorerProducts = explorerData.products.map((product) => ({ id: product.id, slug: product.slug }));
+
+    const offersData = await loadPublicOffers({
+      limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+      offset: PUBLIC_OFFERS_SNAPSHOT_OFFSET,
+      skipSnapshot: true,
+    });
+    offers = !offersData.degraded && await writePublicApiSnapshot({
+      kind: "offers",
+      key: PUBLIC_OFFERS_SNAPSHOT_KEY,
+      payload: offersData,
+      generatedAt: offersData.generatedAt,
+    });
+  }
+
+  const productRefs = await resolvePublicSnapshotProductRefs(productIds, explorerProducts);
+  const productOffers = await refreshPublicProductOfferSnapshots(productRefs);
+
+  clearPublicDataCache();
+  return {
+    mode: "incremental",
+    explorer,
+    offers,
+    productOffers,
+    productIds: productRefs.map((product) => product.id),
+  };
+}
+
+async function refreshPublicProductOfferSnapshots(
+  products: Array<{ id: string; slug?: string | null }>,
+): Promise<Array<{ key: string; ok: boolean }>> {
   const productOffers: Array<{ key: string; ok: boolean }> = [];
   for (const product of products) {
     const value = await loadPublicProductOffers(product.id, {

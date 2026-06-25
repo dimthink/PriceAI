@@ -2,7 +2,7 @@ import { z } from "zod";
 import { approveSubmission, getAdminPasswordFromRequest } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
 import { normalizeCollectorKind } from "@/lib/collector-registry";
-import { clearPublicDataCache } from "@/lib/data";
+import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminPassword } from "@/lib/env";
 import { revalidatePublicOfferPaths } from "@/lib/public-revalidation";
 import type { CollectorKind } from "@/lib/types";
@@ -29,7 +29,10 @@ export async function POST(request: Request) {
     });
     clearPublicDataCache();
     revalidatePublicOfferPaths();
-    return Response.json({ ok: true, ...result });
+    const snapshotRefreshQueued = await markPublicApiSnapshotsDirty("admin submission approve", {
+      sourceIds: [result.source.id],
+    });
+    return Response.json({ ok: true, ...result, snapshotRefreshQueued });
   } catch (error) {
     logApiError("admin submission approve", error);
     const rawMessage = error instanceof Error ? error.message : "审核失败。";

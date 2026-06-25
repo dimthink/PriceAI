@@ -65,15 +65,31 @@ assert(/readPublicApiSnapshot<ExplorerData>\(\s*["']explorer["']/.test(dataText)
 assert(/readPublicApiSnapshot<PublicOffersResult>\(\s*["']offers["']/.test(dataText), "src/lib/data.ts: default public offer list must try the shared public API snapshot before expensive source reads.");
 assert(/readPublicApiSnapshot<PublicProductOffersResult>\(\s*[\r\n\s]*["']product_offers["']/.test(dataText), "src/lib/data.ts: default product offer pages must try the shared public API snapshot before expensive source reads.");
 assert(/refreshPublicApiSnapshots/.test(dataText), "src/lib/data.ts: public API snapshot refresh must stay available for writes and manual warmup.");
+assert(/markPublicApiSnapshotsDirty/.test(dataText), "src/lib/data.ts: public API snapshot writes must support a cheap dirty marker.");
+assert(/refreshPublicApiSnapshotsIfDue/.test(dataText), "src/lib/data.ts: public API snapshot refresh must be coalesced and rate-limited.");
+assert(/PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS\s*=\s*3\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: public API snapshot incremental refresh must stay on the 3 minute cadence.");
+assert(/PUBLIC_API_SNAPSHOT_GLOBAL_REFRESH_MIN_INTERVAL_MS\s*=\s*5\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: explorer/offers snapshot refresh must stay coalesced to 5 minutes.");
+assert(/PUBLIC_API_SNAPSHOT_FULL_REFRESH_MAX_INTERVAL_MS\s*=\s*60\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: full public snapshot refresh must remain a low-frequency 60 minute fallback.");
+assert(/affectedProductIds/.test(dataText), "src/lib/data.ts: dirty snapshot state must keep affected product IDs for incremental refresh.");
+assert(/resolvePublicSnapshotProductIds/.test(dataText), "src/lib/data.ts: dirty source/offer scopes must resolve to product snapshot refreshes.");
 assert(!/PUBLIC_PRODUCT_OFFERS_SNAPSHOT_PRODUCT_LIMIT/.test(dataText), "src/lib/data.ts: product offer snapshots must warm all products with offers, not only a small top-N subset.");
 
 const publicApiSnapshotsText = read("src/lib/public-api-snapshots.ts");
 assert(/public_api_snapshots/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: public API snapshots must use the shared snapshot table.");
 assert(/SNAPSHOT_READ_TIMEOUT_MS\s*=\s*2_500/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot reads must keep a short 2.5s timeout.");
 assert(/PUBLIC_API_SNAPSHOT_SCHEMA_VERSION\s*=\s*1/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot schema version must be explicit.");
+assert(/refresh_state/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot dirty state must use the shared snapshot table.");
 
 const publicApiSnapshotsRouteText = read("src/app/api/admin/public-api-snapshots/route.ts");
-assert(/refreshPublicApiSnapshots/.test(publicApiSnapshotsRouteText), "src/app/api/admin/public-api-snapshots/route.ts: keep a protected manual snapshot warmup endpoint.");
+assert(/refreshPublicApiSnapshotsIfDue/.test(publicApiSnapshotsRouteText), "src/app/api/admin/public-api-snapshots/route.ts: snapshot refresh endpoint must coalesce dirty writes instead of always refreshing.");
+
+const crawlLogRouteText = read("src/app/api/admin/crawl-log/route.ts");
+assert(/markPublicApiSnapshotsDirty/.test(crawlLogRouteText), "src/app/api/admin/crawl-log/route.ts: crawl-log writes must only mark public snapshots dirty.");
+assert(!/refreshPublicApiSnapshots/.test(crawlLogRouteText), "src/app/api/admin/crawl-log/route.ts: crawl-log writes must not synchronously refresh all public API snapshots.");
+
+const snapshotRefreshWorkflowText = read(".github/workflows/refresh-public-api-snapshots.yml");
+assert(snapshotRefreshWorkflowText.includes('cron: "*/3 * * * *"'), ".github/workflows/refresh-public-api-snapshots.yml: public snapshot refresh must run on the unified 3 minute incremental cadence.");
+assert(/\/api\/admin\/public-api-snapshots/.test(snapshotRefreshWorkflowText), ".github/workflows/refresh-public-api-snapshots.yml: scheduled refresh must call the protected snapshot endpoint.");
 
 const publicApiSnapshotsMigrationText = read("supabase/migrations/20260624083000_public_api_snapshots.sql");
 assert(/create table if not exists public_api_snapshots/.test(publicApiSnapshotsMigrationText), "public API snapshots migration must create the snapshot table.");

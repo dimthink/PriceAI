@@ -1,8 +1,7 @@
 import { getAdminPasswordFromRequest, upsertRawOffer } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
-import { clearPublicDataCache, refreshPublicApiSnapshots } from "@/lib/data";
+import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminPassword } from "@/lib/env";
-import { revalidatePublicOfferPaths } from "@/lib/public-revalidation";
 import { z } from "zod";
 
 const schema = z.object({
@@ -24,24 +23,18 @@ export async function POST(request: Request) {
     const payload = schema.parse(await request.json());
     const offer = await upsertRawOffer(payload);
     clearPublicDataCache();
-    revalidatePublicOfferPaths();
-    const snapshotRefresh = await refreshSnapshotsAfterMutation();
+    const snapshotRefreshQueued = await markPublicApiSnapshotsDirty("admin manual offer", {
+      productIds: [offer.canonicalProductId],
+      offerIds: [offer.id],
+      sourceIds: [offer.sourceId],
+    });
 
-    return Response.json({ ok: true, offer, snapshotRefresh });
+    return Response.json({ ok: true, offer, snapshotRefreshQueued });
   } catch (error) {
     logApiError("admin manual offer", error);
     return Response.json(
       { ok: false, message: safeApiErrorMessage(error, "保存失败。") },
       { status: error instanceof z.ZodError ? 400 : 500 },
     );
-  }
-}
-
-async function refreshSnapshotsAfterMutation(): Promise<Awaited<ReturnType<typeof refreshPublicApiSnapshots>> | null> {
-  try {
-    return await refreshPublicApiSnapshots();
-  } catch (error) {
-    console.warn("admin manual offer: public API snapshot refresh failed", error);
-    return null;
   }
 }

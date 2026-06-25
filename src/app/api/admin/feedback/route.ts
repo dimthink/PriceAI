@@ -4,10 +4,11 @@ import {
   listOfferFeedback,
   runOfferFeedbackRiskPrecheck,
   updateOfferFeedbackStatus,
+  updateOfferFeedbackRiskPrecheckVisibility,
   updateOfferFeedbackVerification,
 } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
-import { clearPublicDataCache, listRawOffersByIds } from "@/lib/data";
+import { clearPublicDataCache, listRawOffersByIds, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminPassword } from "@/lib/env";
 import { z } from "zod";
 
@@ -32,13 +33,14 @@ const verificationResultSchema = z.enum([
 ]);
 
 const patchSchema = z.object({
-  action: z.enum(["status", "verification", "recollect", "risk_precheck"]).optional(),
+  action: z.enum(["status", "verification", "recollect", "risk_precheck", "risk_visibility"]).optional(),
   id: z.string().min(1),
   status: statusSchema.optional(),
   reviewerNote: z.string().max(500).nullable().optional(),
   verificationStatus: verificationStatusSchema.optional(),
   verificationResult: verificationResultSchema.nullable().optional(),
   verificationMessage: z.string().max(500).nullable().optional(),
+  riskVisibilityMode: z.enum(["hide_public", "expand_source"]).optional(),
 });
 
 export async function GET(request: Request) {
@@ -76,7 +78,28 @@ export async function PATCH(request: Request) {
     if (action === "risk_precheck") {
       const feedback = await runOfferFeedbackRiskPrecheck(payload.id);
       clearPublicDataCache();
-      return Response.json({ ok: true, feedback });
+      const snapshotRefreshQueued = await markPublicApiSnapshotsDirty(
+        "admin feedback risk precheck",
+        feedbackSnapshotScope(feedback),
+      );
+      return Response.json({ ok: true, feedback, snapshotRefreshQueued });
+    }
+
+    if (action === "risk_visibility") {
+      if (!payload.riskVisibilityMode) {
+        return Response.json({ ok: false, message: "缺少前台提醒操作。" }, { status: 400 });
+      }
+      const feedback = await updateOfferFeedbackRiskPrecheckVisibility({
+        id: payload.id,
+        mode: payload.riskVisibilityMode,
+        reviewerNote: payload.reviewerNote || null,
+      });
+      clearPublicDataCache();
+      const snapshotRefreshQueued = await markPublicApiSnapshotsDirty(
+        "admin feedback risk visibility",
+        feedbackSnapshotScope(feedback),
+      );
+      return Response.json({ ok: true, feedback, snapshotRefreshQueued });
     }
 
     if (action === "verification") {
@@ -104,7 +127,10 @@ export async function PATCH(request: Request) {
       reviewerNote: payload.reviewerNote || null,
     });
     clearPublicDataCache();
-    return Response.json({ ok: true, feedback });
+    const snapshotRefreshQueued = payload.status === "ignored"
+      ? await markPublicApiSnapshotsDirty("admin feedback ignored", feedbackSnapshotScope(feedback))
+      : false;
+    return Response.json({ ok: true, feedback, snapshotRefreshQueued });
   } catch (error) {
     logApiError("admin feedback update", error);
     return Response.json(
@@ -127,4 +153,17 @@ function safeAdminFeedbackErrorMessage(error: unknown): string {
   }
 
   return safeApiErrorMessage(error, "处理反馈失败。");
+}
+
+function feedbackSnapshotScope(feedback: {
+  productId?: string | null;
+  productSlug?: string | null;
+  offerId?: string | null;
+  sourceId?: string | null;
+}) {
+  return {
+    productIds: [feedback.productId, feedback.productSlug],
+    offerIds: [feedback.offerId],
+    sourceIds: [feedback.sourceId],
+  };
 }

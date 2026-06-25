@@ -6,11 +6,11 @@ import {
   upsertSource,
 } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
+import { classifyOffer } from "@/lib/catalog";
 import { normalizeCollectorKind } from "@/lib/collector-registry";
-import { clearPublicDataCache, refreshPublicApiSnapshots } from "@/lib/data";
+import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminOrCronPassword } from "@/lib/env";
 import { pruneOperationalLogs } from "@/lib/operational-logs";
-import { revalidatePublicOfferPaths } from "@/lib/public-revalidation";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { stableId } from "@/lib/utils";
 import { z } from "zod";
@@ -60,20 +60,29 @@ export async function POST(request: Request) {
     const runs = isBatch ? batchSchema.parse(rawBody).runs : [crawlLogPayloadSchema.parse(rawBody)];
     const results = [];
     let shouldClearCache = false;
-    let snapshotRefresh: Awaited<ReturnType<typeof refreshPublicApiSnapshots>> | null = null;
+    let snapshotRefreshQueued = false;
+    const affectedProductIds = new Set<string>();
+    const affectedOfferIds = new Set<string>();
+    const affectedSourceIds = new Set<string>();
 
     for (const run of runs) {
       const result = await saveCrawlLogRun(supabase, run);
       results.push(result);
       shouldClearCache = shouldClearCache || result.shouldClearCache;
+      for (const id of result.affectedProductIds) affectedProductIds.add(id);
+      for (const id of result.affectedOfferIds) affectedOfferIds.add(id);
+      for (const id of result.affectedSourceIds) affectedSourceIds.add(id);
     }
 
     await pruneOperationalLogs(supabase);
 
     if (shouldClearCache) {
       clearPublicDataCache();
-      revalidatePublicOfferPaths();
-      snapshotRefresh = await refreshSnapshotsAfterMutation("admin crawl log");
+      snapshotRefreshQueued = await markPublicApiSnapshotsDirty("admin crawl log", {
+        productIds: [...affectedProductIds],
+        offerIds: [...affectedOfferIds],
+        sourceIds: [...affectedSourceIds],
+      });
     }
 
     const totals = aggregateResults(results);
@@ -83,7 +92,7 @@ export async function POST(request: Request) {
       writtenCount: totals.writtenCount,
       unchangedCount: totals.unchangedCount,
       refreshedCount: totals.refreshedCount,
-      snapshotRefresh,
+      snapshotRefreshQueued,
       runCount: results.length,
       results: isBatch ? results.map(compactResult) : undefined,
     });
@@ -93,15 +102,6 @@ export async function POST(request: Request) {
       { ok: false, message: safeApiErrorMessage(error, "记录采集结果失败。") },
       { status: error instanceof z.ZodError ? 400 : 500 },
     );
-  }
-}
-
-async function refreshSnapshotsAfterMutation(scope: string): Promise<Awaited<ReturnType<typeof refreshPublicApiSnapshots>> | null> {
-  try {
-    return await refreshPublicApiSnapshots();
-  } catch (error) {
-    console.warn(`${scope}: public API snapshot refresh failed`, error);
-    return null;
   }
 }
 
@@ -129,6 +129,9 @@ async function saveCrawlLogRun(
   const savedAt = new Date().toISOString();
   const seenOfferIds = seenOfferIdsFromDetails(payload.details) || offers.map(rawOfferInputId);
   const fullSnapshot = fullSnapshotFromDetails(payload.details, payload.status);
+  const changedByPayload = upsertResult.writtenCount > 0 || upsertResult.refreshedCount > 0;
+  const affectedOfferIds = changedByPayload ? offers.map(rawOfferInputId) : [];
+  const affectedProductIds = changedByPayload ? offers.map(productIdFromCrawlOffer) : [];
 
   const sourceCollectionResult = await recordSourceCollectionResult({
     sourceId: source.id,
@@ -174,8 +177,10 @@ async function saveCrawlLogRun(
     writtenCount: upsertResult.writtenCount,
     unchangedCount: upsertResult.unchangedCount,
     refreshedCount: upsertResult.refreshedCount,
+    affectedProductIds,
+    affectedOfferIds,
+    affectedSourceIds: sourceCollectionResult.changedOfferCount > 0 ? [source.id] : [],
     shouldClearCache:
-      payload.status !== "success" ||
       upsertResult.writtenCount > 0 ||
       upsertResult.refreshedCount > 0 ||
       sourceCollectionResult.changedOfferCount > 0,
@@ -212,6 +217,13 @@ function compactResult(result: {
     unchangedCount: result.unchangedCount,
     refreshedCount: result.refreshedCount || 0,
   };
+}
+
+function productIdFromCrawlOffer(offer: z.infer<typeof offerSchema>): string {
+  return classifyOffer(offer.sourceTitle, {
+    tags: offer.tags || [],
+    price: offer.price ?? null,
+  }).id;
 }
 
 function collectorKindFromDetails(details: Record<string, unknown> | undefined) {

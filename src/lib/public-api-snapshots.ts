@@ -7,7 +7,7 @@ const SNAPSHOT_WRITE_TIMEOUT_MS = 15_000;
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 export const PUBLIC_API_SNAPSHOT_SCHEMA_VERSION = 1;
 
-export type PublicApiSnapshotKind = "explorer" | "offers" | "product_offers";
+export type PublicApiSnapshotKind = "explorer" | "offers" | "product_offers" | "refresh_state";
 
 export type PublicApiSnapshotPayload<T> = {
   generatedAt: string;
