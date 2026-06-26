@@ -8,7 +8,7 @@ on:
       source:
         description: "Comma-separated API transit source ids"
         required: false
-        default: "sub-callai-one"
+        default: ""
 
 concurrency:
   group: collect-api-transit
@@ -43,13 +43,11 @@ jobs:
             echo "缺少 NEXT_PUBLIC_SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY secret"
             exit 1
           fi
-          if [ -z "$CALLAI_PARTNER_PRICEAI_TOKEN" ]; then
-            echo "缺少 CALLAI_PARTNER_PRICEAI_TOKEN secret"
-            exit 1
+          if [ -n "${REQUESTED_SOURCE:-}" ]; then
+            npm run collect:api-transit -- --source "$REQUESTED_SOURCE" --post --out /tmp/api-transit-latest.json
+          else
+            npm run collect:api-transit -- --post --out /tmp/api-transit-latest.json
           fi
-
-          SOURCE="${REQUESTED_SOURCE:-sub-callai-one}"
-          npm run collect:api-transit -- --source "$SOURCE" --post --out /tmp/api-transit-latest.json
 
       - name: Notify failure
         if: failure()

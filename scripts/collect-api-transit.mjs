@@ -574,6 +574,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
     website_url: source.websiteUrl,
     api_base_url: source.apiBaseUrl || null,
     pricing_url: source.pricingUrl || source.pricingEndpointUrl,
+    monitor_url: source.monitorUrl || null,
     status: status === "failed" ? "unknown" : "active",
     source_type: "manual_collected",
     commercial_relation: "none",
@@ -833,12 +834,15 @@ async function postRows(rows, options) {
   if (!supabase) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for --post/--db.");
 
   const autoPublishStationIds = collectSuccessfulAutoPublishStationIds(rows.stations);
-  const autoPublishOfferKeys = collectAutoPublishOfferKeys(rows.offers, autoPublishStationIds);
   const existingStations = await readExistingStations(supabase, rows.stations.map((station) => station.id));
+  const refreshStationIds = collectSuccessfulRefreshStationIds(rows.stations, existingStations, options);
+  const refreshedOfferKeys = collectRefreshedOfferKeys(rows.offers, refreshStationIds);
   const stations = rows.stations.map((station) => mergeStationForRefresh(station, existingStations.get(station.id), options));
   const existingOffers = await readExistingOffers(supabase, rows.offers);
-  const offers = rows.offers.map((offer) => mergeOfferForRefresh(offer, existingOffers.get(offerKey(offer)), options));
-  const staleOfferIds = findStaleAutoPublishOfferIds(existingOffers, autoPublishOfferKeys);
+  const offers = rows.offers.map((offer) =>
+    mergeOfferForRefresh(offer, existingOffers.get(offerKey(offer)), refreshStationIds.has(offer.station_id)),
+  );
+  const staleOfferIds = findStaleRefreshedOfferIds(existingOffers, refreshedOfferKeys);
 
   await upsertRows(supabase, "api_transit_stations", stations, { onConflict: "id" });
   await upsertRows(supabase, "api_transit_offers", offers, { onConflict: "station_id,standard_model,group_name" });
@@ -849,7 +853,7 @@ async function postRows(rows, options) {
     ...plan,
     deactivatedOffers: staleOfferIds.length,
     skipped: false,
-    message: postRowsMessage(options, autoPublishOfferKeys),
+    message: postRowsMessage(options, refreshedOfferKeys, autoPublishStationIds),
   };
 }
 
@@ -861,10 +865,22 @@ function collectSuccessfulAutoPublishStationIds(stations) {
   );
 }
 
-function collectAutoPublishOfferKeys(offers, stationIds) {
+function collectSuccessfulRefreshStationIds(stations, existingStations, options) {
+  const stationIds = new Set();
+  for (const station of stations) {
+    if (station.collection_status !== "success") continue;
+    const existing = existingStations.get(station.id);
+    if (options.publish || station.auto_publish === true || existing?.published === true) {
+      stationIds.add(station.id);
+    }
+  }
+  return stationIds;
+}
+
+function collectRefreshedOfferKeys(offers, stationIds) {
   const byStation = new Map();
   for (const offer of offers) {
-    if (offer.auto_publish !== true || !stationIds.has(offer.station_id)) continue;
+    if (!stationIds.has(offer.station_id)) continue;
     const stationId = String(offer.station_id || "");
     if (!stationId) continue;
     if (!byStation.has(stationId)) byStation.set(stationId, new Set());
@@ -873,10 +889,10 @@ function collectAutoPublishOfferKeys(offers, stationIds) {
   return byStation;
 }
 
-function findStaleAutoPublishOfferIds(existingOffers, autoPublishOfferKeys) {
+function findStaleRefreshedOfferIds(existingOffers, refreshedOfferKeys) {
   const ids = [];
   for (const existing of existingOffers.values()) {
-    const currentKeys = autoPublishOfferKeys.get(existing.station_id);
+    const currentKeys = refreshedOfferKeys.get(existing.station_id);
     if (!currentKeys || existing.status !== "active") continue;
     if (!currentKeys.has(offerKey(existing))) ids.push(existing.id);
   }
@@ -894,9 +910,10 @@ async function deactivateOffersById(supabase, offerIds) {
   }
 }
 
-function postRowsMessage(options, autoPublishOfferKeys) {
+function postRowsMessage(options, refreshedOfferKeys, autoPublishStationIds) {
   if (options.publish) return "API 中转公开价格已写入并发布。";
-  if (autoPublishOfferKeys.size) return "API 中转公开价格已写入；自动发布来源已按最新快照同步。";
+  if (autoPublishStationIds.size) return "API 中转公开价格已写入；自动发布来源已按最新快照同步。";
+  if (refreshedOfferKeys.size) return "API 中转公开价格已写入；已发布来源已按最新快照同步。";
   return "API 中转公开价格已写入待审核队列。";
 }
 
@@ -915,12 +932,13 @@ async function readExistingOffers(supabase, offers) {
   return byId;
 }
 
-function mergeOfferForRefresh(offer, existing, options) {
-  const { auto_publish: autoPublish, ...row } = offer;
+function mergeOfferForRefresh(offer, existing, shouldActivate) {
+  const row = { ...offer };
+  delete row.auto_publish;
   return {
     ...row,
     id: existing?.id || offer.id,
-    status: options.publish || autoPublish ? "active" : existing?.status || offer.status,
+    status: shouldActivate ? "active" : existing?.status || offer.status,
     created_at: existing?.created_at || offer.created_at,
   };
 }
@@ -952,6 +970,7 @@ async function readExistingStations(supabase, stationIds) {
           "support_channels",
           "refund_policy",
           "data_status",
+          "monitor_url",
           "commercial_offers",
           "verification_events",
           "published",
@@ -989,6 +1008,7 @@ function mergeStationForRefresh(station, existing, options) {
     support_channels: Array.isArray(existing.support_channels) ? existing.support_channels : station.support_channels,
     refund_policy: existing.refund_policy ?? station.refund_policy,
     data_status: shouldPublish ? "verified" : existing.data_status || station.data_status,
+    monitor_url: existing.monitor_url ?? station.monitor_url,
     commercial_offers: existing.commercial_offers ?? station.commercial_offers,
     verification_events: existing.verification_events ?? station.verification_events,
     published: shouldPublish ? true : Boolean(existing.published),
@@ -1196,3 +1216,10 @@ function errorMessage(error) {
   if (error && typeof error === "object") return JSON.stringify(error, null, 2);
   return String(error);
 }
+
+export const __test = {
+  collectSuccessfulRefreshStationIds,
+  collectRefreshedOfferKeys,
+  findStaleRefreshedOfferIds,
+  mergeOfferForRefresh,
+};

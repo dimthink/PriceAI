@@ -35,6 +35,7 @@
     "apiBaseUrl": "https://www.packyapi.com/v1",
     "pricingUrl": "https://www.packyapi.com/pricing",
     "pricingEndpointUrl": "https://www.packyapi.com/api/pricing",
+    "monitorUrl": "https://www.packyapi.com/status",
     "collectorKind": "new_api_pricing",
     "channelTypes": ["undisclosed"],
     "accountPools": ["undisclosed"],
