@@ -15,6 +15,7 @@ import {
   Store,
   Table2,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import type { MouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1577,47 +1578,13 @@ function CollectorSourceLogo({
   const frameClassName = size === "table"
     ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1"
     : "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ring-1";
-  const markClassName = size === "table" ? "h-6 w-6 shrink-0" : "h-7 w-7 shrink-0";
+  const imageClassName = size === "table" ? "h-7 w-7 shrink-0 object-contain" : "h-8 w-8 shrink-0 object-contain";
+  const logo = collectorSourceLogoAsset(group);
 
-  if (group === "shopApi") {
+  if (logo) {
     return (
-      <span aria-hidden="true" className={`${frameClassName} bg-[#edf6fb] text-[#2f6f88] ring-[#bfdce8]`}>
-        <svg viewBox="0 0 32 32" className={markClassName} fill="none">
-          <rect x="5" y="5" width="22" height="22" rx="7" fill="currentColor" opacity="0.12" />
-          <path d="M10.5 18.2v-4.4a3.3 3.3 0 0 1 3.3-3.3h3.1" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          <path d="M21.5 13.8v4.4a3.3 3.3 0 0 1-3.3 3.3h-3.1" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          <path d="M13 16h6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-          <circle cx="10.5" cy="21.5" r="2" fill="currentColor" />
-          <circle cx="21.5" cy="10.5" r="2" fill="currentColor" />
-        </svg>
-      </span>
-    );
-  }
-
-  if (group === "dujiao") {
-    return (
-      <span aria-hidden="true" className={`${frameClassName} bg-[#fff5e7] text-[#8a5a17] ring-[#efd7ae]`}>
-        <svg viewBox="0 0 32 32" className={markClassName} fill="none">
-          <path d="M16 4.5 25.5 16 16 27.5 6.5 16Z" fill="currentColor" opacity="0.16" />
-          <path d="M16 7.5 22 16 16 24.5 10 16Z" stroke="currentColor" strokeWidth="2.1" strokeLinejoin="round" />
-          <path d="M16 10.5v11" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
-          <path d="M12.8 16h6.4" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
-        </svg>
-      </span>
-    );
-  }
-
-  if (group === "kami") {
-    return (
-      <span aria-hidden="true" className={`${frameClassName} bg-[#fff4f4] text-[#ff6b70] ring-[#ffd0d2]`}>
-        <svg viewBox="0 0 32 32" className={markClassName} fill="none">
-          <rect x="5.5" y="5.5" width="21" height="21" rx="5" stroke="currentColor" strokeWidth="3" />
-          <rect x="10.5" y="11" width="11" height="9.5" rx="2.6" fill="white" stroke="currentColor" strokeWidth="1.8" />
-          <path d="M16 8.5v2.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          <circle cx="14" cy="15.8" r="1.05" fill="#202829" />
-          <circle cx="18" cy="15.8" r="1.05" fill="#202829" />
-          <path d="M15 19h2" stroke="#202829" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
+      <span aria-hidden="true" className={`${frameClassName} ${logo.frameClassName}`}>
+        <Image src={logo.src} alt="" width={32} height={32} className={imageClassName} />
       </span>
     );
   }
@@ -1627,6 +1594,13 @@ function CollectorSourceLogo({
       <Store size={size === "table" ? 18 : 19} />
     </span>
   );
+}
+
+function collectorSourceLogoAsset(group: MerchantCollectorGroup): { src: string; frameClassName: string } | null {
+  if (group === "shopApi") return { src: "/brand-icons/collector-ldxp.png", frameClassName: "bg-[#fff5ec] ring-[#ffd9bd]" };
+  if (group === "dujiao") return { src: "/brand-icons/collector-dujiao.png", frameClassName: "bg-[#f8f8f8] ring-[#adb3b4]/20" };
+  if (group === "kami") return { src: "/brand-icons/collector-kami.png", frameClassName: "bg-[#fff4f4] ring-[#ffd0d2]" };
+  return null;
 }
 
 function merchantDescription(merchant: PublicMerchantSummary): string {

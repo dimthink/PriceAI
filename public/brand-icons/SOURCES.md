@@ -40,3 +40,6 @@ These assets are cached locally for stable rendering and performance. They are s
 | `ctyun.png` | `https://www.ctyun.cn/favicon.ico` | Converted from CTYun official public favicon to PNG. |
 | `new-api.png` | `https://github.com/QuantumNous/new-api/blob/main/web/default/public/logo.png` | Cached from the QuantumNous/new-api public repository for New API based transit stations. |
 | `sub2api.png` | `https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/frontend/public/logo.png` | Cached from the Wei-Shaw/sub2api public repository for Sub2API based transit stations. |
+| `collector-ldxp.png` | `https://pay.ldxp.cn/favicon.ico` | Converted from the public favicon exposed by LinkShop/链动小铺 storefront pages. |
+| `collector-dujiao.png` | `https://shop.mfttai.com/dj.svg` | Cached from a public Dujiaoka/独角数卡 storefront using the shared `dj.svg` unicorn asset, then resized to PNG for compact merchant rows. |
+| `collector-kami.png` | `https://fk.10886.xyz/favicon.ico` | Converted from a public Kami storefront favicon that matches the default Kami face mark. |
