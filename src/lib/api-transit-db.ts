@@ -504,6 +504,7 @@ function commercialOffers(value: unknown): NonNullable<TransitStation["commercia
     id: nullableString(item.id) || `offer-${index}`,
     type: commercialOfferType(item.type),
     title: stringValue(item.title) || "可用优惠",
+    listLabel: nullableString(item.listLabel || item.list_label),
     description: nullableString(item.description),
     code: nullableString(item.code),
     url: nullableString(item.url),

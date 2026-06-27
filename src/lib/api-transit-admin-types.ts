@@ -19,6 +19,7 @@ export type ApiTransitCommercialOffer = {
   id: string;
   type: "coupon" | "affiliate" | "sponsored";
   title: string;
+  listLabel?: string | null;
   description: string | null;
   code: string | null;
   url: string | null;

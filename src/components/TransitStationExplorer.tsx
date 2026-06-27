@@ -588,12 +588,15 @@ function StationIdentity({
 }
 
 function formatListOfferLabel(offer: NonNullable<TransitStation["commercialOffers"]>[number]): string {
+  if (offer.listLabel) return offer.listLabel;
+  if (/首充/.test(offer.title)) return "首充优惠";
+  if (/充值/.test(offer.title)) return "充值优惠";
+
   const amount = extractRegistrationBonusAmount([
     offer.title,
     offer.description,
   ].filter(Boolean).join(" "));
   if (amount) return `注册赠送 $${amount}`;
-  if (/首充|充值/.test(offer.title)) return "首充优惠";
   return offer.title;
 }
 

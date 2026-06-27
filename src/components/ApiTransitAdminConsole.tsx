@@ -1352,6 +1352,9 @@ function StationEditDialog({
             <AdminField label="优惠标题">
               <input name="offerTitle" defaultValue={station.commercialOffers[0]?.title || ""} className={adminFieldClassName} placeholder="例如 首充 9 折 / PriceAI 专属优惠" />
             </AdminField>
+            <AdminField label="列表短文案">
+              <input name="offerListLabel" defaultValue={station.commercialOffers[0]?.listLabel || ""} className={adminFieldClassName} placeholder="例如 首充 6.8 折 / 注册赠送 $1" />
+            </AdminField>
             <AdminField label="优惠类型">
               <select name="offerType" defaultValue={station.commercialOffers[0]?.type || "coupon"} className={adminFieldClassName}>
                 <option value="coupon">优惠码</option>
@@ -1791,6 +1794,7 @@ function buildCommercialOffersFromForm(
       id: existing?.id || "primary-offer",
       type: commercialOfferTypeFromText(formText(formData, "offerType")),
       title,
+      listLabel: formNullableText(formData, "offerListLabel"),
       description: formNullableText(formData, "offerDescription"),
       code: formNullableText(formData, "offerCode"),
       url: formNullableText(formData, "offerUrl"),

@@ -357,7 +357,7 @@ export function getStationComparisonSummary(
 }
 
 export function getTransitStationSystem(station: TransitStation): TransitStationSystem {
-  if (station.stationSystem) return station.stationSystem;
+  if (station.stationSystem && station.stationSystem !== "unknown") return station.stationSystem;
 
   const text = [
     station.collectorKind,
@@ -386,15 +386,14 @@ export function getTransitStationSystem(station: TransitStation): TransitStation
   }
 
   if (station.collectorKind?.includes("new_api")) return "new_api";
-  return "unknown";
+  return "custom";
 }
 
 export function getTransitStationSystemLabel(station: TransitStation): string {
   const system = getTransitStationSystem(station);
   if (system === "new_api") return "New API";
   if (system === "sub_to_api") return "Sub2API";
-  if (system === "custom") return "自定义系统";
-  return "未知系统";
+  return "自研";
 }
 
 export function getNormalizedSourceTags(

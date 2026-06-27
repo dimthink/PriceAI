@@ -26,34 +26,13 @@
       {
         "id": "onehop-priceai-068",
         "type": "coupon",
-        "title": "PRICEAI 充值 6.8 折",
-        "description": "使用优惠码 PRICEAI 可享受充值折扣；适用范围、是否限首充及是否可叠加需以 OneHop 实际结算页为准。",
+        "title": "首充 6.8 折",
+        "listLabel": "首充 6.8 折",
+        "description": "注册后赠送体验金 1$，参加官方活动可再赠 10$，首次充值填写 PRICEAI 优惠码，享受 6.8 折优惠。",
         "code": "PRICEAI",
-        "url": "https://onehop.ai/platform/models",
+        "url": "https://onehop.ai/invite/EYPFRA",
         "validUntil": null,
-        "disclosure": "优惠码是充值折扣，不改变模型公开价格倍率，也不代表 PriceAI 担保。",
-        "enabled": true
-      },
-      {
-        "id": "onehop-signup-1usd",
-        "type": "coupon",
-        "title": "注册送 1 美元",
-        "description": "新注册用户可获得 1 美元赠送额度，具体到账条件以 OneHop 前台为准。",
-        "code": null,
-        "url": "https://onehop.ai/platform/models",
-        "validUntil": null,
-        "disclosure": "注册送额度属于商家活动，可能随时调整。",
-        "enabled": true
-      },
-      {
-        "id": "onehop-follow-support-10usd",
-        "type": "coupon",
-        "title": "关注并联系客服可赠送 10 美元",
-        "description": "关注后联系 OneHop 客服可申请赠送 10 美元，领取渠道和条件需商家确认。",
-        "code": null,
-        "url": "https://onehop.ai/platform/models",
-        "validUntil": null,
-        "disclosure": "该赠送规则来自商家信息，PriceAI 尚未核验发放条件。",
+        "disclosure": "该链接可能包含 AFF；优惠为首充充值折扣，不改变模型公开价格倍率，也不代表 PriceAI 担保。",
         "enabled": true
       }
     ]

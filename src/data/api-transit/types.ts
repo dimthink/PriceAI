@@ -82,6 +82,7 @@ export interface TransitCommercialOffer {
   id: string;
   type: TransitCommercialOfferType;
   title: string;
+  listLabel?: string | null;
   description: string | null;
   code: string | null;
   url: string | null;
