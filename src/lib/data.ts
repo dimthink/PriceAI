@@ -192,6 +192,8 @@ export type PublicApiSnapshotDirtyScope = {
   sourceIds?: Array<string | null | undefined>;
   global?: boolean;
   full?: boolean;
+  fullOnProductScopeLimitOnly?: boolean;
+  preferProductScope?: boolean;
 };
 
 export type PublicApiSnapshotRefreshResult = {
@@ -331,12 +333,15 @@ export async function markPublicApiSnapshotsDirty(
   );
   const state = normalizePublicApiSnapshotRefreshState(current?.value);
   const nextProductIds = mergePublicSnapshotIds(state.affectedProductIds, scope.productIds);
-  const nextOfferIds = mergePublicSnapshotIds(state.affectedOfferIds, scope.offerIds);
-  const nextSourceIds = mergePublicSnapshotIds(state.affectedSourceIds, scope.sourceIds);
-  const reachedScopeLimit =
-    nextProductIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS ||
-    nextOfferIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS ||
-    nextSourceIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS;
+  const preferProductScope = scope.preferProductScope === true && nextProductIds.length > 0;
+  const nextOfferIds = preferProductScope ? [] : mergePublicSnapshotIds(state.affectedOfferIds, scope.offerIds);
+  const nextSourceIds = preferProductScope ? [] : mergePublicSnapshotIds(state.affectedSourceIds, scope.sourceIds);
+  const reachedScopeLimit = publicApiSnapshotDirtyScopeReachedLimit({
+    productIds: nextProductIds,
+    offerIds: nextOfferIds,
+    sourceIds: nextSourceIds,
+    productScopeOnly: scope.fullOnProductScopeLimitOnly === true,
+  });
 
   return writePublicApiSnapshot({
     kind: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
@@ -537,6 +542,24 @@ function mergePublicSnapshotIds(
   next: Array<string | null | undefined> | null | undefined,
 ): string[] {
   return normalizePublicSnapshotIdList([...(current || []), ...(next || [])]);
+}
+
+function publicApiSnapshotDirtyScopeReachedLimit({
+  productIds,
+  offerIds,
+  sourceIds,
+  productScopeOnly,
+}: {
+  productIds: string[];
+  offerIds: string[];
+  sourceIds: string[];
+  productScopeOnly: boolean;
+}): boolean {
+  if (productIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS) return true;
+  if (productScopeOnly) return false;
+
+  return offerIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS ||
+    sourceIds.length >= PUBLIC_API_SNAPSHOT_MAX_AFFECTED_ITEMS;
 }
 
 function timestampMs(value: string | null | undefined): number {

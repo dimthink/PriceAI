@@ -85,6 +85,9 @@ export async function POST(request: Request) {
         productIds: [...affectedProductIds],
         offerIds: [...affectedOfferIds],
         sourceIds: [...affectedSourceIds],
+        global: false,
+        fullOnProductScopeLimitOnly: true,
+        preferProductScope: true,
       });
     }
 
