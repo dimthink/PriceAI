@@ -11,13 +11,13 @@ import { getSponsorSettingsSummary } from "@/lib/sponsor-settings";
 
 export const metadata: Metadata = {
   title: "中转 API 模型对比",
-  description: "按 Claude / GPT 标准模型对比各 API 中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。",
+  description: "按 ChatGPT、Claude、Gemini、GLM、DeepSeek、图片生成等标准模型对比各 API 中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。",
   alternates: {
     canonical: "/api-transit/models",
   },
   openGraph: {
     title: "PriceAI 中转 API 模型对比",
-    description: "按 Claude / GPT 标准模型对比中转站价格与稳定性。",
+    description: "按主流标准模型对比中转站价格与稳定性。",
     url: "https://priceai.cc/api-transit/models",
   },
 };
@@ -29,7 +29,7 @@ export default async function ApiTransitModelsPage() {
     getTransitStations(),
     getSponsorSettingsSummary().catch(() => null),
   ]);
-  const familyOptions = getTransitModelFamilyOptions(stations);
+  const familyOptions = getTransitModelFamilyOptions();
   const modelSummaries = getTransitModelSummaries(stations, "all");
   const bestRate =
     modelSummaries
@@ -47,7 +47,7 @@ export default async function ApiTransitModelsPage() {
           name: "PriceAI 中转 API 模型对比",
           url: "https://priceai.cc/api-transit/models",
           inLanguage: "zh-CN",
-          description: "按 Claude / GPT 标准模型对比 API 中转站价格与稳定性。",
+          description: "按主流标准模型对比 API 中转站价格与稳定性。",
         }}
       />
 
@@ -71,7 +71,7 @@ export default async function ApiTransitModelsPage() {
             <span className="hidden md:inline">最低综合倍率 {formatRate(bestRate)}</span>
           </div>
           <p className="mt-2.5 max-w-[860px] text-sm leading-[1.8] text-[#5a6061]">
-            按 Claude / GPT 标准模型横向对比各中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。站点榜仍是主入口，模型页用于快速查某个模型在哪些站点更便宜。
+            按标准模型横向对比各中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。站点榜仍是主入口，模型页用于快速查某个模型在哪些站点更便宜。
           </p>
         </div>
 

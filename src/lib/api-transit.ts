@@ -9,7 +9,9 @@ import type {
 } from "@/data/api-transit/types";
 import {
   TRANSIT_CHANNEL_TYPE_LABELS,
+  TRANSIT_MODEL_FAMILY_OPTIONS,
   TRANSIT_MODEL_FAMILY_LABELS,
+  TRANSIT_MODEL_FAMILY_ORDER,
   TRANSIT_COMMERCIAL_LABELS,
 } from "@/data/api-transit/types";
 import { seedStations } from "@/data/api-transit/stations";
@@ -92,15 +94,20 @@ export function getCombinedRateForPrice(
   return coefficient * price.modelMultiplier;
 }
 
-export type TransitPriceMetric = "input" | "output" | "cacheWrite" | "cacheRead";
+export type TransitPriceMetric = "input" | "output" | "cacheWrite" | "cacheRead" | "imageOutput";
+export type TransitPriceCurrency = "USD" | "CNY";
 
 export type TransitOfficialModelPrice = Record<TransitPriceMetric, number | null> & {
+  currency: TransitPriceCurrency;
   sourceLabel: string;
   sourceUrl: string;
 };
 
 const anthropicPricingUrl = "https://platform.claude.com/docs/en/about-claude/pricing";
-const openAiPricingUrl = "https://developers.openai.com/api/docs/pricing";
+const openAiPricingUrl = "https://platform.openai.com/docs/pricing";
+const geminiPricingUrl = "https://ai.google.dev/gemini-api/docs/pricing";
+const glmPricingUrl = "https://bigmodel.cn/pricing";
+const deepseekPricingUrl = "https://api-docs.deepseek.com/quick_start/pricing";
 
 const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
   TransitModelPrice["standardModel"],
@@ -111,6 +118,8 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     output: 15,
     cacheWrite: 3.75,
     cacheRead: 0.3,
+    imageOutput: null,
+    currency: "USD",
     sourceLabel: "Anthropic API",
     sourceUrl: anthropicPricingUrl,
   },
@@ -119,6 +128,8 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     output: 25,
     cacheWrite: 6.25,
     cacheRead: 0.5,
+    imageOutput: null,
+    currency: "USD",
     sourceLabel: "Anthropic API",
     sourceUrl: anthropicPricingUrl,
   },
@@ -127,6 +138,8 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     output: 25,
     cacheWrite: 6.25,
     cacheRead: 0.5,
+    imageOutput: null,
+    currency: "USD",
     sourceLabel: "Anthropic API",
     sourceUrl: anthropicPricingUrl,
   },
@@ -135,6 +148,8 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     output: 25,
     cacheWrite: 6.25,
     cacheRead: 0.5,
+    imageOutput: null,
+    currency: "USD",
     sourceLabel: "Anthropic API",
     sourceUrl: anthropicPricingUrl,
   },
@@ -143,6 +158,8 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     output: 30,
     cacheWrite: 0.5,
     cacheRead: 0.5,
+    imageOutput: null,
+    currency: "USD",
     sourceLabel: "OpenAI API",
     sourceUrl: openAiPricingUrl,
   },
@@ -151,6 +168,78 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     output: 15,
     cacheWrite: 0.25,
     cacheRead: 0.25,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "OpenAI API",
+    sourceUrl: openAiPricingUrl,
+  },
+  "Gemini 3.5 Flash": {
+    input: 1.5,
+    output: 9,
+    cacheWrite: null,
+    cacheRead: null,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "Google Gemini API",
+    sourceUrl: geminiPricingUrl,
+  },
+  "Gemini 3.1 Pro": {
+    input: 2,
+    output: 12,
+    cacheWrite: null,
+    cacheRead: null,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "Google Gemini API",
+    sourceUrl: geminiPricingUrl,
+  },
+  "GLM-5.2": {
+    input: 8,
+    output: 28,
+    cacheWrite: null,
+    cacheRead: 2,
+    imageOutput: null,
+    currency: "CNY",
+    sourceLabel: "智谱 BigModel",
+    sourceUrl: glmPricingUrl,
+  },
+  "GLM-5.1": {
+    input: 6,
+    output: 24,
+    cacheWrite: null,
+    cacheRead: 1.3,
+    imageOutput: null,
+    currency: "CNY",
+    sourceLabel: "智谱 BigModel",
+    sourceUrl: glmPricingUrl,
+  },
+  "DeepSeek V4 Flash": {
+    input: 0.14,
+    output: 0.28,
+    cacheWrite: null,
+    cacheRead: 0.0028,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "DeepSeek API",
+    sourceUrl: deepseekPricingUrl,
+  },
+  "DeepSeek V4 Pro": {
+    input: 0.435,
+    output: 0.87,
+    cacheWrite: null,
+    cacheRead: 0.003625,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "DeepSeek API",
+    sourceUrl: deepseekPricingUrl,
+  },
+  "GPT Image 2": {
+    input: 5,
+    output: null,
+    cacheWrite: null,
+    cacheRead: 1.25,
+    imageOutput: 30,
+    currency: "USD",
     sourceLabel: "OpenAI API",
     sourceUrl: openAiPricingUrl,
   },
@@ -159,7 +248,9 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
 export function getOfficialTransitModelPrice(
   standardModel: TransitModelPrice["standardModel"]
 ): TransitOfficialModelPrice {
-  return TRANSIT_OFFICIAL_MODEL_PRICES[standardModel];
+  const price = TRANSIT_OFFICIAL_MODEL_PRICES[standardModel];
+  if (!price) throw new Error(`Unknown API transit standard model: ${standardModel}`);
+  return price;
 }
 
 export function getOfficialTransitUnitPrice(
@@ -169,12 +260,19 @@ export function getOfficialTransitUnitPrice(
   return getOfficialTransitModelPrice(standardModel)[metric];
 }
 
+export function getOfficialTransitUnitCurrency(
+  standardModel: TransitModelPrice["standardModel"]
+): TransitPriceCurrency {
+  return getOfficialTransitModelPrice(standardModel).currency;
+}
+
 export function getTransitSplitMultiplier(
   price: TransitModelPrice,
   metric: TransitPriceMetric
 ): number | null {
   if (metric === "input") return price.inputPrice ?? price.modelMultiplier;
   if (metric === "output") return price.outputPrice ?? price.modelMultiplier;
+  if (metric === "imageOutput") return price.imageOutputPrice ?? price.modelMultiplier;
   if (metric === "cacheRead") return price.cacheReadPrice;
 
   if (price.cacheWritePrice !== null) return price.cacheWritePrice;
@@ -290,6 +388,7 @@ export function getFamilyRateSummary(
 
 export type TransitStationComparisonSummary = {
   station: TransitStation;
+  families: Record<TransitModelFamily, TransitFamilyRateSummary>;
   claude: TransitFamilyRateSummary;
   gpt: TransitFamilyRateSummary;
   bestCombinedRate: number | null;
@@ -302,9 +401,14 @@ export type TransitStationComparisonSummary = {
 export function getStationComparisonSummary(
   station: TransitStation
 ): TransitStationComparisonSummary {
-  const claude = getFamilyRateSummary(station, "claude");
-  const gpt = getFamilyRateSummary(station, "gpt");
-  const combinedRates = [claude.combinedRateMin, gpt.combinedRateMin].filter(
+  const families = TRANSIT_MODEL_FAMILY_ORDER.reduce(
+    (accumulator, family) => ({
+      ...accumulator,
+      [family]: getFamilyRateSummary(station, family),
+    }),
+    {} as Record<TransitModelFamily, TransitFamilyRateSummary>
+  );
+  const combinedRates = Object.values(families).map((summary) => summary.combinedRateMin).filter(
     (value): value is number => value !== null
   );
   const bestCombinedRate = combinedRates.length ? Math.min(...combinedRates) : null;
@@ -345,8 +449,9 @@ export function getStationComparisonSummary(
 
   return {
     station,
-    claude,
-    gpt,
+    families,
+    claude: families.claude,
+    gpt: families.gpt,
     bestCombinedRate,
     stabilityRate,
     stabilitySamples,
@@ -590,15 +695,8 @@ export type TransitModelSummary = {
   prices: TransitModelPriceEntry[];
 };
 
-export function getTransitModelFamilyOptions(
-  stations: TransitStation[]
-): { id: TransitModelFamily; label: string }[] {
-  const seen = new Set<TransitModelFamily>();
-  stations.forEach((station) => station.prices.forEach((price) => seen.add(price.family)));
-
-  return (["claude", "gpt"] as const)
-    .filter((family) => seen.has(family))
-    .map((family) => ({ id: family, label: TRANSIT_MODEL_FAMILY_LABELS[family] }));
+export function getTransitModelFamilyOptions(): { id: TransitModelFamily; label: string }[] {
+  return TRANSIT_MODEL_FAMILY_OPTIONS;
 }
 
 export function getTransitModelSummaries(
@@ -663,7 +761,7 @@ export function getTransitModelSummaries(
       };
     })
     .sort((a, b) => {
-      const familyOrder = a.family.localeCompare(b.family, "zh-CN");
+      const familyOrder = TRANSIT_MODEL_FAMILY_ORDER.indexOf(a.family) - TRANSIT_MODEL_FAMILY_ORDER.indexOf(b.family);
       if (familyOrder !== 0) return familyOrder;
       return compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc");
     });
@@ -679,6 +777,16 @@ export function getSummaryStats(stations: TransitStation[]) {
     .map((summary) => summary.gpt.combinedRateMin)
     .filter((value): value is number => value !== null)
     .sort((a, b) => a - b)[0] ?? null;
+  const bestByFamily = TRANSIT_MODEL_FAMILY_ORDER.reduce(
+    (accumulator, family) => {
+      accumulator[family] = summaries
+        .map((summary) => summary.families[family].combinedRateMin)
+        .filter((value): value is number => value !== null)
+        .sort((a, b) => a - b)[0] ?? null;
+      return accumulator;
+    },
+    {} as Record<TransitModelFamily, number | null>
+  );
   const sevenDaySamples = stations.reduce(
     (total, station) => total + station.availability.sevenDaySamples,
     0
@@ -688,6 +796,7 @@ export function getSummaryStats(stations: TransitStation[]) {
     total: stations.length,
     bestClaude,
     bestGpt,
+    bestByFamily,
     sevenDaySamples,
     withRisk: stations.filter((station) => station.riskLabels.length > 0).length,
   };
@@ -701,13 +810,20 @@ export function formatRate(rate: number | null): string {
 }
 
 export function formatUsdPerMTok(price: number | null): string {
+  return formatOfficialUnitPrice(price, "USD");
+}
+
+export function formatOfficialUnitPrice(
+  price: number | null,
+  currency: TransitPriceCurrency
+): string {
   if (price === null || !Number.isFinite(price)) return "未公开";
-  if (price === 0) return "$0/M";
+  if (price === 0) return currency === "CNY" ? "¥0/M" : "$0/M";
 
   const absolutePrice = Math.abs(price);
   const decimals = absolutePrice >= 1 ? (Number.isInteger(price) ? 0 : 2) : absolutePrice >= 0.1 ? 3 : 4;
 
-  return `$${price.toFixed(decimals)}/M`;
+  return `${currency === "CNY" ? "¥" : "$"}${price.toFixed(decimals)}/M`;
 }
 
 export function formatMultiplierRange(summary: TransitFamilyRateSummary): string {

@@ -2,18 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Globe2, KeyRound, Send, ShieldCheck, UserRound, X } from "lucide-react";
+import {
+  TRANSIT_MODEL_FAMILY_OPTIONS,
+  TRANSIT_STANDARD_MODELS,
+} from "@/data/api-transit/types";
 
 type DialogMode = "submit" | "merchant";
 type AccessMode = "public_only" | "test_key" | "test_account";
 
-const modelOptions = [
-  "Claude Sonnet 4.6",
-  "Claude Opus 4.6",
-  "Claude Opus 4.7",
-  "Claude Opus 4.8",
-  "GPT 5.5",
-  "GPT 5.4",
-];
+const modelOptions = [...TRANSIT_STANDARD_MODELS];
 
 const systemTypeOptions = ["不确定", "Sub2API", "New API", "One API", "自研系统"];
 const channelClaimOptions = ["官方 API", "云厂商", "一手自建号池", "一手批发", "二级分销", "混合渠道", "未披露"];
@@ -224,7 +221,7 @@ function SubmitFields() {
           </select>
         </Field>
         <Field label="看到的价格或倍率">
-          <input className={fieldClassName} name="priceHint" placeholder="例如 Opus 4.6 0.2x / GPT 5.4 0.08x" />
+          <input className={fieldClassName} name="priceHint" placeholder="例如 Gemini 3.5 Flash 0.5x / GPT Image 2 0.3x" />
         </Field>
       </div>
       <OptionGroup label="支持模型" name="models" options={modelOptions} />
@@ -320,7 +317,7 @@ function MerchantFields() {
         <textarea
           name="groupPricingNotes"
           className={`${fieldClassName} min-h-24 resize-y py-2 leading-6`}
-          placeholder="例如充值 1:1；GPT Plus 0.30x，GPT Pro 0.40x；Claude Code / AWS / 官方池分别是什么倍率"
+          placeholder="例如充值 1:1；GPT 0.30x，Gemini 0.50x，DeepSeek 0.80x；官方池和自建池分别是什么倍率"
         />
       </Field>
       <Field label="优惠和商业关系说明">
@@ -424,7 +421,7 @@ function TestKeyFields() {
           <input className={fieldClassName} name="credentialExpiresAt" type="date" />
         </Field>
         <Field label="允许测试的模型">
-          <input className={fieldClassName} name="credentialAllowedModelsText" placeholder="例如 GPT 5.5, Claude Opus 4.8" />
+          <input className={fieldClassName} name="credentialAllowedModelsText" placeholder="例如 GPT 5.5, Gemini 3.5 Flash, GPT Image 2" />
         </Field>
       </div>
       <CredentialScopeFields />
@@ -453,7 +450,7 @@ function TestAccountFields() {
           <input className={fieldClassName} name="credentialExpiresAt" type="date" />
         </Field>
         <Field label="允许测试的模型">
-          <input className={fieldClassName} name="credentialAllowedModelsText" placeholder="例如只测 GPT 分组 / Claude 分组" />
+          <input className={fieldClassName} name="credentialAllowedModelsText" placeholder="例如只测 Gemini / DeepSeek / 图片生成分组" />
         </Field>
       </div>
       <CredentialScopeFields />
@@ -481,8 +478,9 @@ function CredentialScopeFields() {
       <Field label="监测模型族">
         <select className={fieldClassName} name="credentialFamily" defaultValue="">
           <option value="">自动判断</option>
-          <option value="gpt">GPT</option>
-          <option value="claude">Claude</option>
+          {TRANSIT_MODEL_FAMILY_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>{option.label}</option>
+          ))}
         </select>
       </Field>
       <Field label="号池标签">

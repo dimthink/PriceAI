@@ -40,6 +40,7 @@ import type {
 import {
   TRANSIT_ACCOUNT_POOL_LABELS,
   TRANSIT_CHANNEL_TYPE_LABELS,
+  TRANSIT_MODEL_FAMILY_OPTIONS,
   TRANSIT_RISK_LABELS,
 } from "@/data/api-transit/types";
 import { apiTransitLogoDisplayUrl } from "@/lib/api-transit-logo-url";
@@ -98,6 +99,7 @@ type ApiTransitOfferEditInput = {
   outputPrice: number | null;
   cacheReadPrice: number | null;
   cacheWritePrice: number | null;
+  imageOutputPrice: number | null;
   currency: string;
   accountPool: string;
   channelType: string;
@@ -109,6 +111,7 @@ const adminFieldClassName =
   "h-11 w-full rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-sm text-[#202829] outline-none transition placeholder:text-[#9aa2a3] focus:border-[#2d3435]";
 const transitChannelTypeOptions = Object.entries(TRANSIT_CHANNEL_TYPE_LABELS);
 const transitAccountPoolOptions = Object.entries(TRANSIT_ACCOUNT_POOL_LABELS);
+const transitModelFamilyOptions = TRANSIT_MODEL_FAMILY_OPTIONS;
 const transitRiskLabelOptions = Object.entries(TRANSIT_RISK_LABELS);
 
 export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) {
@@ -917,7 +920,7 @@ function OfferCandidatesPanel({
                     <span className="font-mono text-sm font-semibold text-[#202829]">{formatRatio(candidate.modelMultiplier)}</span>
                     <div className="mt-1 text-xs text-[#5a6061]">{candidate.rechargeRatio || "未标"}</div>
                     <div className="mt-1 font-mono text-xs text-[#5a6061]">
-                      {formatCurrency(candidate.inputUnitPriceUsd, "USD")} / {formatCurrency(candidate.outputUnitPriceUsd, "USD")}
+                      {formatCurrency(candidate.inputUnitPriceUsd, candidate.unitPriceCurrency)} / {formatCurrency(candidate.outputUnitPriceUsd ?? candidate.imageOutputUnitPriceUsd, candidate.unitPriceCurrency)}
                     </div>
                   </td>
                   <td className="px-3 py-3 align-top">
@@ -1089,8 +1092,8 @@ function OffersPanel({
                     <div className="mt-1 text-xs text-[#5a6061]">{offer.rechargeRatio || "未标"}</div>
                   </td>
                   <td className="px-3 py-3 align-top">
-                    <div className="font-mono text-xs text-[#202829]">{formatCurrency(offer.inputUnitPriceUsd, "USD")}</div>
-                    <div className="mt-1 font-mono text-xs text-[#5a6061]">{formatCurrency(offer.outputUnitPriceUsd, "USD")}</div>
+                    <div className="font-mono text-xs text-[#202829]">{formatCurrency(offer.inputUnitPriceUsd, offer.unitPriceCurrency)}</div>
+                    <div className="mt-1 font-mono text-xs text-[#5a6061]">{formatCurrency(offer.outputUnitPriceUsd ?? offer.imageOutputUnitPriceUsd, offer.unitPriceCurrency)}</div>
                   </td>
                   <td className="px-3 py-3 align-top">
                     <div className="text-xs text-[#5a6061]">{offer.priceSource}</div>
@@ -1602,7 +1605,7 @@ function StationEditDialog({
               name="verificationEvents"
               defaultValue={formatVerificationEventsForInput(station.verificationEvents)}
               className={`${adminFieldClassName} min-h-28 resize-y py-2 leading-6`}
-              placeholder="2026-06-17 | priceai | success | 价格页已解析 | 已核验 Claude / GPT 倍率"
+              placeholder="2026-06-17 | priceai | success | 价格页已解析 | 已核验主流模型倍率"
             />
           </AdminField>
           <AdminField label="后台备注">
@@ -1726,6 +1729,7 @@ function OfferEditDialog({
             outputPrice: formNullableNumber(formData, "outputPrice"),
             cacheReadPrice: formNullableNumber(formData, "cacheReadPrice"),
             cacheWritePrice: formNullableNumber(formData, "cacheWritePrice"),
+            imageOutputPrice: formNullableNumber(formData, "imageOutputPrice"),
             currency: formText(formData, "currency") || offer.currency,
             accountPool: formText(formData, "accountPool") || offer.accountPool,
             channelType: formText(formData, "channelType") || offer.channelType,
@@ -1738,8 +1742,9 @@ function OfferEditDialog({
         <div className="grid gap-3 md:grid-cols-2">
           <AdminField label="模型族">
             <select name="family" defaultValue={offer.family} className={adminFieldClassName}>
-              <option value="claude">Claude</option>
-              <option value="gpt">GPT</option>
+              {transitModelFamilyOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
             </select>
           </AdminField>
           <AdminField label="状态">
@@ -1775,6 +1780,9 @@ function OfferEditDialog({
           </AdminField>
           <AdminField label="缓存创建倍率">
             <input name="cacheWritePrice" defaultValue={numberInputValue(offer.cacheWritePrice)} className={adminFieldClassName} inputMode="decimal" />
+          </AdminField>
+          <AdminField label="图片输出倍率">
+            <input name="imageOutputPrice" defaultValue={numberInputValue(offer.imageOutputPrice)} className={adminFieldClassName} inputMode="decimal" />
           </AdminField>
           <AdminField label="币种 / 口径">
             <input name="currency" defaultValue={offer.currency} className={adminFieldClassName} />

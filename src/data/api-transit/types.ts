@@ -2,7 +2,14 @@ export type TransitStationStatus = "active" | "limited" | "unavailable" | "unkno
 export type TransitSourceType = "manual_collected" | "user_submitted" | "merchant_submitted";
 export type TransitCommercialRelation = "none" | "listed" | "partner" | "affiliate" | "sponsored" | "unknown";
 export type TransitDataStatus = "sample" | "pending_review" | "verified";
-export type TransitModelFamily = "claude" | "gpt";
+export type TransitModelFamily =
+  | "gpt"
+  | "claude"
+  | "gemini"
+  | "glm"
+  | "deepseek"
+  | "image"
+  | "video";
 export type TransitStationSystem = "new_api" | "sub_to_api" | "custom" | "unknown";
 export type TransitChannelType =
   | "official_api"
@@ -41,15 +48,24 @@ export interface TransitMultiplierHistoryPoint {
   priceSource: string | null;
 }
 
+export type TransitStandardModel =
+  | "Claude Sonnet 4.6"
+  | "Claude Opus 4.6"
+  | "Claude Opus 4.7"
+  | "Claude Opus 4.8"
+  | "GPT 5.5"
+  | "GPT 5.4"
+  | "Gemini 3.5 Flash"
+  | "Gemini 3.1 Pro"
+  | "GLM-5.2"
+  | "GLM-5.1"
+  | "DeepSeek V4 Flash"
+  | "DeepSeek V4 Pro"
+  | "GPT Image 2";
+
 export interface TransitModelPrice {
   family: TransitModelFamily;
-  standardModel:
-    | "Claude Sonnet 4.6"
-    | "Claude Opus 4.6"
-    | "Claude Opus 4.7"
-    | "Claude Opus 4.8"
-    | "GPT 5.5"
-    | "GPT 5.4";
+  standardModel: TransitStandardModel;
   groupName: string;
   rechargeRatio: string | null;
   modelMultiplier: number | null;
@@ -57,6 +73,7 @@ export interface TransitModelPrice {
   outputPrice: number | null;
   cacheReadPrice: number | null;
   cacheWritePrice: number | null;
+  imageOutputPrice: number | null;
   currency: "CNY";
   accountPool: TransitAccountPool;
   channelType: TransitChannelType;
@@ -134,14 +151,71 @@ export interface TransitStation {
 }
 
 export const TRANSIT_MODEL_FAMILY_LABELS: Record<TransitModelFamily, string> = {
+  gpt: "ChatGPT",
   claude: "Claude",
-  gpt: "GPT",
+  gemini: "Gemini",
+  glm: "GLM",
+  deepseek: "DeepSeek",
+  image: "图片生成",
+  video: "视频生成",
 };
 
+export const TRANSIT_MODEL_FAMILY_ORDER = [
+  "gpt",
+  "claude",
+  "gemini",
+  "glm",
+  "deepseek",
+  "image",
+  "video",
+] as const satisfies readonly TransitModelFamily[];
+
 export const TRANSIT_MODEL_FAMILY_OPTIONS: { id: TransitModelFamily; label: string }[] = [
-  { id: "claude", label: "Claude" },
-  { id: "gpt", label: "GPT" },
+  ...TRANSIT_MODEL_FAMILY_ORDER.map((id) => ({
+    id,
+    label: TRANSIT_MODEL_FAMILY_LABELS[id],
+  })),
 ];
+
+export const TRANSIT_STANDARD_MODELS = [
+  "Claude Sonnet 4.6",
+  "Claude Opus 4.6",
+  "Claude Opus 4.7",
+  "Claude Opus 4.8",
+  "GPT 5.5",
+  "GPT 5.4",
+  "Gemini 3.5 Flash",
+  "Gemini 3.1 Pro",
+  "GLM-5.2",
+  "GLM-5.1",
+  "DeepSeek V4 Flash",
+  "DeepSeek V4 Pro",
+  "GPT Image 2",
+] as const satisfies readonly TransitStandardModel[];
+
+export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, TransitModelFamily> = {
+  "Claude Sonnet 4.6": "claude",
+  "Claude Opus 4.6": "claude",
+  "Claude Opus 4.7": "claude",
+  "Claude Opus 4.8": "claude",
+  "GPT 5.5": "gpt",
+  "GPT 5.4": "gpt",
+  "Gemini 3.5 Flash": "gemini",
+  "Gemini 3.1 Pro": "gemini",
+  "GLM-5.2": "glm",
+  "GLM-5.1": "glm",
+  "DeepSeek V4 Flash": "deepseek",
+  "DeepSeek V4 Pro": "deepseek",
+  "GPT Image 2": "image",
+};
+
+export function isTransitModelFamily(value: unknown): value is TransitModelFamily {
+  return typeof value === "string" && TRANSIT_MODEL_FAMILY_ORDER.includes(value as TransitModelFamily);
+}
+
+export function isTransitStandardModel(value: unknown): value is TransitStandardModel {
+  return typeof value === "string" && TRANSIT_STANDARD_MODELS.includes(value as TransitStandardModel);
+}
 
 export const TRANSIT_CHANNEL_TYPE_LABELS: Record<TransitChannelType, string> = {
   official_api: "官方 API",

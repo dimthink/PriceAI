@@ -25,12 +25,34 @@ const CALLAI_PARTNER_STATUS_COLLECTORS = new Set([
 const ONEHOP_PUBLIC_MODEL_COLLECTORS = new Set(["onehop_public_models"]);
 const SOURCE_SKIPPED = Symbol("source_skipped");
 const officialTransitPrices = {
-  "Claude Sonnet 4.6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "Claude Opus 4.6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "Claude Opus 4.7": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "Claude Opus 4.8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "GPT 5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0.5 },
-  "GPT 5.4": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0.25 },
+  "Claude Sonnet 4.6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, imageOutput: null },
+  "Claude Opus 4.6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null },
+  "Claude Opus 4.7": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null },
+  "Claude Opus 4.8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null },
+  "GPT 5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0.5, imageOutput: null },
+  "GPT 5.4": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0.25, imageOutput: null },
+  "Gemini 3.5 Flash": { input: 1.5, output: 9, cacheRead: null, cacheWrite: null, imageOutput: null },
+  "Gemini 3.1 Pro": { input: 2, output: 12, cacheRead: null, cacheWrite: null, imageOutput: null },
+  "GLM-5.2": { input: 8, output: 28, cacheRead: 2, cacheWrite: null, imageOutput: null },
+  "GLM-5.1": { input: 6, output: 24, cacheRead: 1.3, cacheWrite: null, imageOutput: null },
+  "DeepSeek V4 Flash": { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: null, imageOutput: null },
+  "DeepSeek V4 Pro": { input: 0.435, output: 0.87, cacheRead: 0.003625, cacheWrite: null, imageOutput: null },
+  "GPT Image 2": { input: 5, output: null, cacheRead: 1.25, cacheWrite: null, imageOutput: 30 },
+};
+const modelFamilyByStandard = {
+  "Claude Sonnet 4.6": "claude",
+  "Claude Opus 4.6": "claude",
+  "Claude Opus 4.7": "claude",
+  "Claude Opus 4.8": "claude",
+  "GPT 5.5": "gpt",
+  "GPT 5.4": "gpt",
+  "Gemini 3.5 Flash": "gemini",
+  "Gemini 3.1 Pro": "gemini",
+  "GLM-5.2": "glm",
+  "GLM-5.1": "glm",
+  "DeepSeek V4 Flash": "deepseek",
+  "DeepSeek V4 Pro": "deepseek",
+  "GPT Image 2": "image",
 };
 
 if (isCli()) {
@@ -77,7 +99,7 @@ export async function collectApiTransitPrices(options = {}) {
         status: parsed.offers.length ? "success" : "partial",
         model_count: parsed.modelCount,
         offer_count: parsed.offers.length,
-        error_message: parsed.offers.length ? null : parsed.collectionError || "未识别到 Claude/GPT MVP 模型。",
+        error_message: parsed.offers.length ? null : parsed.collectionError || "未识别到已支持的标准模型。",
         source_url: source.pricingEndpointUrl,
         started_at: runStartedAt,
         finished_at: new Date().toISOString(),
@@ -422,8 +444,8 @@ function normalizeItemGroups(item, groupRatios) {
 }
 
 function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
-  const family = standard.startsWith("Claude") ? "claude" : "gpt";
-  const official = officialTransitPrices[standard];
+  const family = familyForStandardModel(standard);
+  const official = officialPriceFromOneHopModel(item, standard);
   if (!official) return null;
 
   const unitPricesUsd = {
@@ -431,16 +453,19 @@ function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
     output: numberValue(item?.outputPricePer1m),
     cacheRead: null,
     cacheWrite: null,
+    imageOutput: numberValue(item?.imageOutputPricePer1m),
     priorityInput: numberValue(item?.priorityInputPricePer1m),
     priorityOutput: numberValue(item?.priorityOutputPricePer1m),
     officialInput: numberValue(item?.officialInputPricePer1m),
     officialOutput: numberValue(item?.officialOutputPricePer1m),
+    officialImageOutput: numberValue(item?.officialImageOutputPricePer1m),
     officialPriorityInput: numberValue(item?.officialPriorityInputPricePer1m),
     officialPriorityOutput: numberValue(item?.officialPriorityOutputPricePer1m),
   };
   const input = unitRatioValue(unitPricesUsd.input, official.input);
   const output = unitRatioValue(unitPricesUsd.output, official.output);
-  if (input === null && output === null) return null;
+  const imageOutput = unitRatioValue(unitPricesUsd.imageOutput, official.imageOutput);
+  if (input === null && output === null && imageOutput === null) return null;
 
   const groupName = oneHopGroupName(item);
   const sourceText = [item?.source, item?.fullSlug, item?.provider].filter(Boolean).join(" ");
@@ -455,11 +480,12 @@ function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
     raw_model_name: String(item?.fullSlug || item?.upstreamModelId || item?.displayName || standard),
     group_name: groupName,
     recharge_ratio: source.rechargeRatio || DEFAULT_RECHARGE_RATIO,
-    model_multiplier: round(input ?? output, 6),
+    model_multiplier: round(input ?? output ?? imageOutput, 6),
     input_price: input === null ? null : round(input, 6),
     output_price: output === null ? null : round(output, 6),
     cache_read_price: null,
     cache_write_price: null,
+    image_output_price: imageOutput === null ? null : round(imageOutput, 6),
     currency: "CNY",
     account_pool: inferAccountPool(sourceText),
     channel_type: inferOneHopChannelType(item),
@@ -482,6 +508,25 @@ function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
     },
     created_at: collectedAt,
   };
+}
+
+function familyForStandardModel(standard) {
+  return modelFamilyByStandard[standard] || "gpt";
+}
+
+function officialPriceFromOneHopModel(item, standard) {
+  const fallback = officialTransitPrices[standard];
+  if (!item || typeof item !== "object") return fallback || null;
+
+  const official = {
+    input: numberValue(item.officialInputPricePer1m) ?? fallback?.input ?? null,
+    output: numberValue(item.officialOutputPricePer1m) ?? fallback?.output ?? null,
+    cacheRead: fallback?.cacheRead ?? null,
+    cacheWrite: fallback?.cacheWrite ?? null,
+    imageOutput: numberValue(item.officialImageOutputPricePer1m) ?? fallback?.imageOutput ?? null,
+  };
+
+  return Object.values(official).some((value) => value !== null) ? official : null;
 }
 
 function compactOneHopModelPayload(item) {
@@ -584,7 +629,7 @@ function buildCallaiPartnerOfferRow({
   monitoring,
   collectedAt,
 }) {
-  const family = standard.startsWith("Claude") ? "claude" : "gpt";
+  const family = familyForStandardModel(standard);
   const groupMultiplier = numberValue(group?.rate_multiplier);
   if (groupMultiplier === null || groupMultiplier <= 0) return null;
   if (shouldAutoPublishSource(source) && payload?.meta?.stale === true) return null;
@@ -613,6 +658,7 @@ function buildCallaiPartnerOfferRow({
     output_price: splitMultipliers.output === null ? null : round(splitMultipliers.output, 6),
     cache_read_price: splitMultipliers.cacheRead === null ? null : round(splitMultipliers.cacheRead, 6),
     cache_write_price: splitMultipliers.cacheWrite === null ? null : round(splitMultipliers.cacheWrite, 6),
+    image_output_price: splitMultipliers.imageOutput === null ? null : round(splitMultipliers.imageOutput, 6),
     currency: "CNY",
     account_pool: inferAccountPool(`${entry?.key || ""} ${entry?.name || ""} ${group?.name || ""}`),
     channel_type: inferChannelType(`${entry?.platform || ""} ${group?.platform || ""} ${entry?.name || ""}`),
@@ -657,6 +703,7 @@ function getPartnerSplitMultipliers(basePrice, official, groupMultiplier) {
       output: groupMultiplier,
       cacheRead: null,
       cacheWrite: null,
+      imageOutput: null,
       unitPricesUsd: null,
       basis: "partner_rate_multiplier",
     };
@@ -666,17 +713,20 @@ function getPartnerSplitMultipliers(basePrice, official, groupMultiplier) {
   const output = partnerRateValue(basePrice.output, official.output, groupMultiplier);
   const cacheRead = partnerRateValue(basePrice.cacheRead, official.cacheRead, groupMultiplier);
   const cacheWrite = partnerRateValue(basePrice.cacheWrite, official.cacheWrite, groupMultiplier);
+  const imageOutput = partnerRateValue(basePrice.imageOutput, official.imageOutput, groupMultiplier);
   return {
-    model: input ?? output ?? cacheRead ?? cacheWrite ?? groupMultiplier,
+    model: input ?? output ?? cacheRead ?? cacheWrite ?? imageOutput ?? groupMultiplier,
     input,
     output,
     cacheRead,
     cacheWrite,
+    imageOutput,
     unitPricesUsd: {
       input: priceWithMultiplier(basePrice.input, groupMultiplier),
       output: priceWithMultiplier(basePrice.output, groupMultiplier),
       cacheRead: priceWithMultiplier(basePrice.cacheRead, groupMultiplier),
       cacheWrite: priceWithMultiplier(basePrice.cacheWrite, groupMultiplier),
+      imageOutput: priceWithMultiplier(basePrice.imageOutput, groupMultiplier),
       currency: basePrice.currency,
       unit: basePrice.unit,
     },
@@ -819,7 +869,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
 }
 
 function buildOfferRow(source, item, group, standard, collectedAt) {
-  const family = standard.startsWith("Claude") ? "claude" : "gpt";
+  const family = familyForStandardModel(standard);
   const groupMultiplier = group.groupRatio ?? 1;
   const splitMultipliers = getSplitMultipliers(item, group, standard, groupMultiplier);
   if (!splitMultipliers || splitMultipliers.model === null || splitMultipliers.model <= 0) return null;
@@ -837,6 +887,7 @@ function buildOfferRow(source, item, group, standard, collectedAt) {
     output_price: splitMultipliers.output === null ? null : round(splitMultipliers.output, 6),
     cache_read_price: splitMultipliers.cacheRead === null ? null : round(splitMultipliers.cacheRead, 6),
     cache_write_price: splitMultipliers.cacheWrite === null ? null : round(splitMultipliers.cacheWrite, 6),
+    image_output_price: splitMultipliers.imageOutput === null ? null : round(splitMultipliers.imageOutput, 6),
     currency: "CNY",
     account_pool: inferAccountPool(`${group.name} ${item.model_name || ""}`),
     channel_type: inferChannelType(`${group.name} ${group.description || ""}`),
@@ -867,12 +918,14 @@ function getSplitMultipliers(item, group, standard, groupMultiplier) {
     const output = ratioValue(billing.output, official.output, groupMultiplier);
     const cacheRead = ratioValue(billing.cacheRead, official.cacheRead, groupMultiplier);
     const cacheWrite = ratioValue(billing.cacheWrite, official.cacheWrite, groupMultiplier);
+    const imageOutput = ratioValue(billing.imageOutput, official.imageOutput, groupMultiplier);
     return {
-      model: input ?? output ?? cacheRead ?? cacheWrite,
+      model: input ?? output ?? cacheRead ?? cacheWrite ?? imageOutput,
       input,
       output,
       cacheRead,
       cacheWrite,
+      imageOutput,
     };
   }
 
@@ -885,12 +938,14 @@ function getSplitMultipliers(item, group, standard, groupMultiplier) {
     const output = unitRatioValue(unitPricesUsd.output, official.output);
     const cacheRead = unitRatioValue(unitPricesUsd.cacheRead, official.cacheRead);
     const cacheWrite = unitRatioValue(unitPricesUsd.cacheWrite, official.cacheWrite);
+    const imageOutput = unitRatioValue(unitPricesUsd.imageOutput, official.imageOutput);
     return {
-      model: input ?? output ?? cacheRead ?? cacheWrite,
+      model: input ?? output ?? cacheRead ?? cacheWrite ?? imageOutput,
       input,
       output,
       cacheRead,
       cacheWrite,
+      imageOutput,
       unitPricesUsd,
       basis: "new_api_usd_per_million",
     };
@@ -903,6 +958,7 @@ function getSplitMultipliers(item, group, standard, groupMultiplier) {
     output: group.completionRatio === null ? null : input * group.completionRatio,
     cacheRead: group.cacheRatio === null ? null : input * group.cacheRatio,
     cacheWrite: group.createCacheRatio === null ? null : input * group.createCacheRatio,
+    imageOutput: null,
     unitPricesUsd: null,
     basis: "legacy_multiplier",
   };
@@ -925,6 +981,7 @@ function getNewApiUnitPricesUsd(group, groupMultiplier) {
     output: group.completionRatio === null ? null : input * group.completionRatio,
     cacheRead: group.cacheRatio === null ? null : input * group.cacheRatio,
     cacheWrite: group.createCacheRatio === null ? null : input * group.createCacheRatio,
+    imageOutput: null,
   };
 }
 
@@ -938,6 +995,7 @@ function parseBillingExpression(value) {
     cacheRead: extractBillingTerm(text, "cr"),
     cacheWrite: extractBillingTerm(text, "cc"),
     cacheWriteOneHour: extractBillingTerm(text, "cc1h"),
+    imageOutput: extractBillingTerm(text, "image") ?? extractBillingTerm(text, "img") ?? extractBillingTerm(text, "io"),
   };
 
   return Object.values(parsed).some((item) => item !== null) ? parsed : null;
@@ -970,6 +1028,10 @@ function standardizeModelName(name) {
   const value = String(name || "").toLowerCase();
   if (!value) return null;
 
+  if (value.includes("gpt-image-2") || value.includes("gpt image 2") || value.includes("gpt_image_2")) {
+    return "GPT Image 2";
+  }
+
   if (value.includes("claude") && value.includes("sonnet")) {
     if (matchesVersion(value, "4.6") || value.includes("4-6")) return "Claude Sonnet 4.6";
     return null;
@@ -985,6 +1047,27 @@ function standardizeModelName(name) {
     if (matchesVersion(value, "5.5") || value.includes("5-5")) return "GPT 5.5";
     if (/\bgpt[-._ ]?5[-._ ]?4[-._ ]?mini\b/.test(value)) return null;
     if (matchesVersion(value, "5.4") || value.includes("5-4")) return "GPT 5.4";
+  }
+
+  if (value.includes("gemini")) {
+    if (value.includes("3.5") || value.includes("3-5")) {
+      if (value.includes("flash")) return "Gemini 3.5 Flash";
+    }
+    if (value.includes("3.1") || value.includes("3-1")) {
+      if (value.includes("pro")) return "Gemini 3.1 Pro";
+    }
+  }
+
+  if (value.includes("glm") || value.includes("zhipu")) {
+    if (value.includes("5.2") || value.includes("5-2")) return "GLM-5.2";
+    if (value.includes("5.1") || value.includes("5-1")) return "GLM-5.1";
+  }
+
+  if (value.includes("deepseek")) {
+    if (value.includes("v4") || value.includes("deepseek-v4")) {
+      if (value.includes("flash")) return "DeepSeek V4 Flash";
+      if (value.includes("pro")) return "DeepSeek V4 Pro";
+    }
   }
 
   return null;

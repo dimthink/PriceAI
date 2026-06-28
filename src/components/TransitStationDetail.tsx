@@ -39,6 +39,7 @@ import {
   TRANSIT_COMMERCIAL_OFFER_TYPE_LABELS,
   TRANSIT_DATA_STATUS_LABELS,
   TRANSIT_MODEL_FAMILY_LABELS,
+  TRANSIT_MODEL_FAMILY_ORDER,
   TRANSIT_STATION_STATUS_LABELS,
   TRANSIT_USAGE_ADVICE_LABELS,
   TRANSIT_VERIFICATION_EVENT_SOURCE_LABELS,
@@ -109,8 +110,7 @@ export default function TransitStationDetail({ station, children }: Props) {
   const [copiedOfferId, setCopiedOfferId] = useState<string | null>(null);
   const [pendingOutbound, setPendingOutbound] = useState<TransitOutboundIntent | null>(null);
   const [rememberRiskConfirmation, setRememberRiskConfirmation] = useState(false);
-  const claudeSummary = getFamilyRateSummary(station, "claude");
-  const gptSummary = getFamilyRateSummary(station, "gpt");
+  const familySummaries = getStationFamilySummaries(station);
   const primaryOffer = getPrimaryTransitCommercialOffer(station);
   const commercialOffers = getActiveTransitCommercialOffers(station);
   const verificationEvents = getTransitVerificationEvents(station);
@@ -225,8 +225,17 @@ export default function TransitStationDetail({ station, children }: Props) {
             <p className="mt-4 max-w-[86ch] text-sm leading-relaxed text-[#2d3435]">{station.summary}</p>
 
             <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-              <MetricCard label="Claude 倍率" value={formatRate(claudeSummary.combinedRateMin)} helper={`${claudeSummary.priceCount} 个分组`} />
-              <MetricCard label="GPT 倍率" value={formatRate(gptSummary.combinedRateMin)} helper={`${gptSummary.priceCount} 个分组`} />
+              {familySummaries.slice(0, 2).map((summary) => (
+                <MetricCard
+                  key={summary.family}
+                  label={`${TRANSIT_MODEL_FAMILY_LABELS[summary.family]} 倍率`}
+                  value={formatRate(summary.combinedRateMin)}
+                  helper={`${summary.priceCount} 个分组`}
+                />
+              ))}
+              {familySummaries.length === 0 ? (
+                <MetricCard label="模型倍率" value="—" helper="暂无报价" />
+              ) : null}
               <MetricCard label="可用率" value={formatPercent(station.availability.sevenDayRate)} helper={`样本 ${station.availability.sevenDaySamples}`} />
               <MetricCard label="最近检查" value={formatDateMinute(station.availability.lastCheckedAt)} helper={formatAvailabilityBasis(station)} />
             </div>
@@ -346,10 +355,13 @@ export default function TransitStationDetail({ station, children }: Props) {
 }
 
 export function TransitStationPricingPanels({ station }: { station: TransitStation }) {
+  const families = getStationPriceFamilies(station);
+
   return (
     <>
-      <PriceTable station={station} family="claude" />
-      <PriceTable station={station} family="gpt" />
+      {families.map((family) => (
+        <PriceTable key={family} station={station} family={family} />
+      ))}
       <AvailabilityTable station={station} />
     </>
   );
@@ -358,7 +370,7 @@ export function TransitStationPricingPanels({ station }: { station: TransitStati
 export function TransitStationPricingSkeleton() {
   return (
     <div className="space-y-5" aria-label="正在加载价格和监测历史" aria-busy="true">
-      {["Claude 价格表", "GPT 价格表", "监测样本"].map((title) => (
+      {["模型价格表", "监测样本"].map((title) => (
         <section
           key={title}
           className="overflow-hidden rounded-lg border border-[#dfe4e5] bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)]"
@@ -1441,18 +1453,27 @@ function comparePricePriority(left: TransitModelPrice, right: TransitModelPrice)
 }
 
 function modelPriority(model: TransitModelPrice["standardModel"]): number {
+  if (model === "GPT Image 2") return 602;
+  if (model === "GPT 5.5") return 505;
+  if (model === "GPT 5.4") return 504;
   if (model === "Claude Opus 4.8") return 408;
   if (model === "Claude Opus 4.7") return 407;
   if (model === "Claude Opus 4.6") return 406;
   if (model === "Claude Sonnet 4.6") return 306;
-  if (model === "GPT 5.5") return 505;
-  if (model === "GPT 5.4") return 504;
+  if (model === "Gemini 3.5 Flash") return 335;
+  if (model === "Gemini 3.1 Pro") return 331;
+  if (model === "GLM-5.2") return 252;
+  if (model === "GLM-5.1") return 251;
+  if (model === "DeepSeek V4 Pro") return 244;
+  if (model === "DeepSeek V4 Flash") return 243;
   return 0;
 }
 
 function shortModelLabel(model: TransitModelPrice["standardModel"]): string {
   return model
     .replace("Claude ", "")
+    .replace("Gemini ", "")
+    .replace("DeepSeek ", "")
     .replace("GPT ", "GPT ");
 }
 
@@ -1477,6 +1498,7 @@ function ProbePolicyTag({
 
 function AvailabilityTable({ station }: { station: TransitStation }) {
   const isDesktop = useMediaQuery("(min-width: 768px)");
+  const families = getStationPriceFamilies(station);
   const rows: AvailabilityRow[] = [
     {
       label: "站点整体",
@@ -1484,10 +1506,12 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
       sevenDaySamples: station.availability.sevenDaySamples,
       firstCheckedAt: station.availability.firstCheckedAt,
       lastCheckedAt: station.availability.lastCheckedAt,
-      monitorModel: "GPT + Claude 代表模型",
+      monitorModel: families.length
+        ? families.map((family) => TRANSIT_MODEL_FAMILY_LABELS[family]).join(" + ")
+        : "代表模型",
       note: station.availability.note ?? "—",
     },
-    ...(["claude", "gpt"] as const).map((family) => {
+    ...families.map((family) => {
       const summary = getFamilyRateSummary(station, family);
       return {
         label: TRANSIT_MODEL_FAMILY_LABELS[family],
@@ -1553,6 +1577,16 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
       )}
     </section>
   );
+}
+
+function getStationPriceFamilies(station: TransitStation): TransitModelFamily[] {
+  return TRANSIT_MODEL_FAMILY_ORDER.filter((family) =>
+    station.prices.some((price) => price.family === family)
+  );
+}
+
+function getStationFamilySummaries(station: TransitStation) {
+  return getStationPriceFamilies(station).map((family) => getFamilyRateSummary(station, family));
 }
 
 type AvailabilityRow = {

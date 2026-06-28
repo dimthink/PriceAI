@@ -1681,7 +1681,7 @@ create table if not exists api_transit_stations (
 create table if not exists api_transit_offers (
   id text primary key,
   station_id text not null references api_transit_stations(id) on delete cascade,
-  family text not null check (family in ('claude', 'gpt')),
+  family text not null check (family in ('gpt', 'claude', 'gemini', 'glm', 'deepseek', 'image', 'video')),
   standard_model text not null,
   raw_model_name text not null,
   group_name text not null,
@@ -1691,6 +1691,7 @@ create table if not exists api_transit_offers (
   output_price numeric,
   cache_read_price numeric,
   cache_write_price numeric,
+  image_output_price numeric,
   currency text not null default 'CNY',
   account_pool text not null default 'undisclosed',
   channel_type text not null default 'undisclosed',

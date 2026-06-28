@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { TRANSIT_MODEL_FAMILY_ORDER } from "@/data/api-transit/types";
 import { getAdminPasswordFromRequest } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
 import { updateApiTransitOffer, updateApiTransitOffers } from "@/lib/api-transit-admin";
@@ -13,7 +14,7 @@ const patchSchema = z.union([
   }),
   z.object({
     id: z.string().min(1),
-    family: z.enum(["claude", "gpt"]).optional(),
+    family: z.enum(TRANSIT_MODEL_FAMILY_ORDER).optional(),
     standardModel: z.string().trim().min(1).max(120).optional(),
     rawModelName: z.string().trim().min(1).max(200).optional(),
     groupName: z.string().trim().min(1).max(160).optional(),
@@ -23,6 +24,7 @@ const patchSchema = z.union([
     outputPrice: z.number().nonnegative().nullable().optional(),
     cacheReadPrice: z.number().nonnegative().nullable().optional(),
     cacheWritePrice: z.number().nonnegative().nullable().optional(),
+    imageOutputPrice: z.number().nonnegative().nullable().optional(),
     currency: z.string().trim().min(1).max(12).optional(),
     accountPool: z.string().trim().min(1).max(120).optional(),
     channelType: z.string().trim().min(1).max(120).optional(),

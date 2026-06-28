@@ -1,6 +1,11 @@
 import "server-only";
 
-import { getOfficialTransitUnitPrice } from "@/lib/api-transit";
+import {
+  getOfficialTransitUnitCurrency,
+  getOfficialTransitUnitPrice,
+  type TransitPriceCurrency,
+  type TransitPriceMetric,
+} from "@/lib/api-transit";
 import { clearTransitStationsCache } from "@/lib/api-transit-db";
 import type {
   ApiTransitAdminData,
@@ -253,6 +258,7 @@ export async function updateApiTransitOffer(input: {
   outputPrice?: number | null;
   cacheReadPrice?: number | null;
   cacheWritePrice?: number | null;
+  imageOutputPrice?: number | null;
   currency?: string;
   accountPool?: string;
   channelType?: string;
@@ -273,6 +279,7 @@ export async function updateApiTransitOffer(input: {
   if (input.outputPrice !== undefined) row.output_price = input.outputPrice;
   if (input.cacheReadPrice !== undefined) row.cache_read_price = input.cacheReadPrice;
   if (input.cacheWritePrice !== undefined) row.cache_write_price = input.cacheWritePrice;
+  if (input.imageOutputPrice !== undefined) row.image_output_price = input.imageOutputPrice;
   if (input.currency !== undefined) row.currency = cleanRequired(input.currency, "币种不能为空。");
   if (input.accountPool !== undefined) row.account_pool = normalizeAccountPool(input.accountPool) || cleanRequired(input.accountPool, "号池不能为空。");
   if (input.channelType !== undefined) row.channel_type = normalizeChannelType(input.channelType) || cleanRequired(input.channelType, "渠道类型不能为空。");
@@ -298,6 +305,7 @@ export async function updateApiTransitOffer(input: {
         "output_price",
         "cache_read_price",
         "cache_write_price",
+        "image_output_price",
         "currency",
         "account_pool",
         "channel_type",
@@ -889,6 +897,8 @@ function mapOffer(row: DbRow): ApiTransitAdminOffer {
   const outputPrice = numberValue(row.output_price);
   const cacheReadPrice = numberValue(row.cache_read_price);
   const cacheWritePrice = numberValue(row.cache_write_price);
+  const imageOutputPrice = numberValue(row.image_output_price);
+  const unitPriceCurrency = getOfficialUnitCurrencySafe(standardModel);
 
   return {
     id: stringValue(row.id),
@@ -905,10 +915,13 @@ function mapOffer(row: DbRow): ApiTransitAdminOffer {
     outputPrice,
     cacheReadPrice,
     cacheWritePrice,
+    imageOutputPrice,
     inputUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "input", inputPrice),
     outputUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "output", outputPrice),
     cacheReadUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "cacheRead", cacheReadPrice),
     cacheWriteUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "cacheWrite", cacheWritePrice),
+    imageOutputUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "imageOutput", imageOutputPrice),
+    unitPriceCurrency,
     currency: stringValue(row.currency) || "CNY",
     accountPool: stringValue(row.account_pool) || "undisclosed",
     channelType: stringValue(row.channel_type) || "undisclosed",
@@ -1050,10 +1063,13 @@ function toOfferCandidate(group: ApiTransitAdminOffer[]): ApiTransitOfferCandida
     outputPrice: representative.outputPrice,
     cacheReadPrice: representative.cacheReadPrice,
     cacheWritePrice: representative.cacheWritePrice,
+    imageOutputPrice: representative.imageOutputPrice,
     inputUnitPriceUsd: representative.inputUnitPriceUsd,
     outputUnitPriceUsd: representative.outputUnitPriceUsd,
     cacheReadUnitPriceUsd: representative.cacheReadUnitPriceUsd,
     cacheWriteUnitPriceUsd: representative.cacheWriteUnitPriceUsd,
+    imageOutputUnitPriceUsd: representative.imageOutputUnitPriceUsd,
+    unitPriceCurrency: representative.unitPriceCurrency,
     currency: representative.currency,
     accountPool: representative.accountPool,
     channelType: representative.channelType,
@@ -1094,7 +1110,7 @@ function scoreRawOffer(offer: ApiTransitAdminOffer): number {
 
   if (offer.status === "active") score += 8;
   if (offer.status === "inactive") score -= 12;
-  if (offer.inputPrice !== null && offer.outputPrice !== null) score += 10;
+  if (offer.inputPrice !== null && (offer.outputPrice !== null || offer.imageOutputPrice !== null)) score += 10;
   if (offer.modelMultiplier !== null) score += 8;
   if (offer.cacheReadPrice !== null || offer.cacheWritePrice !== null) score += 3;
   if (offer.accountPool !== "undisclosed") score += 5;
@@ -1106,7 +1122,7 @@ function scoreRawOffer(offer: ApiTransitAdminOffer): number {
   if (/\bmini\b|compact|thinking|image|audio|embedding|search/i.test(text)) score -= 12;
   if (offer.modelMultiplier !== null && offer.modelMultiplier > 4) score -= 8;
   if (offer.modelMultiplier !== null && offer.modelMultiplier <= 0.02) score -= 6;
-  if (offer.outputPrice === null && offer.inputPrice === null) score -= 15;
+  if (offer.outputPrice === null && offer.imageOutputPrice === null && offer.inputPrice === null) score -= 15;
 
   return score;
 }
@@ -1133,7 +1149,7 @@ function getOfferQualityFlags(offer: ApiTransitAdminOffer): string[] {
   if (offer.accountPool === "undisclosed") flags.push("号池未披露");
   if (offer.channelType === "undisclosed") flags.push("渠道未披露");
   if (offer.modelMultiplier === null) flags.push("倍率缺失");
-  if (offer.inputPrice === null || offer.outputPrice === null) flags.push("价格不完整");
+  if (offer.inputPrice === null || (offer.outputPrice === null && offer.imageOutputPrice === null)) flags.push("价格不完整");
   if (/\bremap\b/i.test(text)) flags.push("remap 分组");
   if (/\bmini\b|compact|thinking/i.test(text)) flags.push("变体已弱化");
   if (/test|free|trial|体验|测试|免费/i.test(text)) flags.push("疑似测试/免费分组");
@@ -1168,7 +1184,14 @@ function isPrimaryStandardModel(value: string): boolean {
     value === "Claude Opus 4.7" ||
     value === "Claude Opus 4.8" ||
     value === "GPT 5.5" ||
-    value === "GPT 5.4"
+    value === "GPT 5.4" ||
+    value === "Gemini 3.5 Flash" ||
+    value === "Gemini 3.1 Pro" ||
+    value === "GLM-5.2" ||
+    value === "GLM-5.1" ||
+    value === "DeepSeek V4 Flash" ||
+    value === "DeepSeek V4 Pro" ||
+    value === "GPT Image 2"
   );
 }
 
@@ -1191,6 +1214,13 @@ function modelSortValue(value: string): number {
     "Claude Opus 4.8",
     "GPT 5.5",
     "GPT 5.4",
+    "Gemini 3.5 Flash",
+    "Gemini 3.1 Pro",
+    "GLM-5.2",
+    "GLM-5.1",
+    "DeepSeek V4 Flash",
+    "DeepSeek V4 Pro",
+    "GPT Image 2",
   ];
   const index = order.indexOf(value);
   return index === -1 ? order.length : index;
@@ -1265,7 +1295,7 @@ function numberValue(value: unknown): number | null {
 
 function getAdminUnitPriceUsd(
   standardModel: string,
-  metric: "input" | "output" | "cacheRead" | "cacheWrite",
+  metric: TransitPriceMetric,
   multiplier: number | null
 ): number | null {
   if (multiplier === null) return null;
@@ -1276,7 +1306,7 @@ function getAdminUnitPriceUsd(
 
 function getOfficialUnitPriceSafe(
   standardModel: string,
-  metric: "input" | "output" | "cacheRead" | "cacheWrite"
+  metric: TransitPriceMetric
 ): number | null {
   try {
     return getOfficialTransitUnitPrice(
@@ -1285,6 +1315,16 @@ function getOfficialUnitPriceSafe(
     );
   } catch {
     return null;
+  }
+}
+
+function getOfficialUnitCurrencySafe(standardModel: string): TransitPriceCurrency {
+  try {
+    return getOfficialTransitUnitCurrency(
+      standardModel as Parameters<typeof getOfficialTransitUnitCurrency>[0]
+    );
+  } catch {
+    return "USD";
   }
 }
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Building2, Boxes } from "lucide-react";
+import { isTransitModelFamily } from "@/data/api-transit/types";
 
 export function TransitViewTabs({ active, className = "" }: { active: "stations" | "models"; className?: string }) {
   const searchParams = useSearchParams();
@@ -45,7 +46,7 @@ function buildViewHref(pathname: string, searchParams: Pick<URLSearchParams, "ge
   const family = searchParams.get("family") ?? searchParams.get("model");
 
   if (query) params.set("q", query);
-  if (family === "claude" || family === "gpt") params.set("family", family);
+  if (isTransitModelFamily(family)) params.set("family", family);
 
   const qs = params.toString();
   return qs ? `${pathname}?${qs}` : pathname;

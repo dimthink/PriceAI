@@ -30,6 +30,8 @@ import {
   TRANSIT_ACCOUNT_POOL_LABELS,
   TRANSIT_CHANNEL_TYPE_LABELS,
   TRANSIT_DATA_STATUS_LABELS,
+  TRANSIT_MODEL_FAMILY_LABELS,
+  TRANSIT_MODEL_FAMILY_ORDER,
 } from "@/data/api-transit/types";
 import {
   compareStations,
@@ -67,8 +69,6 @@ const POOL_OPTIONS: { value: TransitAccountPool | "all"; label: string }[] = [
 const SORT_OPTIONS: { value: TransitSortKey; label: string }[] = [
   { value: "overall", label: "综合排序" },
   { value: "rate", label: "最低倍率" },
-  { value: "claude_rate", label: "Claude 倍率" },
-  { value: "gpt_rate", label: "GPT 倍率" },
   { value: "stability", label: "稳定性优先" },
 ];
 
@@ -96,7 +96,7 @@ export default function TransitStationExplorer({ stations }: Props) {
   const [search, setSearch] = useState(searchParams.get("q") || "");
   const familyFilter = coerceParam(
     searchParams.get("family") ?? searchParams.get("model"),
-    ["all", "claude", "gpt"] as const,
+    ["all", ...TRANSIT_MODEL_FAMILY_ORDER] as const,
     "all"
   );
   const [channelFilter, setChannelFilter] = useState<TransitChannelType | "all">(
@@ -106,7 +106,7 @@ export default function TransitStationExplorer({ stations }: Props) {
     coerceParam(searchParams.get("pool"), POOL_OPTIONS.map((item) => item.value), "all")
   );
   const [sortBy, setSortBy] = useState<TransitSortKey>(
-    coerceParam(searchParams.get("sort"), ["overall", "rate", "claude_rate", "gpt_rate", "stability"] as const, "overall")
+    coerceParam(searchParams.get("sort"), ["overall", "rate", "stability"] as const, "overall")
   );
 
   useEffect(() => {
@@ -298,8 +298,8 @@ export default function TransitStationExplorer({ stations }: Props) {
                 <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
                   <tr role="row">
                     <DataTableHead>站点</DataTableHead>
-                    <DataTableHead>Claude 综合</DataTableHead>
-                    <DataTableHead>GPT 综合</DataTableHead>
+                    <DataTableHead>{familyFilter === "all" ? "最低综合" : `${TRANSIT_MODEL_FAMILY_LABELS[familyFilter]} 综合`}</DataTableHead>
+                    <DataTableHead>覆盖模型</DataTableHead>
                     <DataTableHead>充值倍率</DataTableHead>
                     <DataTableHead>稳定性</DataTableHead>
                     <DataTableHead>来源渠道</DataTableHead>
@@ -313,6 +313,7 @@ export default function TransitStationExplorer({ stations }: Props) {
                       key={station.id}
                       station={station}
                       href={stationDetailHref(station.slug)}
+                      activeFamily={familyFilter}
                       onClick={navigateToStation}
                       onWarm={() => prefetchStation(station.slug)}
                     />
@@ -327,6 +328,7 @@ export default function TransitStationExplorer({ stations }: Props) {
                 key={station.id}
                 station={station}
                 href={stationDetailHref(station.slug)}
+                activeFamily={familyFilter}
                 onClick={navigateToStation}
                 onWarm={() => prefetchStation(station.slug)}
               />
@@ -368,27 +370,47 @@ function CombinedRateCell({
   compact = false,
 }: {
   station: TransitStation;
-  family: TransitModelFamily;
+  family: "all" | TransitModelFamily;
   compact?: boolean;
 }) {
-  const summary = getStationComparisonSummary(station)[family];
+  const comparison = getStationComparisonSummary(station);
+  const summary = family === "all" ? null : comparison.families[family];
+  const rate = summary ? summary.combinedRateMin : comparison.bestCombinedRate;
 
-  if (summary.priceCount === 0) {
+  if (summary && summary.priceCount === 0) {
     return <span className="text-xs text-[#7f8889]">未收录</span>;
+  }
+
+  if (!summary && rate === null) {
+    return <span className="text-xs text-[#7f8889]">暂无倍率</span>;
   }
 
   return (
     <div className={compact ? "" : "min-w-[108px]"}>
-      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold ${getRateBadgeClass(summary.combinedRateMin)}`}>
-        {formatRate(summary.combinedRateMin)}
+      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold ${getRateBadgeClass(rate)}`}>
+        {formatRate(rate)}
       </span>
-      <div className="mt-1 text-[10px] font-semibold text-[#7f8889]">{formatMultiplierRange(summary)}</div>
+      <div className="mt-1 text-[10px] font-semibold text-[#7f8889]">
+        {summary ? formatMultiplierRange(summary) : bestFamilyLabel(comparison)}
+      </div>
     </div>
   );
 }
 
-function PriceBreakdownCell({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
+function PriceBreakdownCell({
+  station,
+  activeFamily,
+  compact = false,
+}: {
+  station: TransitStation;
+  activeFamily: "all" | TransitModelFamily;
+  compact?: boolean;
+}) {
   const summary = getStationComparisonSummary(station);
+  const visibleSummaries = TRANSIT_MODEL_FAMILY_ORDER
+    .map((family) => summary.families[family])
+    .filter((item) => item.priceCount > 0 && (activeFamily === "all" || item.family === activeFamily))
+    .slice(0, compact ? 3 : 4);
 
   return (
     <div className={compact ? "space-y-1" : "min-w-[166px] space-y-1"}>
@@ -397,11 +419,29 @@ function PriceBreakdownCell({ station, compact = false }: { station: TransitStat
         <RechargeRatioDisplay station={station} />
       </div>
       <div className="flex flex-wrap gap-1.5 text-[11px] font-semibold">
-        <CompactRateTag label="Claude" value={formatMultiplierRange(summary.claude)} missing={summary.claude.priceCount === 0} />
-        <CompactRateTag label="GPT" value={formatMultiplierRange(summary.gpt)} missing={summary.gpt.priceCount === 0} />
+        {visibleSummaries.length ? (
+          visibleSummaries.map((item) => (
+            <CompactRateTag
+              key={item.family}
+              label={TRANSIT_MODEL_FAMILY_LABELS[item.family]}
+              value={formatMultiplierRange(item)}
+              missing={false}
+            />
+          ))
+        ) : (
+          <CompactRateTag label="模型" value="—" missing />
+        )}
       </div>
     </div>
   );
+}
+
+function bestFamilyLabel(summary: ReturnType<typeof getStationComparisonSummary>): string {
+  const best = TRANSIT_MODEL_FAMILY_ORDER
+    .map((family) => summary.families[family])
+    .filter((item) => item.combinedRateMin !== null)
+    .sort((left, right) => (left.combinedRateMin ?? Infinity) - (right.combinedRateMin ?? Infinity))[0];
+  return best ? `${TRANSIT_MODEL_FAMILY_LABELS[best.family]} 最低` : "全模型";
 }
 
 function CompactRateTag({ label, value, missing }: { label: string; value: string; missing: boolean }) {
@@ -415,11 +455,13 @@ function CompactRateTag({ label, value, missing }: { label: string; value: strin
 function StationRow({
   station,
   href,
+  activeFamily,
   onClick,
   onWarm,
 }: {
   station: TransitStation;
   href: string;
+  activeFamily: "all" | TransitModelFamily;
   onClick: (href: string) => void;
   onWarm: () => void;
 }) {
@@ -445,13 +487,13 @@ function StationRow({
         <StationIdentity station={station} />
       </td>
       <td className="px-5 py-4">
-        <CombinedRateCell station={station} family="claude" />
+        <CombinedRateCell station={station} family={activeFamily} />
       </td>
       <td className="px-5 py-4">
-        <CombinedRateCell station={station} family="gpt" />
+        <FamilyCoverage station={station} activeFamily={activeFamily} />
       </td>
       <td className="px-5 py-4">
-        <PriceBreakdownCell station={station} />
+        <PriceBreakdownCell station={station} activeFamily={activeFamily} />
       </td>
       <td className="px-5 py-4">
         <AvailabilityCell station={station} />
@@ -481,11 +523,13 @@ function StationRow({
 function StationCard({
   station,
   href,
+  activeFamily,
   onClick,
   onWarm,
 }: {
   station: TransitStation;
   href: string;
+  activeFamily: "all" | TransitModelFamily;
   onClick: (href: string) => void;
   onWarm: () => void;
 }) {
@@ -512,11 +556,11 @@ function StationCard({
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-        <InfoTile label="Claude 综合" value={<CombinedRateCell station={station} family="claude" compact />} />
-        <InfoTile label="GPT 综合" value={<CombinedRateCell station={station} family="gpt" compact />} />
+        <InfoTile label={activeFamily === "all" ? "最低综合" : `${TRANSIT_MODEL_FAMILY_LABELS[activeFamily]} 综合`} value={<CombinedRateCell station={station} family={activeFamily} compact />} />
+        <InfoTile label="覆盖模型" value={<FamilyCoverage station={station} activeFamily={activeFamily} compact />} />
       </div>
       <div className="mb-3">
-        <PriceBreakdownCell station={station} compact />
+        <PriceBreakdownCell station={station} activeFamily={activeFamily} compact />
       </div>
 
       <div className="mb-3">
@@ -627,19 +671,55 @@ function extractRegistrationBonusAmount(text: string): string | null {
 }
 
 function ModelCoverage({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
-  const families = new Set(station.prices.map((price) => price.family));
+  return <FamilyCoverage station={station} activeFamily="all" compact={compact} />;
+}
+
+function FamilyCoverage({
+  station,
+  activeFamily,
+  compact = false,
+}: {
+  station: TransitStation;
+  activeFamily: "all" | TransitModelFamily;
+  compact?: boolean;
+}) {
+  const families = TRANSIT_MODEL_FAMILY_ORDER.filter((family) =>
+    station.prices.some((price) => price.family === family)
+  );
+  const visibleFamilies = activeFamily === "all"
+    ? families.slice(0, compact ? 3 : 4)
+    : families.filter((family) => family === activeFamily);
+
+  if (!visibleFamilies.length) {
+    return (
+      <div className="flex min-w-0 shrink-0 gap-1.5">
+        <CoverageBadge label={activeFamily === "all" ? "模型" : TRANSIT_MODEL_FAMILY_LABELS[activeFamily]} covered={false} compact={compact} />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-w-0 shrink-0 gap-1.5">
-      <CoverageBadge label="Claude" covered={families.has("claude")} compact={compact} />
-      <CoverageBadge label="GPT" covered={families.has("gpt")} compact={compact} />
+    <div className="flex min-w-0 shrink-0 flex-wrap gap-1.5">
+      {visibleFamilies.map((family) => (
+        <CoverageBadge
+          key={family}
+          label={TRANSIT_MODEL_FAMILY_LABELS[family]}
+          covered
+          compact={compact}
+        />
+      ))}
+      {activeFamily === "all" && families.length > visibleFamilies.length ? (
+        <StatusChip tone="muted" className="h-5 justify-center px-2 py-0 text-[10px]">
+          +{families.length - visibleFamilies.length}
+        </StatusChip>
+      ) : null}
     </div>
   );
 }
 
 function CoverageBadge({ covered, label, compact }: { covered: boolean; label: string; compact: boolean }) {
   return (
-    <StatusChip tone={covered ? "success" : "muted"} className={compact ? "h-5 w-[76px] justify-center px-1.5 py-0 text-[10px]" : "h-5 w-[76px] justify-center px-1.5 py-0 text-[10px]"}>
+    <StatusChip tone={covered ? "success" : "muted"} className={compact ? "h-5 min-w-[64px] justify-center px-1.5 py-0 text-[10px]" : "h-5 min-w-[64px] justify-center px-1.5 py-0 text-[10px]"}>
       {label}{covered ? "" : " 未收录"}
     </StatusChip>
   );

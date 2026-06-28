@@ -6,6 +6,10 @@ import type {
   TransitModelPrice,
   TransitStation,
 } from "@/data/api-transit/types";
+import {
+  isTransitModelFamily,
+  isTransitStandardModel,
+} from "@/data/api-transit/types";
 import { seedStations } from "@/data/api-transit/stations";
 import { getSupabaseServerClient } from "@/lib/supabase";
 
@@ -81,6 +85,29 @@ const OFFER_COLUMNS = [
   "output_price",
   "cache_read_price",
   "cache_write_price",
+  "image_output_price",
+  "currency",
+  "account_pool",
+  "channel_type",
+  "price_source",
+  "last_verified_at",
+  "availability_seven_day_rate",
+  "availability_seven_day_samples",
+  "availability_last_checked_at",
+  "availability_note",
+].join(",");
+const OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT = [
+  "id",
+  "station_id",
+  "family",
+  "standard_model",
+  "group_name",
+  "recharge_ratio",
+  "model_multiplier",
+  "input_price",
+  "output_price",
+  "cache_read_price",
+  "cache_write_price",
   "currency",
   "account_pool",
   "channel_type",
@@ -141,24 +168,17 @@ async function readStationsFromSupabase(): Promise<TransitStation[]> {
   const signal = publicTransitReadSignal();
 
   try {
-    const [stationsResult, offersResult] = await Promise.all([
+    const [stationsResult, offerRows] = await Promise.all([
       supabase
         .from("api_transit_stations")
         .select(STATION_CORE_COLUMNS)
         .eq("published", true)
         .order("last_updated_at", { ascending: false })
         .abortSignal(signal),
-      supabase
-        .from("api_transit_offers")
-        .select(OFFER_COLUMNS)
-        .eq("status", "active")
-        .order("standard_model", { ascending: true })
-        .abortSignal(signal),
+      readPublicOfferRows(supabase, signal),
     ]);
 
-    if (stationsResult.error || offersResult.error) {
-      throw stationsResult.error || offersResult.error;
-    }
+    if (stationsResult.error) throw stationsResult.error;
 
     const stationRows = dbRows(stationsResult.data);
     if (!stationRows.length) return [];
@@ -170,7 +190,7 @@ async function readStationsFromSupabase(): Promise<TransitStation[]> {
     }
 
     const offersByStation = new Map<string, DbRow[]>();
-    for (const offer of dbRows(offersResult.data)) {
+    for (const offer of offerRows) {
       const stationId = stringValue(offer.station_id);
       if (!stationId) continue;
       offersByStation.set(stationId, [...(offersByStation.get(stationId) || []), offer]);
@@ -251,25 +271,52 @@ async function readStationFromSupabaseBySlug(slug: string): Promise<TransitStati
     if (!stationId) return undefined;
 
     const signal = publicTransitReadSignal();
-    const [offersResult, enhancementRow] = await Promise.all([
-      supabase
-        .from("api_transit_offers")
-        .select(OFFER_COLUMNS)
-        .eq("station_id", stationId)
-        .eq("status", "active")
-        .order("standard_model", { ascending: true })
-        .abortSignal(signal),
+    const [offerRows, enhancementRow] = await Promise.all([
+      readPublicOfferRows(supabase, signal, stationId),
       readStationEnhancementRow(supabase, stationId, signal),
     ]);
-    if (offersResult.error) throw offersResult.error;
 
-    const station = mapStationRow(stationRow, dbRows(offersResult.data), enhancementRow);
+    const station = mapStationRow(stationRow, offerRows, enhancementRow);
     cachedBySlug.set(station.slug, { station, cachedAt: Date.now() });
     return station;
   } catch (error) {
     console.warn("Returning no API transit station because Supabase detail read failed:", error);
     return undefined;
   }
+}
+
+async function readPublicOfferRows(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  signal: AbortSignal,
+  stationId?: string
+): Promise<DbRow[]> {
+  try {
+    return await queryPublicOfferRows(client, signal, OFFER_COLUMNS, stationId);
+  } catch (error) {
+    if (isMissingColumnError(error)) {
+      return queryPublicOfferRows(client, signal, OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT, stationId);
+    }
+    throw error;
+  }
+}
+
+async function queryPublicOfferRows(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  signal: AbortSignal,
+  columns: string,
+  stationId?: string
+): Promise<DbRow[]> {
+  let query = client
+    .from("api_transit_offers")
+    .select(columns)
+    .eq("status", "active")
+    .order("standard_model", { ascending: true })
+    .abortSignal(signal);
+
+  if (stationId) query = query.eq("station_id", stationId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return dbRows(data);
 }
 
 async function readStationEnhancementRow(
@@ -530,6 +577,7 @@ function mapOfferRow(
     outputPrice: numberValue(row.output_price),
     cacheReadPrice: numberValue(row.cache_read_price),
     cacheWritePrice: numberValue(row.cache_write_price),
+    imageOutputPrice: numberValue(row.image_output_price),
     currency: "CNY",
     accountPool: accountPool(row.account_pool),
     channelType: channelType(row.channel_type),
@@ -706,22 +754,12 @@ function dataStatus(value: unknown): TransitStation["dataStatus"] {
 
 function modelFamily(value: unknown): TransitModelFamily | null {
   const text = stringValue(value);
-  return text === "claude" || text === "gpt" ? text : null;
+  return isTransitModelFamily(text) ? text : null;
 }
 
 function standardModelValue(value: unknown): TransitModelPrice["standardModel"] | null {
   const text = stringValue(value);
-  if (
-    text === "Claude Sonnet 4.6" ||
-    text === "Claude Opus 4.6" ||
-    text === "Claude Opus 4.7" ||
-    text === "Claude Opus 4.8" ||
-    text === "GPT 5.5" ||
-    text === "GPT 5.4"
-  ) {
-    return text;
-  }
-  return null;
+  return isTransitStandardModel(text) ? text : null;
 }
 
 function accountPool(value: unknown): TransitModelPrice["accountPool"] {

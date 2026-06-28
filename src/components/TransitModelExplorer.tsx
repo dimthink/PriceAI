@@ -20,6 +20,7 @@ import {
   TRANSIT_CHANNEL_TYPE_LABELS,
   TRANSIT_RISK_LABELS,
   TRANSIT_USAGE_ADVICE_LABELS,
+  isTransitModelFamily,
 } from "@/data/api-transit/types";
 import {
   formatPercent,
@@ -35,7 +36,7 @@ import {
 type FamilyFilter = "all" | TransitModelFamily;
 
 function coerceFamily(value: string | null): FamilyFilter {
-  return value === "claude" || value === "gpt" ? value : "all";
+  return isTransitModelFamily(value) ? value : "all";
 }
 
 interface Props {

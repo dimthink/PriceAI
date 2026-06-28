@@ -1,4 +1,4 @@
-import type { TransitStation } from "./types";
+import type { TransitModelFamily, TransitStation } from "./types";
 
 export const seedStations: TransitStation[] = [
   {
@@ -260,7 +260,7 @@ export const seedStations: TransitStation[] = [
 ];
 
 function price(
-  family: "claude" | "gpt",
+  family: TransitModelFamily,
   standardModel: TransitStation["prices"][number]["standardModel"],
   groupName: string,
   rechargeRatio: string | null,
@@ -284,6 +284,7 @@ function price(
     outputPrice,
     cacheReadPrice,
     cacheWritePrice,
+    imageOutputPrice: null,
     currency: "CNY",
     accountPool,
     channelType,

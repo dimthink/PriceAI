@@ -1,9 +1,11 @@
 import Image from "next/image";
-import { Boxes } from "lucide-react";
+import { Boxes, ImageIcon, Sparkles, Video } from "lucide-react";
 import { BrandIcon } from "@/components/BrandIcon";
 
 const iconByFamily: Record<string, string> = {
   claude: "/brand-icons/claude.svg",
+  gemini: "/brand-icons/gemini.svg",
+  deepseek: "/brand-icons/deepseek.png",
 };
 
 export function TransitModelIcon({
@@ -17,6 +19,15 @@ export function TransitModelIcon({
 
   if (normalizedFamily === "gpt") {
     return <BrandIcon platform="ChatGPT" className={className} />;
+  }
+  if (normalizedFamily === "image") {
+    return <ImageIcon className={`${className} shrink-0 text-[#5a6061]`} />;
+  }
+  if (normalizedFamily === "video") {
+    return <Video className={`${className} shrink-0 text-[#5a6061]`} />;
+  }
+  if (normalizedFamily === "glm") {
+    return <Sparkles className={`${className} shrink-0 text-[#5a6061]`} />;
   }
 
   const src = iconByFamily[normalizedFamily];

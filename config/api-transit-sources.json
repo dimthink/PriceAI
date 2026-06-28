@@ -16,7 +16,7 @@
     "summary": "公开模型目录可读取，提供模型价格、官方对照价格和近 14 日可用性样本；前端和计费/活动模块为 OneHop 自研控制台，后台存在 Sub2API 上游只读镜像，不按 New API 归类。充值口径按商家说明记录为 6.8 元兑换 1 美元。",
     "strengths": [
       "公开模型目录包含 OneHop 价格、官方价格对照、协议能力和近 14 日 uptime 样本。",
-      "MVP 模型覆盖 GPT 5.5、GPT 5.4、Claude Sonnet 4.6、Claude Opus 4.7 / 4.8，并区分 Official 与 Kiro 来源。"
+      "标准模型覆盖 GPT、Claude、Gemini、GLM、DeepSeek 和 GPT Image 2，并区分 Official 与 Kiro 来源。"
     ],
     "cautions": [
       "公开 uptime 来自 OneHop 页面，不等同 PriceAI 使用测试 Key 的实测结果。",

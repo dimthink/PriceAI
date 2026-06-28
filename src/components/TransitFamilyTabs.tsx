@@ -7,19 +7,22 @@ import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, type CategoryTabItem } from "@/components/CategoryTabBar";
 import { TransitModelIcon } from "@/components/TransitModelIcon";
 import type { TransitModelFamily } from "@/data/api-transit/types";
+import {
+  TRANSIT_MODEL_FAMILY_LABELS,
+  TRANSIT_MODEL_FAMILY_ORDER,
+  isTransitModelFamily,
+} from "@/data/api-transit/types";
 
 type FamilyFilter = "all" | TransitModelFamily;
 
-const preferredFamilyOrder: TransitModelFamily[] = ["gpt", "claude"];
+const preferredFamilyOrder: readonly TransitModelFamily[] = TRANSIT_MODEL_FAMILY_ORDER;
 
 function coerceFamily(value: string | null): FamilyFilter {
-  return value === "claude" || value === "gpt" ? value : "all";
+  return isTransitModelFamily(value) ? value : "all";
 }
 
 function displayFamilyLabel(family: TransitModelFamily, fallback: string): string {
-  if (family === "gpt") return "ChatGPT";
-  if (family === "claude") return "Claude";
-  return fallback;
+  return TRANSIT_MODEL_FAMILY_LABELS[family] || fallback;
 }
 
 function familyTabIcon(family: FamilyFilter) {

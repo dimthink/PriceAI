@@ -98,10 +98,13 @@ export type ApiTransitAdminOffer = {
   outputPrice: number | null;
   cacheReadPrice: number | null;
   cacheWritePrice: number | null;
+  imageOutputPrice: number | null;
   inputUnitPriceUsd: number | null;
   outputUnitPriceUsd: number | null;
   cacheReadUnitPriceUsd: number | null;
   cacheWriteUnitPriceUsd: number | null;
+  imageOutputUnitPriceUsd: number | null;
+  unitPriceCurrency: "USD" | "CNY";
   currency: string;
   accountPool: string;
   channelType: string;
@@ -130,10 +133,13 @@ export type ApiTransitOfferCandidate = {
   outputPrice: number | null;
   cacheReadPrice: number | null;
   cacheWritePrice: number | null;
+  imageOutputPrice: number | null;
   inputUnitPriceUsd: number | null;
   outputUnitPriceUsd: number | null;
   cacheReadUnitPriceUsd: number | null;
   cacheWriteUnitPriceUsd: number | null;
+  imageOutputUnitPriceUsd: number | null;
+  unitPriceCurrency: "USD" | "CNY";
   currency: string;
   accountPool: string;
   channelType: string;

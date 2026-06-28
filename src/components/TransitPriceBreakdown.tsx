@@ -3,7 +3,8 @@
 import type { TransitModelPrice, TransitStation } from "@/data/api-transit/types";
 import {
   formatRate,
-  formatUsdPerMTok,
+  formatOfficialUnitPrice,
+  getOfficialTransitUnitCurrency,
   getOfficialTransitUnitPrice,
   getTransitConvertedUnitPrice,
   getTransitEffectiveMetricRate,
@@ -13,11 +14,10 @@ import {
 const priceMetrics: { metric: TransitPriceMetric; label: string }[] = [
   { metric: "input", label: "输入" },
   { metric: "output", label: "输出" },
+  { metric: "imageOutput", label: "图片输出" },
   { metric: "cacheWrite", label: "缓存写入" },
   { metric: "cacheRead", label: "缓存读取" },
 ];
-
-const compactPriceMetrics = priceMetrics.slice(0, 2);
 
 export function TransitPriceBreakdown({
   station,
@@ -28,7 +28,16 @@ export function TransitPriceBreakdown({
   price: TransitModelPrice;
   mode?: "compact" | "detail";
 }) {
-  const metrics = mode === "compact" ? compactPriceMetrics : priceMetrics;
+  const hasImageOutput = getOfficialTransitUnitPrice(price.standardModel, "imageOutput") !== null;
+  const compactMetrics = hasImageOutput
+    ? priceMetrics.filter(({ metric }) => metric === "input" || metric === "imageOutput")
+    : priceMetrics.filter(({ metric }) => metric === "input" || metric === "output");
+  const metrics = (mode === "compact" ? compactMetrics : priceMetrics).filter(({ metric }) => {
+    if (metric === "imageOutput") return getOfficialTransitUnitPrice(price.standardModel, metric) !== null;
+    if (metric === "output") return getOfficialTransitUnitPrice(price.standardModel, metric) !== null;
+    return true;
+  });
+  const currency = getOfficialTransitUnitCurrency(price.standardModel);
 
   return (
     <div className="grid grid-cols-2 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-panel)]">
@@ -38,6 +47,7 @@ export function TransitPriceBreakdown({
           index={index}
           total={metrics.length}
           label={label}
+          currency={currency}
           officialPrice={getOfficialTransitUnitPrice(price.standardModel, metric)}
           convertedPrice={getTransitConvertedUnitPrice(station, price, metric)}
           effectiveRate={getTransitEffectiveMetricRate(station, price, metric)}
@@ -51,6 +61,7 @@ function RateChip({
   index,
   total,
   label,
+  currency,
   officialPrice,
   convertedPrice,
   effectiveRate,
@@ -58,6 +69,7 @@ function RateChip({
   index: number;
   total: number;
   label: string;
+  currency: "USD" | "CNY";
   officialPrice: number | null;
   convertedPrice: number | null;
   effectiveRate: number | null;
@@ -84,11 +96,11 @@ function RateChip({
       <div className="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         {officialPrice !== null ? (
           <span className="shrink-0 text-[10px] font-semibold text-[var(--color-text-soft)] line-through decoration-[var(--color-text-soft)]/70">
-            {formatUsdPerMTok(officialPrice)}
+            {formatOfficialUnitPrice(officialPrice, currency)}
           </span>
         ) : null}
         <span className="text-[13px] font-extrabold tabular-nums text-[var(--color-text-primary)]">
-          {formatUsdPerMTok(convertedPrice)}
+          {formatOfficialUnitPrice(convertedPrice, currency)}
         </span>
       </div>
     </div>
