@@ -10,8 +10,9 @@ import {
   PackageCheck,
   ShieldCheck,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
+import { ApiModelIcon } from "@/components/ApiModelIcon";
+import { BrandIcon } from "@/components/BrandIcon";
 import { HomeUrlCleaner } from "@/components/HomeUrlCleaner";
 import { JsonLd } from "@/components/JsonLd";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -63,15 +64,15 @@ const heroModules = [
 ];
 
 const ecosystemIcons = [
-  { name: "ChatGPT", src: "/brand-icons/chatgpt.svg" },
-  { name: "Claude", src: "/brand-icons/claude.svg" },
-  { name: "Gemini", src: "/brand-icons/gemini.svg" },
-  { name: "Grok", src: "/brand-icons/grok.svg" },
-  { name: "DeepSeek", src: "/brand-icons/deepseek.png" },
-  { name: "Qwen", src: "/brand-icons/qwen.png" },
-  { name: "Kimi", src: "/brand-icons/kimi.png" },
-  { name: "GLM", src: "/brand-icons/glm.png" },
-];
+  { name: "ChatGPT", kind: "platform" },
+  { name: "Claude", kind: "platform" },
+  { name: "Gemini", kind: "platform" },
+  { name: "Grok", kind: "platform" },
+  { name: "DeepSeek", kind: "api-model" },
+  { name: "Qwen", kind: "api-model" },
+  { name: "Kimi", kind: "api-model" },
+  { name: "GLM", kind: "api-model" },
+] as const;
 
 const decisionPaths = [
   {
@@ -306,7 +307,7 @@ export default async function Home() {
                     key={item.name}
                     className="flex min-h-[62px] flex-col items-center justify-center gap-1.5 rounded-lg bg-[var(--color-panel)] px-2 ring-1 ring-[var(--color-border-soft)] sm:min-h-[76px] sm:gap-2 sm:px-3"
                   >
-                    <Image src={item.src} alt="" aria-hidden="true" width={28} height={28} className="h-6 w-6 object-contain sm:h-7 sm:w-7" />
+                    <EcosystemIcon item={item} />
                     <span className="max-w-full truncate text-[0.68rem] font-semibold text-[var(--color-text-muted)] sm:text-xs">{item.name}</span>
                   </div>
                 ))}
@@ -440,6 +441,16 @@ export default async function Home() {
       </footer>
     </div>
   );
+}
+
+function EcosystemIcon({ item }: { item: (typeof ecosystemIcons)[number] }) {
+  const className = "h-6 w-6 sm:h-7 sm:w-7";
+
+  if (item.kind === "platform") {
+    return <BrandIcon platform={item.name} className={className} />;
+  }
+
+  return <ApiModelIcon family={item.name} className={className} />;
 }
 
 function buildHomeJsonLd() {
