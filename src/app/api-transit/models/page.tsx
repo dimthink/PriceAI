@@ -52,14 +52,16 @@ export default async function ApiTransitModelsPage() {
       </div>
 
       <main className="mx-auto max-w-[1500px] px-5 py-7 pb-20">
-        <div className="mb-6">
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-[#202829] tracking-tight">中转 API 模型对比</h1>
-          <p className="mt-2 text-sm sm:text-base text-[#5a6061] max-w-3xl">
+        <div className="mb-5 max-w-[900px]">
+          <h1 className="min-w-0 font-serif text-2xl font-semibold tracking-normal text-[#202829] md:text-4xl">
+            中转 API 模型对比
+          </h1>
+          <p className="mt-2.5 max-w-[860px] text-sm leading-[1.8] text-[#5a6061]">
             按 Claude / GPT 标准模型横向对比各中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。站点榜仍是主入口，模型页用于快速查某个模型在哪些站点更便宜。
           </p>
         </div>
 
-        <SponsoredPlacementPreview kind="apiTransitModels" settings={sponsorSettings} className="mb-6" />
+        <SponsoredPlacementPreview kind="apiTransitModels" settings={sponsorSettings} className="mb-5" />
 
         <Suspense fallback={<div className="py-12 text-center text-[#5a6061]">加载中…</div>}>
           <TransitModelExplorer stations={stations} />

@@ -88,15 +88,15 @@ export default function TransitModelExplorer({ stations }: Props) {
 
   return (
     <div>
-      <div className="mb-5 rounded-lg bg-[#f2f4f4] p-3 ring-1 ring-[#adb3b4]/15">
-        <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
-          <TransitViewTabs active="models" className="shrink-0 rounded-lg" />
+      <div className="mb-5 space-y-3 rounded-lg bg-[#f2f4f4] p-3 shadow-[0_18px_50px_rgba(45,52,53,0.04)] ring-1 ring-[#adb3b4]/10">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
           <SearchField
             value={query}
             onChange={setQuery}
             placeholder="搜索标准模型名..."
             className="flex-1 xl:max-w-[440px]"
           />
+          <TransitViewTabs active="models" className="shrink-0" />
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5a6061]">
           <span>真实站点 {stations.length}</span>

@@ -191,13 +191,13 @@ export default function TransitStationExplorer({ stations }: Props) {
     <div>
       <div className="mb-5 space-y-3 rounded-lg bg-[#f2f4f4] p-3 shadow-[0_18px_50px_rgba(45,52,53,0.04)] ring-1 ring-[#adb3b4]/10">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <TransitViewTabs active="stations" className="shrink-0" />
           <SearchField
             value={search}
             onChange={setSearch}
             placeholder="搜索站点名称、描述..."
             className="flex-1 xl:max-w-[460px]"
           />
+          <TransitViewTabs active="stations" className="shrink-0" />
           <div className="flex min-w-0 items-center gap-2 overflow-x-auto scrollbar-none">
             <label className="relative inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]">
               <ArrowUpDown className="h-4 w-4 shrink-0" />

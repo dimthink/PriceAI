@@ -2,6 +2,8 @@
 
 import { useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Layers3 } from "lucide-react";
+import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, type CategoryTabItem } from "@/components/CategoryTabBar";
 import { TransitModelIcon } from "@/components/TransitModelIcon";
 import type { TransitModelFamily } from "@/data/api-transit/types";
@@ -18,6 +20,15 @@ function displayFamilyLabel(family: TransitModelFamily, fallback: string): strin
   if (family === "gpt") return "ChatGPT";
   if (family === "claude") return "Claude";
   return fallback;
+}
+
+function familyTabIcon(family: FamilyFilter) {
+  const className = "h-[18px] w-[18px]";
+
+  if (family === "all") return <Layers3 className={`${className} shrink-0 text-[#5a6061]`} />;
+  if (family === "gpt") return <BrandIcon platform="ChatGPT" className={className} />;
+  if (family === "claude") return <BrandIcon platform="Claude" className={className} />;
+  return <TransitModelIcon family={family} className={className} />;
 }
 
 export function TransitFamilyTabs({
@@ -46,12 +57,12 @@ export function TransitFamilyTabs({
       {
         id: "all",
         label: "全部",
-        icon: <TransitModelIcon family="all" className="h-[18px] w-[18px]" />,
+        icon: familyTabIcon("all"),
       },
       ...orderedOptions.map((option) => ({
         id: option.id,
         label: displayFamilyLabel(option.id, option.label),
-        icon: <TransitModelIcon family={option.id} className="h-[18px] w-[18px]" />,
+        icon: familyTabIcon(option.id),
       })),
     ];
   }, [options]);
