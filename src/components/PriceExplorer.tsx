@@ -37,6 +37,7 @@ import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
+import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import type { SponsorSettingsSummary } from "@/lib/sponsor-settings-shared";
 import type {
   CanonicalProduct,
@@ -111,10 +112,9 @@ const productTypeLabels: Record<string, string> = {
 };
 
 const OFFER_PAGE_SIZE = 80;
-const MERCHANT_PAGE_SIZE = 80;
 const PRODUCT_SKELETON_ROWS = [0, 1, 2];
 const EXPLORER_CACHE_KEY = "priceai:explorer:v3";
-const MERCHANT_LIST_CACHE_KEY = "priceai:merchants:v6:paged";
+const MERCHANT_LIST_CACHE_KEY = "priceai:merchants:v7:paged";
 const EXPLORER_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const OFFER_LIST_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const MERCHANT_LIST_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
@@ -160,11 +160,13 @@ function useMediaQuery(query: string) {
 
 export function PriceExplorer({
   data,
+  initialMerchants = null,
   sponsorSettings = null,
   initialState = {},
   restoreStateFromUrl = false,
 }: {
   data?: ExplorerData;
+  initialMerchants?: MerchantListResponse | null;
   sponsorSettings?: SponsorSettingsSummary | null;
   initialState?: ExplorerInitialState;
   restoreStateFromUrl?: boolean;
@@ -313,14 +315,10 @@ export function PriceExplorer({
   const totalOutOfStock = explorerData.products.reduce((sum, product) => sum + product.outOfStockCount, 0);
   const showingOffers = scopeMode === "offers";
   const showingMerchants = scopeMode === "merchants";
-  const merchantRows = merchantResponse?.rows ?? [];
   const title = buildTitle(platform, productType, scopeMode);
   const searchPlaceholder = searchPlaceholderForScope(scopeMode);
   const activeFilterChips = buildActiveFilterChips({ productType, stock, minPrice, maxPrice, merchantCollector, merchantSignal, showingMerchants });
   const platformOffers = offerResponse?.rows ?? [];
-  const resultCount = showingMerchants ? merchantResponse?.total ?? 0 : showingOffers ? offerResponse?.total ?? 0 : products.length;
-  const hasMoreOffers = showingOffers && Boolean(offerResponse) && platformOffers.length < (offerResponse?.total ?? 0);
-  const hasMoreMerchants = showingMerchants && Boolean(merchantResponse) && merchantRows.length < (merchantResponse?.total ?? 0);
   const renderMobileProductList = isDesktopViewport !== true;
   const renderDesktopProductTable = viewMode === "table" && isDesktopViewport !== false;
   const renderDesktopProductCards = viewMode === "cards" && isDesktopViewport !== false;
@@ -369,6 +367,11 @@ export function PriceExplorer({
       }).toString(),
     [effectiveQuery, maxPrice, merchantCollector, merchantSignal, minPrice, platform, productType, sort, stock],
   );
+  const visibleMerchantResponse = showingMerchants && merchantQueryString === "" ? merchantResponse ?? initialMerchants : merchantResponse;
+  const merchantRows = visibleMerchantResponse?.rows ?? [];
+  const resultCount = showingMerchants ? visibleMerchantResponse?.total ?? 0 : showingOffers ? offerResponse?.total ?? 0 : products.length;
+  const hasMoreOffers = showingOffers && Boolean(offerResponse) && platformOffers.length < (offerResponse?.total ?? 0);
+  const hasMoreMerchants = showingMerchants && Boolean(visibleMerchantResponse) && merchantRows.length < (visibleMerchantResponse?.total ?? 0);
 
   useEffect(() => {
     activeOfferQueryRef.current = offerQueryString;
@@ -420,6 +423,14 @@ export function PriceExplorer({
       timeout.cancel();
     };
   }, [data]);
+
+  useEffect(() => {
+    if (!initialMerchants) return;
+
+    const cacheKey = merchantListCacheKey("", 0);
+    rememberMerchantList(cacheKey, initialMerchants);
+    writeSessionCache(cacheKey, initialMerchants);
+  }, [initialMerchants]);
 
   useEffect(() => {
     if (data) return;
@@ -667,8 +678,8 @@ export function PriceExplorer({
   }, [merchantQueryString, showingMerchants, urlStateReady]);
 
   const loadMoreMerchants = useCallback(async () => {
-    if (!showingMerchants || !merchantResponse || merchantsLoading || merchantsPaging) return;
-    if (merchantRows.length >= merchantResponse.total) return;
+    if (!showingMerchants || !visibleMerchantResponse || merchantsLoading || merchantsPaging) return;
+    if (merchantRows.length >= visibleMerchantResponse.total) return;
 
     setMerchantsPaging(true);
     const requestQueryString = merchantQueryString;
@@ -678,14 +689,15 @@ export function PriceExplorer({
       if (activeMerchantQueryRef.current !== requestQueryString) return;
       setMerchantResponse((current) => {
         if (activeMerchantQueryRef.current !== requestQueryString) return current;
-        if (!current) return nextPage;
+        const baseResponse = current ?? visibleMerchantResponse;
+        if (!baseResponse) return nextPage;
 
-        const seen = new Set(current.rows.map((merchant) => merchant.id));
+        const seen = new Set(baseResponse.rows.map((merchant) => merchant.id));
         const nextRows = nextPage.rows.filter((merchant) => !seen.has(merchant.id));
 
         const mergedResponse = {
           ...nextPage,
-          rows: [...current.rows, ...nextRows],
+          rows: [...baseResponse.rows, ...nextRows],
           total: nextPage.total,
           limited: nextPage.limited,
         };
@@ -702,7 +714,7 @@ export function PriceExplorer({
     } finally {
       if (activeMerchantQueryRef.current === requestQueryString) setMerchantsPaging(false);
     }
-  }, [merchantQueryString, merchantResponse, merchantRows.length, merchantsLoading, merchantsPaging, showingMerchants]);
+  }, [merchantQueryString, merchantRows.length, merchantsLoading, merchantsPaging, showingMerchants, visibleMerchantResponse]);
 
   useEffect(() => {
     if (!hasMoreMerchants) return;
@@ -1034,14 +1046,14 @@ export function PriceExplorer({
         ) : null}
 
         {showingMerchants ? (
-          merchantsLoading && !merchantResponse ? (
+          merchantsLoading && !visibleMerchantResponse ? (
             <EmptyState text="正在加载商家" />
           ) : merchantsError && !merchantRows.length ? (
             <EmptyState text={merchantsError} />
           ) : merchantRows.length ? (
             <>
-              {merchantResponse?.degraded ? (
-                <DegradedBanner message={merchantResponse.message} className="mb-4" />
+              {visibleMerchantResponse?.degraded ? (
+                <DegradedBanner message={visibleMerchantResponse.message} className="mb-4" />
               ) : null}
               {merchantsError ? (
                 <div className="mb-4 rounded-lg bg-[#fff7e8] px-4 py-3 text-sm text-[#6a4b16] shadow-[0_16px_45px_rgba(45,52,53,0.04)] ring-1 ring-[#efdfbd]">
@@ -1057,15 +1069,15 @@ export function PriceExplorer({
                     disabled={merchantsPaging}
                     className="inline-flex h-10 items-center justify-center rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5] disabled:opacity-60"
                   >
-                    {merchantsPaging ? "正在加载更多商家..." : `继续加载商家 (${merchantRows.length}/${merchantResponse?.total ?? 0})`}
+                    {merchantsPaging ? "正在加载更多商家..." : `继续加载商家 (${merchantRows.length}/${visibleMerchantResponse?.total ?? 0})`}
                   </button>
                 </div>
               ) : null}
             </>
           ) : (
             <>
-              {merchantResponse?.degraded ? (
-                <DegradedBanner message={merchantResponse.message} className="mb-4" />
+              {visibleMerchantResponse?.degraded ? (
+                <DegradedBanner message={visibleMerchantResponse.message} className="mb-4" />
               ) : null}
               <EmptyState text="没有符合条件的商家" />
             </>
@@ -2467,7 +2479,7 @@ async function fetchMerchantPage(
   signal?: AbortSignal,
 ): Promise<MerchantListResponse> {
   const params = new URLSearchParams(queryString);
-  params.set("limit", String(MERCHANT_PAGE_SIZE));
+  params.set("limit", String(PUBLIC_MERCHANT_PAGE_SIZE));
   params.set("offset", String(offset));
 
   const response = await fetch(`/api/merchants?${params.toString()}`, { signal });
@@ -2481,7 +2493,7 @@ function offerListCacheKey(queryString: string, offset: number): string {
 }
 
 function merchantListCacheKey(queryString: string, offset: number): string {
-  return `${MERCHANT_LIST_CACHE_KEY}:${queryString || "all"}:${offset}:${MERCHANT_PAGE_SIZE}`;
+  return `${MERCHANT_LIST_CACHE_KEY}:${queryString || "all"}:${offset}:${PUBLIC_MERCHANT_PAGE_SIZE}`;
 }
 
 function rememberOfferList(cacheKey: string, value: OfferListResponse) {

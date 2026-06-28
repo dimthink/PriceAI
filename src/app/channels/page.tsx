@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { JsonLd } from "@/components/JsonLd";
 import { PriceExplorer } from "@/components/PriceExplorer";
 import { SubmissionFloater } from "@/components/SubmissionFloater";
-import { getExplorerData } from "@/lib/data";
+import { getExplorerData, listPublicMerchants } from "@/lib/data";
+import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import { getSponsorSettingsSummary } from "@/lib/sponsor-settings";
 
 export const revalidate = 1800;
@@ -23,15 +24,21 @@ export const metadata: Metadata = {
 };
 
 export default async function ChannelsPage() {
-  const [data, sponsorSettings] = await Promise.all([
+  const [data, initialMerchants, sponsorSettings] = await Promise.all([
     getExplorerData(),
+    listPublicMerchants({ limit: PUBLIC_MERCHANT_PAGE_SIZE, offset: 0 }),
     getSponsorSettingsSummary().catch(() => null),
   ]);
 
   return (
     <>
       <JsonLd data={buildChannelsJsonLd()} />
-      <PriceExplorer data={data} sponsorSettings={sponsorSettings} restoreStateFromUrl />
+      <PriceExplorer
+        data={data}
+        initialMerchants={initialMerchants}
+        sponsorSettings={sponsorSettings}
+        restoreStateFromUrl
+      />
       <SubmissionFloater />
     </>
   );

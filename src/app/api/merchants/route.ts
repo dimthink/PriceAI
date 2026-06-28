@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { publicPriceApiErrorResponse } from "@/lib/api-errors";
 import { priceDataCacheHeaders } from "@/lib/cache-headers";
 import { listPublicMerchants } from "@/lib/data";
+import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import { parsePublicOfferPaginationForRoute } from "@/lib/public-offer-route";
 import { normalizePublicOfferQuery } from "@/lib/public-offer-query";
 
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
 
     const result = await listPublicMerchants({
       ...pagination,
+      limit: pagination.limit ?? PUBLIC_MERCHANT_PAGE_SIZE,
       query: normalizePublicOfferQuery(params.get("q")),
       platform: params.get("platform") || null,
       productType: params.get("type") || null,

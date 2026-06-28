@@ -1,0 +1,1 @@
+export const PUBLIC_MERCHANT_PAGE_SIZE = 30;
