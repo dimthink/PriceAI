@@ -44,8 +44,8 @@ PRICE_DATA_CACHE_TTL_MS = PRICE_DATA_EDGE_SECONDS * 1000
 公开 API 允许在 TTL 之下进一步使用持久快照：
 
 - `/api/explorer` 使用 `public_api_snapshots(kind='explorer', cache_key='default')`。
-- `/api/offers?limit=80&offset=0` 且无筛选/搜索时，使用 `public_api_snapshots(kind='offers', cache_key='default:limit:80')`。
-- `/api/products/[id]/offers?limit=80&offset=0` 且无筛选/搜索时，使用 `public_api_snapshots(kind='product_offers', cache_key='default:<id>:limit:80')`。
+- `/api/offers?limit=30&offset=0` 且无筛选/搜索时，使用 `public_api_snapshots(kind='offers', cache_key='default:limit:30')`。
+- `/api/products/[id]/offers?limit=30&offset=0` 且无筛选/搜索时，使用 `public_api_snapshots(kind='product_offers', cache_key='default:<id>:limit:30')`。
 - 快照只用于默认高频读路径；筛选、搜索、排除词和翻页仍走 RPC。
 
 快照刷新必须走统一节奏：
@@ -98,8 +98,8 @@ PRICE_DATA_CACHE_TTL_MS = PRICE_DATA_EDGE_SECONDS * 1000
 
 ```bash
 curl -sS -D - -o /tmp/priceai-explorer.json https://priceai.cc/api/explorer
-curl -sS -D - -o /tmp/priceai-offers.json 'https://priceai.cc/api/offers?limit=80'
-curl -sS -D - -o /tmp/priceai-product-offers.json 'https://priceai.cc/api/products/chatgpt-plus/offers?limit=80'
+curl -sS -D - -o /tmp/priceai-offers.json 'https://priceai.cc/api/offers?limit=30'
+curl -sS -D - -o /tmp/priceai-product-offers.json 'https://priceai.cc/api/products/chatgpt-plus/offers?limit=30'
 ```
 
 验收点：

@@ -38,6 +38,7 @@ import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
+import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import type { SponsorSettingsSummary } from "@/lib/sponsor-settings-shared";
 import type {
   CanonicalProduct,
@@ -75,7 +76,7 @@ type PlatformOfferRow = {
 type OfferListResponse = {
   rows: PlatformOfferRow[];
   total: number;
-  limited: boolean;
+  limited?: boolean;
   generatedAt: string;
   degraded?: boolean;
   message?: string | null;
@@ -111,7 +112,7 @@ const productTypeLabels: Record<string, string> = {
   其他: "其他",
 };
 
-const OFFER_PAGE_SIZE = 80;
+const OFFER_PAGE_SIZE = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PRODUCT_SKELETON_ROWS = [0, 1, 2];
 const EXPLORER_CACHE_KEY = "priceai:explorer:v3";
 const MERCHANT_LIST_CACHE_KEY = "priceai:merchants:v7:paged";
@@ -160,12 +161,14 @@ function useMediaQuery(query: string) {
 
 export function PriceExplorer({
   data,
+  initialOffers = null,
   initialMerchants = null,
   sponsorSettings = null,
   initialState = {},
   restoreStateFromUrl = false,
 }: {
   data?: ExplorerData;
+  initialOffers?: OfferListResponse | null;
   initialMerchants?: MerchantListResponse | null;
   sponsorSettings?: SponsorSettingsSummary | null;
   initialState?: ExplorerInitialState;
@@ -318,7 +321,6 @@ export function PriceExplorer({
   const title = buildTitle(platform, productType, scopeMode);
   const searchPlaceholder = searchPlaceholderForScope(scopeMode);
   const activeFilterChips = buildActiveFilterChips({ productType, stock, minPrice, maxPrice, merchantCollector, merchantSignal, showingMerchants });
-  const platformOffers = offerResponse?.rows ?? [];
   const renderMobileProductList = isDesktopViewport !== true;
   const renderDesktopProductTable = viewMode === "table" && isDesktopViewport !== false;
   const renderDesktopProductCards = viewMode === "cards" && isDesktopViewport !== false;
@@ -367,10 +369,12 @@ export function PriceExplorer({
       }).toString(),
     [effectiveQuery, maxPrice, merchantCollector, merchantSignal, minPrice, platform, productType, sort, stock],
   );
+  const visibleOfferResponse = showingOffers && offerQueryString === "" ? offerResponse ?? initialOffers : offerResponse;
+  const platformOffers = visibleOfferResponse?.rows ?? [];
   const visibleMerchantResponse = showingMerchants && merchantQueryString === "" ? merchantResponse ?? initialMerchants : merchantResponse;
   const merchantRows = visibleMerchantResponse?.rows ?? [];
-  const resultCount = showingMerchants ? visibleMerchantResponse?.total ?? 0 : showingOffers ? offerResponse?.total ?? 0 : products.length;
-  const hasMoreOffers = showingOffers && Boolean(offerResponse) && platformOffers.length < (offerResponse?.total ?? 0);
+  const resultCount = showingMerchants ? visibleMerchantResponse?.total ?? 0 : showingOffers ? visibleOfferResponse?.total ?? 0 : products.length;
+  const hasMoreOffers = showingOffers && Boolean(visibleOfferResponse) && platformOffers.length < (visibleOfferResponse?.total ?? 0);
   const hasMoreMerchants = showingMerchants && Boolean(visibleMerchantResponse) && merchantRows.length < (visibleMerchantResponse?.total ?? 0);
 
   useEffect(() => {
@@ -431,6 +435,14 @@ export function PriceExplorer({
     rememberMerchantList(cacheKey, initialMerchants);
     writeSessionCache(cacheKey, initialMerchants);
   }, [initialMerchants]);
+
+  useEffect(() => {
+    if (!initialOffers) return;
+
+    const cacheKey = offerListCacheKey("", 0);
+    rememberOfferList(cacheKey, initialOffers);
+    writeSessionCache(cacheKey, initialOffers);
+  }, [initialOffers]);
 
   useEffect(() => {
     if (data) return;
@@ -542,6 +554,7 @@ export function PriceExplorer({
         rememberOfferList(cacheKey, cachedOffers);
         setOfferResponse(cachedOffers);
         setOffersLoading(false);
+        if (!isGeneratedDatasetStale(cachedOffers, OFFER_LIST_CACHE_TTL_MS)) return;
       } else {
         setOffersLoading(true);
       }
@@ -573,8 +586,8 @@ export function PriceExplorer({
   }, [offerQueryString, showingOffers, urlStateReady]);
 
   const loadMoreOffers = useCallback(async () => {
-    if (!showingOffers || !offerResponse || offersLoading || offersPaging) return;
-    if (platformOffers.length >= offerResponse.total) return;
+    if (!showingOffers || !visibleOfferResponse || offersLoading || offersPaging) return;
+    if (platformOffers.length >= visibleOfferResponse.total) return;
 
     setOffersPaging(true);
     const requestQueryString = offerQueryString;
@@ -584,14 +597,15 @@ export function PriceExplorer({
       if (activeOfferQueryRef.current !== requestQueryString) return;
       setOfferResponse((current) => {
         if (activeOfferQueryRef.current !== requestQueryString) return current;
-        if (!current) return nextPage;
+        const baseResponse = current ?? visibleOfferResponse;
+        if (!baseResponse) return nextPage;
 
-        const seen = new Set(current.rows.map((row) => row.offer.id));
+        const seen = new Set(baseResponse.rows.map((row) => row.offer.id));
         const nextRows = nextPage.rows.filter((row) => !seen.has(row.offer.id));
 
         const mergedResponse = {
           ...nextPage,
-          rows: [...current.rows, ...nextRows],
+          rows: [...baseResponse.rows, ...nextRows],
           total: nextPage.total,
           limited: nextPage.limited,
         };
@@ -608,7 +622,7 @@ export function PriceExplorer({
     } finally {
       if (activeOfferQueryRef.current === requestQueryString) setOffersPaging(false);
     }
-  }, [offerQueryString, offerResponse, offersLoading, offersPaging, platformOffers.length, showingOffers]);
+  }, [offerQueryString, offersLoading, offersPaging, platformOffers.length, showingOffers, visibleOfferResponse]);
 
   useEffect(() => {
     if (!hasMoreOffers) return;
@@ -647,6 +661,7 @@ export function PriceExplorer({
         rememberMerchantList(cacheKey, cachedMerchants);
         setMerchantResponse(cachedMerchants);
         setMerchantsLoading(false);
+        if (!isGeneratedDatasetStale(cachedMerchants, MERCHANT_LIST_CACHE_TTL_MS)) return;
       } else {
         setMerchantsLoading(true);
       }
@@ -2489,7 +2504,7 @@ async function fetchMerchantPage(
 }
 
 function offerListCacheKey(queryString: string, offset: number): string {
-  return `priceai:offers:v2:${queryString || "all"}:${offset}:${OFFER_PAGE_SIZE}`;
+  return `priceai:offers:v3:${queryString || "all"}:${offset}:${OFFER_PAGE_SIZE}`;
 }
 
 function merchantListCacheKey(queryString: string, offset: number): string {

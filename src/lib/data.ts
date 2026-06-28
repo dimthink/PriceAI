@@ -24,7 +24,12 @@ import {
 } from "./public-api-snapshots";
 import { getFallbackRiskReviewSettingsSummary, getRiskReviewSettingsSummary } from "./risk-review-settings";
 import { getFallbackSponsorSettingsSummary, getSponsorSettingsSummary } from "./sponsor-settings";
-import { normalizePublicOfferLimit, normalizePublicOfferOffset, normalizePublicOfferQuery } from "./public-offer-query";
+import {
+  normalizePublicOfferLimit,
+  normalizePublicOfferOffset,
+  normalizePublicOfferQuery,
+  PUBLIC_OFFER_DEFAULT_LIMIT,
+} from "./public-offer-query";
 import { PRICE_DATA_CACHE_TTL_MS } from "./public-cache-policy";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
@@ -69,12 +74,12 @@ const ADMIN_OFFER_SAMPLE_LIMIT = 80;
 const EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH = 480;
 const STALE_PUBLIC_DATA_MESSAGE = "报价服务响应变慢，已先显示最近缓存结果。";
 const PUBLIC_EXPLORER_SNAPSHOT_KEY = "default";
-const PUBLIC_OFFERS_SNAPSHOT_KEY = "default:limit:80";
-const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
-const PUBLIC_OFFERS_SNAPSHOT_LIMIT = 80;
+const PUBLIC_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_OFFERS_SNAPSHOT_OFFSET = 0;
-const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT = 80;
+const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET = 0;
+const PUBLIC_OFFERS_SNAPSHOT_KEY = `default:limit:${PUBLIC_OFFERS_SNAPSHOT_LIMIT}`;
+const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
 const PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND = "refresh_state";
 const PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY = "public-prices";
 const PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS = 3 * 60 * 1000;

@@ -18,6 +18,7 @@ import {
   type OfficialPricesDataset,
 } from "@/lib/official-prices";
 import { getOfficialPricesDataset } from "@/lib/official-prices-db";
+import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import { getProductSeoProfile, shouldNoIndexProduct, type ProductSeoProfile } from "@/lib/product-seo";
 import type { ExplorerProductSummary } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
@@ -101,7 +102,7 @@ export default async function ProductDetail({
   if (!product) notFound();
 
   const seoProfile = getProductSeoProfile(product);
-  const initialOffers = await listPublicProductOffers(product.id, { limit: 80, offset: 0 });
+  const initialOffers = await listPublicProductOffers(product.id, { limit: PUBLIC_OFFER_DEFAULT_LIMIT, offset: 0 });
 
   return (
     <>

@@ -25,6 +25,7 @@ import {
   isShopApiOffer,
 } from "@/lib/trust-risk";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
+import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import type { RawOffer } from "@/lib/types";
 import { formatCurrency, formatDateMinute, formatRelativeTime } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ type ProductOffersResponse = {
   message?: string | null;
 };
 
-const OFFER_PAGE_SIZE = 80;
+const OFFER_PAGE_SIZE = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PRODUCT_OFFERS_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const PRODUCT_OFFERS_REFRESH_TIMEOUT_MS = 10_000;
 const PRODUCT_OFFERS_MEMORY_CACHE_LIMIT = 40;
@@ -434,7 +435,7 @@ function productOffersCacheKey(
   query = "",
   excludeQuery = "",
 ): string {
-  return `priceai:product-offers:v8:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}`;
+  return `priceai:product-offers:v9:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}`;
 }
 
 function rememberProductOffers(cacheKey: string, value: ProductOffersResponse) {
