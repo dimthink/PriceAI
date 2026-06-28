@@ -486,5 +486,153 @@
         "keywords": ["claude", "opus", "4.8"]
       }
     ]
+  },
+  {
+    "profileId": "mfttai-com-gpt",
+    "stationId": "mfttai-com",
+    "apiBaseUrl": "https://mfttai.com/v1",
+    "apiKeyEnv": "API_TRANSIT_MFTTAI_COM_GPT_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "GPT",
+    "groupId": "2",
+    "accountPool": "gpt",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.4",
+        "groupName": "GPT",
+        "accountPool": "gpt",
+        "candidates": ["gpt-5.4"],
+        "keywords": ["gpt", "5.4"]
+      },
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.5",
+        "groupName": "GPT",
+        "accountPool": "gpt",
+        "candidates": ["gpt-5.5"],
+        "keywords": ["gpt", "5.5"]
+      }
+    ]
+  },
+  {
+    "profileId": "mfttai-com-kiro",
+    "stationId": "mfttai-com",
+    "apiBaseUrl": "https://mfttai.com/v1",
+    "apiKeyEnv": "API_TRANSIT_MFTTAI_COM_KIRO_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "Kiro",
+    "groupId": "38",
+    "accountPool": "kiro",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "claude",
+        "standardModel": "Claude Sonnet 4.6",
+        "groupName": "Kiro",
+        "accountPool": "kiro",
+        "candidates": ["claude-sonnet-4-6"],
+        "keywords": ["claude", "sonnet", "4.6"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.7",
+        "groupName": "Kiro",
+        "accountPool": "kiro",
+        "candidates": ["claude-opus-4-7"],
+        "keywords": ["claude", "opus", "4.7"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.8",
+        "groupName": "Kiro",
+        "accountPool": "kiro",
+        "candidates": ["claude-opus-4-8"],
+        "keywords": ["claude", "opus", "4.8"]
+      }
+    ]
+  },
+  {
+    "profileId": "mfttai-com-aws",
+    "stationId": "mfttai-com",
+    "apiBaseUrl": "https://mfttai.com/v1",
+    "apiKeyEnv": "API_TRANSIT_MFTTAI_COM_AWS_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "AWS",
+    "groupId": "36",
+    "accountPool": "aws",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "claude",
+        "standardModel": "Claude Sonnet 4.6",
+        "groupName": "AWS",
+        "accountPool": "aws",
+        "candidates": ["claude-sonnet-4-6"],
+        "keywords": ["claude", "sonnet", "4.6"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.7",
+        "groupName": "AWS",
+        "accountPool": "aws",
+        "candidates": ["claude-opus-4-7"],
+        "keywords": ["claude", "opus", "4.7"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.8",
+        "groupName": "AWS",
+        "accountPool": "aws",
+        "candidates": ["claude-opus-4-8"],
+        "keywords": ["claude", "opus", "4.8"]
+      }
+    ]
+  },
+  {
+    "profileId": "mfttai-com-official-transfer",
+    "stationId": "mfttai-com",
+    "apiBaseUrl": "https://mfttai.com/v1",
+    "apiKeyEnv": "API_TRANSIT_MFTTAI_COM_OFFICIAL_TRANSFER_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "官转",
+    "groupId": "28",
+    "accountPool": "official_transfer",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "claude",
+        "standardModel": "Claude Sonnet 4.6",
+        "groupName": "官转",
+        "accountPool": "official_transfer",
+        "candidates": ["claude-sonnet-4-6"],
+        "keywords": ["claude", "sonnet", "4.6"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.7",
+        "groupName": "官转",
+        "accountPool": "official_transfer",
+        "candidates": ["claude-opus-4-7"],
+        "keywords": ["claude", "opus", "4.7"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.8",
+        "groupName": "官转",
+        "accountPool": "official_transfer",
+        "candidates": ["claude-opus-4-8"],
+        "keywords": ["claude", "opus", "4.8"]
+      }
+    ]
   }
 ]
