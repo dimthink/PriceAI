@@ -307,5 +307,184 @@
         "keywords": ["claude", "opus", "4.8"]
       }
     ]
+  },
+  {
+    "profileId": "cca-maya-today-gpt-pure",
+    "stationId": "cca-maya-today",
+    "apiBaseUrl": "https://cca.maya.today/v1",
+    "apiKeyEnv": "API_TRANSIT_CCA_MAYA_TODAY_GPT_PURE_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "GPT-pro纯血（禁止生图）",
+    "groupId": "2",
+    "accountPool": "pro",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.4",
+        "groupName": "GPT-pro纯血（禁止生图）",
+        "accountPool": "pro",
+        "candidates": ["gpt-5.4"],
+        "keywords": ["gpt", "5.4"]
+      },
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.5",
+        "groupName": "GPT-pro纯血（禁止生图）",
+        "accountPool": "pro",
+        "candidates": ["gpt-5.5"],
+        "keywords": ["gpt", "5.5"]
+      }
+    ]
+  },
+  {
+    "profileId": "cca-maya-today-gpt-discount",
+    "stationId": "cca-maya-today",
+    "apiBaseUrl": "https://cca.maya.today/v1",
+    "apiKeyEnv": "API_TRANSIT_CCA_MAYA_TODAY_GPT_DISCOUNT_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "GPT-pro 特惠（禁止生图）-仍售 Plus 价",
+    "groupId": "5",
+    "accountPool": "plus",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.4",
+        "groupName": "GPT-pro 特惠（禁止生图）-仍售 Plus 价",
+        "accountPool": "plus",
+        "candidates": ["gpt-5.4"],
+        "keywords": ["gpt", "5.4"]
+      },
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.5",
+        "groupName": "GPT-pro 特惠（禁止生图）-仍售 Plus 价",
+        "accountPool": "plus",
+        "candidates": ["gpt-5.5"],
+        "keywords": ["gpt", "5.5"]
+      }
+    ]
+  },
+  {
+    "profileId": "cca-maya-today-claude-max",
+    "stationId": "cca-maya-today",
+    "apiBaseUrl": "https://cca.maya.today/v1",
+    "apiKeyEnv": "API_TRANSIT_CCA_MAYA_TODAY_CLAUDE_MAX_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "claude-max-纯血 1.3 元/ 刀",
+    "groupId": "40",
+    "accountPool": "max",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "claude",
+        "standardModel": "Claude Sonnet 4.6",
+        "groupName": "claude-max-纯血 1.3 元/ 刀",
+        "accountPool": "max",
+        "candidates": ["claude-sonnet-4-6"],
+        "keywords": ["claude", "sonnet", "4.6"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.7",
+        "groupName": "claude-max-纯血 1.3 元/ 刀",
+        "accountPool": "max",
+        "candidates": ["claude-opus-4-7"],
+        "keywords": ["claude", "opus", "4.7"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.8",
+        "groupName": "claude-max-纯血 1.3 元/ 刀",
+        "accountPool": "max",
+        "candidates": ["claude-opus-4-8"],
+        "keywords": ["claude", "opus", "4.8"]
+      }
+    ]
+  },
+  {
+    "profileId": "cca-maya-today-claude-reverse",
+    "stationId": "cca-maya-today",
+    "apiBaseUrl": "https://cca.maya.today/v1",
+    "apiKeyEnv": "API_TRANSIT_CCA_MAYA_TODAY_CLAUDE_REVERSE_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "claude-逆向-特惠 0.5 元/刀",
+    "groupId": "68",
+    "accountPool": "reverse",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "claude",
+        "standardModel": "Claude Sonnet 4.6",
+        "groupName": "claude-逆向-特惠 0.5 元/刀",
+        "accountPool": "reverse",
+        "candidates": ["claude-sonnet-4-6"],
+        "keywords": ["claude", "sonnet", "4.6"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.7",
+        "groupName": "claude-逆向-特惠 0.5 元/刀",
+        "accountPool": "reverse",
+        "candidates": ["claude-opus-4-7"],
+        "keywords": ["claude", "opus", "4.7"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.8",
+        "groupName": "claude-逆向-特惠 0.5 元/刀",
+        "accountPool": "reverse",
+        "candidates": ["claude-opus-4-8"],
+        "keywords": ["claude", "opus", "4.8"]
+      }
+    ]
+  },
+  {
+    "profileId": "cca-maya-today-claude-kiro",
+    "stationId": "cca-maya-today",
+    "apiBaseUrl": "https://cca.maya.today/v1",
+    "apiKeyEnv": "API_TRANSIT_CCA_MAYA_TODAY_CLAUDE_KIRO_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "claude-kiro-超绝性价比0.26 元/ 刀",
+    "groupId": "72",
+    "accountPool": "kiro",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "claude",
+        "standardModel": "Claude Sonnet 4.6",
+        "groupName": "claude-kiro-超绝性价比0.26 元/ 刀",
+        "accountPool": "kiro",
+        "candidates": ["claude-sonnet-4-6"],
+        "keywords": ["claude", "sonnet", "4.6"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.7",
+        "groupName": "claude-kiro-超绝性价比0.26 元/ 刀",
+        "accountPool": "kiro",
+        "candidates": ["claude-opus-4-7"],
+        "keywords": ["claude", "opus", "4.7"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.8",
+        "groupName": "claude-kiro-超绝性价比0.26 元/ 刀",
+        "accountPool": "kiro",
+        "candidates": ["claude-opus-4-8"],
+        "keywords": ["claude", "opus", "4.8"]
+      }
+    ]
   }
 ]
