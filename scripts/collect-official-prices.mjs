@@ -422,10 +422,38 @@ async function postOfficialFxRefresh(result, options) {
   }
 
   const currentRows = await listOfficialCurrentPricesForFxRefresh(supabase);
+  const { updatedRows, skippedCurrentRows } = buildOfficialFxRefreshRows(currentRows, result.fx, result.generatedAt);
+
+  await upsertRows(supabase, "fx_rates", fxRows, {
+    onConflict: "base_currency,target_currency,date,source",
+  });
+  const updatedCurrentRows = await updateOfficialCurrentPriceFxRows(supabase, updatedRows);
+  await pruneOperationalLogs(supabase, readEnvFile(path.join(repoRoot, ".env.local")));
+
+  result.run.currentPriceCount = currentRows.length;
+  result.run.updatedCurrentPriceCount = updatedCurrentRows;
+  result.run.skippedCurrentPriceCount = skippedCurrentRows;
+
+  return {
+    status: "posted",
+    ...plan,
+    currentRows: currentRows.length,
+    updatedCurrentRows,
+    skippedCurrentRows,
+    fxRatesWritten: fxRows.length,
+  };
+}
+
+export function buildOfficialFxRefreshRows(currentRows, fx, generatedAt) {
   const updatedRows = [];
   let skippedCurrentRows = 0;
 
   for (const row of currentRows) {
+    if (row.price_value === null || row.price_value === undefined || row.price_value === "") {
+      skippedCurrentRows++;
+      continue;
+    }
+
     const priceValue = Number(row.price_value);
     const currencyCode = String(row.currency_code || "");
     if (!Number.isFinite(priceValue) || !currencyCode) {
@@ -433,36 +461,36 @@ async function postOfficialFxRefresh(result, options) {
       continue;
     }
 
-    const fxRateToCny = rateToCny(currencyCode, result.fx);
+    const fxRateToCny = rateToCny(currencyCode, fx);
     updatedRows.push({
       id: row.id,
       cny_price: roundCurrency(priceValue * fxRateToCny),
       fx_rate_to_cny: fxRateToCny,
-      fx_date: result.fx.date,
-      updated_at: result.generatedAt,
+      fx_date: fx.date,
+      updated_at: generatedAt,
     });
   }
 
-  await upsertRows(supabase, "fx_rates", fxRows, {
-    onConflict: "base_currency,target_currency,date,source",
-  });
-  await upsertRows(supabase, "official_subscription_region_prices", updatedRows, {
-    onConflict: "id",
-  });
-  await pruneOperationalLogs(supabase, readEnvFile(path.join(repoRoot, ".env.local")));
+  return { updatedRows, skippedCurrentRows };
+}
 
-  result.run.currentPriceCount = currentRows.length;
-  result.run.updatedCurrentPriceCount = updatedRows.length;
-  result.run.skippedCurrentPriceCount = skippedCurrentRows;
+async function updateOfficialCurrentPriceFxRows(supabase, rows) {
+  let updatedCount = 0;
 
-  return {
-    status: "posted",
-    ...plan,
-    currentRows: currentRows.length,
-    updatedCurrentRows: updatedRows.length,
-    skippedCurrentRows,
-    fxRatesWritten: fxRows.length,
-  };
+  for (const row of rows) {
+    const { id, ...update } = row;
+    if (!id) throw new Error("official_subscription_region_prices FX update row is missing id.");
+
+    const { count, error } = await supabase
+      .from("official_subscription_region_prices")
+      .update(update, { count: "exact" })
+      .eq("id", id);
+
+    if (error) throw new Error(`official_subscription_region_prices update failed: ${errorMessage(error)}`);
+    updatedCount += typeof count === "number" ? count : 1;
+  }
+
+  return updatedCount;
 }
 
 async function listOfficialCurrentPricesForFxRefresh(supabase) {

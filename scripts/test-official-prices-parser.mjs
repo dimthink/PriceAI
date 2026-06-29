@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  buildOfficialFxRefreshRows,
   extractInAppPurchasePairs,
   loadFallbackFxSnapshot,
   officialCollectRunMode,
@@ -62,6 +63,42 @@ assert.equal(officialCollectRunMode("ci"), "worker");
 assert.equal(officialCollectRunMode("worker"), "worker");
 assert.equal(officialCollectRunMode("cron"), "cron");
 assert.equal(officialCollectRunMode("unexpected"), "manual");
+
+const fxRefreshRows = buildOfficialFxRefreshRows(
+  [
+    { id: "price-us", price_value: "20", currency_code: "USD" },
+    { id: "price-tr", price_value: "499.99", currency_code: "TRY" },
+    { id: "price-missing-currency", price_value: "20", currency_code: "" },
+    { id: "price-missing-price", price_value: null, currency_code: "USD" },
+  ],
+  {
+    date: "2026-06-28",
+    rates: {
+      USD: 1,
+      CNY: 6.81,
+      TRY: 39.9,
+    },
+  },
+  "2026-06-28T19:43:27.467Z",
+);
+
+assert.equal(fxRefreshRows.skippedCurrentRows, 2);
+assert.deepEqual(fxRefreshRows.updatedRows, [
+  {
+    id: "price-us",
+    cny_price: 136.2,
+    fx_rate_to_cny: 6.81,
+    fx_date: "2026-06-28",
+    updated_at: "2026-06-28T19:43:27.467Z",
+  },
+  {
+    id: "price-tr",
+    cny_price: 85.34,
+    fx_rate_to_cny: 6.81 / 39.9,
+    fx_date: "2026-06-28",
+    updated_at: "2026-06-28T19:43:27.467Z",
+  },
+]);
 
 const tempDir = await mkdtemp(path.join(os.tmpdir(), "priceai-official-fx-"));
 const latestPath = path.join(tempDir, "latest.json");
