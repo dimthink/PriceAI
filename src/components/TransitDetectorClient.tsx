@@ -3,6 +3,8 @@
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import {
   Clock3,
+  Eye,
+  EyeOff,
   FileJson,
   KeyRound,
   Link2,
@@ -16,7 +18,7 @@ import { getOfficialTransitModelPrice } from "@/lib/api-transit";
 import { buildDetectorReportAssetUrl, buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
 
 type DetectorProtocol = "openai_chat" | "openai_responses" | "claude" | "gemini";
-type DetectorIntensity = "quick" | "standard" | "deep" | "long_context";
+type DetectorIntensity = "quick" | "standard" | "deep";
 type BackendMode = "quick" | "standard" | "full";
 type UpstreamType =
   | "unknown"
@@ -90,6 +92,13 @@ interface IntensityOption {
   requests: number;
 }
 
+interface CostProfile {
+  label: string;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+}
+
 interface CostEstimate {
   inputLabel: string;
   outputLabel: string;
@@ -119,17 +128,17 @@ const presetModels: PresetModel[] = [
 ];
 
 const protocolLabels: Record<DetectorProtocol, string> = {
-  openai_chat: "OpenAI Chat Completions",
+  openai_chat: "Chat Completions",
   openai_responses: "OpenAI Responses",
-  claude: "Claude",
+  claude: "Claude Messages",
   gemini: "Gemini",
 };
 
 const protocolHints: Record<DetectorProtocol, string> = {
-  openai_chat: "OpenAI /v1/chat/completions 格式接口",
-  openai_responses: "OpenAI /v1/responses 格式接口，适合 Codex 等 Agent 工具链",
-  claude: "Anthropic / Claude 格式接口",
-  gemini: "Google Gemini 兼容接口",
+  openai_chat: "/v1/chat/completions，适合多数 OpenAI 兼容中转",
+  openai_responses: "/v1/responses，适合 Codex 等 Agent 工具链",
+  claude: "/v1/messages 或 Claude 兼容接口",
+  gemini: "generateContent 或 Gemini 兼容接口",
 };
 
 const detectorProtocolEndpoints: Record<DetectorProtocol, string> = {
@@ -143,8 +152,14 @@ const intensityOptions: IntensityOption[] = [
   { value: "quick", label: "快速", hint: "协议、模型名、基础响应", inputTokens: 2000, outputTokens: 700, requests: 2 },
   { value: "standard", label: "标准", hint: "能力指纹和计费口径", inputTokens: 9000, outputTokens: 3500, requests: 5 },
   { value: "deep", label: "深度", hint: "多轮、工具和稳定性采样", inputTokens: 26000, outputTokens: 9000, requests: 10 },
-  { value: "long_context", label: "长上下文", hint: "额外确认上下文上限", inputTokens: 180000, outputTokens: 6000, requests: 4 },
 ];
+
+const longContextAddon: CostProfile = {
+  label: "长上下文",
+  inputTokens: 180000,
+  outputTokens: 6000,
+  requests: 4,
+};
 
 const upstreamOptions: Array<{ value: UpstreamType; label: string; detail: string }> = [
   { value: "unknown", label: "暂不确定", detail: "先按未知来源处理，结论会更保守。" },
@@ -159,17 +174,16 @@ const upstreamOptions: Array<{ value: UpstreamType; label: string; detail: strin
 export function TransitDetectorClient({ serviceUrl = "", stations = [] }: DetectorClientProps) {
   const runIdRef = useRef(0);
   const defaultPreset = presetModels[0];
-  const apiKeyInputRef = useRef<HTMLInputElement>(null);
-  const manualKeyId = "manual-api-key-entry";
   const [selectedModelId, setSelectedModelId] = useState(defaultPreset.id);
   const [protocol, setProtocol] = useState<DetectorProtocol>(defaultPreset.protocol);
   const [intensity, setIntensity] = useState<DetectorIntensity>("standard");
+  const [includeLongContext, setIncludeLongContext] = useState(false);
   const [upstream, setUpstream] = useState<UpstreamType>("unknown");
   const [selectedStationId, setSelectedStationId] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState(defaultPreset.model);
   const [apiKey, setApiKey] = useState("");
-  const [manualKeyOpen, setManualKeyOpen] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [taskStatus, setTaskStatus] = useState<DetectionStatus | "idle">("idle");
   const [results, setResults] = useState<DetectionResult[]>([]);
 
@@ -177,13 +191,15 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
   const serviceConnected = Boolean(normalizedServiceUrl);
   const selectedPreset = presetModels.find((item) => item.id === selectedModelId) ?? defaultPreset;
   const selectedIntensity = intensityOptions.find((item) => item.value === intensity) ?? intensityOptions[1];
+  const effectiveIncludeLongContext = protocol !== "gemini" && includeLongContext;
   const selectedUpstream = upstreamOptions.find((item) => item.value === upstream) ?? upstreamOptions[0];
   const selectedStation = stations.find((station) => station.id === selectedStationId);
   const effectiveStandardModel = selectedPreset.standardModel ?? guessStandardModel(model, protocol);
-  const costEstimate = buildCostEstimate(selectedIntensity, effectiveStandardModel, selectedPreset.priceNote);
+  const activeCostProfile = buildCostProfile(selectedIntensity, effectiveIncludeLongContext);
+  const costEstimate = buildCostEstimate(activeCostProfile, effectiveStandardModel, selectedPreset.priceNote);
   const activeDetection = taskStatus === "queued" || taskStatus === "running";
   const canSubmit = serviceConnected && Boolean(baseUrl.trim() && apiKey.trim() && model.trim()) && !activeDetection;
-  const apiKeyHint = apiKey ? `已填入，尾号 ${maskSecretSuffix(apiKey)}` : "未填入";
+  const apiKeyPreview = apiKey ? maskSecretPreview(apiKey) : "未填入";
 
   const summaryText = useMemo(() => {
     if (!results.length) return "暂无检测记录";
@@ -196,7 +212,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
     setSelectedModelId(preset.id);
     setProtocol(preset.protocol);
     setModel(preset.model);
-    if (preset.protocol === "gemini" && intensity === "long_context") setIntensity("standard");
+    if (preset.protocol === "gemini") setIncludeLongContext(false);
   }
 
   function handleModelInput(nextModel: string) {
@@ -212,24 +228,9 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
     if (station?.apiBaseUrl) setBaseUrl(station.apiBaseUrl);
   }
 
-  async function handlePasteApiKey() {
-    try {
-      const text = await navigator.clipboard.readText();
-      const nextKey = text.trim();
-      if (!nextKey) return;
-      setApiKey(nextKey);
-      setManualKeyOpen(false);
-      apiKeyInputRef.current?.blur();
-    } catch {
-      setManualKeyOpen(true);
-      window.setTimeout(() => apiKeyInputRef.current?.focus(), 0);
-    }
-  }
-
   function handleClearApiKey() {
     setApiKey("");
-    setManualKeyOpen(false);
-    apiKeyInputRef.current?.blur();
+    setShowApiKey(false);
   }
 
   function updateResult(localId: string, patch: Partial<DetectionResult>) {
@@ -250,7 +251,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
       modelLabel: selectedPreset.id === "custom" ? "自定义模型" : selectedPreset.label,
       model: model.trim(),
       protocolLabel: protocolLabels[protocol],
-      modeLabel: selectedIntensity.label,
+      modeLabel: activeCostProfile.label,
       upstreamLabel: selectedUpstream.label,
       status: "queued",
       message: "正在提交检测任务。",
@@ -274,7 +275,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
       payload.set("model", model.trim());
       payload.set("mode", backendModeForIntensity(intensity));
       if (protocol !== "gemini") {
-        payload.set("include_long_context", intensity === "long_context" ? "true" : "false");
+        payload.set("include_long_context", effectiveIncludeLongContext ? "true" : "false");
         payload.set("include_long_context_extreme", "false");
       }
 
@@ -374,7 +375,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
         </div>
 
         <form className="space-y-5 px-5 py-5" onSubmit={handleSubmit}>
-          <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.32fr)_minmax(0,1fr)_minmax(320px,0.42fr)]">
+          <div className="grid gap-3 xl:grid-cols-[minmax(200px,0.7fr)_minmax(300px,1fr)_minmax(340px,1fr)]">
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-[#202829]">已收录站点</span>
               <select
@@ -403,56 +404,43 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
               />
               <span className="mt-1.5 block text-xs leading-5 text-[#5a6061]">可从中转榜公开字段带出，也可以直接粘贴 Base URL。</span>
             </label>
-            <div className="block">
+            <label className="block">
               <span className="mb-2 block text-sm font-semibold text-[#202829]">API Key</span>
-              <div className="rounded-lg border border-[#dfe4e5] bg-[#f9f9f9] px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4 shrink-0 text-[#5a6061]" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#202829]">{apiKeyHint}</span>
-                  {apiKey ? (
-                    <button
-                      type="button"
-                      onClick={handleClearApiKey}
-                      className="inline-flex h-8 shrink-0 items-center justify-center rounded-full bg-white px-3 text-xs font-semibold text-[#5a6061] ring-1 ring-[#adb3b4]/18 transition hover:text-[#202829]"
-                    >
-                      清空
-                    </button>
-                  ) : null}
+              <div className="flex h-11 items-center gap-2 rounded-lg border border-[#dfe4e5] bg-white px-3 transition focus-within:border-[#45bf78]">
+                <KeyRound className="h-4 w-4 shrink-0 text-[#5a6061]" />
+                <input
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  type={showApiKey ? "text" : "password"}
+                  autoComplete="off"
+                  placeholder="粘贴临时测试 Key"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-[#202829] outline-none placeholder:text-[#7a8284]"
+                />
+                {apiKey ? (
                   <button
                     type="button"
-                    onClick={handlePasteApiKey}
-                    className="inline-flex h-8 shrink-0 items-center justify-center rounded-full bg-[#202829] px-3 text-xs font-semibold text-white transition hover:bg-[#2d3435]"
+                    onClick={() => setShowApiKey((current) => !current)}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#5a6061] transition hover:bg-[#f2f4f4] hover:text-[#202829]"
+                    aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                    title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
                   >
-                    粘贴 Key
+                    {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManualKeyOpen((current) => !current);
-                    window.setTimeout(() => apiKeyInputRef.current?.focus(), 0);
-                  }}
-                  className="mt-2 text-xs font-semibold text-[#47657a] transition hover:text-[#202829]"
-                  aria-controls={manualKeyId}
-                  aria-expanded={manualKeyOpen}
-                >
-                  {manualKeyOpen ? "收起手动输入" : "无法读取剪贴板时手动输入"}
-                </button>
-                {manualKeyOpen ? (
-                  <input
-                    id={manualKeyId}
-                    ref={apiKeyInputRef}
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    onBlur={() => setManualKeyOpen(false)}
-                    type="password"
-                    autoComplete="off"
-                    placeholder="粘贴临时 Key"
-                    className="mt-2 h-10 w-full rounded-lg border border-[#dfe4e5] bg-white px-3 text-sm text-[#202829] outline-none transition placeholder:text-[#7a8284] focus:border-[#45bf78]"
-                  />
+                ) : null}
+                {apiKey ? (
+                  <button
+                    type="button"
+                    onClick={handleClearApiKey}
+                    className="inline-flex h-8 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] px-3 text-xs font-semibold text-[#5a6061] transition hover:text-[#202829]"
+                  >
+                    清空
+                  </button>
                 ) : null}
               </div>
-            </div>
+              <span className="mt-1.5 block truncate text-xs leading-5 text-[#5a6061]">
+                {apiKey ? `当前：${apiKeyPreview}` : "手动输入或直接粘贴临时测试 Key。"}
+              </span>
+            </label>
           </div>
 
           <div className="rounded-lg bg-[#fff7e8] px-4 py-3 text-xs leading-5 text-[#7a541b] ring-1 ring-[#e7b65d]/25">
@@ -490,7 +478,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
             </div>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px_210px]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_minmax(290px,0.68fr)_minmax(220px,0.5fr)]">
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-[#202829]">当前提交模型名</span>
               <input
@@ -507,7 +495,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
                 onChange={(event) => {
                   const nextProtocol = event.target.value as DetectorProtocol;
                   setProtocol(nextProtocol);
-                  if (nextProtocol === "gemini" && intensity === "long_context") setIntensity("standard");
+                  if (nextProtocol === "gemini") setIncludeLongContext(false);
                 }}
                 className="h-11 w-full rounded-lg border border-[#dfe4e5] bg-white px-3 text-sm font-medium text-[#202829] outline-none transition focus:border-[#45bf78]"
               >
@@ -517,6 +505,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
                   </option>
                 ))}
               </select>
+              <span className="mt-1.5 block truncate text-xs text-[#5a6061]">{protocolHints[protocol]}</span>
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-[#202829]">线路类型</span>
@@ -539,28 +528,25 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
               <label className="text-sm font-semibold text-[#202829]">检测强度与预计消耗</label>
               <span className="text-xs leading-5 text-[#5a6061]">按当前模型官方标准价估算，实际以中转站扣费为准。</span>
             </div>
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_minmax(240px,0.78fr)]">
               {intensityOptions.map((item) => {
-                const itemEstimate = buildCostEstimate(item, effectiveStandardModel, selectedPreset.priceNote);
-                const disabled = item.value === "long_context" && protocol === "gemini";
+                const itemProfile = buildCostProfile(item, effectiveIncludeLongContext);
+                const itemEstimate = buildCostEstimate(itemProfile, effectiveStandardModel, selectedPreset.priceNote);
                 return (
                   <button
                     key={item.value}
                     type="button"
-                    onClick={() => {
-                      if (!disabled) setIntensity(item.value);
-                    }}
-                    disabled={disabled}
+                    onClick={() => setIntensity(item.value)}
                     className={`min-h-[118px] rounded-lg border px-3 py-3 text-left transition ${
                       intensity === item.value
                         ? "border-[#45bf78]/60 bg-[#edf8f1] text-[#202829]"
                         : "border-[#dfe4e5] bg-[#f9f9f9] text-[#5a6061] hover:border-[#adb3b4]"
-                    } disabled:cursor-not-allowed disabled:opacity-55`}
+                    }`}
                   >
                     <span className="flex items-start justify-between gap-2">
                       <span className="min-w-0">
                         <span className="block text-sm font-semibold">{item.label}</span>
-                        <span className="mt-1 block text-xs leading-5">{disabled ? "Gemini 暂不启用" : item.hint}</span>
+                        <span className="mt-1 block text-xs leading-5">{item.hint}</span>
                       </span>
                       {intensity === item.value ? <ShieldCheck className="h-4 w-4 shrink-0 text-[#45bf78]" /> : null}
                     </span>
@@ -571,6 +557,33 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
                   </button>
                 );
               })}
+              <label
+                className={`min-h-[118px] rounded-lg border px-3 py-3 transition ${
+                  effectiveIncludeLongContext
+                    ? "border-[#45bf78]/60 bg-[#edf8f1] text-[#202829]"
+                    : "border-[#dfe4e5] bg-[#f9f9f9] text-[#5a6061]"
+                } ${protocol === "gemini" ? "opacity-55" : ""}`}
+              >
+                <span className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-[#202829]">长上下文</span>
+                    <span className="mt-1 block text-xs leading-5">
+                      {protocol === "gemini" ? "当前协议暂不启用" : "在当前强度上额外验证上下文上限"}
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={effectiveIncludeLongContext}
+                    disabled={protocol === "gemini"}
+                    onChange={(event) => setIncludeLongContext(event.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-[#adb3b4] accent-[#45bf78]"
+                  />
+                </span>
+                <span className="mt-3 block text-xs leading-5 text-[#5a6061]">
+                  额外约 {formatTokenCount(longContextAddon.inputTokens)} 输入 / {formatTokenCount(longContextAddon.outputTokens)} 输出
+                </span>
+                <span className="mt-1 block text-sm font-semibold text-[#202829]">+ {longContextAddon.requests} 次请求</span>
+              </label>
             </div>
           </div>
 
@@ -580,7 +593,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [] }: Detect
                 当前选择：{protocolLabels[protocol]} · {protocolHints[protocol]} · {selectedUpstream.detail}
               </p>
               <p>
-                预计消耗：{costEstimate.detailLabel}，约 {costEstimate.totalLabel}；{costEstimate.sourceLabel}
+                预计消耗：{costEstimate.detailLabel}，{costEstimate.totalLabel}；{costEstimate.sourceLabel}
                 {costEstimate.priceNote ? `，${costEstimate.priceNote}` : ""}。
               </p>
             </div>
@@ -724,8 +737,18 @@ function guessStandardModel(model: string, protocol: DetectorProtocol): TransitS
   return "GPT 5.4";
 }
 
+function buildCostProfile(intensity: IntensityOption, includeLongContext: boolean): CostProfile {
+  if (!includeLongContext) return intensity;
+  return {
+    label: `${intensity.label} + 长上下文`,
+    inputTokens: intensity.inputTokens + longContextAddon.inputTokens,
+    outputTokens: intensity.outputTokens + longContextAddon.outputTokens,
+    requests: intensity.requests + longContextAddon.requests,
+  };
+}
+
 function buildCostEstimate(
-  intensity: IntensityOption,
+  intensity: CostProfile,
   standardModel: TransitStandardModel,
   priceNote = ""
 ): CostEstimate {
@@ -762,10 +785,11 @@ function trimNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
-function maskSecretSuffix(value: string): string {
+function maskSecretPreview(value: string): string {
   const text = value.trim();
-  if (!text) return "----";
-  return text.slice(-4).padStart(4, "•");
+  if (!text) return "未填入";
+  if (text.length <= 10) return "已填入";
+  return `${text.slice(0, 6)}...${text.slice(-4)}`;
 }
 
 function StatusPill({ tone, children }: { tone: StatusTone; children: string }) {
