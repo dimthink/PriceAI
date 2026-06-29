@@ -67,6 +67,47 @@ const defaultTargets = [
     candidates: ["gpt-5.4", "gpt-5-4"],
     keywords: ["gpt", "5.4"],
   },
+  {
+    family: "gemini",
+    standardModel: "Gemini 3.5 Flash",
+    candidates: ["gemini-3.5-flash", "gemini-3-5-flash", "google/gemini-3.5-flash"],
+    keywords: ["gemini", "3.5", "flash"],
+  },
+  {
+    family: "gemini",
+    standardModel: "Gemini 3.1 Pro",
+    candidates: [
+      "gemini-3.1-pro",
+      "gemini-3-1-pro",
+      "gemini-3.1-pro-preview",
+      "google/gemini-3.1-pro-preview",
+    ],
+    keywords: ["gemini", "3.1", "pro"],
+  },
+  {
+    family: "glm",
+    standardModel: "GLM-5.2",
+    candidates: ["glm-5.2", "glm-5-2", "zhipu/glm-5.2"],
+    keywords: ["glm", "5.2"],
+  },
+  {
+    family: "glm",
+    standardModel: "GLM-5.1",
+    candidates: ["glm-5.1", "glm-5-1", "zhipu/glm-5.1"],
+    keywords: ["glm", "5.1"],
+  },
+  {
+    family: "deepseek",
+    standardModel: "DeepSeek V4 Flash",
+    candidates: ["deepseek-v4-flash", "deepseek-v4-flash-chat", "deepseek/deepseek-v4-flash"],
+    keywords: ["deepseek", "v4", "flash"],
+  },
+  {
+    family: "deepseek",
+    standardModel: "DeepSeek V4 Pro",
+    candidates: ["deepseek-v4-pro", "deepseek-v4-pro-chat", "deepseek/deepseek-v4-pro"],
+    keywords: ["deepseek", "v4", "pro"],
+  },
 ];
 
 if (isCli()) {
@@ -1256,6 +1297,11 @@ function keywordsForStandardModel(value) {
   if (text.includes("sonnet")) keywords.push("sonnet");
   if (text.includes("opus")) keywords.push("opus");
   if (text.includes("gpt")) keywords.push("gpt");
+  if (text.includes("gemini")) keywords.push("gemini");
+  if (text.includes("glm")) keywords.push("glm");
+  if (text.includes("deepseek")) keywords.push("deepseek");
+  if (text.includes("flash")) keywords.push("flash");
+  if (text.includes("pro")) keywords.push("pro");
   if (version) keywords.push(version);
   return keywords;
 }
@@ -1264,6 +1310,9 @@ function normalizeFamily(value) {
   const text = String(value || "").toLowerCase();
   if (text.includes("claude")) return "claude";
   if (text.includes("gpt")) return "gpt";
+  if (text.includes("gemini") || text.includes("google")) return "gemini";
+  if (text.includes("glm") || text.includes("zhipu")) return "glm";
+  if (text.includes("deepseek")) return "deepseek";
   return null;
 }
 
@@ -1406,3 +1455,9 @@ function errorMessage(error) {
   if (error && typeof error === "object") return JSON.stringify(error, null, 2);
   return String(error);
 }
+
+export const __test = {
+  keywordsForStandardModel,
+  normalizeFamily,
+  selectProbeTargets,
+};

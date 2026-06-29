@@ -29,7 +29,7 @@
     "import:api-transit:freedomstore": "node scripts/import-freedomstore-api-transit.mjs",
     "import:api-transit:sub2api": "node scripts/import-sub2api-api-transit.mjs",
     "probe:api-transit": "node scripts/probe-api-transit.mjs",
-    "test:api-transit": "node scripts/test-api-transit.mjs",
+    "test:api-transit": "node scripts/test-api-transit.mjs && node scripts/test-api-transit-probe.mjs",
     "collect:worker": "node scripts/collect-worker.mjs",
     "import:api-models": "node scripts/import-api-models.mjs",
     "check:p2": "node scripts/p2-closeout-check.mjs",
