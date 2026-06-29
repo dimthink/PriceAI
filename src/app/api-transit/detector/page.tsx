@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowLeft, Network, ShieldCheck } from "lucide-react";
+import { getTransitStations } from "@/lib/api-transit-db";
 import { getTransitModelFamilyOptions } from "@/lib/api-transit";
 import { SiteHeader } from "@/components/SiteHeader";
 import { TransitFamilyTabs } from "@/components/TransitFamilyTabs";
@@ -21,8 +22,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ApiTransitDetectorPage() {
-  const familyOptions = getTransitModelFamilyOptions();
+export default async function ApiTransitDetectorPage() {
+  const stations = await getTransitStations();
+  const familyOptions = getTransitModelFamilyOptions(stations);
   const detectorServiceUrl = process.env.NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL ?? "";
 
   return (
