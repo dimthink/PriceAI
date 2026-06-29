@@ -943,9 +943,9 @@ function PriceTable({
                   <thead>
                     <tr className="bg-[#f2f4f4]/50">
                       <DataTableHead compact>分组 / 模型</DataTableHead>
-                      <DataTableHead compact>综合倍率</DataTableHead>
-                      <DataTableHead compact>监测模型价格</DataTableHead>
-                      <DataTableHead compact>监测 / 确认</DataTableHead>
+                      <DataTableHead compact explanation="充值折算系数 × 当前分组模型倍率；越低表示按官方价折算后越便宜。">综合倍率</DataTableHead>
+                      <DataTableHead compact explanation="用代表模型的官方输入、输出、缓存或图片价格折算出的监测价格。">监测模型价格</DataTableHead>
+                      <DataTableHead compact explanation="展示该分组的可用性探测、来源披露和最近监测确认时间。">监测 / 确认</DataTableHead>
                     </tr>
                   </thead>
                   <tbody>
@@ -1060,25 +1060,38 @@ function TrendSparkline({ trend }: { trend: FamilyTrend }) {
   }
 
   const width = 720;
-  const height = 96;
-  const paddingX = 12;
-  const paddingY = 14;
+  const height = 156;
+  const paddingLeft = 46;
+  const paddingRight = 16;
+  const paddingTop = 16;
+  const paddingBottom = 30;
   const values = trend.points.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const range = max - min || Math.max(max, 1);
+  const domainPadding = min === max ? Math.max(0.05, min * 0.1) : 0;
+  const domainMin = Math.max(0, min - domainPadding);
+  const domainMax = max + domainPadding;
+  const range = domainMax - domainMin || 1;
+  const yTicks = buildTrendTicks(domainMin, domainMax);
   const timestamps = Array.from(new Set(trend.points.map((point) => point.observedAt)))
     .sort((left, right) => new Date(left).getTime() - new Date(right).getTime());
+  const xTicks = xAxisTicks(timestamps);
   const timeIndex = new Map(timestamps.map((timestamp, index) => [timestamp, index]));
   const denominator = Math.max(timestamps.length - 1, 1);
+  const plotWidth = width - paddingLeft - paddingRight;
+  const plotHeight = height - paddingTop - paddingBottom;
+  const xForIndex = (index: number) =>
+    paddingLeft + (timestamps.length === 1 ? 0.5 : index / denominator) * plotWidth;
+  const yForValue = (value: number) =>
+    paddingTop + (1 - (value - domainMin) / range) * plotHeight;
   const seriesPaths = trend.series
     .map((series, seriesIndex) => {
       const coords = series.points
         .map((point) => {
           const index = timeIndex.get(point.observedAt);
           if (index === undefined) return null;
-          const x = paddingX + (timestamps.length === 1 ? 0.5 : index / denominator) * (width - paddingX * 2);
-          const y = paddingY + (1 - (point.value - min) / range) * (height - paddingY * 2);
+          const x = xForIndex(index);
+          const y = yForValue(point.value);
           return { x, y, point };
         })
         .filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -1089,7 +1102,38 @@ function TrendSparkline({ trend }: { trend: FamilyTrend }) {
 
   return (
     <div className="overflow-hidden rounded-lg border border-[#dfe4e5] bg-[#f9fbfa]">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[96px] w-full" role="img" aria-label={trendAriaLabel(trend)}>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[156px] w-full" role="img" aria-label={trendAriaLabel(trend)}>
+        <rect x={paddingLeft} y={paddingTop} width={plotWidth} height={plotHeight} fill="#ffffff" opacity="0.62" />
+        {yTicks.map((tick) => {
+          const y = yForValue(tick);
+          return (
+            <g key={`y-${tick}`}>
+              <line x1={paddingLeft} x2={width - paddingRight} y1={y} y2={y} stroke="#dfe4e5" strokeDasharray="3 4" />
+              <text x={paddingLeft - 8} y={y + 3.5} textAnchor="end" className="fill-[#7a8182] text-[10px] font-semibold">
+                {formatRate(tick)}
+              </text>
+            </g>
+          );
+        })}
+        <line x1={paddingLeft} x2={paddingLeft} y1={paddingTop} y2={height - paddingBottom} stroke="#cfd8d9" />
+        <line x1={paddingLeft} x2={width - paddingRight} y1={height - paddingBottom} y2={height - paddingBottom} stroke="#cfd8d9" />
+        {xTicks.map((timestamp, index) => {
+          const tickIndex = timeIndex.get(timestamp) ?? 0;
+          const x = xForIndex(tickIndex);
+          return (
+            <g key={`x-${timestamp}`}>
+              <line x1={x} x2={x} y1={height - paddingBottom} y2={height - paddingBottom + 4} stroke="#cfd8d9" />
+              <text
+                x={x}
+                y={height - 10}
+                textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}
+                className="fill-[#7a8182] text-[10px] font-semibold"
+              >
+                {formatDateShortMinute(timestamp)}
+              </text>
+            </g>
+          );
+        })}
         {seriesPaths.map(({ series, seriesIndex, path, coords }) => (
           <g key={series.groupName}>
             <path
@@ -1106,10 +1150,12 @@ function TrendSparkline({ trend }: { trend: FamilyTrend }) {
                 key={`${series.groupName}-${item.point.observedAt}-${index}`}
                 cx={item.x}
                 cy={item.y}
-                r={index === coords.length - 1 ? 3.2 : 2.1}
+                r={index === coords.length - 1 ? 4 : 2.7}
+                stroke="#ffffff"
+                strokeWidth="1.5"
                 fill={index === coords.length - 1 ? "#202829" : trendSeriesColor(seriesIndex)}
               >
-                <title>{`${series.groupName} ${formatRate(item.point.value)} · ${formatDateShortMinute(item.point.observedAt)}`}</title>
+                <title>{`${series.groupName} · 综合倍率 ${formatRate(item.point.value)} · ${formatDateShortMinute(item.point.observedAt)}`}</title>
               </circle>
             ))}
           </g>
@@ -1117,6 +1163,16 @@ function TrendSparkline({ trend }: { trend: FamilyTrend }) {
       </svg>
     </div>
   );
+}
+
+function buildTrendTicks(min: number, max: number): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  return [max, (min + max) / 2, min];
+}
+
+function xAxisTicks(timestamps: string[]): string[] {
+  if (timestamps.length <= 2) return timestamps;
+  return [timestamps[0], timestamps[Math.floor((timestamps.length - 1) / 2)], timestamps.at(-1) as string];
 }
 
 function TrendFact({ label, value }: { label: string; value: string }) {
@@ -1440,7 +1496,7 @@ function PriceGroupRow({
         </div>
         <div className="mt-2 break-words text-xs font-semibold text-[#2d3435]">{group.priceSource || "未公开"}</div>
         <div className="mt-1 whitespace-nowrap text-[11px] text-[#5a6061]">
-          价格确认 {formatDateShortMinute(group.latestVerifiedAt)}
+          监测确认 {formatDateShortMinute(group.lastCheckedAt || group.latestVerifiedAt)}
         </div>
       </td>
     </tr>
@@ -1615,10 +1671,10 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
           <thead>
             <tr className="bg-[#f2f4f4]/50">
               <DataTableHead>范围</DataTableHead>
-              <DataTableHead>可用状态</DataTableHead>
-              <DataTableHead>样本数</DataTableHead>
-              <DataTableHead>监测区间</DataTableHead>
-              <DataTableHead>监测模型</DataTableHead>
+              <DataTableHead explanation="近 7 日样本成功率，绿色条表示成功样本，灰色表示窗口内未检测。">可用状态</DataTableHead>
+              <DataTableHead explanation="PriceAI 在当前滚动窗口内记录的结构化可用性样本数。">样本数</DataTableHead>
+              <DataTableHead explanation="同一范围内第一条与最新一条可用性样本的时间；只有一条样本时显示单次检查。">监测区间</DataTableHead>
+              <DataTableHead explanation="该范围实际使用的代表模型，不等同于站点支持的全部模型。">监测模型</DataTableHead>
               <DataTableHead>说明</DataTableHead>
             </tr>
           </thead>

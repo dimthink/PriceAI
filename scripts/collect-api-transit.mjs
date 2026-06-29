@@ -493,6 +493,7 @@ function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
     source_url: source.pricingUrl || source.pricingEndpointUrl,
     availability_seven_day_rate: availability.rate,
     availability_seven_day_samples: availability.samples,
+    availability_first_checked_at: availability.firstCheckedAt ?? null,
     availability_last_checked_at: availability.lastCheckedAt,
     availability_note: availability.note,
     last_verified_at: availability.lastCheckedAt || collectedAt,
@@ -578,12 +579,15 @@ function oneHopAvailabilityFromDisplayMetrics(displayMetrics, collectedAt) {
     .filter((point) => point.day && point.rate !== null);
   const successRate = numberValue(displayMetrics?.successRate);
   const usageTokens = numberValue(displayMetrics?.usageTokens);
-  const latestDay = samples.map((point) => point.day).sort().at(-1);
+  const sampleDays = samples.map((point) => point.day).sort();
+  const earliestDay = sampleDays.at(0);
+  const latestDay = sampleDays.at(-1);
 
   if (!samples.length) {
     return {
       rate: successRate,
       samples: successRate === null ? 0 : 1,
+      firstCheckedAt: successRate === null ? null : collectedAt,
       lastCheckedAt: collectedAt,
       note: "OneHop 公开模型目录未返回 14 日 uptime；保留页面 successRate 作为商家公开参考。",
     };
@@ -594,6 +598,7 @@ function oneHopAvailabilityFromDisplayMetrics(displayMetrics, collectedAt) {
   return {
     rate: round(average, 6),
     samples: samples.length,
+    firstCheckedAt: earliestDay ? `${earliestDay}T00:00:00.000Z` : null,
     lastCheckedAt: latestDay ? `${latestDay}T00:00:00.000Z` : collectedAt,
     note: `OneHop 公开模型目录 uptime14d，按日可用率样本，非 PriceAI API Key 实测${usageNote}。`,
   };
@@ -609,10 +614,16 @@ function summarizeOneHopStationAvailability(offers, collectedAt) {
     .filter(Boolean)
     .sort()
     .at(-1);
+  const firstCheckedAt = offers
+    .map((offer) => stringOrNull(offer.availability_first_checked_at))
+    .filter(Boolean)
+    .sort()
+    .at(0);
 
   return {
     rate: rates.length ? round(rates.reduce((total, rate) => total + rate, 0) / rates.length, 6) : null,
     samples,
+    firstCheckedAt: firstCheckedAt || null,
     lastCheckedAt: lastCheckedAt || collectedAt,
     note: "OneHop 公开模型目录汇总 uptime14d；这些是商家页面公开样本，仍需 PriceAI 测试 Key 复核。",
   };
@@ -666,6 +677,7 @@ function buildCallaiPartnerOfferRow({
     source_url: source.pricingEndpointUrl,
     availability_seven_day_rate: availability.rate,
     availability_seven_day_samples: availability.samples,
+    availability_first_checked_at: availability.firstCheckedAt ?? null,
     availability_last_checked_at: checkedAt,
     availability_note: availability.note,
     last_verified_at: checkedAt,
@@ -763,6 +775,8 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
     return {
       rate: null,
       samples: 0,
+      firstCheckedAt: null,
+      lastCheckedAt: null,
       note: "partner API 未返回该分组最近监测结果。",
     };
   }
@@ -774,6 +788,8 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
     return {
       rate: null,
       samples: 0,
+      firstCheckedAt: checkedAt,
+      lastCheckedAt: checkedAt,
       note: `partner API 最近一次监测正常，非 7 日可用率${staleNote}。`,
     };
   }
@@ -781,6 +797,8 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
     return {
       rate: null,
       samples: 0,
+      firstCheckedAt: checkedAt,
+      lastCheckedAt: checkedAt,
       note: `partner API 最近一次监测异常或性能下降，非 7 日可用率${staleNote}。`,
     };
   }
@@ -788,6 +806,8 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
   return {
     rate: null,
     samples: 0,
+    firstCheckedAt: checkedAt,
+    lastCheckedAt: checkedAt,
     note: `partner API 最近监测状态为 ${status}，检查时间 ${checkedAt}${staleNote}。`,
   };
 }
@@ -798,6 +818,7 @@ function summarizeCallaiPartnerAvailability(latest, collectedAt) {
     return {
       rate: null,
       samples: 0,
+      firstCheckedAt: null,
       lastCheckedAt: null,
       note: "partner API 暂无最近监测结果。",
     };
@@ -807,6 +828,7 @@ function summarizeCallaiPartnerAvailability(latest, collectedAt) {
   return {
     rate: null,
     samples: 0,
+    firstCheckedAt: checkedTimes[0] || null,
     lastCheckedAt: checkedTimes.at(-1) || collectedAt,
     note: "partner API 最近一次监测汇总，非 7 日可用率。",
   };
@@ -840,6 +862,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
     data_status: autoPublish ? "verified" : "pending_review",
     availability_seven_day_rate: availability.rate ?? null,
     availability_seven_day_samples: availability.samples ?? 0,
+    availability_first_checked_at: availability.firstCheckedAt ?? null,
     availability_last_checked_at: availability.lastCheckedAt ?? null,
     availability_note: availability.note || "已抓取公开价格，尚未接入 API Key 可用性检测。",
     feedback_pending_count: 0,
@@ -895,6 +918,7 @@ function buildOfferRow(source, item, group, standard, collectedAt) {
     source_url: source.pricingEndpointUrl,
     availability_seven_day_rate: null,
     availability_seven_day_samples: 0,
+    availability_first_checked_at: null,
     availability_last_checked_at: null,
     availability_note: "价格已抓取，尚未运行 API 可用性检测。",
     last_verified_at: collectedAt,
@@ -1199,19 +1223,39 @@ async function deactivateOffersById(supabase, offerIds) {
 }
 
 async function upsertOfferRows(supabase, offers) {
-  try {
-    await upsertRows(supabase, "api_transit_offers", offers, { onConflict: "station_id,standard_model,group_name" });
-    return { compatibility: null };
-  } catch (error) {
-    if (!isMissingColumnError(error, "image_output_price")) throw error;
-    const compatibleOffers = offers.map((offer) => {
-      const compatibleOffer = { ...offer };
-      delete compatibleOffer.image_output_price;
-      return compatibleOffer;
-    });
-    await upsertRows(supabase, "api_transit_offers", compatibleOffers, { onConflict: "station_id,standard_model,group_name" });
-    return { compatibility: "api_transit_offers.image_output_price column missing; wrote offers without image output split." };
+  const attempts = [
+    { rows: offers, compatibility: null },
+    {
+      rows: removeFieldsFromRows(offers, ["availability_first_checked_at"]),
+      compatibility: "api_transit_offers.availability_first_checked_at column missing; wrote offers without first-check window.",
+    },
+    {
+      rows: removeFieldsFromRows(offers, ["image_output_price"]),
+      compatibility: "api_transit_offers.image_output_price column missing; wrote offers without image output split.",
+    },
+    {
+      rows: removeFieldsFromRows(offers, ["availability_first_checked_at", "image_output_price"]),
+      compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window and image output split.",
+    },
+  ];
+
+  let lastMissingColumnError = null;
+  for (const attempt of attempts) {
+    try {
+      await upsertRows(supabase, "api_transit_offers", attempt.rows, { onConflict: "station_id,standard_model,group_name" });
+      return { compatibility: attempt.compatibility };
+    } catch (error) {
+      if (
+        !isMissingColumnError(error, "availability_first_checked_at") &&
+        !isMissingColumnError(error, "image_output_price")
+      ) {
+        throw error;
+      }
+      lastMissingColumnError = error;
+    }
   }
+
+  throw lastMissingColumnError;
 }
 
 function postRowsMessage(options, refreshedOfferKeys, autoPublishStationIds) {
@@ -1222,6 +1266,26 @@ function postRowsMessage(options, refreshedOfferKeys, autoPublishStationIds) {
 }
 
 async function readExistingOffers(supabase, offers) {
+  const stationIds = uniqueText(offers.map((offer) => offer.station_id)).filter(Boolean);
+  const byId = new Map();
+  for (const chunk of chunks(stationIds, 100)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from("api_transit_offers")
+      .select("id,station_id,standard_model,group_name,status,created_at,availability_first_checked_at")
+      .in("station_id", chunk);
+    if (error) {
+      if (isMissingColumnError(error, "availability_first_checked_at")) {
+        return readExistingOffersWithoutFirstCheckedAt(supabase, offers);
+      }
+      throw error;
+    }
+    for (const row of data || []) byId.set(offerKey(row), row);
+  }
+  return byId;
+}
+
+async function readExistingOffersWithoutFirstCheckedAt(supabase, offers) {
   const stationIds = uniqueText(offers.map((offer) => offer.station_id)).filter(Boolean);
   const byId = new Map();
   for (const chunk of chunks(stationIds, 100)) {
@@ -1243,6 +1307,7 @@ function mergeOfferForRefresh(offer, existing, shouldActivate) {
     ...row,
     id: existing?.id || offer.id,
     status: shouldActivate ? "active" : existing?.status || offer.status,
+    availability_first_checked_at: existing?.availability_first_checked_at || offer.availability_first_checked_at,
     created_at: existing?.created_at || offer.created_at,
   };
 }
@@ -1256,6 +1321,46 @@ function offerKey(offer) {
 }
 
 async function readExistingStations(supabase, stationIds) {
+  const ids = uniqueText(stationIds).filter(Boolean);
+  const byId = new Map();
+  for (const chunk of chunks(ids, 300)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from("api_transit_stations")
+      .select(
+        [
+          "id",
+          "source_type",
+          "commercial_relation",
+          "summary",
+          "payment_methods",
+          "minimum_top_up",
+          "balance_expiry",
+          "support_channels",
+          "refund_policy",
+          "data_status",
+          "monitor_url",
+          "commercial_offers",
+          "verification_events",
+          "availability_first_checked_at",
+          "published",
+          "admin_note",
+          "created_at",
+        ].join(","),
+      )
+      .in("id", chunk);
+    if (error) {
+      if (isMissingColumnError(error, "availability_first_checked_at")) {
+        return readExistingStationsWithoutFirstCheckedAt(supabase, stationIds);
+      }
+      throw error;
+    }
+    for (const row of data || []) byId.set(row.id, row);
+  }
+  return byId;
+}
+
+async function readExistingStationsWithoutFirstCheckedAt(supabase, stationIds) {
   const ids = uniqueText(stationIds).filter(Boolean);
   const byId = new Map();
   for (const chunk of chunks(ids, 300)) {
@@ -1315,6 +1420,7 @@ function mergeStationForRefresh(station, existing, options) {
     monitor_url: existing.monitor_url ?? station.monitor_url,
     commercial_offers: existing.commercial_offers ?? station.commercial_offers,
     verification_events: existing.verification_events ?? station.verification_events,
+    availability_first_checked_at: existing.availability_first_checked_at || station.availability_first_checked_at,
     published: shouldPublish ? true : Boolean(existing.published),
     admin_note: shouldPublish && row.collection_status === "success" ? row.admin_note : existing.admin_note || station.admin_note,
     created_at: existing.created_at || station.created_at,
@@ -1325,11 +1431,26 @@ async function upsertRows(supabase, table, rows, options = {}) {
   for (const chunk of chunks(rows, 300)) {
     if (!chunk.length) continue;
     const { error } = await supabase.from(table).upsert(chunk, options);
+    if (error && table === "api_transit_stations" && isMissingColumnError(error, "availability_first_checked_at")) {
+      const compatibleChunk = removeFieldsFromRows(chunk, ["availability_first_checked_at"]);
+      const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
     if (error) {
       error.table = table;
       throw error;
     }
   }
+}
+
+function removeFieldsFromRows(rows, fieldNames) {
+  return rows.map((row) => {
+    const next = { ...row };
+    for (const fieldName of fieldNames) delete next[fieldName];
+    return next;
+  });
 }
 
 function loadSources() {

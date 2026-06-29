@@ -298,11 +298,13 @@ export default function TransitStationExplorer({ stations }: Props) {
                 <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
                   <tr role="row">
                     <DataTableHead>站点</DataTableHead>
-                    <DataTableHead>{familyFilter === "all" ? "最低综合" : `${TRANSIT_MODEL_FAMILY_LABELS[familyFilter]} 综合`}</DataTableHead>
-                    <DataTableHead>覆盖模型</DataTableHead>
-                    <DataTableHead>充值倍率</DataTableHead>
-                    <DataTableHead>稳定性</DataTableHead>
-                    <DataTableHead>来源渠道</DataTableHead>
+                    <DataTableHead explanation="综合倍率 = 充值折算系数 × 模型分组倍率；越低表示按官方价折算后越便宜。">
+                      {familyFilter === "all" ? "最低综合" : `${TRANSIT_MODEL_FAMILY_LABELS[familyFilter]} 综合`}
+                    </DataTableHead>
+                    <DataTableHead explanation="站点当前收录并可比较的标准模型家族，例如 ChatGPT、Claude、Gemini。">覆盖模型</DataTableHead>
+                    <DataTableHead explanation="站内充值额度与人民币的折算关系，会影响实际扣费倍率。">充值倍率</DataTableHead>
+                    <DataTableHead explanation="近 7 日 PriceAI 可用性探测样本汇总；样本越多、时间跨度越完整，参考价值越高。">稳定性</DataTableHead>
+                    <DataTableHead explanation="公开披露或 PriceAI 推断的上游来源与号池类型，用于判断风险边界。">来源渠道</DataTableHead>
                     <DataTableHead>更新时间</DataTableHead>
                     <DataTableHead className="w-[120px] text-center">操作</DataTableHead>
                   </tr>

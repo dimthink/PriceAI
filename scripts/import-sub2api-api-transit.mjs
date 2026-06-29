@@ -549,6 +549,7 @@ function buildRows(source, groups, selectedTargets, keyResults, probeResults, co
     data_status: groupCount ? "verified" : "pending_review",
     availability_seven_day_rate: attempted.length ? okCount / attempted.length : null,
     availability_seven_day_samples: attempted.length,
+    availability_first_checked_at: attempted.length ? collectedAt : null,
     availability_last_checked_at: collectedAt,
     availability_note: "单轮准入抽样：每个家族只选择一个代表分组和一个目标模型；后续需接入定时监测替换为滚动样本。",
     feedback_pending_count: 0,
@@ -708,6 +709,7 @@ function buildOfferRow(source, result, collectedAt) {
     source_url: source.dashboardUrl,
     availability_seven_day_rate: ok ? 1 : 0,
     availability_seven_day_samples: 1,
+    availability_first_checked_at: collectedAt,
     availability_last_checked_at: collectedAt,
     availability_note: ok ? "单轮准入抽样通过；后续接入定时监测。" : result.error || "单轮准入抽样未通过。",
     last_verified_at: collectedAt,
@@ -775,6 +777,7 @@ function buildUnprobedOfferRow(source, group, collectedAt) {
     source_url: source.dashboardUrl,
     availability_seven_day_rate: null,
     availability_seven_day_samples: 0,
+    availability_first_checked_at: null,
     availability_last_checked_at: null,
     availability_note: "已通过登录态分组接口刷新倍率；暂未用测试 Key 抽样。",
     last_verified_at: collectedAt,
@@ -966,6 +969,26 @@ async function readExistingOffers(supabase, offerIds) {
     if (!chunk.length) continue;
     const { data, error } = await supabase
       .from("api_transit_offers")
+      .select("id,status,created_at,availability_first_checked_at")
+      .in("id", chunk);
+    if (error) {
+      if (isMissingColumnError(error, "availability_first_checked_at")) {
+        return readExistingOffersWithoutFirstCheckedAt(supabase, offerIds);
+      }
+      throw error;
+    }
+    for (const row of data || []) byId.set(row.id, row);
+  }
+  return byId;
+}
+
+async function readExistingOffersWithoutFirstCheckedAt(supabase, offerIds) {
+  const ids = uniqueText(offerIds).filter(Boolean);
+  const byId = new Map();
+  for (const chunk of chunks(ids, 300)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from("api_transit_offers")
       .select("id,status,created_at")
       .in("id", chunk);
     if (error) throw error;
@@ -978,11 +1001,53 @@ function mergeOfferForRefresh(offer, existing, options) {
   return {
     ...offer,
     status: options.publish ? offer.status : existing?.status || offer.status,
+    availability_first_checked_at: existing?.availability_first_checked_at || offer.availability_first_checked_at,
     created_at: existing?.created_at || offer.created_at,
   };
 }
 
 async function readExistingStations(supabase, stationIds) {
+  const ids = uniqueText(stationIds).filter(Boolean);
+  const byId = new Map();
+  for (const chunk of chunks(ids, 300)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from("api_transit_stations")
+      .select(
+        [
+          "id",
+          "source_type",
+          "commercial_relation",
+          "summary",
+          "payment_methods",
+          "minimum_top_up",
+          "balance_expiry",
+          "support_channels",
+          "refund_policy",
+          "data_status",
+          "usage_advice",
+          "risk_labels",
+          "commercial_offers",
+          "verification_events",
+          "availability_first_checked_at",
+          "published",
+          "admin_note",
+          "created_at",
+        ].join(","),
+      )
+      .in("id", chunk);
+    if (error) {
+      if (isMissingColumnError(error, "availability_first_checked_at")) {
+        return readExistingStationsWithoutFirstCheckedAt(supabase, stationIds);
+      }
+      throw error;
+    }
+    for (const row of data || []) byId.set(row.id, row);
+  }
+  return byId;
+}
+
+async function readExistingStationsWithoutFirstCheckedAt(supabase, stationIds) {
   const ids = uniqueText(stationIds).filter(Boolean);
   const byId = new Map();
   for (const chunk of chunks(ids, 300)) {
@@ -1045,6 +1110,7 @@ function mergeStationForRefresh(station, existing, options) {
         : station.risk_labels,
     commercial_offers: existing.commercial_offers ?? station.commercial_offers,
     verification_events: existing.verification_events ?? station.verification_events,
+    availability_first_checked_at: existing.availability_first_checked_at || station.availability_first_checked_at,
     published: options.publish ? true : Boolean(existing.published),
     admin_note: appendRefreshNote(existing.admin_note, station.admin_note),
     created_at: existing.created_at || station.created_at,
@@ -1064,11 +1130,27 @@ async function upsertRows(supabase, table, rows, options = {}) {
   for (const chunk of chunks(rows, 300)) {
     if (!chunk.length) continue;
     const { error } = await supabase.from(table).upsert(chunk, options);
+    if (error && isMissingColumnError(error, "availability_first_checked_at")) {
+      const { error: fallbackError } = await supabase
+        .from(table)
+        .upsert(removeFieldsFromRows(chunk, ["availability_first_checked_at"]), options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
     if (error) {
       error.table = table;
       throw error;
     }
   }
+}
+
+function removeFieldsFromRows(rows, fieldNames) {
+  return rows.map((row) => {
+    const next = { ...row };
+    for (const fieldName of fieldNames) delete next[fieldName];
+    return next;
+  });
 }
 
 function getSupabaseClient() {

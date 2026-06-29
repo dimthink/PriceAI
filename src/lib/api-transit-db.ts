@@ -46,6 +46,39 @@ const STATION_CORE_COLUMNS = [
   "data_status",
   "availability_seven_day_rate",
   "availability_seven_day_samples",
+  "availability_first_checked_at",
+  "availability_last_checked_at",
+  "availability_note",
+  "feedback_pending_count",
+  "feedback_verified_risk_count",
+  "feedback_merchant_responded_count",
+  "feedback_main_themes",
+  "feedback_public_notes",
+  "last_updated_at",
+  "updated_at",
+].join(",");
+const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED = [
+  "id",
+  "slug",
+  "name",
+  "website_url",
+  "status",
+  "source_type",
+  "commercial_relation",
+  "summary",
+  "collector_kind",
+  "channel_types",
+  "account_pools",
+  "payment_methods",
+  "minimum_top_up",
+  "balance_expiry",
+  "support_channels",
+  "refund_policy",
+  "risk_labels",
+  "usage_advice",
+  "data_status",
+  "availability_seven_day_rate",
+  "availability_seven_day_samples",
   "availability_last_checked_at",
   "availability_note",
   "feedback_pending_count",
@@ -93,10 +126,57 @@ const OFFER_COLUMNS = [
   "last_verified_at",
   "availability_seven_day_rate",
   "availability_seven_day_samples",
+  "availability_first_checked_at",
   "availability_last_checked_at",
   "availability_note",
 ].join(",");
 const OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT = [
+  "id",
+  "station_id",
+  "family",
+  "standard_model",
+  "group_name",
+  "recharge_ratio",
+  "model_multiplier",
+  "input_price",
+  "output_price",
+  "cache_read_price",
+  "cache_write_price",
+  "currency",
+  "account_pool",
+  "channel_type",
+  "price_source",
+  "last_verified_at",
+  "availability_seven_day_rate",
+  "availability_seven_day_samples",
+  "availability_first_checked_at",
+  "availability_last_checked_at",
+  "availability_note",
+].join(",");
+const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED = [
+  "id",
+  "station_id",
+  "family",
+  "standard_model",
+  "group_name",
+  "recharge_ratio",
+  "model_multiplier",
+  "input_price",
+  "output_price",
+  "cache_read_price",
+  "cache_write_price",
+  "image_output_price",
+  "currency",
+  "account_pool",
+  "channel_type",
+  "price_source",
+  "last_verified_at",
+  "availability_seven_day_rate",
+  "availability_seven_day_samples",
+  "availability_last_checked_at",
+  "availability_note",
+].join(",");
+const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_IMAGE_OUTPUT = [
   "id",
   "station_id",
   "family",
@@ -169,18 +249,11 @@ async function readStationsFromSupabase(): Promise<TransitStation[]> {
 
   try {
     const [stationsResult, offerRows] = await Promise.all([
-      supabase
-        .from("api_transit_stations")
-        .select(STATION_CORE_COLUMNS)
-        .eq("published", true)
-        .order("last_updated_at", { ascending: false })
-        .abortSignal(signal),
+      queryPublishedStationRows(supabase, signal),
       readPublicOfferRows(supabase, signal),
     ]);
 
-    if (stationsResult.error) throw stationsResult.error;
-
-    const stationRows = dbRows(stationsResult.data);
+    const stationRows = stationsResult;
     if (!stationRows.length) return [];
     const enhancementRows = await readStationEnhancementRows();
     const enhancementsByStation = new Map<string, DbRow>();
@@ -255,16 +328,7 @@ async function readStationFromSupabaseBySlug(slug: string): Promise<TransitStati
   if (!supabase) return seedStations.find((station) => station.slug === slug);
 
   try {
-    const stationResult = await supabase
-      .from("api_transit_stations")
-      .select(STATION_CORE_COLUMNS)
-      .eq("published", true)
-      .eq("slug", slug)
-      .limit(1)
-      .abortSignal(publicTransitReadSignal());
-    if (stationResult.error) throw stationResult.error;
-
-    const stationRow = dbRows(stationResult.data)[0];
+    const stationRow = (await queryPublishedStationRows(supabase, publicTransitReadSignal(), slug))[0];
     if (!stationRow) return undefined;
 
     const stationId = stringValue(stationRow.id);
@@ -294,10 +358,55 @@ async function readPublicOfferRows(
     return await queryPublicOfferRows(client, signal, OFFER_COLUMNS, stationId);
   } catch (error) {
     if (isMissingColumnError(error)) {
-      return queryPublicOfferRows(client, signal, OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT, stationId);
+      try {
+        return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_FIRST_CHECKED, stationId);
+      } catch (withoutFirstCheckedError) {
+        if (!isMissingColumnError(withoutFirstCheckedError)) throw withoutFirstCheckedError;
+        try {
+          return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT, stationId);
+        } catch (withoutImageOutputError) {
+          if (isMissingColumnError(withoutImageOutputError)) {
+            return queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_IMAGE_OUTPUT, stationId);
+          }
+          throw withoutImageOutputError;
+        }
+      }
     }
     throw error;
   }
+}
+
+async function queryPublishedStationRows(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  signal: AbortSignal,
+  slug?: string
+): Promise<DbRow[]> {
+  try {
+    return await queryStationRows(client, signal, STATION_CORE_COLUMNS, slug);
+  } catch (error) {
+    if (isMissingColumnError(error)) {
+      return queryStationRows(client, publicTransitReadSignal(), STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED, slug);
+    }
+    throw error;
+  }
+}
+
+async function queryStationRows(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  signal: AbortSignal,
+  columns: string,
+  slug?: string
+): Promise<DbRow[]> {
+  let query = client
+    .from("api_transit_stations")
+    .select(columns)
+    .eq("published", true)
+    .order("last_updated_at", { ascending: false })
+    .abortSignal(signal);
+  if (slug) query = query.eq("slug", slug).limit(1);
+  const { data, error } = await query;
+  if (error) throw error;
+  return dbRows(data);
 }
 
 async function queryPublicOfferRows(
@@ -425,17 +534,17 @@ async function enrichStationWithDetailData(station: TransitStation): Promise<Tra
       ...station,
       availability: {
         ...station.availability,
-        firstCheckedAt: station.availability.firstCheckedAt || stationWindow?.first || null,
+        firstCheckedAt: earliestTimestamp(station.availability.firstCheckedAt, stationWindow?.first),
         lastCheckedAt: station.availability.lastCheckedAt || stationWindow?.last || null,
       },
       prices: station.prices.map((price) => ({
         ...price,
         availability: {
           ...price.availability,
-          firstCheckedAt:
-            price.availability.firstCheckedAt ||
-            availabilityWindows.get(availabilityWindowKey(station.id, "offer", price.standardModel, price.groupName))?.first ||
-            null,
+          firstCheckedAt: earliestTimestamp(
+            price.availability.firstCheckedAt,
+            availabilityWindows.get(availabilityWindowKey(station.id, "offer", price.standardModel, price.groupName))?.first
+          ),
           lastCheckedAt:
             price.availability.lastCheckedAt ||
             availabilityWindows.get(availabilityWindowKey(station.id, "offer", price.standardModel, price.groupName))?.last ||
@@ -539,7 +648,7 @@ function mapStationRow(
     availability: {
       sevenDayRate: numberValue(row.availability_seven_day_rate),
       sevenDaySamples: integerValue(row.availability_seven_day_samples) || 0,
-      firstCheckedAt: null,
+      firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
       note: nullableString(row.availability_note) || undefined,
     },
@@ -586,7 +695,7 @@ function mapOfferRow(
     availability: {
       sevenDayRate: numberValue(row.availability_seven_day_rate),
       sevenDaySamples: integerValue(row.availability_seven_day_samples) || 0,
-      firstCheckedAt: null,
+      firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
       note: nullableString(row.availability_note) || undefined,
     },
@@ -672,6 +781,13 @@ function nullableTimestamp(value: unknown): string | null {
   const text = nullableString(value);
   if (!text) return null;
   return text;
+}
+
+function earliestTimestamp(...values: Array<string | null | undefined>): string | null {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(0) ?? null;
 }
 
 function stringArray(value: unknown): string[] {

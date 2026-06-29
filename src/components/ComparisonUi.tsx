@@ -21,16 +21,33 @@ export function DataTableHead({
   children,
   className = "",
   compact = false,
+  explanation,
 }: {
   children: ReactNode;
   className?: string;
   compact?: boolean;
+  explanation?: string;
 }) {
   return (
     <th className={`${compact ? "px-4" : "px-5"} py-3 text-left font-semibold ${className}`} scope="col">
-      {children}
+      {explanation ? (
+        <span
+          className="inline-flex cursor-help items-center border-b border-dashed border-[#7f8889] pb-0.5 leading-tight text-[#4f5758]"
+          title={explanation}
+          aria-label={`${plainText(children)}：${explanation}`}
+        >
+          {children}
+        </span>
+      ) : (
+        children
+      )}
     </th>
   );
+}
+
+function plainText(value: ReactNode): string {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  return "说明";
 }
 
 export function ViewToggleButton({

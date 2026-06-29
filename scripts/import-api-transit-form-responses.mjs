@@ -297,6 +297,7 @@ function buildApinodeEvidenceRows({ response, parsed }) {
     data_status: "pending_review",
     availability_seven_day_rate: null,
     availability_seven_day_samples: 0,
+    availability_first_checked_at: null,
     availability_last_checked_at: null,
     availability_note: "站长截图包含 30 日监控样本；尚未接入 PriceAI 自测，暂不写入近 7 日可用率。",
     feedback_pending_count: 0,
@@ -467,6 +468,7 @@ function buildManualOffer({ stationId, family, standardModel, rawModelName, grou
     source_url: apinodeRatesUrl,
     availability_seven_day_rate: null,
     availability_seven_day_samples: 0,
+    availability_first_checked_at: null,
     availability_last_checked_at: null,
     availability_note: `站长监控截图显示 30 日样本：${monitor.label} ${formatPercent(monitor.availability30d)} / ${monitor.sampleCount} 条；尚未接入 PriceAI 自测。`,
     last_verified_at: collectedAt,
@@ -534,11 +536,33 @@ async function upsertRows(supabase, table, rows, options = {}) {
   for (const chunk of chunks(rows, 300)) {
     if (!chunk.length) continue;
     const { error } = await supabase.from(table).upsert(chunk, options);
+    if (error && isMissingColumnError(error, "availability_first_checked_at")) {
+      const { error: fallbackError } = await supabase
+        .from(table)
+        .upsert(removeFieldsFromRows(chunk, ["availability_first_checked_at"]), options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
     if (error) {
       error.table = table;
       throw error;
     }
   }
+}
+
+function removeFieldsFromRows(rows, fieldNames) {
+  return rows.map((row) => {
+    const next = { ...row };
+    for (const fieldName of fieldNames) delete next[fieldName];
+    return next;
+  });
+}
+
+function isMissingColumnError(error, columnName) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error?.details || "");
+  return (code === "42703" || code === "PGRST204") && message.includes(columnName);
 }
 
 function cleanUrl(value) {

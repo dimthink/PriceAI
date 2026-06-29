@@ -509,7 +509,7 @@ function authHeaders(profile, apiKey) {
 
 async function refreshAvailabilityRollup(supabase, stationId) {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const [samplesResult, offersResult] = await Promise.all([
+  const [samplesResult, offerRows, stationFirstCheckedAt] = await Promise.all([
     supabase
       .from("api_transit_availability_samples")
       .select("scope,standard_model,group_name,ok,checked_at")
@@ -517,25 +517,22 @@ async function refreshAvailabilityRollup(supabase, stationId) {
       .gte("checked_at", since)
       .order("checked_at", { ascending: false })
       .limit(AVAILABILITY_SAMPLE_LOOKBACK_LIMIT),
-    supabase
-      .from("api_transit_offers")
-      .select("standard_model,group_name,status")
-      .eq("station_id", stationId)
-      .in("status", ["active", "needs_review"]),
+    readOfferRowsForAvailabilityRollup(supabase, stationId),
+    readStationFirstCheckedAt(supabase, stationId),
   ]);
 
   if (samplesResult.error) throw samplesResult.error;
-  if (offersResult.error) throw offersResult.error;
 
   const stationSamples = [];
   const samplesByOfferKey = new Map();
   const legacySamplesByModel = new Map();
-  const offerRows = dbRows(offersResult.data);
   const offerGroupsByModel = groupOfferRowsByModel(offerRows);
+  let firstCheckedAt = null;
   let lastCheckedAt = null;
 
   for (const row of dbRows(samplesResult.data)) {
     const checkedAt = stringValue(row.checked_at);
+    if (checkedAt && (!firstCheckedAt || checkedAt < firstCheckedAt)) firstCheckedAt = checkedAt;
     if (checkedAt && (!lastCheckedAt || checkedAt > lastCheckedAt)) lastCheckedAt = checkedAt;
     const sample = { ok: Boolean(row.ok), checkedAt };
     const scope = stringValue(row.scope);
@@ -562,16 +559,18 @@ async function refreshAvailabilityRollup(supabase, stationId) {
   }
 
   const stationAvailability = summarizeSamples(stationSamples);
-  const { error: stationError } = await supabase
-    .from("api_transit_stations")
-    .update({
-      availability_seven_day_rate: stationAvailability.rate,
-      availability_seven_day_samples: stationAvailability.samples,
-      availability_last_checked_at: lastCheckedAt,
-      availability_note: availabilityNote("站点", stationAvailability),
-      last_updated_at: new Date().toISOString(),
-    })
-    .eq("id", stationId);
+  const stationUpdate = {
+    availability_seven_day_rate: stationAvailability.rate,
+    availability_seven_day_samples: stationAvailability.samples,
+    availability_first_checked_at: stationAvailability.samples ? stationFirstCheckedAt || firstCheckedAt : null,
+    availability_last_checked_at: lastCheckedAt,
+    availability_note: availabilityNote("站点", stationAvailability),
+    last_updated_at: new Date().toISOString(),
+  };
+  const { error: stationError } = await updateAvailabilityRollup(
+    supabase.from("api_transit_stations").update(stationUpdate).eq("id", stationId),
+    supabase.from("api_transit_stations").update(removeFields(stationUpdate, ["availability_first_checked_at"])).eq("id", stationId),
+  );
   if (stationError) throw stationError;
 
   const offerRollups = [];
@@ -586,18 +585,24 @@ async function refreshAvailabilityRollup(supabase, stationId) {
       legacySamplesForOffer(legacySamplesByModel, offerGroupsByModel, standardModel) ||
       [];
     const availability = summarizeSamples(samples);
-    let query = supabase
-      .from("api_transit_offers")
-      .update({
-        availability_seven_day_rate: availability.rate,
-        availability_seven_day_samples: availability.samples,
-        availability_last_checked_at: availability.samples ? lastCheckedAt : null,
-        availability_note: availabilityNote(targetGroupLabel(standardModel, groupName), availability),
-      })
-      .eq("station_id", stationId)
-      .eq("standard_model", standardModel);
-    query = groupName ? query.eq("group_name", groupName) : query.is("group_name", null);
-    const { error: offerError } = await query;
+    const offerWindow = sampleWindow(samples);
+    const existingOfferFirstCheckedAt = stringValue(offer.availability_first_checked_at);
+    const offerUpdate = {
+      availability_seven_day_rate: availability.rate,
+      availability_seven_day_samples: availability.samples,
+      availability_first_checked_at: availability.samples ? existingOfferFirstCheckedAt || offerWindow.first : null,
+      availability_last_checked_at: availability.samples ? offerWindow.last : null,
+      availability_note: availabilityNote(targetGroupLabel(standardModel, groupName), availability),
+    };
+    const { error: offerError } = await updateAvailabilityRollup(
+      withOfferAvailabilityFilter(supabase.from("api_transit_offers").update(offerUpdate), stationId, standardModel, groupName),
+      withOfferAvailabilityFilter(
+        supabase.from("api_transit_offers").update(removeFields(offerUpdate, ["availability_first_checked_at"])),
+        stationId,
+        standardModel,
+        groupName,
+      ),
+    );
     if (offerError) throw offerError;
     offerRollups.push({ standardModel, groupName: groupName || null, ...availability });
   }
@@ -617,6 +622,65 @@ function summarizeSamples(samples) {
     rate: valid.length ? round(success / valid.length, 4) : null,
     samples: valid.length,
     success,
+  };
+}
+
+async function readOfferRowsForAvailabilityRollup(supabase, stationId) {
+  const { data, error } = await supabase
+    .from("api_transit_offers")
+    .select("standard_model,group_name,status,availability_first_checked_at")
+    .eq("station_id", stationId)
+    .in("status", ["active", "needs_review"]);
+  if (!error) return dbRows(data);
+  if (!isMissingColumnError(error, "availability_first_checked_at")) throw error;
+
+  const fallback = await supabase
+    .from("api_transit_offers")
+    .select("standard_model,group_name,status")
+    .eq("station_id", stationId)
+    .in("status", ["active", "needs_review"]);
+  if (fallback.error) throw fallback.error;
+  return dbRows(fallback.data);
+}
+
+async function readStationFirstCheckedAt(supabase, stationId) {
+  const { data, error } = await supabase
+    .from("api_transit_stations")
+    .select("availability_first_checked_at")
+    .eq("id", stationId)
+    .limit(1);
+  if (!error) return stringValue(data?.[0]?.availability_first_checked_at);
+  if (isMissingColumnError(error, "availability_first_checked_at")) return null;
+  throw error;
+}
+
+function withOfferAvailabilityFilter(query, stationId, standardModel, groupName) {
+  const filtered = query.eq("station_id", stationId).eq("standard_model", standardModel);
+  return groupName ? filtered.eq("group_name", groupName) : filtered.is("group_name", null);
+}
+
+async function updateAvailabilityRollup(query, fallbackQuery) {
+  const result = await query;
+  if (result.error && isMissingColumnError(result.error, "availability_first_checked_at")) {
+    return await fallbackQuery;
+  }
+  return result;
+}
+
+function removeFields(row, fieldNames) {
+  const next = { ...row };
+  for (const fieldName of fieldNames) delete next[fieldName];
+  return next;
+}
+
+function sampleWindow(samples) {
+  const checkedTimes = samples
+    .map((sample) => stringValue(sample?.checkedAt))
+    .filter(Boolean)
+    .sort();
+  return {
+    first: checkedTimes[0] || null,
+    last: checkedTimes.at(-1) || null,
   };
 }
 
@@ -1020,9 +1084,13 @@ async function readPublishedApiTransitStationIdsWithoutRemovedFilter(supabase) {
 }
 
 function isMissingRemovedAtColumnError(error) {
+  return isMissingColumnError(error, "removed_at");
+}
+
+function isMissingColumnError(error, columnName) {
   const code = String(error?.code || "");
   const message = String(error?.message || error?.details || "");
-  return (code === "42703" || code === "PGRST204") && message.includes("removed_at");
+  return (code === "42703" || code === "PGRST204") && message.includes(columnName);
 }
 
 function getSupabaseClient() {

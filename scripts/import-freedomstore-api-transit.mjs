@@ -220,6 +220,7 @@ function buildRows(groups, collectedAt, options) {
     data_status: "verified",
     availability_seven_day_rate: offers.length ? 1 : null,
     availability_seven_day_samples: offers.length,
+    availability_first_checked_at: offers.length ? collectedAt : null,
     availability_last_checked_at: collectedAt,
     availability_note: "登录分组接口已抓取；可用性来自 PriceAI 临时 Key 的单轮抽样，失败目标未发布为可用模型。",
     feedback_pending_count: 0,
@@ -297,6 +298,7 @@ function buildOfferRow({ group, groupPlan, model, collectedAt }) {
     source_url: dashboardUrl,
     availability_seven_day_rate: 1,
     availability_seven_day_samples: 1,
+    availability_first_checked_at: collectedAt,
     availability_last_checked_at: collectedAt,
     availability_note: "单轮临时 Key 抽样通过；后续接入定时探测后替换为滚动样本。",
     last_verified_at: collectedAt,
@@ -338,8 +340,13 @@ async function postRows(rows, options) {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for --post/--db.");
 
-  await upsertRows(supabase, "api_transit_stations", rows.stations, { onConflict: "id" });
-  await upsertRows(supabase, "api_transit_offers", rows.offers, { onConflict: "id" });
+  const existingStations = await readExistingFirstCheckedAt(supabase, "api_transit_stations", rows.stations.map((station) => station.id));
+  const existingOffers = await readExistingFirstCheckedAt(supabase, "api_transit_offers", rows.offers.map((offer) => offer.id));
+  const stations = rows.stations.map((station) => mergeFirstCheckedAt(station, existingStations.get(station.id)));
+  const offers = rows.offers.map((offer) => mergeFirstCheckedAt(offer, existingOffers.get(offer.id)));
+
+  await upsertRows(supabase, "api_transit_stations", stations, { onConflict: "id" });
+  await upsertRows(supabase, "api_transit_offers", offers, { onConflict: "id" });
   await upsertRows(supabase, "api_transit_detection_runs", rows.runs, { onConflict: "id" });
 
   return {
@@ -349,15 +356,61 @@ async function postRows(rows, options) {
   };
 }
 
+async function readExistingFirstCheckedAt(supabase, table, ids) {
+  const byId = new Map();
+  for (const chunk of chunks(ids.filter(Boolean), 300)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from(table)
+      .select("id,availability_first_checked_at")
+      .in("id", chunk);
+    if (error) {
+      if (isMissingColumnError(error, "availability_first_checked_at")) return byId;
+      throw error;
+    }
+    for (const row of data || []) byId.set(row.id, row);
+  }
+  return byId;
+}
+
+function mergeFirstCheckedAt(row, existing) {
+  return {
+    ...row,
+    availability_first_checked_at: existing?.availability_first_checked_at || row.availability_first_checked_at,
+  };
+}
+
 async function upsertRows(supabase, table, rows, options = {}) {
   for (const chunk of chunks(rows, 300)) {
     if (!chunk.length) continue;
     const { error } = await supabase.from(table).upsert(chunk, options);
+    if (error && isMissingColumnError(error, "availability_first_checked_at")) {
+      const { error: fallbackError } = await supabase
+        .from(table)
+        .upsert(removeFieldsFromRows(chunk, ["availability_first_checked_at"]), options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
     if (error) {
       error.table = table;
       throw error;
     }
   }
+}
+
+function removeFieldsFromRows(rows, fieldNames) {
+  return rows.map((row) => {
+    const next = { ...row };
+    for (const fieldName of fieldNames) delete next[fieldName];
+    return next;
+  });
+}
+
+function isMissingColumnError(error, columnName) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error?.details || "");
+  return (code === "42703" || code === "PGRST204") && message.includes(columnName);
 }
 
 function getSupabaseClient() {
