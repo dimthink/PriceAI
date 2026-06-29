@@ -634,5 +634,75 @@
         "keywords": ["claude", "opus", "4.8"]
       }
     ]
+  },
+  {
+    "profileId": "x1998822-xyz-gpt",
+    "stationId": "x1998822-xyz",
+    "apiBaseUrl": "https://x1998822.xyz/v1",
+    "apiKeyEnv": "API_TRANSIT_X1998822_XYZ_GPT_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "Pro号池",
+    "groupId": "37",
+    "accountPool": "gpt",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.4",
+        "groupName": "Pro号池",
+        "accountPool": "gpt",
+        "candidates": ["gpt-5.4"],
+        "keywords": ["gpt", "5.4"]
+      },
+      {
+        "family": "gpt",
+        "standardModel": "GPT 5.5",
+        "groupName": "Pro号池",
+        "accountPool": "gpt",
+        "candidates": ["gpt-5.5"],
+        "keywords": ["gpt", "5.5"]
+      }
+    ]
+  },
+  {
+    "profileId": "x1998822-xyz-claude-official-transfer",
+    "stationId": "x1998822-xyz",
+    "apiBaseUrl": "https://x1998822.xyz/v1",
+    "apiKeyEnv": "API_TRANSIT_X1998822_XYZ_CLAUDE_OFFICIAL_TRANSFER_KEY",
+    "protocol": "openai_compatible",
+    "enabled": true,
+    "groupName": "CC MAX官转",
+    "groupId": "1",
+    "accountPool": "official_transfer",
+    "targetLimit": 1,
+    "targetPriority": "latest_highest_available",
+    "targets": [
+      {
+        "family": "claude",
+        "standardModel": "Claude Sonnet 4.6",
+        "groupName": "CC MAX官转",
+        "accountPool": "official_transfer",
+        "candidates": ["claude-sonnet-4-6"],
+        "keywords": ["claude", "sonnet", "4.6"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.7",
+        "groupName": "CC MAX官转",
+        "accountPool": "official_transfer",
+        "candidates": ["claude-opus-4-7"],
+        "keywords": ["claude", "opus", "4.7"]
+      },
+      {
+        "family": "claude",
+        "standardModel": "Claude Opus 4.8",
+        "groupName": "CC MAX官转",
+        "accountPool": "official_transfer",
+        "candidates": ["claude-opus-4-8"],
+        "keywords": ["claude", "opus", "4.8"]
+      }
+    ]
   }
 ]
