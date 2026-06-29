@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { buildDetectorReportAssetUrl, buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
 
-type DetectorProtocol = "openai" | "claude" | "gemini";
+type DetectorProtocol = "openai_chat" | "openai_responses" | "claude" | "gemini";
 type DetectorMode = "quick" | "standard" | "deep";
 type UpstreamType =
   | "unknown"
@@ -65,25 +65,35 @@ interface DetectionResult {
 }
 
 const presetModels: PresetModel[] = [
-  { id: "gpt-5-5", label: "GPT 5.5", model: "gpt-5.5", protocol: "openai", badge: "常用" },
-  { id: "gpt-5-4", label: "GPT 5.4", model: "gpt-5.4", protocol: "openai" },
+  { id: "gpt-5-5", label: "GPT 5.5", model: "gpt-5.5", protocol: "openai_chat", badge: "常用" },
+  { id: "gpt-5-4", label: "GPT 5.4", model: "gpt-5.4", protocol: "openai_chat" },
+  { id: "gpt-5-codex", label: "Codex", model: "gpt-5.3-codex", protocol: "openai_responses", badge: "Responses" },
   { id: "claude-opus-4-8", label: "Opus 4.8", model: "claude-opus-4-8", protocol: "claude" },
   { id: "claude-opus-4-7", label: "Opus 4.7", model: "claude-opus-4-7", protocol: "claude" },
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6", model: "claude-sonnet-4-6", protocol: "claude" },
   { id: "gemini-3-1-pro", label: "Gemini 3.1 Pro", model: "gemini-3.1-pro", protocol: "gemini" },
-  { id: "custom", label: "自定义", model: "", protocol: "openai" },
+  { id: "custom", label: "自定义", model: "", protocol: "openai_chat" },
 ];
 
 const protocolLabels: Record<DetectorProtocol, string> = {
-  openai: "OpenAI 兼容",
+  openai_chat: "OpenAI Chat Completions",
+  openai_responses: "OpenAI Responses",
   claude: "Claude",
   gemini: "Gemini",
 };
 
 const protocolHints: Record<DetectorProtocol, string> = {
-  openai: "OpenAI 格式接口",
+  openai_chat: "OpenAI /v1/chat/completions 格式接口",
+  openai_responses: "OpenAI /v1/responses 格式接口，适合 Codex 等 Agent 工具链",
   claude: "Anthropic / Claude 格式接口",
   gemini: "Google Gemini 兼容接口",
+};
+
+const detectorProtocolEndpoints: Record<DetectorProtocol, string> = {
+  openai_chat: "openai-chat",
+  openai_responses: "openai-responses",
+  claude: "claude",
+  gemini: "gemini",
 };
 
 const modeOptions: Array<{ value: DetectorMode; label: string; hint: string }> = [
@@ -192,7 +202,8 @@ export function TransitDetectorClient({ serviceUrl = "" }: DetectorClientProps) 
         payload.set("include_long_context_extreme", "false");
       }
 
-      const response = await fetch(`${normalizedServiceUrl}/api/detect/${protocol}`, {
+      const detectorProtocol = detectorProtocolEndpoints[protocol];
+      const response = await fetch(`${normalizedServiceUrl}/api/detect/${detectorProtocol}`, {
         method: "POST",
         body: payload,
       });

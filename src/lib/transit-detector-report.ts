@@ -90,7 +90,10 @@ interface DetectorReportRawResult {
 }
 
 const protocolLabels: Record<string, string> = {
-  openai: "OpenAI 兼容",
+  openai: "OpenAI Chat Completions",
+  openai_chat: "OpenAI Chat Completions",
+  openai_responses: "OpenAI Responses",
+  responses: "OpenAI Responses",
   anthropic: "Claude / Anthropic",
   claude: "Claude / Anthropic",
   gemini: "Gemini",
