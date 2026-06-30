@@ -325,6 +325,39 @@ export function getFamilyPrices(
   return station.prices.filter((price) => price.family === family);
 }
 
+export function getFamilyAvailabilitySourceMeta(
+  station: TransitStation,
+  family: TransitModelFamily
+): ReturnType<typeof getAvailabilitySourceMeta> {
+  const prices = getFamilyPrices(station, family);
+  const sorted = [...prices].sort(
+    (left, right) =>
+      availabilitySourcePriority(right.availability.sourceType) -
+      availabilitySourcePriority(left.availability.sourceType)
+  );
+  const price = sorted.find((item) => item.availability.sourceType !== "unknown") || sorted[0];
+  return price ? getAvailabilitySourceMeta(price.availability) : getAvailabilitySourceMeta(station.availability);
+}
+
+function availabilitySourcePriority(sourceType: TransitModelPrice["availability"]["sourceType"]): number {
+  switch (sourceType) {
+    case "priceai_probe":
+      return 6;
+    case "public_status":
+      return 5;
+    case "public_model_catalog":
+      return 4;
+    case "partner_api":
+      return 3;
+    case "merchant_reported":
+      return 2;
+    case "manual_snapshot":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 export type TransitFamilyRateSummary = {
   family: TransitModelFamily;
   familyLabel: string;
@@ -637,16 +670,26 @@ function dedupeValues<T extends string>(items: T[]): T[] {
 
 export function compareStations(
   stations: TransitStation[],
-  sortBy: TransitSortKey
+  sortBy: TransitSortKey,
+  options: { activeFamily?: TransitModelFamily | "all" } = {}
 ): TransitStation[] {
   return [...stations].sort((left, right) => {
     const a = getStationComparisonSummary(left);
     const b = getStationComparisonSummary(right);
+    const activeFamily = options.activeFamily && options.activeFamily !== "all"
+      ? options.activeFamily
+      : null;
+    const aStability = activeFamily ? a.families[activeFamily] : null;
+    const bStability = activeFamily ? b.families[activeFamily] : null;
+    const aStabilityRate = activeFamily && aStability ? aStability.sevenDayRate : a.stabilityRate;
+    const bStabilityRate = activeFamily && bStability ? bStability.sevenDayRate : b.stabilityRate;
+    const aStabilitySamples = activeFamily && aStability ? aStability.sevenDaySamples : a.stabilitySamples;
+    const bStabilitySamples = activeFamily && bStability ? bStability.sevenDaySamples : b.stabilitySamples;
 
     if (sortBy === "stability") {
       return (
-        compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
-        b.stabilitySamples - a.stabilitySamples ||
+        compareNullableNumber(aStabilityRate, bStabilityRate, "desc") ||
+        bStabilitySamples - aStabilitySamples ||
         new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
       );
     }
@@ -654,8 +697,8 @@ export function compareStations(
     if (sortBy === "rate") {
       return (
         compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc") ||
-        compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
-        b.stabilitySamples - a.stabilitySamples ||
+        compareNullableNumber(aStabilityRate, bStabilityRate, "desc") ||
+        bStabilitySamples - aStabilitySamples ||
         new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
       );
     }
@@ -664,8 +707,8 @@ export function compareStations(
       return (
         compareNullableNumber(a.claude.combinedRateMin, b.claude.combinedRateMin, "asc") ||
         compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc") ||
-        compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
-        b.stabilitySamples - a.stabilitySamples ||
+        compareNullableNumber(aStabilityRate, bStabilityRate, "desc") ||
+        bStabilitySamples - aStabilitySamples ||
         new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
       );
     }
@@ -674,8 +717,8 @@ export function compareStations(
       return (
         compareNullableNumber(a.gpt.combinedRateMin, b.gpt.combinedRateMin, "asc") ||
         compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc") ||
-        compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
-        b.stabilitySamples - a.stabilitySamples ||
+        compareNullableNumber(aStabilityRate, bStabilityRate, "desc") ||
+        bStabilitySamples - aStabilitySamples ||
         new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
       );
     }
@@ -683,8 +726,8 @@ export function compareStations(
     return (
       b.overallScore - a.overallScore ||
       compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc") ||
-      compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
-      b.stabilitySamples - a.stabilitySamples ||
+      compareNullableNumber(aStabilityRate, bStabilityRate, "desc") ||
+      bStabilitySamples - aStabilitySamples ||
       new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
     );
   });

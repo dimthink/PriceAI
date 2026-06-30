@@ -39,6 +39,8 @@ import {
   getRateBadgeClass,
   getEffectiveTransitChannelTypes,
   getAvailabilitySourceMeta,
+  getFamilyAvailabilitySourceMeta,
+  getFamilyRateSummary,
   getNormalizedSourceTags,
   getPrimaryTransitCommercialOffer,
   getStationComparisonSummary,
@@ -155,7 +157,7 @@ export default function TransitStationExplorer({ stations }: Props) {
       result = result.filter((station) => station.accountPools.includes(poolFilter));
     }
 
-    return compareStations(result, sortBy);
+    return compareStations(result, sortBy, { activeFamily: familyFilter });
   }, [channelFilter, familyFilter, poolFilter, search, sortBy, stations]);
 
   const activeFilterCount =
@@ -301,7 +303,7 @@ export default function TransitStationExplorer({ stations }: Props) {
                       {familyFilter === "all" ? "最低综合" : `${TRANSIT_MODEL_FAMILY_LABELS[familyFilter]} 综合`}
                     </DataTableHead>
                     <DataTableHead explanation="站内充值额度与人民币的折算关系，会影响实际扣费倍率。">充值倍率</DataTableHead>
-                    <DataTableHead explanation="近 7 日可用性样本汇总；标签会标明来自 PriceAI 实测、公开监测页、公开模型页或站长接口。">稳定性</DataTableHead>
+                    <DataTableHead explanation={familyFilter === "all" ? "近 7 日站点整体可用性样本汇总；标签会标明来自 PriceAI 实测、公开监测页、公开模型页或站长接口。" : `${TRANSIT_MODEL_FAMILY_LABELS[familyFilter]} 近 7 日可用性样本汇总；样本不足时不会借用站点整体稳定性。`}>稳定性</DataTableHead>
                     <DataTableHead explanation="公开披露或 PriceAI 推断的上游来源与号池类型，用于判断风险边界。">来源渠道</DataTableHead>
                     <DataTableHead>更新时间</DataTableHead>
                     <DataTableHead className="w-[120px] text-center">操作</DataTableHead>
@@ -510,7 +512,7 @@ function StationRow({
         <PriceBreakdownCell station={station} activeFamily={activeFamily} />
       </td>
       <td className="px-5 py-4">
-        <AvailabilityCell station={station} />
+        <AvailabilityCell station={station} activeFamily={activeFamily} />
       </td>
       <td className="max-w-[220px] px-5 py-4">
         <SourceChannelCell station={station} />
@@ -580,7 +582,7 @@ function StationCard({
       </div>
 
       <div className="mb-3">
-        <AvailabilityCell station={station} compact />
+        <AvailabilityCell station={station} activeFamily={activeFamily} compact />
       </div>
       <SourceChannelCell station={station} />
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#5a6061]">
@@ -593,26 +595,46 @@ function StationCard({
   );
 }
 
-function AvailabilityCell({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
-  const source = getAvailabilitySourceMeta(station.availability);
+function AvailabilityCell({
+  station,
+  activeFamily,
+  compact = false,
+}: {
+  station: TransitStation;
+  activeFamily: "all" | TransitModelFamily;
+  compact?: boolean;
+}) {
+  const familySummary = activeFamily === "all" ? null : getFamilyRateSummary(station, activeFamily);
+  const availability = familySummary ?? station.availability;
+  const source = familySummary
+    ? getFamilyAvailabilitySourceMeta(station, familySummary.family)
+    : getAvailabilitySourceMeta(station.availability);
+  const scopeLabel = familySummary ? `${familySummary.familyLabel} 稳定性` : "站点整体稳定性";
+  const sourceTitle = familySummary
+    ? `${familySummary.familyLabel} 分组近 7 日可用性样本；样本不足时不回退展示站点整体。`
+    : "站点整体近 7 日可用性样本。";
+
   return (
-    <div className={compact ? "" : "min-w-[118px]"}>
+    <div className={compact ? "" : "min-w-[118px]"} title={sourceTitle}>
       {compact ? (
         <div className="mb-1 text-xs font-semibold text-[#5a6061]">
-          稳定性 <span className="text-[#202829]">{formatAvailability(station.availability)}</span>
+          {scopeLabel} <span className="text-[#202829]">{formatAvailability(availability)}</span>
         </div>
       ) : (
-        <div className="text-xs font-semibold text-[#202829]">{formatAvailability(station.availability)}</div>
+        <>
+          <div className="text-[10px] font-bold text-[#7f8889]">{scopeLabel}</div>
+          <div className="mt-0.5 text-xs font-semibold text-[#202829]">{formatAvailability(availability)}</div>
+        </>
       )}
       <TransitAvailabilityStrip
-        rate={station.availability.sevenDayRate}
-        samples={station.availability.sevenDaySamples}
-        firstCheckedAt={station.availability.firstCheckedAt}
-        lastCheckedAt={station.availability.lastCheckedAt}
+        rate={availability.sevenDayRate}
+        samples={availability.sevenDaySamples}
+        firstCheckedAt={availability.firstCheckedAt}
+        lastCheckedAt={availability.lastCheckedAt}
         className="mt-1"
       />
       <div className="mt-1 whitespace-nowrap text-[10px] text-[#7f8889]">
-        {formatDateShortMinute(station.availability.lastCheckedAt)}
+        {formatDateShortMinute(availability.lastCheckedAt)}
       </div>
       <AvailabilitySourceBadge source={source} compact={compact} />
     </div>

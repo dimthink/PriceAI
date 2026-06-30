@@ -49,6 +49,7 @@ import {
   getAvailabilitySourceMeta,
   formatRate,
   getCombinedRateForPrice,
+  getFamilyAvailabilitySourceMeta,
   getFamilyPrices,
   getFamilyRateSummary,
   getPrimaryTransitCommercialOffer,
@@ -1818,34 +1819,6 @@ function getFamilyMonitorModelLabel(station: TransitStation, family: TransitMode
   const groups = getFamilyPriceGroups(station, family);
   const models = uniqueStrings(groups.map((group) => group.primaryPrice.standardModel));
   return models.length ? models.map((model) => shortModelLabel(model as TransitModelPrice["standardModel"])).join("、") : "暂无监测模型";
-}
-
-function getFamilyAvailabilitySourceMeta(station: TransitStation, family: TransitModelFamily): ReturnType<typeof getAvailabilitySourceMeta> {
-  const prices = getFamilyPrices(station, family);
-  const sorted = [...prices].sort((left, right) =>
-    availabilitySourcePriority(right.availability.sourceType) - availabilitySourcePriority(left.availability.sourceType)
-  );
-  const price = sorted.find((item) => item.availability.sourceType !== "unknown") || sorted[0];
-  return price ? getAvailabilitySourceMeta(price.availability) : getAvailabilitySourceMeta(station.availability);
-}
-
-function availabilitySourcePriority(sourceType: TransitModelPrice["availability"]["sourceType"]): number {
-  switch (sourceType) {
-    case "priceai_probe":
-      return 6;
-    case "public_status":
-      return 5;
-    case "public_model_catalog":
-      return 4;
-    case "partner_api":
-      return 3;
-    case "merchant_reported":
-      return 2;
-    case "manual_snapshot":
-      return 1;
-    default:
-      return 0;
-  }
 }
 
 function formatMonitoringWindow(input: { firstCheckedAt?: string | null; lastCheckedAt: string | null; sevenDaySamples: number }): string {
