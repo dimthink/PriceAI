@@ -6,7 +6,8 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `priceai-home-2026-06-02.png` | README 和项目介绍中的产品截图 |
+| `priceai-home-2026-07-01.png` | README 和项目介绍中的当前首页产品截图 |
+| `priceai-home-2026-06-02.png` | 历史 README 产品截图 |
 | `priceai-logo-512.png` / `priceai-logo-1024.png` | 浅色背景 Logo |
 | `priceai-logo-white-512.png` / `priceai-logo-white-1024.png` | 深色背景 Logo |
 | `priceai-day5-*.png` | 公开分享、阶段复盘或社群发布可用封面素材 |

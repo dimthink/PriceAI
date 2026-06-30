@@ -5,8 +5,8 @@
 <h1 align="center">PriceAI - AI 订阅与模型 API 比价雷达</h1>
 
 <p align="center">
-  <strong>AI 订阅、AI 卡网低价订阅、官方 API、模型 API 和中转 API 的购买前比价雷达。</strong><br/>
-  比较 ChatGPT Plus / Pro / Team、Claude Pro、Gemini、Grok、DeepSeek API、Qwen API、Kimi API 和 API 中转站的价格、来源、库存、倍率与风险边界。
+  <strong>AI 官方地区订阅、AI 卡网低价订阅、官方 API、模型 API 和中转 API 的购买前比价雷达。</strong><br/>
+  聚合 200+ AI 订阅卡网、发卡站和低价会员渠道，比较 ChatGPT Plus / Pro / Team、Claude Pro、Gemini、Grok、DeepSeek API、Qwen API、Kimi API 和 API 中转站的价格、来源、库存、倍率与风险边界。
 </p>
 
 <p align="center">
@@ -44,7 +44,7 @@
 ---
 
 <p align="center">
-  <img src="assets/priceai-home-2026-06-02.png" alt="PriceAI product screenshot" width="100%" />
+  <img src="assets/priceai-home-2026-07-01.png" alt="PriceAI AI card shop subscription comparison table screenshot" width="100%" />
 </p>
 
 ## 四个模块
@@ -53,8 +53,8 @@ PriceAI 不再只是一个卡网订阅比价页，而是围绕“AI 能力怎么
 
 | 模块 | 解决的问题 | 入口 |
 | --- | --- | --- |
-| 官方订阅地区价 | 对比 ChatGPT Plus、Claude Pro、Gemini Advanced、Grok 等官方订阅价格、App Store 地区价和人民币估算价 | [官方订阅地区价](https://priceai.cc/official-prices) |
-| AI 卡网低价订阅 | 比较 AI 订阅卡网、发卡站、代充、成品号、卡密、CDK、邮箱和低价会员渠道的有货报价 | [卡网订阅比价](https://priceai.cc/channels) |
+| AI 官方订阅地区价 | 对比 ChatGPT Plus / Pro / Team、Claude Pro、Gemini Advanced、Grok 等 AI 官方订阅价格、App Store / Google Play 地区价和人民币估算价 | [官方订阅地区价](https://priceai.cc/official-prices) |
+| AI 卡网低价订阅 | 聚合 200+ AI 订阅卡网、发卡站和低价会员渠道，覆盖链动小铺、独角数卡、Kami / 卡密类自动发货等常见卡网形态，比较代充、成品号、卡密、CDK、邮箱和低价会员的有货报价 | [卡网订阅比价](https://priceai.cc/channels) |
 | 官方 API / 模型 API | 横向比较 DeepSeek API、Qwen API、Kimi API、GLM API、免费 API、Token Plan 和 OpenAI-compatible API 入口 | [API 模型雷达](https://priceai.cc/api-models) |
 | 中转 API 比价雷达 | 对比 API 中转站、API Gateway、GPT / Claude / Gemini 中转 API 的充值系数、模型倍率、综合倍率和稳定性 | [API 中转站价格榜](https://priceai.cc/api-transit) |
 
@@ -62,18 +62,18 @@ PriceAI 不再只是一个卡网订阅比价页，而是围绕“AI 能力怎么
 
 - AI 比价雷达
 - AI 低价卡网 / AI 卡网低价订阅
-- 官方订阅地区价查询
+- AI 官方地区订阅 / 官方订阅地区价查询
 - 中转 API 比价雷达
 
 ## 适合谁
 
 **正在购买 ChatGPT Plus / Pro / Team、Claude Pro、Gemini Advanced、Grok 等 AI 订阅的人。**
 
-你想先看官方订阅价格、地区价、卡网低价、代充、成品号、卡密或 CDK 的差异，再决定走哪条路径。
+你想先看 AI 官方订阅地区价、App Store / Google Play 地区价、卡网低价、代充、成品号、卡密或 CDK 的差异，再决定走哪条路径。
 
 **想比较 AI 卡网低价订阅渠道的人。**
 
-你可能已经看到多个卡网、发卡站、Telegram 群或二手平台报价，但不知道哪个有货、哪个价格真实、哪个交付方式风险更高。
+你可能已经看到多个卡网、发卡站、链动小铺、独角数卡、Kami / 卡密类自动发货站、Telegram 群或二手平台报价，但不知道哪个有货、哪个价格真实、哪个交付方式风险更高。
 
 **需要接入模型 API 的开发者。**
 
@@ -89,8 +89,8 @@ ChatGPT、Claude、Gemini、Grok、Cursor、Codex、OpenCode、模型 API 和中
 
 ## 解决的痛点
 
-- **AI 订阅价格不透明**：官网正价、App Store 地区价、Google Play 地区价、学生资格、设备权益、代充价、成品号价、卡密价经常混在一起。
-- **卡网渠道太分散**：AI 订阅卡网、发卡站、Telegram 群、闲鱼和个人渠道里都有报价，手动比较很耗时间。
+- **AI 订阅价格不透明**：AI 官方地区订阅、官网正价、App Store 地区价、Google Play 地区价、学生资格、设备权益、代充价、成品号价、卡密价经常混在一起。
+- **卡网渠道太分散**：200+ AI 订阅卡网、发卡站、链动小铺、独角数卡、Kami / 卡密类渠道、Telegram 群、闲鱼和个人渠道里都有报价，手动比较很耗时间。
 - **商品命名混乱**：`ChatGPT Plus 代充`、`Plus 成品号`、`ChatGPT Team 邀请`、`Claude Pro 会员`、`Gemini Pro 低价` 可能不是同一种交付方式。
 - **库存和更新时间不可靠**：低价不代表现在能买，过期报价、缺货报价和隐藏报价不应该参与最低价判断。
 - **官方 API 和模型 API 难横向比较**：DeepSeek、Qwen、Kimi、GLM、MiniMax 等模型 API 的免费额度、Token Plan、价格单位和限制口径不统一。
@@ -128,8 +128,8 @@ PriceAI 不卖货、不收款、不替任何渠道担保。它更像一个购买
 
 ## 当前能力
 
-- **官方订阅地区价**：整理公开地区价格、人民币估算、来源链接和更新时间。
-- **卡网订阅比价**：按 ChatGPT、Claude、Gemini、Grok、邮箱、API/CDK、工具账号等整理多渠道报价。
+- **AI 官方订阅地区价**：整理公开地区价格、人民币估算、来源链接和更新时间。
+- **卡网订阅比价**：覆盖 200+ AI 订阅卡网、发卡站和低价会员渠道，按 ChatGPT、Claude、Gemini、Grok、邮箱、API/CDK、工具账号等整理多渠道报价。
 - **API 模型雷达**：整理官方 API、模型路由、免费/测试额度、Token Plan、价格和限制。
 - **中转 API 价格榜**：展示第三方中转站的充值系数、模型倍率、综合倍率、近 7 日可用性和来源渠道。
 - **指南内容**：解释官方订阅、地区价、卡网渠道、交付方式和风险边界。
