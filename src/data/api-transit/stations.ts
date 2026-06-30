@@ -1,5 +1,11 @@
 import type { TransitModelFamily, TransitStation } from "./types";
 
+const seedManualAvailabilitySource = {
+  sourceType: "manual_snapshot",
+  sourceLabel: "人工录入",
+  sourceUrl: null,
+} as const;
+
 export const seedStations: TransitStation[] = [
   {
     id: "stn-packy",
@@ -27,6 +33,7 @@ export const seedStations: TransitStation[] = [
       sevenDaySamples: 342,
       lastCheckedAt: "2026-06-15 10:40",
       note: "站点公开监控 + 人工抽样汇总",
+      ...seedManualAvailabilitySource,
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "aws-q Pro 池", "1:1", 0.14, 0.42, 2.1, 0.042, 0.525, "pro", "cloud", 0.991, 148),
@@ -72,6 +79,7 @@ export const seedStations: TransitStation[] = [
       sevenDaySamples: 214,
       lastCheckedAt: "2026-06-15 09:30",
       note: "人工抽样 + 用户反馈整理",
+      ...seedManualAvailabilitySource,
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Pro 混池", "1:1", 0.18, 0.54, 2.7, 0.054, 0.648, "mixed", "mixed", 0.948, 74),
@@ -106,6 +114,7 @@ export const seedStations: TransitStation[] = [
       sevenDaySamples: 96,
       lastCheckedAt: "2026-06-15 08:45",
       note: "样本较少，需补充站点级监控",
+      ...seedManualAvailabilitySource,
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Plus 池", "1:1", 0.20, 0.6, 3.0, 0.06, 0.72, "plus", "undisclosed", 0.914, 36),
@@ -141,6 +150,7 @@ export const seedStations: TransitStation[] = [
       sevenDaySamples: 52,
       lastCheckedAt: "2026-06-15 11:00",
       note: "商家样本 + 少量人工探测",
+      ...seedManualAvailabilitySource,
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Pro 池", "1:1.2", 0.16, 0.58, 2.8, 0.058, 0.7, "pro", "first_party_pool", 0.972, 18),
@@ -184,6 +194,7 @@ export const seedStations: TransitStation[] = [
       sevenDaySamples: 88,
       lastCheckedAt: "2026-06-14 22:10",
       note: "样本主要来自人工记录",
+      ...seedManualAvailabilitySource,
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude Plus 池", "1:1", 0.17, 0.51, 2.55, 0.051, 0.612, "plus", "first_party_pool", 0.934, 30),
@@ -217,6 +228,7 @@ export const seedStations: TransitStation[] = [
       sevenDaySamples: 44,
       lastCheckedAt: "2026-06-14 19:20",
       note: "用户反馈样本，未完成 PriceAI 核验",
+      ...seedManualAvailabilitySource,
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "Claude 混池", "1:1", 0.28, 0.84, 4.2, null, null, "mixed", "mixed", 0.861, 12),
@@ -250,6 +262,9 @@ export const seedStations: TransitStation[] = [
       sevenDaySamples: 0,
       lastCheckedAt: null,
       note: "暂无可用性样本",
+      sourceType: "unknown",
+      sourceLabel: null,
+      sourceUrl: null,
     },
     prices: [
       price("claude", "Claude Sonnet 4.6", "未披露 Claude 池", "1:1", 0.45, null, null, null, null, "undisclosed", "undisclosed", null, 0),
@@ -294,6 +309,11 @@ function price(
       sevenDayRate,
       sevenDaySamples,
       lastCheckedAt: sevenDaySamples > 0 ? "2026-06-15 10:00" : null,
+      ...(sevenDaySamples > 0 ? seedManualAvailabilitySource : {
+        sourceType: "unknown",
+        sourceLabel: null,
+        sourceUrl: null,
+      }),
     },
   };
 }

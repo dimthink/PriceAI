@@ -26,6 +26,24 @@ const ONEHOP_PUBLIC_MODEL_COLLECTORS = new Set(["onehop_public_models"]);
 const APINODE_PUBLIC_SITE_INFO_COLLECTORS = new Set(["apinode_public_site_info", "sub2api_public_site_info"]);
 const ZIVV_MODEL_HUB_COLLECTORS = new Set(["zivv_model_hub"]);
 const SOURCE_SKIPPED = Symbol("source_skipped");
+const AVAILABILITY_SOURCES = {
+  publicStatus: {
+    type: "public_status",
+    label: "公开监测页",
+  },
+  publicModelCatalog: {
+    type: "public_model_catalog",
+    label: "公开模型页",
+  },
+  partnerApi: {
+    type: "partner_api",
+    label: "站长接口",
+  },
+  unknown: {
+    type: "unknown",
+    label: null,
+  },
+};
 const officialTransitPrices = {
   "Claude Sonnet 4.6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, imageOutput: null },
   "Claude Opus 4.6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null },
@@ -556,6 +574,7 @@ function parseZivvModelHubPayload(source, payload, collectedAt) {
         firstCheckedAt: null,
         lastCheckedAt: null,
         note: "Zivv 公开模型广场价格已抓取；状态页公开存在，但尚未接入 PriceAI API Key 可用性检测。",
+        ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
       },
     }),
     offers: deduped,
@@ -637,6 +656,7 @@ function buildZivvModelHubOfferRow(source, item, group, standard, collectedAt) {
     availability_first_checked_at: null,
     availability_last_checked_at: null,
     availability_note: "价格已抓取，尚未运行 API 可用性检测。",
+    ...availabilitySourceFields(source, AVAILABILITY_SOURCES.unknown),
     last_verified_at: collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
@@ -693,6 +713,8 @@ function applyZivvStatusAvailability(source, parsed, payload, collectedAt) {
         ok: point.ok,
         checkedAt: point.checkedAt,
         index: point.index,
+        source,
+        availabilitySource: AVAILABILITY_SOURCES.publicStatus,
       }));
     }
 
@@ -703,7 +725,10 @@ function applyZivvStatusAvailability(source, parsed, payload, collectedAt) {
       group_name: service.groupName,
     });
     if (!activeOfferKeys.has(key)) continue;
-    const availability = availabilityFromZivvStatusService(service, collectedAt);
+    const availability = {
+      ...availabilityFromZivvStatusService(service, collectedAt),
+      ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
+    };
     offerAvailabilityByKey.set(key, availability);
     for (const point of service.history) {
       samples.push(buildAvailabilitySampleRow({
@@ -714,6 +739,8 @@ function applyZivvStatusAvailability(source, parsed, payload, collectedAt) {
         ok: point.ok,
         checkedAt: point.checkedAt,
         index: point.index,
+        source,
+        availabilitySource: AVAILABILITY_SOURCES.publicStatus,
       }));
     }
   }
@@ -734,6 +761,7 @@ function applyZivvStatusAvailability(source, parsed, payload, collectedAt) {
       availability_first_checked_at: stationAvailability.firstCheckedAt,
       availability_last_checked_at: stationAvailability.lastCheckedAt,
       availability_note: stationAvailability.note,
+      ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
     });
   }
 }
@@ -810,6 +838,7 @@ function availabilityFromZivvStatusService(service, collectedAt) {
     firstCheckedAt: window.first,
     lastCheckedAt: window.last || service.checkedAt || collectedAt,
     note: `Zivv 公开状态页 7 日服务监测：${service.name || service.groupName || "未命名服务"}，页面 uptime ${displayRate === null ? "未公开" : `${round(displayRate, 2)}%`}，历史点 ${service.history.length} 个${currentText}。`,
+    ...availabilitySourceFields(null, AVAILABILITY_SOURCES.publicStatus),
   };
 }
 
@@ -831,6 +860,7 @@ function summarizeZivvStatusAvailability(services, collectedAt) {
     firstCheckedAt: window.first,
     lastCheckedAt: window.last || collectedAt,
     note: `Zivv 公开状态页 7 日汇总：${valid.length} 个服务、${samples} 个历史点，按服务页面 uptime 加权汇总；非 PriceAI API Key 实测。`,
+    ...availabilitySourceFields(null, AVAILABILITY_SOURCES.publicStatus),
   };
 }
 
@@ -848,6 +878,9 @@ function applyAvailabilityToOffer(offer, availability) {
   offer.availability_first_checked_at = availability.firstCheckedAt;
   offer.availability_last_checked_at = availability.lastCheckedAt;
   offer.availability_note = availability.note;
+  offer.availability_source_type = availability.availability_source_type || offer.availability_source_type || "unknown";
+  offer.availability_source_label = availability.availability_source_label ?? offer.availability_source_label ?? null;
+  offer.availability_source_url = availability.availability_source_url ?? offer.availability_source_url ?? null;
   offer.last_verified_at = availability.lastCheckedAt || offer.last_verified_at;
 }
 
@@ -874,7 +907,30 @@ function buildAvailabilitySampleRow(input) {
     group_name: groupName,
     ok: Boolean(input.ok),
     checked_at: checkedAt,
+    source_type: input.availabilitySource?.type || "unknown",
+    source_label: input.availabilitySource?.label || null,
+    source_url: availabilitySourceUrl(input.source, input.availabilitySource),
   };
+}
+
+function availabilitySourceFields(source, availabilitySource) {
+  const sourceType = availabilitySource?.availability_source_type || availabilitySource?.type || "unknown";
+  const sourceLabel = availabilitySource?.availability_source_label ?? availabilitySource?.label ?? null;
+  const sourceUrl = availabilitySource?.availability_source_url ?? availabilitySourceUrl(source, availabilitySource);
+  return {
+    availability_source_type: sourceType,
+    availability_source_label: sourceLabel,
+    availability_source_url: sourceUrl,
+  };
+}
+
+function availabilitySourceUrl(source, availabilitySource) {
+  if (!source) return null;
+  const type = availabilitySource?.sourceType || availabilitySource?.type || "unknown";
+  if (type === "public_status") return source.monitorUrl || source.monitorEndpointUrl || null;
+  if (type === "public_model_catalog") return source.pricingUrl || source.pricingEndpointUrl || null;
+  if (type === "partner_api") return source.pricingEndpointUrl || source.pricingUrl || null;
+  return null;
 }
 
 function normalizeSourceGroupName(source, groupName) {
@@ -1000,6 +1056,7 @@ function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
     availability_first_checked_at: availability.firstCheckedAt ?? null,
     availability_last_checked_at: availability.lastCheckedAt,
     availability_note: availability.note,
+    ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicModelCatalog),
     last_verified_at: availability.lastCheckedAt || collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
@@ -1152,6 +1209,7 @@ function oneHopAvailabilityFromDisplayMetrics(displayMetrics, collectedAt) {
       firstCheckedAt: successRate === null ? null : collectedAt,
       lastCheckedAt: collectedAt,
       note: "OneHop 公开模型目录未返回 14 日 uptime；保留页面 successRate 作为商家公开参考。",
+      ...availabilitySourceFields(null, AVAILABILITY_SOURCES.publicModelCatalog),
     };
   }
 
@@ -1163,6 +1221,7 @@ function oneHopAvailabilityFromDisplayMetrics(displayMetrics, collectedAt) {
     firstCheckedAt: earliestDay ? `${earliestDay}T00:00:00.000Z` : null,
     lastCheckedAt: latestDay ? `${latestDay}T00:00:00.000Z` : collectedAt,
     note: `OneHop 公开模型目录 uptime14d，按日可用率样本，非 PriceAI API Key 实测${usageNote}。`,
+    ...availabilitySourceFields(null, AVAILABILITY_SOURCES.publicModelCatalog),
   };
 }
 
@@ -1188,6 +1247,7 @@ function summarizeOneHopStationAvailability(offers, collectedAt) {
     firstCheckedAt: firstCheckedAt || null,
     lastCheckedAt: lastCheckedAt || collectedAt,
     note: "OneHop 公开模型目录汇总 uptime14d；这些是商家页面公开样本，仍需 PriceAI 测试 Key 复核。",
+    ...availabilitySourceFields(null, AVAILABILITY_SOURCES.publicModelCatalog),
   };
 }
 
@@ -1329,6 +1389,7 @@ function buildCallaiPartnerOfferRow({
     availability_first_checked_at: availability.firstCheckedAt ?? null,
     availability_last_checked_at: checkedAt,
     availability_note: availability.note,
+    ...availabilitySourceFields(source, AVAILABILITY_SOURCES.partnerApi),
     last_verified_at: checkedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
@@ -1427,6 +1488,7 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
       firstCheckedAt: null,
       lastCheckedAt: null,
       note: "partner API 未返回该分组最近监测结果。",
+      ...availabilitySourceFields(null, AVAILABILITY_SOURCES.partnerApi),
     };
   }
 
@@ -1440,6 +1502,7 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
       firstCheckedAt: checkedAt,
       lastCheckedAt: checkedAt,
       note: `partner API 最近一次监测正常，非 7 日可用率${staleNote}。`,
+      ...availabilitySourceFields(null, AVAILABILITY_SOURCES.partnerApi),
     };
   }
   if (status === "degraded") {
@@ -1449,6 +1512,7 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
       firstCheckedAt: checkedAt,
       lastCheckedAt: checkedAt,
       note: `partner API 最近一次监测异常或性能下降，非 7 日可用率${staleNote}。`,
+      ...availabilitySourceFields(null, AVAILABILITY_SOURCES.partnerApi),
     };
   }
 
@@ -1458,6 +1522,7 @@ function callaiAvailabilityFromMonitoring(monitoring, meta, collectedAt) {
     firstCheckedAt: checkedAt,
     lastCheckedAt: checkedAt,
     note: `partner API 最近监测状态为 ${status}，检查时间 ${checkedAt}${staleNote}。`,
+    ...availabilitySourceFields(null, AVAILABILITY_SOURCES.partnerApi),
   };
 }
 
@@ -1470,6 +1535,7 @@ function summarizeCallaiPartnerAvailability(latest, collectedAt) {
       firstCheckedAt: null,
       lastCheckedAt: null,
       note: "partner API 暂无最近监测结果。",
+      ...availabilitySourceFields(null, AVAILABILITY_SOURCES.partnerApi),
     };
   }
 
@@ -1480,6 +1546,7 @@ function summarizeCallaiPartnerAvailability(latest, collectedAt) {
     firstCheckedAt: checkedTimes[0] || null,
     lastCheckedAt: checkedTimes.at(-1) || collectedAt,
     note: "partner API 最近一次监测汇总，非 7 日可用率。",
+    ...availabilitySourceFields(null, AVAILABILITY_SOURCES.partnerApi),
   };
 }
 
@@ -1515,6 +1582,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
     availability_first_checked_at: availability.firstCheckedAt ?? null,
     availability_last_checked_at: availability.lastCheckedAt ?? null,
     availability_note: availability.note || "已抓取公开价格，尚未接入 API Key 可用性检测。",
+    ...availabilitySourceFields(source, availability),
     feedback_pending_count: 0,
     feedback_verified_risk_count: 0,
     feedback_merchant_responded_count: 0,
@@ -1571,6 +1639,7 @@ function buildOfferRow(source, item, group, standard, collectedAt) {
     availability_first_checked_at: null,
     availability_last_checked_at: null,
     availability_note: "价格已抓取，尚未运行 API 可用性检测。",
+    ...availabilitySourceFields(source, AVAILABILITY_SOURCES.unknown),
     last_verified_at: collectedAt,
     status: shouldAutoPublishSource(source) ? "active" : "needs_review",
     auto_publish: shouldAutoPublishSource(source),
@@ -1891,6 +1960,14 @@ async function upsertOfferRows(supabase, offers) {
       rows: removeFieldsFromRows(offers, ["availability_first_checked_at", "image_output_price"]),
       compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window and image output split.",
     },
+    {
+      rows: removeAvailabilitySourceFields(offers),
+      compatibility: "api_transit_offers availability source columns missing; wrote offers without source labels.",
+    },
+    {
+      rows: removeFieldsFromRows(removeAvailabilitySourceFields(offers), ["availability_first_checked_at", "image_output_price"]),
+      compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window, image output split, or source labels.",
+    },
   ];
 
   let lastMissingColumnError = null;
@@ -1901,7 +1978,8 @@ async function upsertOfferRows(supabase, offers) {
     } catch (error) {
       if (
         !isMissingColumnError(error, "availability_first_checked_at") &&
-        !isMissingColumnError(error, "image_output_price")
+        !isMissingColumnError(error, "image_output_price") &&
+        !isAvailabilitySourceColumnError(error)
       ) {
         throw error;
       }
@@ -2141,6 +2219,20 @@ async function upsertRows(supabase, table, rows, options = {}) {
       fallbackError.table = table;
       throw fallbackError;
     }
+    if (error && table === "api_transit_stations" && isAvailabilitySourceColumnError(error)) {
+      const compatibleChunk = removeAvailabilitySourceFields(chunk);
+      const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
+    if (error && table === "api_transit_availability_samples" && isSampleSourceColumnError(error)) {
+      const compatibleChunk = removeSampleSourceFields(chunk);
+      const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
     if (error) {
       error.table = table;
       throw error;
@@ -2154,6 +2246,21 @@ function removeFieldsFromRows(rows, fieldNames) {
     for (const fieldName of fieldNames) delete next[fieldName];
     return next;
   });
+}
+
+function removeAvailabilitySourceFields(rows) {
+  return removeFieldsFromRows(rows, [
+    "availability_source_type",
+    "availability_source_label",
+    "availability_source_url",
+    "sourceType",
+    "sourceLabel",
+    "sourceUrl",
+  ]);
+}
+
+function removeSampleSourceFields(rows) {
+  return removeFieldsFromRows(rows, ["source_type", "source_label", "source_url"]);
 }
 
 function loadSources() {
@@ -2220,6 +2327,22 @@ function isMissingColumnError(error, columnName) {
   const code = String(error?.code || "");
   const message = String(error?.message || error?.details || "");
   return (code === "42703" || code === "PGRST204") && message.includes(columnName);
+}
+
+function isAvailabilitySourceColumnError(error) {
+  return (
+    isMissingColumnError(error, "availability_source_type") ||
+    isMissingColumnError(error, "availability_source_label") ||
+    isMissingColumnError(error, "availability_source_url")
+  );
+}
+
+function isSampleSourceColumnError(error) {
+  return (
+    isMissingColumnError(error, "source_type") ||
+    isMissingColumnError(error, "source_label") ||
+    isMissingColumnError(error, "source_url")
+  );
 }
 
 function compactSnapshot(payload) {

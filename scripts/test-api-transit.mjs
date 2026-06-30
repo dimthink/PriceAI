@@ -273,10 +273,14 @@ __test.applyZivvStatusAvailability(
 );
 
 assert.equal(zivvParsed.station.availability_seven_day_samples, 3);
+assert.equal(zivvParsed.station.availability_source_type, "public_status");
+assert.equal(zivvParsed.station.availability_source_label, "公开监测页");
 assert.equal(zivvParsed.availabilitySamples.length, 6);
+assert.equal(zivvParsed.availabilitySamples[0].source_type, "public_status");
 const codexProOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "Codex Pro");
 assert.equal(codexProOffer.availability_seven_day_samples, 2);
 assert.equal(codexProOffer.availability_seven_day_rate, 0.995);
+assert.equal(codexProOffer.availability_source_type, "public_status");
 const codexPlusOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "Codex Plus【目前不稳定】");
 assert.equal(codexPlusOffer.availability_seven_day_samples, 0);
 

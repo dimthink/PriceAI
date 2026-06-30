@@ -50,6 +50,7 @@ import {
   getActiveTransitCommercialOffers,
   formatAvailability,
   formatPercent,
+  getAvailabilitySourceMeta,
   formatRate,
   getCombinedRateForPrice,
   getFamilyPrices,
@@ -85,6 +86,9 @@ type TransitPriceGroup = {
   lastCheckedAt: string | null;
   latestVerifiedAt: string;
   priceSource: string;
+  availabilitySourceLabel: string;
+  availabilitySourceTitle: string;
+  availabilitySourceUrl: string | null;
   history: TransitMultiplierHistoryPoint[];
 };
 
@@ -1390,8 +1394,9 @@ function PriceGroupMobileCard({
           </StatusChip>
         ))}
         <ProbePolicyTag
-          label={`监测 ${shortModelLabel(primaryPrice.standardModel)}`}
-          title="PriceAI 先拉取该分组 Key 的可用模型列表，再按最新且级别最高的可用模型发起一次请求。监测频率按实际样本展示；价格和分组倍率按公开价格或后台确认记录沉淀。"
+          label={group.availabilitySourceLabel}
+          title={group.availabilitySourceTitle}
+          href={group.availabilitySourceUrl}
         />
       </div>
 
@@ -1553,6 +1558,7 @@ function buildPriceGroup(
       .filter(Boolean)
       .sort()
       .at(-1) ?? primaryPrice.lastVerifiedAt;
+  const sourceMeta = getAvailabilitySourceMeta(primaryPrice.availability);
 
   return {
     groupName,
@@ -1568,6 +1574,9 @@ function buildPriceGroup(
     lastCheckedAt,
     latestVerifiedAt,
     priceSource: primaryPrice.priceSource,
+    availabilitySourceLabel: sourceMeta.label,
+    availabilitySourceTitle: sourceMeta.title,
+    availabilitySourceUrl: sourceMeta.url,
     history: normalizedGroupHistory(station, primaryPrice),
   };
 }
@@ -1605,15 +1614,32 @@ function shortModelLabel(model: TransitModelPrice["standardModel"]): string {
 function ProbePolicyTag({
   label,
   title,
+  href,
   className = "",
 }: {
   label: string;
   title: string;
+  href?: string | null;
   className?: string;
 }) {
+  const classes = `inline-flex w-fit items-center rounded-full border border-dashed border-[#9aa5a7] px-2 py-0.5 text-[10px] font-bold text-[#5a6061] ${className}`;
+  if (href) {
+    return (
+      <a
+        className={classes}
+        href={href}
+        rel="noreferrer"
+        target="_blank"
+        title={title}
+      >
+        {label}
+      </a>
+    );
+  }
+
   return (
     <span
-      className={`inline-flex w-fit items-center rounded-full border border-dashed border-[#9aa5a7] px-2 py-0.5 text-[10px] font-bold text-[#5a6061] ${className}`}
+      className={classes}
       title={title}
     >
       {label}
@@ -1635,6 +1661,7 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
         ? families.map((family) => TRANSIT_MODEL_FAMILY_LABELS[family]).join(" + ")
         : "代表模型",
       note: station.availability.note ?? "—",
+      source: getAvailabilitySourceMeta(station.availability),
     },
     ...families.map((family) => {
       const summary = getFamilyRateSummary(station, family);
@@ -1646,6 +1673,7 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
         lastCheckedAt: summary.lastCheckedAt,
         monitorModel: getFamilyMonitorModelLabel(station, family),
         note: formatAvailability({ sevenDayRate: summary.sevenDayRate, sevenDaySamples: summary.sevenDaySamples }),
+        source: getFamilyAvailabilitySourceMeta(station, family),
       };
     }),
   ];
@@ -1667,7 +1695,7 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
         </div>
       ) : (
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[780px] border-collapse">
+        <table className="w-full min-w-[860px] border-collapse">
           <thead>
             <tr className="bg-[#f2f4f4]/50">
               <DataTableHead>范围</DataTableHead>
@@ -1675,6 +1703,7 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
               <DataTableHead explanation="PriceAI 在当前滚动窗口内记录的结构化可用性样本数。">样本数</DataTableHead>
               <DataTableHead explanation="同一范围内第一条与最新一条可用性样本的时间；只有一条样本时显示单次检查。">监测区间</DataTableHead>
               <DataTableHead explanation="该范围实际使用的代表模型，不等同于站点支持的全部模型。">监测模型</DataTableHead>
+              <DataTableHead explanation="说明稳定性样本来自 PriceAI 实测、公开监测页、公开模型页、站长接口或商家提交。">来源</DataTableHead>
               <DataTableHead>说明</DataTableHead>
             </tr>
           </thead>
@@ -1693,6 +1722,9 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
                   <td className="px-4 py-3 text-sm text-[#2d3435]">{row.sevenDaySamples}</td>
                   <td className="px-4 py-3 text-xs text-[#5a6061]">{formatMonitoringWindow(row)}</td>
                   <td className="px-4 py-3 text-xs text-[#5a6061]">{row.monitorModel}</td>
+                  <td className="px-4 py-3">
+                    <ProbePolicyTag label={row.source.label} title={row.source.title} href={row.source.url} />
+                  </td>
                   <td className="px-4 py-3 text-xs text-[#5a6061]">{row.note}</td>
                 </tr>
               ))}
@@ -1722,6 +1754,7 @@ type AvailabilityRow = {
   lastCheckedAt: string | null;
   monitorModel: string;
   note: string;
+  source: ReturnType<typeof getAvailabilitySourceMeta>;
 };
 
 function AvailabilityMobileCard({ row }: { row: AvailabilityRow }) {
@@ -1742,6 +1775,7 @@ function AvailabilityMobileCard({ row }: { row: AvailabilityRow }) {
       <div className="mt-3 grid gap-2">
         <MobileTextBlock label="监测区间" value={formatMonitoringWindow(row)} />
         <MobileTextBlock label="监测模型" value={row.monitorModel} />
+        <MobileTextBlock label="来源" value={row.source.label} />
         <MobileTextBlock label="说明" value={row.note} />
       </div>
     </article>
@@ -1791,6 +1825,34 @@ function getFamilyMonitorModelLabel(station: TransitStation, family: TransitMode
   return models.length ? models.map((model) => shortModelLabel(model as TransitModelPrice["standardModel"])).join("、") : "暂无监测模型";
 }
 
+function getFamilyAvailabilitySourceMeta(station: TransitStation, family: TransitModelFamily): ReturnType<typeof getAvailabilitySourceMeta> {
+  const prices = getFamilyPrices(station, family);
+  const sorted = [...prices].sort((left, right) =>
+    availabilitySourcePriority(right.availability.sourceType) - availabilitySourcePriority(left.availability.sourceType)
+  );
+  const price = sorted.find((item) => item.availability.sourceType !== "unknown") || sorted[0];
+  return price ? getAvailabilitySourceMeta(price.availability) : getAvailabilitySourceMeta(station.availability);
+}
+
+function availabilitySourcePriority(sourceType: TransitModelPrice["availability"]["sourceType"]): number {
+  switch (sourceType) {
+    case "priceai_probe":
+      return 6;
+    case "public_status":
+      return 5;
+    case "public_model_catalog":
+      return 4;
+    case "partner_api":
+      return 3;
+    case "merchant_reported":
+      return 2;
+    case "manual_snapshot":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
 function formatMonitoringWindow(input: { firstCheckedAt?: string | null; lastCheckedAt: string | null; sevenDaySamples: number }): string {
   if (!input.lastCheckedAt || input.sevenDaySamples <= 0) return "暂无监测区间";
   const start = input.firstCheckedAt || input.lastCheckedAt;
@@ -1801,9 +1863,10 @@ function formatMonitoringWindow(input: { firstCheckedAt?: string | null; lastChe
 }
 
 function formatAvailabilityBasis(station: TransitStation): string {
-  if (station.availability.sevenDaySamples > 1) return `样本 ${station.availability.sevenDaySamples}`;
-  if (station.availability.sevenDaySamples === 1) return "单次样本";
-  return station.monitorUrl ? "含监测入口" : "暂无样本";
+  const source = getAvailabilitySourceMeta(station.availability);
+  if (station.availability.sevenDaySamples > 1) return `${source.label} · 样本 ${station.availability.sevenDaySamples}`;
+  if (station.availability.sevenDaySamples === 1) return `${source.label} · 单次样本`;
+  return source.label === "未记录" && station.monitorUrl ? "含监测入口" : source.label;
 }
 
 function MetricCard({

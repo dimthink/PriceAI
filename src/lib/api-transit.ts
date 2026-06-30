@@ -1,4 +1,5 @@
 import type {
+  TransitAvailability,
   TransitChannelType,
   TransitCommercialOffer,
   TransitModelFamily,
@@ -867,6 +868,65 @@ export function formatAvailability(
 ): string {
   if (availability.sevenDaySamples <= 0 || availability.sevenDayRate === null) return "样本不足";
   return `${formatPercent(availability.sevenDayRate)} · 样本 ${availability.sevenDaySamples}`;
+}
+
+export type AvailabilitySourceTone = "success" | "info" | "warning" | "muted";
+
+export function getAvailabilitySourceMeta(
+  availability: Pick<TransitAvailability, "sourceType" | "sourceLabel" | "sourceUrl">
+): { label: string; tone: AvailabilitySourceTone; title: string; url: string | null } {
+  const explicitLabel = availability.sourceLabel?.trim();
+  switch (availability.sourceType) {
+    case "priceai_probe":
+      return {
+        label: explicitLabel || "PriceAI 实测",
+        tone: "success",
+        title: "PriceAI 使用测试 API Key 发起真实模型请求后汇总的可用性样本。",
+        url: availability.sourceUrl,
+      };
+    case "public_status":
+      return {
+        label: explicitLabel || "公开监测页",
+        tone: "info",
+        title: "来自站点公开状态页或公开监测接口，非 PriceAI API Key 实测。",
+        url: availability.sourceUrl,
+      };
+    case "public_model_catalog":
+      return {
+        label: explicitLabel || "公开模型页",
+        tone: "info",
+        title: "来自站点公开模型目录中的可用性指标，非 PriceAI API Key 实测。",
+        url: availability.sourceUrl,
+      };
+    case "partner_api":
+      return {
+        label: explicitLabel || "站长接口",
+        tone: "info",
+        title: "来自站长提供的公开或合作接口，非 PriceAI API Key 实测。",
+        url: availability.sourceUrl,
+      };
+    case "merchant_reported":
+      return {
+        label: explicitLabel || "商家提交",
+        tone: "warning",
+        title: "来自商家提交的截图或资料，尚未视为 PriceAI 实测。",
+        url: availability.sourceUrl,
+      };
+    case "manual_snapshot":
+      return {
+        label: explicitLabel || "人工录入",
+        tone: "muted",
+        title: "来自人工整理或一次性快照，后续应替换为公开接口或 PriceAI 实测。",
+        url: availability.sourceUrl,
+      };
+    default:
+      return {
+        label: explicitLabel || "未记录",
+        tone: "muted",
+        title: "当前稳定性来源尚未结构化记录。",
+        url: availability.sourceUrl,
+      };
+  }
 }
 
 export function getRateBadgeClass(rate: number | null): string {
