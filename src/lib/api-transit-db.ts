@@ -404,27 +404,6 @@ async function queryPublishedStationRows(
   throw lastMissingColumnError;
 }
 
-async function readPublishedStationRowsWithoutNewOptionalColumns(
-  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
-  slug?: string
-): Promise<DbRow[]> {
-  const attempts = [
-    STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED,
-    STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE,
-    STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL,
-  ];
-  let lastError: unknown = null;
-  for (const columns of attempts) {
-    try {
-      return await queryStationRows(client, publicTransitReadSignal(), columns, slug);
-    } catch (error) {
-      if (!isMissingColumnError(error)) throw error;
-      lastError = error;
-    }
-  }
-  throw lastError;
-}
-
 async function queryStationRows(
   client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
   signal: AbortSignal,
