@@ -177,8 +177,8 @@ export async function updateApiTransitStation(input: {
   if (input.summary !== undefined) row.summary = cleanNullable(input.summary) || "";
   if (input.sourceType !== undefined) row.source_type = input.sourceType;
   if (input.commercialRelation !== undefined) row.commercial_relation = input.commercialRelation;
-  if (input.stationSystem !== undefined) row.station_system = input.stationSystem;
-  if (input.operatorType !== undefined) row.operator_type = input.operatorType;
+  if (input.stationSystem !== undefined) row.station_system = input.stationSystem === "unknown" ? null : input.stationSystem;
+  if (input.operatorType !== undefined) row.operator_type = input.operatorType === "unknown" ? "individual" : input.operatorType;
   if (input.invoiceSupport !== undefined) row.invoice_support = input.invoiceSupport;
   if (input.collectorKind !== undefined) row.collector_kind = cleanRequired(input.collectorKind, "采集器类型不能为空。");
   if (input.collectionStatus) row.collection_status = input.collectionStatus;
@@ -1581,7 +1581,7 @@ function stationSystem(value: unknown): ApiTransitStationSystem {
 
 function operatorType(value: unknown): ApiTransitOperatorType {
   const text = stringValue(value);
-  return text === "company" || text === "individual" || text === "unknown" ? text : "unknown";
+  return text === "company" || text === "individual" ? text : "individual";
 }
 
 function invoiceSupport(value: unknown): ApiTransitInvoiceSupport {

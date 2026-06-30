@@ -954,12 +954,12 @@ function stationStatus(value: unknown): TransitStation["status"] {
 
 function stationSystem(value: unknown): TransitStation["stationSystem"] {
   const text = stringValue(value);
-  return text === "new_api" || text === "sub_to_api" || text === "custom" || text === "unknown" ? text : undefined;
+  return text === "new_api" || text === "sub_to_api" || text === "custom" ? text : undefined;
 }
 
 function operatorType(value: unknown): TransitStation["operatorType"] {
   const text = stringValue(value);
-  return text === "company" || text === "individual" || text === "unknown" ? text : "unknown";
+  return text === "company" || text === "individual" ? text : "individual";
 }
 
 function invoiceSupport(value: unknown): TransitStation["invoiceSupport"] {

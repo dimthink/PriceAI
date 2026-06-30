@@ -7,7 +7,7 @@ const seedManualAvailabilitySource = {
 } as const;
 
 const seedStationDefaults = {
-  operatorType: "unknown",
+  operatorType: "individual",
   invoiceSupport: "unknown",
 } as const;
 

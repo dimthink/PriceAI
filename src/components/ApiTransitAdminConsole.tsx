@@ -123,7 +123,7 @@ const transitAccountPoolOptions = Object.entries(TRANSIT_ACCOUNT_POOL_LABELS);
 const transitModelFamilyOptions = TRANSIT_MODEL_FAMILY_OPTIONS;
 const transitRiskLabelOptions = Object.entries(TRANSIT_RISK_LABELS);
 const transitStationSystemOptions = Object.entries(TRANSIT_STATION_SYSTEM_LABELS);
-const transitOperatorTypeOptions = Object.entries(TRANSIT_OPERATOR_TYPE_LABELS);
+const transitOperatorTypeOptions = Object.entries(TRANSIT_OPERATOR_TYPE_LABELS).filter(([value]) => value !== "unknown");
 const transitInvoiceSupportOptions = Object.entries(TRANSIT_INVOICE_SUPPORT_LABELS);
 
 export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) {

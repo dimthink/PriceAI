@@ -203,7 +203,7 @@ export const TRANSIT_STATION_SYSTEM_LABELS: Record<TransitStationSystem, string>
 export const TRANSIT_OPERATOR_TYPE_LABELS: Record<TransitOperatorType, string> = {
   company: "企业",
   individual: "个人",
-  unknown: "未知",
+  unknown: "个人",
 };
 
 export const TRANSIT_INVOICE_SUPPORT_LABELS: Record<TransitInvoiceSupport, string> = {

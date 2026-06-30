@@ -210,6 +210,15 @@ const stationRefresh = __test.mergeStationForRefresh(
 );
 assert.equal(stationRefresh.station_system, "custom");
 
+const stationRefreshFromUnknown = __test.mergeStationForRefresh(
+  { id: "wawazz-xyz", station_system: "sub_to_api", operator_type: "individual", invoice_support: "supported" },
+  { id: "wawazz-xyz", station_system: "unknown", operator_type: "unknown", invoice_support: "unknown", published: true },
+  {},
+);
+assert.equal(stationRefreshFromUnknown.station_system, "sub_to_api");
+assert.equal(stationRefreshFromUnknown.operator_type, "individual");
+assert.equal(stationRefreshFromUnknown.invoice_support, "supported");
+
 const zivvParsed = __test.parseZivvModelHubPayload(
   {
     id: "zivv-pro",

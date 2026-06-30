@@ -45,6 +45,7 @@ import {
   getFamilyAvailabilitySourceMeta,
   getFamilyRateSummary,
   getNormalizedSourceTags,
+  getTransitOperatorType,
   getPrimaryTransitCommercialOffer,
   getStationComparisonSummary,
   getStationRechargeCoefficient,
@@ -723,7 +724,8 @@ function StationIdentity({ station }: { station: TransitStation }) {
   const offerLabel = offer ? formatListOfferLabel(offer) : null;
   const offerTitle = offer ? offer.title : "";
   const hasAff = hasTransitAffRelation(station);
-  const operatorLabel = station.operatorType === "unknown" ? null : TRANSIT_OPERATOR_TYPE_LABELS[station.operatorType];
+  const operatorType = getTransitOperatorType(station);
+  const operatorLabel = TRANSIT_OPERATOR_TYPE_LABELS[operatorType];
   const invoiceLabel = station.invoiceSupport === "supported" ? TRANSIT_INVOICE_SUPPORT_LABELS[station.invoiceSupport] : null;
 
   return (
@@ -735,8 +737,6 @@ function StationIdentity({ station }: { station: TransitStation }) {
           <span className="inline-flex h-5 w-[72px] shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] px-2 text-[10px] font-bold text-[#5a6061]">
             <span className="truncate">{getTransitStationSystemLabel(station)}</span>
           </span>
-          {operatorLabel ? <StationInfoTag label={operatorLabel} tone={station.operatorType} /> : null}
-          {invoiceLabel ? <StationInfoTag label={invoiceLabel} tone="invoice" /> : null}
           {hasAff ? (
             <span
               className="inline-flex h-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#adb3b4]/70 px-2 text-[10px] font-extrabold text-[#5a6061]"
@@ -753,6 +753,10 @@ function StationIdentity({ station }: { station: TransitStation }) {
               <span className="truncate">{offerLabel}</span>
             </span>
           ) : null}
+        </div>
+        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+          <StationInfoTag label={operatorLabel} tone={operatorType} />
+          {invoiceLabel ? <StationInfoTag label={invoiceLabel} tone="invoice" /> : null}
         </div>
       </div>
     </div>

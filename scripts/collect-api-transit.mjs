@@ -1568,8 +1568,8 @@ function buildStationRow(source, collectedAt, collection = {}) {
     status: status === "failed" ? "unknown" : "active",
     source_type: "manual_collected",
     commercial_relation: source.commercialRelation || "none",
-    station_system: source.stationSystem || source.station_system || null,
-    operator_type: source.operatorType || source.operator_type || "unknown",
+    station_system: normalizeConfiguredValue(source.stationSystem || source.station_system, null),
+    operator_type: source.operatorType || source.operator_type || "individual",
     invoice_support: source.invoiceSupport || source.invoice_support || "unknown",
     summary: source.summary || "公开价格接口可读取，已进入 PriceAI API 中转站自动价格采集池；稳定性和扣费检测仍需测试 Key 或人工样本补充。",
     channel_types: source.channelTypes || ["undisclosed"],
@@ -2123,9 +2123,9 @@ function mergeStationForRefresh(station, existing, options) {
     ...row,
     source_type: existing.source_type || station.source_type,
     commercial_relation: existing.commercial_relation || station.commercial_relation,
-    station_system: existing.station_system || station.station_system,
-    operator_type: existing.operator_type || station.operator_type,
-    invoice_support: existing.invoice_support || station.invoice_support,
+    station_system: keepConfiguredValue(existing.station_system, station.station_system),
+    operator_type: keepConfiguredValue(existing.operator_type, station.operator_type),
+    invoice_support: keepConfiguredValue(existing.invoice_support, station.invoice_support),
     summary: existing.summary || station.summary,
     payment_methods: Array.isArray(existing.payment_methods) ? existing.payment_methods : station.payment_methods,
     minimum_top_up: existing.minimum_top_up ?? station.minimum_top_up,
@@ -2141,6 +2141,14 @@ function mergeStationForRefresh(station, existing, options) {
     admin_note: shouldPublish && row.collection_status === "success" ? row.admin_note : existing.admin_note || station.admin_note,
     created_at: existing.created_at || station.created_at,
   };
+}
+
+function keepConfiguredValue(existingValue, incomingValue) {
+  return existingValue && existingValue !== "unknown" ? existingValue : incomingValue;
+}
+
+function normalizeConfiguredValue(value, fallback) {
+  return value && value !== "unknown" ? value : fallback;
 }
 
 async function upsertRows(supabase, table, rows, options = {}) {

@@ -4,6 +4,7 @@ import type {
   TransitCommercialOffer,
   TransitModelFamily,
   TransitModelPrice,
+  TransitOperatorType,
   TransitStation,
   TransitVerificationEvent,
   TransitStationSystem,
@@ -498,7 +499,7 @@ export function getStationComparisonSummary(
 }
 
 export function getTransitStationSystem(station: TransitStation): TransitStationSystem {
-  if (station.stationSystem) return station.stationSystem;
+  if (station.stationSystem && station.stationSystem !== "unknown") return station.stationSystem;
 
   const text = [
     station.collectorKind,
@@ -537,6 +538,10 @@ export function getTransitStationSystemLabel(station: TransitStation): string {
   if (system === "sub_to_api") return "Sub2API";
   if (system === "custom") return "自研";
   return "未知";
+}
+
+export function getTransitOperatorType(station: TransitStation): TransitOperatorType {
+  return station.operatorType === "company" ? "company" : "individual";
 }
 
 export function getNormalizedSourceTags(
