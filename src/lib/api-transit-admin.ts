@@ -19,7 +19,9 @@ import type {
   ApiTransitAdminSubmission,
   ApiTransitCollectionStatus,
   ApiTransitDataStatus,
+  ApiTransitInvoiceSupport,
   ApiTransitOfferStatus,
+  ApiTransitOperatorType,
   ApiTransitParseStatus,
   ApiTransitProbeStatus,
   ApiTransitRunStatus,
@@ -134,6 +136,8 @@ export async function updateApiTransitStation(input: {
   sourceType?: string;
   commercialRelation?: string;
   stationSystem?: ApiTransitStationSystem;
+  operatorType?: ApiTransitOperatorType;
+  invoiceSupport?: ApiTransitInvoiceSupport;
   collectorKind?: string;
   collectionStatus?: ApiTransitCollectionStatus;
   channelTypes?: string[];
@@ -174,6 +178,8 @@ export async function updateApiTransitStation(input: {
   if (input.sourceType !== undefined) row.source_type = input.sourceType;
   if (input.commercialRelation !== undefined) row.commercial_relation = input.commercialRelation;
   if (input.stationSystem !== undefined) row.station_system = input.stationSystem;
+  if (input.operatorType !== undefined) row.operator_type = input.operatorType;
+  if (input.invoiceSupport !== undefined) row.invoice_support = input.invoiceSupport;
   if (input.collectorKind !== undefined) row.collector_kind = cleanRequired(input.collectorKind, "采集器类型不能为空。");
   if (input.collectionStatus) row.collection_status = input.collectionStatus;
   if (input.channelTypes !== undefined) row.channel_types = normalizeChannelTypes(input.channelTypes);
@@ -208,6 +214,49 @@ export async function updateApiTransitStation(input: {
     delete row.logo_url;
     if (requestedLogoUrl) {
       throw new Error("Logo 字段尚未完成数据库迁移，请稍后再保存站点 Logo。");
+    }
+
+    const retryResult = await supabase
+      .from("api_transit_stations")
+      .update(row)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    data = retryResult.data;
+    error = retryResult.error;
+  }
+
+  if (error && isMissingColumnError(error, "station_system") && Object.prototype.hasOwnProperty.call(row, "station_system")) {
+    const requestedStationSystem = row.station_system;
+    delete row.station_system;
+    if (requestedStationSystem && requestedStationSystem !== "unknown") {
+      throw new Error("系统标签字段尚未完成数据库迁移，请稍后再保存站点系统。");
+    }
+
+    const retryResult = await supabase
+      .from("api_transit_stations")
+      .update(row)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    data = retryResult.data;
+    error = retryResult.error;
+  }
+
+  if (
+    error &&
+    (isMissingColumnError(error, "operator_type") || isMissingColumnError(error, "invoice_support")) &&
+    (Object.prototype.hasOwnProperty.call(row, "operator_type") || Object.prototype.hasOwnProperty.call(row, "invoice_support"))
+  ) {
+    const requestedOperatorType = row.operator_type;
+    const requestedInvoiceSupport = row.invoice_support;
+    delete row.operator_type;
+    delete row.invoice_support;
+    if (
+      (requestedOperatorType && requestedOperatorType !== "unknown") ||
+      (requestedInvoiceSupport && requestedInvoiceSupport !== "unknown")
+    ) {
+      throw new Error("主体与发票字段尚未完成数据库迁移，请稍后再保存这些标签。");
     }
 
     const retryResult = await supabase
@@ -876,6 +925,8 @@ function mapStation(
     sourceType: stringValue(row.source_type) || "manual_collected",
     commercialRelation: stringValue(row.commercial_relation) || "unknown",
     stationSystem: stationSystem(row.station_system),
+    operatorType: operatorType(row.operator_type),
+    invoiceSupport: invoiceSupport(row.invoice_support),
     summary: stringValue(row.summary),
     channelTypes: stringArray(row.channel_types),
     accountPools: stringArray(row.account_pools),
@@ -1526,6 +1577,16 @@ function stationStatus(value: unknown): ApiTransitStationStatus {
 function stationSystem(value: unknown): ApiTransitStationSystem {
   const text = stringValue(value);
   return text === "new_api" || text === "sub_to_api" || text === "custom" || text === "unknown" ? text : "unknown";
+}
+
+function operatorType(value: unknown): ApiTransitOperatorType {
+  const text = stringValue(value);
+  return text === "company" || text === "individual" || text === "unknown" ? text : "unknown";
+}
+
+function invoiceSupport(value: unknown): ApiTransitInvoiceSupport {
+  const text = stringValue(value);
+  return text === "supported" || text === "unsupported" || text === "unknown" ? text : "unknown";
 }
 
 function dataStatus(value: unknown): ApiTransitDataStatus {

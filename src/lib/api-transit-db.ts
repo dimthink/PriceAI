@@ -35,6 +35,8 @@ const STATION_CORE_BASE_COLUMNS = [
   "source_type",
   "commercial_relation",
   "station_system",
+  "operator_type",
+  "invoice_support",
   "summary",
   "collector_kind",
   "channel_types",
@@ -64,6 +66,7 @@ const STATION_CORE_BASE_COLUMNS = [
   "updated_at",
 ];
 const STATION_CORE_COLUMNS = STATION_CORE_BASE_COLUMNS.join(",");
+const STATION_OPERATOR_COLUMNS = ["operator_type", "invoice_support"] as const;
 const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED = withoutColumns(
   STATION_CORE_BASE_COLUMNS,
   "availability_first_checked_at"
@@ -380,15 +383,25 @@ async function queryPublishedStationRows(
 ): Promise<DbRow[]> {
   const attempts = Array.from(new Set([
     STATION_CORE_COLUMNS,
+    withoutColumnsFromSelect(STATION_CORE_COLUMNS, ...STATION_OPERATOR_COLUMNS),
     withoutColumn(STATION_CORE_COLUMNS, "station_system"),
+    withoutColumnsFromSelect(withoutColumn(STATION_CORE_COLUMNS, "station_system"), ...STATION_OPERATOR_COLUMNS),
     STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE,
+    withoutColumnsFromSelect(STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, ...STATION_OPERATOR_COLUMNS),
     withoutColumn(STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, "station_system"),
+    withoutColumnsFromSelect(withoutColumn(STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, "station_system"), ...STATION_OPERATOR_COLUMNS),
     STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED,
+    withoutColumnsFromSelect(STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED, ...STATION_OPERATOR_COLUMNS),
     withoutColumn(STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED, "station_system"),
+    withoutColumnsFromSelect(withoutColumn(STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED, "station_system"), ...STATION_OPERATOR_COLUMNS),
     STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE,
+    withoutColumnsFromSelect(STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE, ...STATION_OPERATOR_COLUMNS),
     withoutColumn(STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE, "station_system"),
+    withoutColumnsFromSelect(withoutColumn(STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE, "station_system"), ...STATION_OPERATOR_COLUMNS),
     STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL,
+    withoutColumnsFromSelect(STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL, ...STATION_OPERATOR_COLUMNS),
     STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL_OR_STATION_SYSTEM,
+    withoutColumnsFromSelect(STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL_OR_STATION_SYSTEM, ...STATION_OPERATOR_COLUMNS),
   ]));
 
   let lastMissingColumnError: unknown = null;
@@ -634,6 +647,7 @@ function mapStationRow(
   const id = stringValue(row.id);
   const updatedAt = timestampValue(row.last_updated_at || row.updated_at);
   const enhancement = enhancementRow || {};
+  const source = availabilitySourceFromRow(row);
 
   return {
     id,
@@ -648,6 +662,8 @@ function mapStationRow(
     sourceType: sourceType(row.source_type),
     commercialRelation: commercialRelation(row.commercial_relation),
     stationSystem: stationSystem(row.station_system),
+    operatorType: operatorType(row.operator_type),
+    invoiceSupport: invoiceSupport(row.invoice_support),
     summary: stringValue(row.summary),
     channelTypes: enumArray(row.channel_types, isTransitChannelType),
     accountPools: enumArray(row.account_pools, isTransitAccountPool),
@@ -666,9 +682,9 @@ function mapStationRow(
       firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
       note: nullableString(row.availability_note) || undefined,
-      sourceType: availabilitySourceType(row.availability_source_type),
-      sourceLabel: nullableString(row.availability_source_label),
-      sourceUrl: nullableString(row.availability_source_url),
+      sourceType: source.type,
+      sourceLabel: source.label,
+      sourceUrl: source.url,
     },
     prices: offerRows.map((offer) => mapOfferRow(offer, historyByOffer)).filter((price): price is TransitModelPrice => Boolean(price)),
     feedback: {
@@ -693,6 +709,7 @@ function mapOfferRow(
   const standardModel = standardModelValue(row.standard_model);
   if (!family || !standardModel) return null;
   const groupName = stringValue(row.group_name) || "默认分组";
+  const source = availabilitySourceFromRow(row, nullableString(row.source_url));
 
   return {
     family,
@@ -716,9 +733,9 @@ function mapOfferRow(
       firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
       note: nullableString(row.availability_note) || undefined,
-      sourceType: availabilitySourceType(row.availability_source_type),
-      sourceLabel: nullableString(row.availability_source_label),
-      sourceUrl: nullableString(row.availability_source_url),
+      sourceType: source.type,
+      sourceLabel: source.label,
+      sourceUrl: source.url,
     },
     history: historyByOffer.get(historyKey({
       station_id: row.station_id,
@@ -801,6 +818,39 @@ function timestampValue(value: unknown): string {
 function availabilitySourceType(value: unknown): TransitAvailabilitySourceType {
   const type = stringValue(value);
   return isTransitAvailabilitySourceType(type) ? type : "unknown";
+}
+
+function availabilitySourceFromRow(
+  row: DbRow,
+  fallbackUrl: string | null = null
+): { type: TransitAvailabilitySourceType; label: string | null; url: string | null } {
+  const storedType = availabilitySourceType(row.availability_source_type);
+  const storedLabel = nullableString(row.availability_source_label);
+  const storedUrl = nullableString(row.availability_source_url);
+
+  if (isPublicSiteInfoAvailability(row) && (storedType === "unknown" || storedType === "manual_snapshot")) {
+    return {
+      type: "public_status",
+      label: "公开来源",
+      url: storedUrl || fallbackUrl,
+    };
+  }
+
+  return {
+    type: storedType,
+    label: storedLabel,
+    url: storedUrl,
+  };
+}
+
+function isPublicSiteInfoAvailability(row: DbRow): boolean {
+  const text = [
+    row.station_id,
+    row.collector_kind,
+    row.price_source,
+    row.availability_note,
+  ].map(stringValue).join(" ");
+  return /(?:APINode\s*(?:公开)?\s*site-info|apinode_public_site_info|sub2api_public_site_info)/i.test(text);
 }
 
 function isTransitAvailabilitySourceType(value: string): value is TransitAvailabilitySourceType {
@@ -889,6 +939,14 @@ function withoutColumn(columns: string, column: string): string {
     .join(",");
 }
 
+function withoutColumnsFromSelect(columns: string, ...excluded: readonly string[]): string {
+  return columns
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item && !excluded.includes(item))
+    .join(",");
+}
+
 function stationStatus(value: unknown): TransitStation["status"] {
   const text = stringValue(value);
   return text === "active" || text === "limited" || text === "unavailable" || text === "unknown" ? text : "unknown";
@@ -897,6 +955,16 @@ function stationStatus(value: unknown): TransitStation["status"] {
 function stationSystem(value: unknown): TransitStation["stationSystem"] {
   const text = stringValue(value);
   return text === "new_api" || text === "sub_to_api" || text === "custom" || text === "unknown" ? text : undefined;
+}
+
+function operatorType(value: unknown): TransitStation["operatorType"] {
+  const text = stringValue(value);
+  return text === "company" || text === "individual" || text === "unknown" ? text : "unknown";
+}
+
+function invoiceSupport(value: unknown): TransitStation["invoiceSupport"] {
+  const text = stringValue(value);
+  return text === "supported" || text === "unsupported" || text === "unknown" ? text : "unknown";
 }
 
 function sourceType(value: unknown): TransitStation["sourceType"] {

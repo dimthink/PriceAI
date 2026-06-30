@@ -32,15 +32,19 @@ import type {
   ApiTransitAdminStation,
   ApiTransitAdminSubmission,
   ApiTransitCommercialOffer,
+  ApiTransitInvoiceSupport,
   ApiTransitOfferCandidate,
   ApiTransitOfferStatus,
+  ApiTransitOperatorType,
   ApiTransitSubmissionReviewStatus,
   ApiTransitVerificationEvent,
 } from "@/lib/api-transit-admin-types";
 import {
   TRANSIT_ACCOUNT_POOL_LABELS,
   TRANSIT_CHANNEL_TYPE_LABELS,
+  TRANSIT_INVOICE_SUPPORT_LABELS,
   TRANSIT_MODEL_FAMILY_OPTIONS,
+  TRANSIT_OPERATOR_TYPE_LABELS,
   TRANSIT_RISK_LABELS,
   TRANSIT_STATION_SYSTEM_LABELS,
   type TransitStationSystem,
@@ -70,6 +74,8 @@ type ApiTransitStationEditInput = {
   sourceType: string;
   commercialRelation: string;
   stationSystem: TransitStationSystem;
+  operatorType: ApiTransitOperatorType;
+  invoiceSupport: ApiTransitInvoiceSupport;
   collectorKind: string;
   collectionStatus: string;
   channelTypes: string[];
@@ -117,6 +123,8 @@ const transitAccountPoolOptions = Object.entries(TRANSIT_ACCOUNT_POOL_LABELS);
 const transitModelFamilyOptions = TRANSIT_MODEL_FAMILY_OPTIONS;
 const transitRiskLabelOptions = Object.entries(TRANSIT_RISK_LABELS);
 const transitStationSystemOptions = Object.entries(TRANSIT_STATION_SYSTEM_LABELS);
+const transitOperatorTypeOptions = Object.entries(TRANSIT_OPERATOR_TYPE_LABELS);
+const transitInvoiceSupportOptions = Object.entries(TRANSIT_INVOICE_SUPPORT_LABELS);
 
 export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) {
   return <ApiTransitAdminPanel data={data} framed />;
@@ -1351,6 +1359,8 @@ function StationEditDialog({
             sourceType: formText(formData, "sourceType") || station.sourceType,
             commercialRelation: formText(formData, "commercialRelation") || station.commercialRelation,
             stationSystem: stationSystemFromText(formText(formData, "stationSystem")) || station.stationSystem,
+            operatorType: operatorTypeFromText(formText(formData, "operatorType")) || station.operatorType,
+            invoiceSupport: invoiceSupportFromText(formText(formData, "invoiceSupport")) || station.invoiceSupport,
             collectorKind: formText(formData, "collectorKind") || station.collectorKind,
             collectionStatus: formText(formData, "collectionStatus") || station.collectionStatus,
             channelTypes: formList(formData, "channelTypes"),
@@ -1435,6 +1445,20 @@ function StationEditDialog({
             </AdminField>
             <AdminField label="余额有效期">
               <input name="balanceExpiry" defaultValue={station.balanceExpiry || ""} className={adminFieldClassName} />
+            </AdminField>
+            <AdminField label="站点主体">
+              <select name="operatorType" defaultValue={station.operatorType} className={adminFieldClassName}>
+                {transitOperatorTypeOptions.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </AdminField>
+            <AdminField label="发票支持">
+              <select name="invoiceSupport" defaultValue={station.invoiceSupport} className={adminFieldClassName}>
+                {transitInvoiceSupportOptions.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </AdminField>
             <AdminField label="支付方式">
               <input name="paymentMethods" defaultValue={station.paymentMethods.join("，")} className={adminFieldClassName} />
@@ -2305,6 +2329,16 @@ function offerStatusFromText(value: string): ApiTransitOfferStatus | null {
 
 function stationSystemFromText(value: string): TransitStationSystem | null {
   if (value === "new_api" || value === "sub_to_api" || value === "custom" || value === "unknown") return value;
+  return null;
+}
+
+function operatorTypeFromText(value: string): ApiTransitOperatorType | null {
+  if (value === "company" || value === "individual" || value === "unknown") return value;
+  return null;
+}
+
+function invoiceSupportFromText(value: string): ApiTransitInvoiceSupport | null {
+  if (value === "supported" || value === "unsupported" || value === "unknown") return value;
   return null;
 }
 

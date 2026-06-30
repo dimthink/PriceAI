@@ -927,7 +927,7 @@ function availabilitySourceFields(source, availabilitySource) {
 function availabilitySourceUrl(source, availabilitySource) {
   if (!source) return null;
   const type = availabilitySource?.sourceType || availabilitySource?.type || "unknown";
-  if (type === "public_status") return source.monitorUrl || source.monitorEndpointUrl || null;
+  if (type === "public_status") return source.monitorUrl || source.monitorEndpointUrl || source.pricingEndpointUrl || source.pricingUrl || null;
   if (type === "public_model_catalog") return source.pricingUrl || source.pricingEndpointUrl || null;
   if (type === "partner_api") return source.pricingEndpointUrl || source.pricingUrl || null;
   return null;
@@ -1115,6 +1115,7 @@ function buildApinodePublicSiteInfoOfferRow({
     availability_first_checked_at: availability?.firstCheckedAt ?? null,
     availability_last_checked_at: availability?.lastCheckedAt ?? generatedAt,
     availability_note: apinodeAvailabilityNote(standard, availability),
+    ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
     last_verified_at: availability?.lastCheckedAt || generatedAt || collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
@@ -1296,6 +1297,7 @@ function summarizeApinodePublicAvailability(availabilityByStandard, generatedAt)
       firstCheckedAt: null,
       lastCheckedAt: generatedAt,
       note: "APINode site-info 暂未返回可识别模型可用率；非 PriceAI API Key 实测。",
+      ...AVAILABILITY_SOURCES.publicStatus,
     };
   }
 
@@ -1305,6 +1307,7 @@ function summarizeApinodePublicAvailability(availabilityByStandard, generatedAt)
     firstCheckedAt: samples.map((item) => item.firstCheckedAt).filter(Boolean).sort().at(0) || generatedAt,
     lastCheckedAt: samples.map((item) => item.lastCheckedAt).filter(Boolean).sort().at(-1) || generatedAt,
     note: "APINode 公开 site-info 模型可用率汇总；接口未返回样本明细，非 PriceAI API Key 实测。",
+    ...AVAILABILITY_SOURCES.publicStatus,
   };
 }
 
@@ -1566,6 +1569,8 @@ function buildStationRow(source, collectedAt, collection = {}) {
     source_type: "manual_collected",
     commercial_relation: source.commercialRelation || "none",
     station_system: source.stationSystem || source.station_system || null,
+    operator_type: source.operatorType || source.operator_type || "unknown",
+    invoice_support: source.invoiceSupport || source.invoice_support || "unknown",
     summary: source.summary || "公开价格接口可读取，已进入 PriceAI API 中转站自动价格采集池；稳定性和扣费检测仍需测试 Key 或人工样本补充。",
     channel_types: source.channelTypes || ["undisclosed"],
     account_pools: source.accountPools || ["undisclosed"],
@@ -2053,118 +2058,50 @@ function offerKey(offer) {
 }
 
 async function readExistingStations(supabase, stationIds) {
+  return readExistingStationsWithColumns(supabase, stationIds, [
+    "id",
+    "source_type",
+    "commercial_relation",
+    "station_system",
+    "operator_type",
+    "invoice_support",
+    "summary",
+    "payment_methods",
+    "minimum_top_up",
+    "balance_expiry",
+    "support_channels",
+    "refund_policy",
+    "data_status",
+    "monitor_url",
+    "commercial_offers",
+    "verification_events",
+    "availability_first_checked_at",
+    "published",
+    "admin_note",
+    "created_at",
+  ]);
+}
+
+async function readExistingStationsWithColumns(supabase, stationIds, columns) {
   const ids = uniqueText(stationIds).filter(Boolean);
   const byId = new Map();
   for (const chunk of chunks(ids, 300)) {
     if (!chunk.length) continue;
     const { data, error } = await supabase
       .from("api_transit_stations")
-      .select(
-        [
-          "id",
-          "source_type",
-          "commercial_relation",
-          "station_system",
-          "summary",
-          "payment_methods",
-          "minimum_top_up",
-          "balance_expiry",
-          "support_channels",
-          "refund_policy",
-          "data_status",
-          "monitor_url",
-          "commercial_offers",
-          "verification_events",
-          "availability_first_checked_at",
-          "published",
-          "admin_note",
-          "created_at",
-        ].join(","),
-      )
+      .select(columns.join(","))
       .in("id", chunk);
     if (error) {
-      if (isMissingColumnError(error, "station_system")) {
-        return readExistingStationsWithoutStationSystem(supabase, stationIds);
-      }
-      if (isMissingColumnError(error, "availability_first_checked_at")) {
-        return readExistingStationsWithoutFirstCheckedAt(supabase, stationIds);
+      const missingColumn = missingExistingStationColumn(error, columns);
+      if (missingColumn) {
+        return readExistingStationsWithColumns(
+          supabase,
+          stationIds,
+          withoutColumns(columns, ...compatibleExistingStationColumnsToRemove(missingColumn)),
+        );
       }
       throw error;
     }
-    for (const row of data || []) byId.set(row.id, row);
-  }
-  return byId;
-}
-
-async function readExistingStationsWithoutStationSystem(supabase, stationIds) {
-  const ids = uniqueText(stationIds).filter(Boolean);
-  const byId = new Map();
-  for (const chunk of chunks(ids, 300)) {
-    if (!chunk.length) continue;
-    const { data, error } = await supabase
-      .from("api_transit_stations")
-      .select(
-        [
-          "id",
-          "source_type",
-          "commercial_relation",
-          "summary",
-          "payment_methods",
-          "minimum_top_up",
-          "balance_expiry",
-          "support_channels",
-          "refund_policy",
-          "data_status",
-          "monitor_url",
-          "commercial_offers",
-          "verification_events",
-          "availability_first_checked_at",
-          "published",
-          "admin_note",
-          "created_at",
-        ].join(","),
-      )
-      .in("id", chunk);
-    if (error) {
-      if (isMissingColumnError(error, "availability_first_checked_at")) {
-        return readExistingStationsWithoutFirstCheckedAt(supabase, stationIds);
-      }
-      throw error;
-    }
-    for (const row of data || []) byId.set(row.id, row);
-  }
-  return byId;
-}
-
-async function readExistingStationsWithoutFirstCheckedAt(supabase, stationIds) {
-  const ids = uniqueText(stationIds).filter(Boolean);
-  const byId = new Map();
-  for (const chunk of chunks(ids, 300)) {
-    if (!chunk.length) continue;
-    const { data, error } = await supabase
-      .from("api_transit_stations")
-      .select(
-        [
-          "id",
-          "source_type",
-          "commercial_relation",
-          "summary",
-          "payment_methods",
-          "minimum_top_up",
-          "balance_expiry",
-          "support_channels",
-          "refund_policy",
-          "data_status",
-          "monitor_url",
-          "commercial_offers",
-          "verification_events",
-          "published",
-          "admin_note",
-          "created_at",
-        ].join(","),
-      )
-      .in("id", chunk);
-    if (error) throw error;
     for (const row of data || []) byId.set(row.id, row);
   }
   return byId;
@@ -2187,6 +2124,8 @@ function mergeStationForRefresh(station, existing, options) {
     source_type: existing.source_type || station.source_type,
     commercial_relation: existing.commercial_relation || station.commercial_relation,
     station_system: existing.station_system || station.station_system,
+    operator_type: existing.operator_type || station.operator_type,
+    invoice_support: existing.invoice_support || station.invoice_support,
     summary: existing.summary || station.summary,
     payment_methods: Array.isArray(existing.payment_methods) ? existing.payment_methods : station.payment_methods,
     minimum_top_up: existing.minimum_top_up ?? station.minimum_top_up,
@@ -2211,9 +2150,14 @@ async function upsertRows(supabase, table, rows, options = {}) {
     if (
       error &&
       table === "api_transit_stations" &&
-      (isMissingColumnError(error, "availability_first_checked_at") || isMissingColumnError(error, "station_system"))
+      (
+        isMissingColumnError(error, "availability_first_checked_at") ||
+        isMissingColumnError(error, "station_system") ||
+        isMissingColumnError(error, "operator_type") ||
+        isMissingColumnError(error, "invoice_support")
+      )
     ) {
-      const compatibleChunk = removeFieldsFromRows(chunk, ["availability_first_checked_at", "station_system"]);
+      const compatibleChunk = removeFieldsFromRows(chunk, compatibleStationUpsertFieldsToRemove(error));
       const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
       if (!fallbackError) continue;
       fallbackError.table = table;
@@ -2246,6 +2190,28 @@ function removeFieldsFromRows(rows, fieldNames) {
     for (const fieldName of fieldNames) delete next[fieldName];
     return next;
   });
+}
+
+function withoutColumns(columns, ...excluded) {
+  return columns.filter((column) => !excluded.includes(column));
+}
+
+function missingExistingStationColumn(error, columns) {
+  return columns.find((column) => isMissingColumnError(error, column)) || null;
+}
+
+function compatibleExistingStationColumnsToRemove(column) {
+  if (column === "operator_type" || column === "invoice_support") return ["operator_type", "invoice_support"];
+  return [column];
+}
+
+function compatibleStationUpsertFieldsToRemove() {
+  return [
+    "availability_first_checked_at",
+    "station_system",
+    "operator_type",
+    "invoice_support",
+  ];
 }
 
 function removeAvailabilitySourceFields(rows) {

@@ -11,6 +11,8 @@ export type TransitModelFamily =
   | "image"
   | "video";
 export type TransitStationSystem = "new_api" | "sub_to_api" | "custom" | "unknown";
+export type TransitOperatorType = "company" | "individual" | "unknown";
+export type TransitInvoiceSupport = "supported" | "unsupported" | "unknown";
 export type TransitChannelType =
   | "official_api"
   | "cloud"
@@ -138,6 +140,8 @@ export interface TransitStation {
   monitorUrl?: string | null;
   collectorKind?: string | null;
   stationSystem?: TransitStationSystem;
+  operatorType: TransitOperatorType;
+  invoiceSupport: TransitInvoiceSupport;
   status: TransitStationStatus;
   sourceType: TransitSourceType;
   commercialRelation: TransitCommercialRelation;
@@ -196,6 +200,18 @@ export const TRANSIT_STATION_SYSTEM_LABELS: Record<TransitStationSystem, string>
   unknown: "未知",
 };
 
+export const TRANSIT_OPERATOR_TYPE_LABELS: Record<TransitOperatorType, string> = {
+  company: "企业",
+  individual: "个人",
+  unknown: "未知",
+};
+
+export const TRANSIT_INVOICE_SUPPORT_LABELS: Record<TransitInvoiceSupport, string> = {
+  supported: "支持发票",
+  unsupported: "不支持发票",
+  unknown: "未知",
+};
+
 export const TRANSIT_STANDARD_MODELS = [
   "Claude Sonnet 4.6",
   "Claude Opus 4.6",
@@ -238,6 +254,14 @@ export function isTransitStandardModel(value: unknown): value is TransitStandard
 
 export function isTransitStationSystem(value: unknown): value is TransitStationSystem {
   return value === "new_api" || value === "sub_to_api" || value === "custom" || value === "unknown";
+}
+
+export function isTransitOperatorType(value: unknown): value is TransitOperatorType {
+  return value === "company" || value === "individual" || value === "unknown";
+}
+
+export function isTransitInvoiceSupport(value: unknown): value is TransitInvoiceSupport {
+  return value === "supported" || value === "unsupported" || value === "unknown";
 }
 
 export const TRANSIT_CHANNEL_TYPE_LABELS: Record<TransitChannelType, string> = {

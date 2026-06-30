@@ -2,12 +2,18 @@ import type { TransitModelFamily, TransitStation } from "./types";
 
 const seedManualAvailabilitySource = {
   sourceType: "manual_snapshot",
-  sourceLabel: "人工录入",
+  sourceLabel: "未核验",
   sourceUrl: null,
+} as const;
+
+const seedStationDefaults = {
+  operatorType: "unknown",
+  invoiceSupport: "unknown",
 } as const;
 
 export const seedStations: TransitStation[] = [
   {
+    ...seedStationDefaults,
     id: "stn-packy",
     slug: "packyapi",
     name: "PackyAPI",
@@ -55,6 +61,7 @@ export const seedStations: TransitStation[] = [
     ],
   },
   {
+    ...seedStationDefaults,
     id: "stn-saki",
     slug: "saki-lat",
     name: "API Saki",
@@ -90,6 +97,7 @@ export const seedStations: TransitStation[] = [
     feedback: feedback(2, 0, "高峰期偶发失败，售后响应速度仍需继续观察。"),
   },
   {
+    ...seedStationDefaults,
     id: "stn-weshare",
     slug: "weshareai-xyz",
     name: "WeShareAI",
@@ -125,6 +133,7 @@ export const seedStations: TransitStation[] = [
     feedback: feedback(1, 0, "渠道来源说明还不充分，暂不作为优选展示。"),
   },
   {
+    ...seedStationDefaults,
     id: "stn-micu",
     slug: "micuapi-ai",
     name: "MiCu API",
@@ -170,6 +179,7 @@ export const seedStations: TransitStation[] = [
     ],
   },
   {
+    ...seedStationDefaults,
     id: "stn-kk",
     slug: "kksj-org",
     name: "KK API",
@@ -204,6 +214,7 @@ export const seedStations: TransitStation[] = [
     feedback: feedback(1, 0, "低价但样本量不足，建议用户控制首次充值金额。"),
   },
   {
+    ...seedStationDefaults,
     id: "stn-smart",
     slug: "smartaipro-cn",
     name: "Smartaipro",
@@ -238,6 +249,7 @@ export const seedStations: TransitStation[] = [
     feedback: feedback(3, 1, "存在未核验的可用性反馈，不进入优选展示。"),
   },
   {
+    ...seedStationDefaults,
     id: "stn-codexzh",
     slug: "codexzh-com",
     name: "Codex 中转",

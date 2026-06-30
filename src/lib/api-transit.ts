@@ -942,51 +942,65 @@ export function getAvailabilitySourceMeta(
   switch (availability.sourceType) {
     case "priceai_probe":
       return {
-        label: explicitLabel || "PriceAI 实测",
+        label: "PriceAI 实测",
         tone: "success",
-        title: "PriceAI 使用测试 API Key 发起真实模型请求后汇总的可用性样本。",
+        title: explicitLabel
+          ? `PriceAI 使用测试 API Key 发起真实模型请求后汇总的可用性样本。原始来源：${explicitLabel}`
+          : "PriceAI 使用测试 API Key 发起真实模型请求后汇总的可用性样本。",
         url: availability.sourceUrl,
       };
     case "public_status":
       return {
-        label: explicitLabel || "公开监测页",
+        label: "公开来源",
         tone: "info",
-        title: "来自站点公开状态页或公开监测接口，非 PriceAI API Key 实测。",
+        title: explicitLabel
+          ? `来自站点公开状态页或公开监测接口，非 PriceAI API Key 实测。原始来源：${explicitLabel}`
+          : "来自站点公开状态页或公开监测接口，非 PriceAI API Key 实测。",
         url: availability.sourceUrl,
       };
     case "public_model_catalog":
       return {
-        label: explicitLabel || "公开模型页",
+        label: "公开来源",
         tone: "info",
-        title: "来自站点公开模型目录中的可用性指标，非 PriceAI API Key 实测。",
+        title: explicitLabel
+          ? `来自站点公开模型目录中的可用性指标，非 PriceAI API Key 实测。原始来源：${explicitLabel}`
+          : "来自站点公开模型目录中的可用性指标，非 PriceAI API Key 实测。",
         url: availability.sourceUrl,
       };
     case "partner_api":
       return {
-        label: explicitLabel || "站长接口",
+        label: "公开来源",
         tone: "info",
-        title: "来自站长提供的公开或合作接口，非 PriceAI API Key 实测。",
+        title: explicitLabel
+          ? `来自站长提供的公开或合作接口，非 PriceAI API Key 实测。原始来源：${explicitLabel}`
+          : "来自站长提供的公开或合作接口，非 PriceAI API Key 实测。",
         url: availability.sourceUrl,
       };
     case "merchant_reported":
       return {
-        label: explicitLabel || "商家提交",
+        label: "未核验",
         tone: "warning",
-        title: "来自商家提交的截图或资料，尚未视为 PriceAI 实测。",
+        title: explicitLabel
+          ? `来自商家提交的截图或资料，尚未视为 PriceAI 实测。原始来源：${explicitLabel}`
+          : "来自商家提交的截图或资料，尚未视为 PriceAI 实测。",
         url: availability.sourceUrl,
       };
     case "manual_snapshot":
       return {
-        label: explicitLabel || "人工录入",
+        label: "未核验",
         tone: "muted",
-        title: "来自人工整理或一次性快照，后续应替换为公开接口或 PriceAI 实测。",
+        title: explicitLabel
+          ? `来自一次性快照或未完成自动核验的数据，后续应替换为公开接口或 PriceAI 实测。原始来源：${explicitLabel}`
+          : "来自一次性快照或未完成自动核验的数据，后续应替换为公开接口或 PriceAI 实测。",
         url: availability.sourceUrl,
       };
     default:
       return {
-        label: explicitLabel || "未记录",
+        label: "未核验",
         tone: "muted",
-        title: "当前稳定性来源尚未结构化记录。",
+        title: explicitLabel
+          ? `当前稳定性来源尚未结构化记录。原始来源：${explicitLabel}`
+          : "当前稳定性来源尚未结构化记录。",
         url: availability.sourceUrl,
       };
   }

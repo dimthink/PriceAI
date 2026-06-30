@@ -1834,7 +1834,7 @@ function formatAvailabilityBasis(station: TransitStation): string {
   const source = getAvailabilitySourceMeta(station.availability);
   if (station.availability.sevenDaySamples > 1) return `${source.label} · 样本 ${station.availability.sevenDaySamples}`;
   if (station.availability.sevenDaySamples === 1) return `${source.label} · 单次样本`;
-  return source.label === "未记录" && station.monitorUrl ? "含监测入口" : source.label;
+  return source.label === "未核验" && station.monitorUrl ? "含监测入口" : source.label;
 }
 
 function MetricCard({

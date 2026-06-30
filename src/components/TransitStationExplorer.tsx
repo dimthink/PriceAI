@@ -21,14 +21,17 @@ import type {
   TransitAccountPool,
   TransitChannelType,
   TransitModelFamily,
+  TransitOperatorType,
   TransitStation,
 } from "@/data/api-transit/types";
 import {
   TRANSIT_ACCOUNT_POOL_LABELS,
   TRANSIT_CHANNEL_TYPE_LABELS,
   TRANSIT_DATA_STATUS_LABELS,
+  TRANSIT_INVOICE_SUPPORT_LABELS,
   TRANSIT_MODEL_FAMILY_LABELS,
   TRANSIT_MODEL_FAMILY_ORDER,
+  TRANSIT_OPERATOR_TYPE_LABELS,
 } from "@/data/api-transit/types";
 import {
   compareStations,
@@ -633,10 +636,14 @@ function AvailabilityCell({
         lastCheckedAt={availability.lastCheckedAt}
         className="mt-1"
       />
-      <div className="mt-1 whitespace-nowrap text-[10px] text-[#7f8889]">
-        {formatDateShortMinute(availability.lastCheckedAt)}
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[10px] text-[#7f8889]">
+        <span>{formatDateShortMinute(availability.lastCheckedAt)}</span>
+        <AvailabilitySourceBadge
+          source={source}
+          compact={compact}
+          hidden={!shouldShowAvailabilitySourceBadge(availability, source)}
+        />
       </div>
-      <AvailabilitySourceBadge source={source} compact={compact} />
     </div>
   );
 }
@@ -644,12 +651,16 @@ function AvailabilityCell({
 function AvailabilitySourceBadge({
   source,
   compact,
+  hidden = false,
 }: {
   source: ReturnType<typeof getAvailabilitySourceMeta>;
   compact: boolean;
+  hidden?: boolean;
 }) {
+  if (hidden) return null;
+
   const className = [
-    "mt-1 inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[10px] font-bold",
+    "inline-flex max-w-full items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
     availabilitySourceToneClass(source.tone),
     compact ? "" : "whitespace-nowrap",
   ].filter(Boolean).join(" ");
@@ -689,6 +700,13 @@ function availabilitySourceToneClass(tone: ReturnType<typeof getAvailabilitySour
   }
 }
 
+function shouldShowAvailabilitySourceBadge(
+  availability: Pick<TransitStation["availability"], "sevenDaySamples">,
+  source: ReturnType<typeof getAvailabilitySourceMeta>
+): boolean {
+  return availability.sevenDaySamples > 0 || source.tone !== "muted" || Boolean(source.url);
+}
+
 function UpdatedAtCell({ station }: { station: TransitStation }) {
   return (
     <span
@@ -705,6 +723,8 @@ function StationIdentity({ station }: { station: TransitStation }) {
   const offerLabel = offer ? formatListOfferLabel(offer) : null;
   const offerTitle = offer ? offer.title : "";
   const hasAff = hasTransitAffRelation(station);
+  const operatorLabel = station.operatorType === "unknown" ? null : TRANSIT_OPERATOR_TYPE_LABELS[station.operatorType];
+  const invoiceLabel = station.invoiceSupport === "supported" ? TRANSIT_INVOICE_SUPPORT_LABELS[station.invoiceSupport] : null;
 
   return (
     <div className="flex min-w-0 items-center gap-3">
@@ -715,6 +735,8 @@ function StationIdentity({ station }: { station: TransitStation }) {
           <span className="inline-flex h-5 w-[72px] shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] px-2 text-[10px] font-bold text-[#5a6061]">
             <span className="truncate">{getTransitStationSystemLabel(station)}</span>
           </span>
+          {operatorLabel ? <StationInfoTag label={operatorLabel} tone={station.operatorType} /> : null}
+          {invoiceLabel ? <StationInfoTag label={invoiceLabel} tone="invoice" /> : null}
           {hasAff ? (
             <span
               className="inline-flex h-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#adb3b4]/70 px-2 text-[10px] font-extrabold text-[#5a6061]"
@@ -734,6 +756,26 @@ function StationIdentity({ station }: { station: TransitStation }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function StationInfoTag({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: TransitOperatorType | "invoice";
+}) {
+  const className = tone === "invoice"
+    ? "bg-[#eef3f8] text-[#47657a]"
+    : tone === "company"
+      ? "bg-[#e8f3ec] text-[#2f7a4b]"
+      : "bg-[#f2f4f4] text-[#5a6061]";
+
+  return (
+    <span className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full px-2 text-[10px] font-bold ${className}`}>
+      {label}
+    </span>
   );
 }
 
