@@ -73,6 +73,8 @@ assert(/PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS\s*=\s*3\s*\*\s*6
 assert(/PUBLIC_API_SNAPSHOT_GLOBAL_REFRESH_MIN_INTERVAL_MS\s*=\s*5\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: explorer/offers snapshot refresh must stay coalesced to 5 minutes.");
 assert(/PUBLIC_API_SNAPSHOT_FULL_REFRESH_MAX_INTERVAL_MS\s*=\s*60\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: full public snapshot refresh must remain a low-frequency 60 minute fallback.");
 assert(/PUBLIC_API_SNAPSHOT_MAX_STALE_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS\s*\*\s*2/.test(dataText), "src/lib/data.ts: public API snapshots must stop serving old default snapshots after two public cache TTLs.");
+assert(/PUBLIC_API_SNAPSHOT_PRODUCT_REFRESH_BATCH_SIZE\s*=\s*4/.test(dataText), "src/lib/data.ts: product snapshot refreshes must stay batched to protect Worker CPU.");
+assert(/remainingProductIds/.test(dataText), "src/lib/data.ts: batched product snapshot refreshes must keep unprocessed products queued.");
 assert(/isPublicApiSnapshotFresh/.test(dataText), "src/lib/data.ts: default public API snapshot reads must validate snapshot freshness before returning cached data.");
 assert(/affectedProductIds/.test(dataText), "src/lib/data.ts: dirty snapshot state must keep affected product IDs for incremental refresh.");
 assert(/resolvePublicSnapshotProductIds/.test(dataText), "src/lib/data.ts: dirty source/offer scopes must resolve to product snapshot refreshes.");
@@ -98,6 +100,12 @@ assert(/shouldRefreshUnchangedOffer/.test(adminText), "src/lib/admin.ts: unchang
 const snapshotRefreshWorkflowText = read(".github/workflows/refresh-public-api-snapshots.yml");
 assert(snapshotRefreshWorkflowText.includes('cron: "*/30 * * * *"'), ".github/workflows/refresh-public-api-snapshots.yml: GitHub scheduled snapshot refresh must remain a low-frequency fallback.");
 assert(/\/api\/admin\/public-api-snapshots/.test(snapshotRefreshWorkflowText), ".github/workflows/refresh-public-api-snapshots.yml: scheduled refresh must call the protected snapshot endpoint.");
+
+const cloudflareSmokeText = read("scripts/smoke-cloudflare.mjs");
+assert(/\/api\/offers\?limit=30/.test(cloudflareSmokeText), "scripts/smoke-cloudflare.mjs: production smoke must verify the 30-row cached offers path.");
+assert(/\/api\/products\/chatgpt-plus\/offers\?limit=30/.test(cloudflareSmokeText), "scripts/smoke-cloudflare.mjs: production smoke must verify the 30-row cached product offers path.");
+assert(!/\/api\/offers\?limit=80/.test(cloudflareSmokeText), "scripts/smoke-cloudflare.mjs: production smoke must not use the heavy 80-row offers path as the default health signal.");
+assert(!/\/api\/products\/chatgpt-plus\/offers\?limit=80/.test(cloudflareSmokeText), "scripts/smoke-cloudflare.mjs: production smoke must not use the heavy 80-row product offers path as the default health signal.");
 
 const snapshotRefreshScriptText = read("scripts/refresh-public-api-snapshots.mjs");
 assert(/PRICEAI_BASE_URL/.test(snapshotRefreshScriptText), "scripts/refresh-public-api-snapshots.mjs: server snapshot refresh must support an explicit production base URL.");

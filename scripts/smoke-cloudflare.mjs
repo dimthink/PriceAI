@@ -66,13 +66,13 @@ const checks = [
     json: validateExplorerJson,
   },
   {
-    path: "/api/offers?limit=80",
+    path: "/api/offers?limit=30",
     status: 200,
-    maxBytes: 140_000,
+    maxBytes: 80_000,
     cache: true,
     json: validateOffersJson,
   },
-  { path: "/api/products/chatgpt-plus/offers?limit=80", status: 200, maxBytes: 140_000, cache: true },
+  { path: "/api/products/chatgpt-plus/offers?limit=30", status: 200, maxBytes: 80_000, cache: true },
   {
     path: "/api/merchants",
     status: 200,

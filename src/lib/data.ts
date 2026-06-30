@@ -356,8 +356,8 @@ export async function markPublicApiSnapshotsDirty(
   const state = normalizePublicApiSnapshotRefreshState(current?.value);
   const resetRefreshScope = scope.resetRefreshScope === true;
   const nextProductIds = mergePublicSnapshotIds(
-    resetRefreshScope ? [] : state.affectedProductIds,
     scope.productIds,
+    resetRefreshScope ? [] : state.affectedProductIds,
   );
   const preferProductScope = scope.preferProductScope === true && nextProductIds.length > 0;
   const nextOfferIds = preferProductScope
@@ -577,7 +577,7 @@ function normalizePublicSnapshotIdList(value: unknown): string[] {
 }
 
 function mergePublicSnapshotIds(
-  current: string[] | null | undefined,
+  current: Array<string | null | undefined> | null | undefined,
   next: Array<string | null | undefined> | null | undefined,
 ): string[] {
   return normalizePublicSnapshotIdList([...(current || []), ...(next || [])]);
@@ -782,6 +782,25 @@ function publicSnapshotProductBatch<T>(items: T[]): { batch: T[]; remaining: T[]
   };
 }
 
+function comparePublicSnapshotProductRefreshPriority(
+  a: ExplorerProductSummary,
+  b: ExplorerProductSummary,
+): number {
+  const inStockDelta = b.inStockCount - a.inStockCount;
+  if (inStockDelta) return inStockDelta;
+
+  const offerDelta = b.offerCount - a.offerCount;
+  if (offerDelta) return offerDelta;
+
+  const latestDelta = timestampMs(b.latestSeenAt || b.updatedAt) - timestampMs(a.latestSeenAt || a.updatedAt);
+  if (latestDelta) return latestDelta;
+
+  const platformDelta = comparePlatformOrder(a.platform, b.platform);
+  if (platformDelta) return platformDelta;
+
+  return a.id.localeCompare(b.id);
+}
+
 export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefreshResult> {
   const explorerData = await buildExplorerData({ skipSnapshot: true });
   const explorer = !explorerData.degraded && await writePublicApiSnapshot({
@@ -812,7 +831,7 @@ export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefr
   });
 
   const productRefs = explorerData.products
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort(comparePublicSnapshotProductRefreshPriority)
     .map((product) => ({ id: product.id, slug: product.slug }));
   const { batch: productBatch, remaining: remainingProducts } = publicSnapshotProductBatch(productRefs);
   const productOffers = await refreshPublicProductOfferSnapshots(productBatch);
