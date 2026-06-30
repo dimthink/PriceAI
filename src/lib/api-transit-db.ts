@@ -1,6 +1,7 @@
 import "server-only";
 
 import type {
+  TransitAvailabilitySourceType,
   TransitModelFamily,
   TransitMultiplierHistoryPoint,
   TransitModelPrice,
@@ -24,7 +25,7 @@ const PUBLIC_TRANSIT_BUILD_READ_TIMEOUT_MS = 15_000;
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 const TRANSIT_HISTORY_DAYS = 45;
 const TRANSIT_HISTORY_STATION_LIMIT = 320;
-const STATION_CORE_COLUMNS = [
+const STATION_CORE_BASE_COLUMNS = [
   "id",
   "slug",
   "name",
@@ -50,6 +51,9 @@ const STATION_CORE_COLUMNS = [
   "availability_first_checked_at",
   "availability_last_checked_at",
   "availability_note",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url",
   "feedback_pending_count",
   "feedback_verified_risk_count",
   "feedback_merchant_responded_count",
@@ -57,72 +61,33 @@ const STATION_CORE_COLUMNS = [
   "feedback_public_notes",
   "last_updated_at",
   "updated_at",
-].join(",");
-const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED = [
-  "id",
-  "slug",
-  "name",
-  "website_url",
+];
+const STATION_CORE_COLUMNS = STATION_CORE_BASE_COLUMNS.join(",");
+const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED = withoutColumns(
+  STATION_CORE_BASE_COLUMNS,
+  "availability_first_checked_at"
+);
+const STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE = withoutColumns(
+  STATION_CORE_BASE_COLUMNS,
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE = withoutColumns(
+  STATION_CORE_BASE_COLUMNS,
+  "availability_first_checked_at",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+const STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL = withoutColumns(
+  STATION_CORE_BASE_COLUMNS,
   "api_base_url",
-  "status",
-  "source_type",
-  "commercial_relation",
-  "summary",
-  "collector_kind",
-  "channel_types",
-  "account_pools",
-  "payment_methods",
-  "minimum_top_up",
-  "balance_expiry",
-  "support_channels",
-  "refund_policy",
-  "risk_labels",
-  "usage_advice",
-  "data_status",
-  "availability_seven_day_rate",
-  "availability_seven_day_samples",
-  "availability_last_checked_at",
-  "availability_note",
-  "feedback_pending_count",
-  "feedback_verified_risk_count",
-  "feedback_merchant_responded_count",
-  "feedback_main_themes",
-  "feedback_public_notes",
-  "last_updated_at",
-  "updated_at",
-].join(",");
-const STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL = [
-  "id",
-  "slug",
-  "name",
-  "website_url",
-  "status",
-  "source_type",
-  "commercial_relation",
-  "summary",
-  "collector_kind",
-  "channel_types",
-  "account_pools",
-  "payment_methods",
-  "minimum_top_up",
-  "balance_expiry",
-  "support_channels",
-  "refund_policy",
-  "risk_labels",
-  "usage_advice",
-  "data_status",
-  "availability_seven_day_rate",
-  "availability_seven_day_samples",
-  "availability_last_checked_at",
-  "availability_note",
-  "feedback_pending_count",
-  "feedback_verified_risk_count",
-  "feedback_merchant_responded_count",
-  "feedback_main_themes",
-  "feedback_public_notes",
-  "last_updated_at",
-  "updated_at",
-].join(",");
+  "availability_first_checked_at",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
 const STATION_ENHANCEMENT_COLUMNS = [
   "id",
   "logo_url",
@@ -140,7 +105,7 @@ const STATION_ENHANCEMENT_COLUMNS_WITHOUT_LOGO = [
   "commercial_offers",
   "verification_events",
 ].join(",");
-const OFFER_COLUMNS = [
+const OFFER_BASE_COLUMNS = [
   "id",
   "station_id",
   "family",
@@ -163,75 +128,51 @@ const OFFER_COLUMNS = [
   "availability_first_checked_at",
   "availability_last_checked_at",
   "availability_note",
-].join(",");
-const OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT = [
-  "id",
-  "station_id",
-  "family",
-  "standard_model",
-  "group_name",
-  "recharge_ratio",
-  "model_multiplier",
-  "input_price",
-  "output_price",
-  "cache_read_price",
-  "cache_write_price",
-  "currency",
-  "account_pool",
-  "channel_type",
-  "price_source",
-  "last_verified_at",
-  "availability_seven_day_rate",
-  "availability_seven_day_samples",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url",
+];
+const OFFER_COLUMNS = OFFER_BASE_COLUMNS.join(",");
+const OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT = withoutColumns(OFFER_BASE_COLUMNS, "image_output_price");
+const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED = withoutColumns(OFFER_BASE_COLUMNS, "availability_first_checked_at");
+const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_IMAGE_OUTPUT = withoutColumns(
+  OFFER_BASE_COLUMNS,
   "availability_first_checked_at",
-  "availability_last_checked_at",
-  "availability_note",
-].join(",");
-const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED = [
-  "id",
-  "station_id",
-  "family",
-  "standard_model",
-  "group_name",
-  "recharge_ratio",
-  "model_multiplier",
-  "input_price",
-  "output_price",
-  "cache_read_price",
-  "cache_write_price",
+  "image_output_price"
+);
+const OFFER_COLUMNS_WITHOUT_AVAILABILITY_SOURCE = withoutColumns(
+  OFFER_BASE_COLUMNS,
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+const OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT_OR_AVAILABILITY_SOURCE = withoutColumns(
+  OFFER_BASE_COLUMNS,
   "image_output_price",
-  "currency",
-  "account_pool",
-  "channel_type",
-  "price_source",
-  "last_verified_at",
-  "availability_seven_day_rate",
-  "availability_seven_day_samples",
-  "availability_last_checked_at",
-  "availability_note",
-].join(",");
-const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_IMAGE_OUTPUT = [
-  "id",
-  "station_id",
-  "family",
-  "standard_model",
-  "group_name",
-  "recharge_ratio",
-  "model_multiplier",
-  "input_price",
-  "output_price",
-  "cache_read_price",
-  "cache_write_price",
-  "currency",
-  "account_pool",
-  "channel_type",
-  "price_source",
-  "last_verified_at",
-  "availability_seven_day_rate",
-  "availability_seven_day_samples",
-  "availability_last_checked_at",
-  "availability_note",
-].join(",");
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE = withoutColumns(
+  OFFER_BASE_COLUMNS,
+  "availability_first_checked_at",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_IMAGE_OUTPUT_OR_AVAILABILITY_SOURCE = withoutColumns(
+  OFFER_BASE_COLUMNS,
+  "availability_first_checked_at",
+  "image_output_price",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+
+function withoutColumns(columns: string[], ...excluded: string[]): string {
+  const excludedSet = new Set(excluded);
+  return columns.filter((column) => !excludedSet.has(column)).join(",");
+}
 
 export function clearTransitStationsCache(): void {
   cached = null;
@@ -393,21 +334,38 @@ async function readPublicOfferRows(
   } catch (error) {
     if (isMissingColumnError(error)) {
       try {
-        return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_FIRST_CHECKED, stationId);
-      } catch (withoutFirstCheckedError) {
-        if (!isMissingColumnError(withoutFirstCheckedError)) throw withoutFirstCheckedError;
-        try {
-          return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT, stationId);
-        } catch (withoutImageOutputError) {
-          if (isMissingColumnError(withoutImageOutputError)) {
-            return queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_IMAGE_OUTPUT, stationId);
-          }
-          throw withoutImageOutputError;
-        }
+        return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, stationId);
+      } catch (withoutSourceError) {
+        if (!isMissingColumnError(withoutSourceError)) throw withoutSourceError;
+        return readPublicOfferRowsWithoutNewOptionalColumns(client, stationId);
       }
     }
     throw error;
   }
+}
+
+async function readPublicOfferRowsWithoutNewOptionalColumns(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  stationId?: string
+): Promise<DbRow[]> {
+  const attempts = [
+    OFFER_COLUMNS_WITHOUT_FIRST_CHECKED,
+    OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT,
+    OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_IMAGE_OUTPUT,
+    OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT_OR_AVAILABILITY_SOURCE,
+    OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE,
+    OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_IMAGE_OUTPUT_OR_AVAILABILITY_SOURCE,
+  ];
+  let lastError: unknown = null;
+  for (const columns of attempts) {
+    try {
+      return await queryPublicOfferRows(client, publicTransitReadSignal(), columns, stationId);
+    } catch (error) {
+      if (!isMissingColumnError(error)) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 async function queryPublishedStationRows(
@@ -420,16 +378,35 @@ async function queryPublishedStationRows(
   } catch (error) {
     if (isMissingColumnError(error)) {
       try {
-        return await queryStationRows(client, publicTransitReadSignal(), STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED, slug);
+        return await queryStationRows(client, publicTransitReadSignal(), STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, slug);
       } catch (fallbackError) {
-        if (isMissingColumnError(fallbackError)) {
-          return queryStationRows(client, publicTransitReadSignal(), STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL, slug);
-        }
-        throw fallbackError;
+        if (!isMissingColumnError(fallbackError)) throw fallbackError;
+        return readPublishedStationRowsWithoutNewOptionalColumns(client, slug);
       }
     }
     throw error;
   }
+}
+
+async function readPublishedStationRowsWithoutNewOptionalColumns(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  slug?: string
+): Promise<DbRow[]> {
+  const attempts = [
+    STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED,
+    STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE,
+    STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL,
+  ];
+  let lastError: unknown = null;
+  for (const columns of attempts) {
+    try {
+      return await queryStationRows(client, publicTransitReadSignal(), columns, slug);
+    } catch (error) {
+      if (!isMissingColumnError(error)) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 async function queryStationRows(
@@ -693,6 +670,9 @@ function mapStationRow(
       firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
       note: nullableString(row.availability_note) || undefined,
+      sourceType: availabilitySourceType(row.availability_source_type),
+      sourceLabel: nullableString(row.availability_source_label),
+      sourceUrl: nullableString(row.availability_source_url),
     },
     prices: offerRows.map((offer) => mapOfferRow(offer, historyByOffer)).filter((price): price is TransitModelPrice => Boolean(price)),
     feedback: {
@@ -740,6 +720,9 @@ function mapOfferRow(
       firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
       note: nullableString(row.availability_note) || undefined,
+      sourceType: availabilitySourceType(row.availability_source_type),
+      sourceLabel: nullableString(row.availability_source_label),
+      sourceUrl: nullableString(row.availability_source_url),
     },
     history: historyByOffer.get(historyKey({
       station_id: row.station_id,
@@ -817,6 +800,23 @@ function integerValue(value: unknown): number | null {
 
 function timestampValue(value: unknown): string {
   return nullableTimestamp(value) || new Date().toISOString();
+}
+
+function availabilitySourceType(value: unknown): TransitAvailabilitySourceType {
+  const type = stringValue(value);
+  return isTransitAvailabilitySourceType(type) ? type : "unknown";
+}
+
+function isTransitAvailabilitySourceType(value: string): value is TransitAvailabilitySourceType {
+  return (
+    value === "priceai_probe" ||
+    value === "public_status" ||
+    value === "public_model_catalog" ||
+    value === "partner_api" ||
+    value === "merchant_reported" ||
+    value === "manual_snapshot" ||
+    value === "unknown"
+  );
 }
 
 function nullableTimestamp(value: unknown): string | null {

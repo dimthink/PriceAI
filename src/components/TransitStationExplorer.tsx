@@ -38,6 +38,7 @@ import {
   formatRate,
   getRateBadgeClass,
   getEffectiveTransitChannelTypes,
+  getAvailabilitySourceMeta,
   getNormalizedSourceTags,
   getPrimaryTransitCommercialOffer,
   getStationComparisonSummary,
@@ -301,7 +302,7 @@ export default function TransitStationExplorer({ stations }: Props) {
                     </DataTableHead>
                     <DataTableHead explanation="站点当前收录并可比较的标准模型家族，例如 ChatGPT、Claude、Gemini。">覆盖模型</DataTableHead>
                     <DataTableHead explanation="站内充值额度与人民币的折算关系，会影响实际扣费倍率。">充值倍率</DataTableHead>
-                    <DataTableHead explanation="近 7 日 PriceAI 可用性探测样本汇总；样本越多、时间跨度越完整，参考价值越高。">稳定性</DataTableHead>
+                    <DataTableHead explanation="近 7 日可用性样本汇总；标签会标明来自 PriceAI 实测、公开监测页、公开模型页或站长接口。">稳定性</DataTableHead>
                     <DataTableHead explanation="公开披露或 PriceAI 推断的上游来源与号池类型，用于判断风险边界。">来源渠道</DataTableHead>
                     <DataTableHead>更新时间</DataTableHead>
                     <DataTableHead className="w-[120px] text-center">操作</DataTableHead>
@@ -595,6 +596,7 @@ function StationCard({
 }
 
 function AvailabilityCell({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
+  const source = getAvailabilitySourceMeta(station.availability);
   return (
     <div className={compact ? "" : "min-w-[118px]"}>
       {compact ? (
@@ -614,8 +616,57 @@ function AvailabilityCell({ station, compact = false }: { station: TransitStatio
       <div className="mt-1 whitespace-nowrap text-[10px] text-[#7f8889]">
         {formatDateShortMinute(station.availability.lastCheckedAt)}
       </div>
+      <AvailabilitySourceBadge source={source} compact={compact} />
     </div>
   );
+}
+
+function AvailabilitySourceBadge({
+  source,
+  compact,
+}: {
+  source: ReturnType<typeof getAvailabilitySourceMeta>;
+  compact: boolean;
+}) {
+  const className = [
+    "mt-1 inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[10px] font-bold",
+    availabilitySourceToneClass(source.tone),
+    compact ? "" : "whitespace-nowrap",
+  ].filter(Boolean).join(" ");
+
+  if (source.url) {
+    return (
+      <a
+        href={source.url}
+        className={className}
+        title={source.title}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {source.label}
+      </a>
+    );
+  }
+
+  return (
+    <span className={className} title={source.title}>
+      {source.label}
+    </span>
+  );
+}
+
+function availabilitySourceToneClass(tone: ReturnType<typeof getAvailabilitySourceMeta>["tone"]): string {
+  switch (tone) {
+    case "success":
+      return "bg-[#e8f3ec] text-[#2f7a4b]";
+    case "info":
+      return "bg-[#eef3f8] text-[#47657a]";
+    case "warning":
+      return "bg-[#fff7e8] text-[#7a541b]";
+    default:
+      return "bg-[#f2f4f4] text-[#5a6061]";
+  }
 }
 
 function UpdatedAtCell({ station }: { station: TransitStation }) {

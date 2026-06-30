@@ -53,4 +53,21 @@ assert.equal(__test.shouldRestrictToRunnableStations({ post: true }), true);
 assert.equal(__test.shouldRestrictToRunnableStations({ post: true, station: "pending-with-key" }), false);
 assert.equal(__test.shouldRestrictToRunnableStations({ post: true, dryRun: true }), false);
 
+const probeSamples = __test.availabilitySamplesFromProbe({
+  runId: "run-1",
+  stationId: "station-1",
+  checkedAt: "2026-06-30T08:00:00.000Z",
+  targetResults: [
+    {
+      standardModel: "GPT 5.4",
+      groupName: "Pro",
+      ok: true,
+      checkedAt: "2026-06-30T08:00:00.000Z",
+    },
+  ],
+});
+assert.equal(probeSamples.length, 2);
+assert.equal(probeSamples[0].source_type, "priceai_probe");
+assert.equal(probeSamples[0].source_label, "PriceAI 实测");
+
 console.log("api transit probe target test passed");

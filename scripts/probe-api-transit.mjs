@@ -16,6 +16,10 @@ const DEFAULT_TIMEOUT_MS = 20000;
 const DEFAULT_TARGET_LIMIT = 4;
 const MAX_MODELS_SNAPSHOT = 200;
 const AVAILABILITY_SAMPLE_LOOKBACK_LIMIT = 2000;
+const PRICEAI_PROBE_AVAILABILITY_SOURCE = {
+  type: "priceai_probe",
+  label: "PriceAI 实测",
+};
 const userAgent = "Mozilla/5.0 PriceAI/1.0 APITransitProbe";
 let cachedFileEnv = null;
 
@@ -565,13 +569,7 @@ function authHeaders(profile, apiKey) {
 async function refreshAvailabilityRollup(supabase, stationId) {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const [samplesResult, offerRows, stationFirstCheckedAt] = await Promise.all([
-    supabase
-      .from("api_transit_availability_samples")
-      .select("scope,standard_model,group_name,ok,checked_at")
-      .eq("station_id", stationId)
-      .gte("checked_at", since)
-      .order("checked_at", { ascending: false })
-      .limit(AVAILABILITY_SAMPLE_LOOKBACK_LIMIT),
+    readPriceAIProbeAvailabilitySamples(supabase, stationId, since),
     readOfferRowsForAvailabilityRollup(supabase, stationId),
     readStationFirstCheckedAt(supabase, stationId),
   ]);
@@ -622,11 +620,14 @@ async function refreshAvailabilityRollup(supabase, stationId) {
     availability_first_checked_at: stationAvailability.samples ? stationFirstCheckedAt || stationWindow.first : null,
     availability_last_checked_at: stationAvailability.samples ? stationWindow.last : null,
     availability_note: availabilityNote("站点", stationAvailability),
+    availability_source_type: PRICEAI_PROBE_AVAILABILITY_SOURCE.type,
+    availability_source_label: PRICEAI_PROBE_AVAILABILITY_SOURCE.label,
+    availability_source_url: null,
     last_updated_at: new Date().toISOString(),
   };
   const { error: stationError } = await updateAvailabilityRollup(
     supabase.from("api_transit_stations").update(stationUpdate).eq("id", stationId),
-    supabase.from("api_transit_stations").update(removeFields(stationUpdate, ["availability_first_checked_at"])).eq("id", stationId),
+    supabase.from("api_transit_stations").update(removeOptionalAvailabilityFields(stationUpdate)).eq("id", stationId),
   );
   if (stationError) throw stationError;
 
@@ -650,11 +651,14 @@ async function refreshAvailabilityRollup(supabase, stationId) {
       availability_first_checked_at: availability.samples ? existingOfferFirstCheckedAt || offerWindow.first : null,
       availability_last_checked_at: availability.samples ? offerWindow.last : null,
       availability_note: availabilityNote(targetGroupLabel(standardModel, groupName), availability),
+      availability_source_type: PRICEAI_PROBE_AVAILABILITY_SOURCE.type,
+      availability_source_label: PRICEAI_PROBE_AVAILABILITY_SOURCE.label,
+      availability_source_url: null,
     };
     const { error: offerError } = await updateAvailabilityRollup(
       withOfferAvailabilityFilter(supabase.from("api_transit_offers").update(offerUpdate), stationId, standardModel, groupName),
       withOfferAvailabilityFilter(
-        supabase.from("api_transit_offers").update(removeFields(offerUpdate, ["availability_first_checked_at"])),
+        supabase.from("api_transit_offers").update(removeOptionalAvailabilityFields(offerUpdate)),
         stationId,
         standardModel,
         groupName,
@@ -670,6 +674,26 @@ async function refreshAvailabilityRollup(supabase, stationId) {
     offers: offerRollups,
     lastCheckedAt: stationWindow.last,
   };
+}
+
+async function readPriceAIProbeAvailabilitySamples(supabase, stationId, since) {
+  const result = await supabase
+    .from("api_transit_availability_samples")
+    .select("scope,standard_model,group_name,ok,checked_at,source_type")
+    .eq("station_id", stationId)
+    .eq("source_type", PRICEAI_PROBE_AVAILABILITY_SOURCE.type)
+    .gte("checked_at", since)
+    .order("checked_at", { ascending: false })
+    .limit(AVAILABILITY_SAMPLE_LOOKBACK_LIMIT);
+  if (!result.error || !isMissingColumnError(result.error, "source_type")) return result;
+
+  return supabase
+    .from("api_transit_availability_samples")
+    .select("scope,standard_model,group_name,ok,checked_at")
+    .eq("station_id", stationId)
+    .gte("checked_at", since)
+    .order("checked_at", { ascending: false })
+    .limit(AVAILABILITY_SAMPLE_LOOKBACK_LIMIT);
 }
 
 function summarizeSamples(samples) {
@@ -718,10 +742,19 @@ function withOfferAvailabilityFilter(query, stationId, standardModel, groupName)
 
 async function updateAvailabilityRollup(query, fallbackQuery) {
   const result = await query;
-  if (result.error && isMissingColumnError(result.error, "availability_first_checked_at")) {
+  if (result.error && (isMissingColumnError(result.error, "availability_first_checked_at") || isAvailabilitySourceColumnError(result.error))) {
     return await fallbackQuery;
   }
   return result;
+}
+
+function removeOptionalAvailabilityFields(row) {
+  return removeFields(row, [
+    "availability_first_checked_at",
+    "availability_source_type",
+    "availability_source_label",
+    "availability_source_url",
+  ]);
 }
 
 function removeFields(row, fieldNames) {
@@ -744,7 +777,7 @@ function sampleWindow(samples) {
 async function upsertAvailabilitySamples(supabase, run) {
   const samples = run.availabilitySamples || [];
   if (!samples.length) return;
-  await upsertRows(supabase, "api_transit_availability_samples", samples, { onConflict: "id" });
+  await upsertRowsWithSampleSourceFallback(supabase, "api_transit_availability_samples", samples, { onConflict: "id" });
   await pruneAvailabilitySamples(supabase, run.stationId);
 }
 
@@ -779,6 +812,7 @@ function availabilitySamplesFromProbe({ runId, stationId, modelList, targetResul
         ok: Boolean(item.ok),
         checkedAt: targetCheckedAt,
         index,
+        availabilitySource: PRICEAI_PROBE_AVAILABILITY_SOURCE,
       }));
       if (!standardModel) return;
       samples.push(availabilitySampleRow({
@@ -790,6 +824,7 @@ function availabilitySamplesFromProbe({ runId, stationId, modelList, targetResul
         ok: Boolean(item.ok),
         checkedAt: targetCheckedAt,
         index,
+        availabilitySource: PRICEAI_PROBE_AVAILABILITY_SOURCE,
       }));
     });
     return samples;
@@ -805,6 +840,7 @@ function availabilitySamplesFromProbe({ runId, stationId, modelList, targetResul
       ok: Boolean(modelList.ok),
       checkedAt: normalizedCheckedAt,
       index: 0,
+      availabilitySource: PRICEAI_PROBE_AVAILABILITY_SOURCE,
     }));
   }
 
@@ -837,6 +873,9 @@ function availabilitySampleRow(input) {
     group_name: groupName,
     ok: Boolean(input.ok),
     checked_at: checkedAt,
+    source_type: input.availabilitySource?.type || "unknown",
+    source_label: input.availabilitySource?.label || null,
+    source_url: null,
   };
 }
 
@@ -1111,6 +1150,19 @@ async function upsertRows(supabase, table, rows, options = {}) {
   }
 }
 
+async function upsertRowsWithSampleSourceFallback(supabase, table, rows, options = {}) {
+  try {
+    await upsertRows(supabase, table, rows, options);
+  } catch (error) {
+    if (!isSampleSourceColumnError(error)) throw error;
+    await upsertRows(supabase, table, removeSampleSourceFields(rows), options);
+  }
+}
+
+function removeSampleSourceFields(rows) {
+  return rows.map((row) => removeFields(row, ["source_type", "source_label", "source_url"]));
+}
+
 function loadProbeProfiles() {
   return JSON.parse(readFileSync(configPath, "utf8"));
 }
@@ -1170,6 +1222,22 @@ function isMissingColumnError(error, columnName) {
   const code = String(error?.code || "");
   const message = String(error?.message || error?.details || "");
   return (code === "42703" || code === "PGRST204") && message.includes(columnName);
+}
+
+function isAvailabilitySourceColumnError(error) {
+  return (
+    isMissingColumnError(error, "availability_source_type") ||
+    isMissingColumnError(error, "availability_source_label") ||
+    isMissingColumnError(error, "availability_source_url")
+  );
+}
+
+function isSampleSourceColumnError(error) {
+  return (
+    isMissingColumnError(error, "source_type") ||
+    isMissingColumnError(error, "source_label") ||
+    isMissingColumnError(error, "source_url")
+  );
 }
 
 function getSupabaseClient() {
@@ -1452,6 +1520,7 @@ function errorMessage(error) {
 }
 
 export const __test = {
+  availabilitySamplesFromProbe,
   filterProfilesByRunnableStationIds,
   keywordsForStandardModel,
   normalizeFamily,

@@ -30,6 +30,14 @@ export type TransitRiskLabel =
   | "third_party_aggregate"
   | "pending_feedback";
 export type TransitUsageAdvice = "try_small" | "cautious" | "not_recommended" | "pending";
+export type TransitAvailabilitySourceType =
+  | "priceai_probe"
+  | "public_status"
+  | "public_model_catalog"
+  | "partner_api"
+  | "merchant_reported"
+  | "manual_snapshot"
+  | "unknown";
 
 export interface TransitAvailability {
   sevenDayRate: number | null;
@@ -37,6 +45,9 @@ export interface TransitAvailability {
   firstCheckedAt?: string | null;
   lastCheckedAt: string | null;
   note?: string;
+  sourceType: TransitAvailabilitySourceType;
+  sourceLabel: string | null;
+  sourceUrl: string | null;
 }
 
 export interface TransitMultiplierHistoryPoint {

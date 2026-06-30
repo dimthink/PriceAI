@@ -471,6 +471,9 @@ function buildManualOffer({ stationId, family, standardModel, rawModelName, grou
     availability_first_checked_at: null,
     availability_last_checked_at: null,
     availability_note: `站长监控截图显示 30 日样本：${monitor.label} ${formatPercent(monitor.availability30d)} / ${monitor.sampleCount} 条；尚未接入 PriceAI 自测。`,
+    availability_source_type: "merchant_reported",
+    availability_source_label: "商家提交",
+    availability_source_url: apinodeMonitorUrl,
     last_verified_at: collectedAt,
     status: "needs_review",
     raw_payload: {
