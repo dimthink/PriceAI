@@ -2,7 +2,7 @@
   <img src="src/app/icon.svg" width="112" height="112" alt="PriceAI logo" />
 </p>
 
-<h1 align="center">PriceAI - AI 订阅与模型 API 比价雷达</h1>
+<h1 align="center">PriceAI - AI 卡网订阅与中转 API 比价雷达</h1>
 
 <p align="center">
   <strong>AI 官方地区订阅、AI 卡网低价订阅、官方 API、模型 API 和中转 API 的购买前比价雷达。</strong><br/>
