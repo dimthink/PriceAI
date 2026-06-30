@@ -3,7 +3,7 @@ import "server-only";
 import { ADMIN_MANUAL_HIDE_REASON_PREFIX, listOfferFeedback, listSiteFeedback, listSubmissions } from "./admin";
 import { notifyOperationalIssue } from "./alerts";
 import { getApiTransitAdminData, getEmptyApiTransitAdminData } from "./api-transit-admin";
-import { buildProductGroups, canonicalCatalog, classifyOffer, comparePlatformOrder, isSharedAccessOffer, publicCatalogProducts, resolveOfferProduct } from "./catalog";
+import { allPlatformOptions, buildProductGroups, canonicalCatalog, classifyOffer, comparePlatformOrder, isSharedAccessOffer, publicCatalogProducts, resolveOfferProduct } from "./catalog";
 import { isSupabaseConfigured } from "./env";
 import { getApiModelAdminData } from "./api-models-db";
 import { normalizeCollectorKind } from "./collector-registry";
@@ -33,7 +33,7 @@ import {
 import { PRICE_DATA_CACHE_TTL_MS } from "./public-cache-policy";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
-import { apiCdkPublicVisible, getPublicRiskPrecheck, isPublicCatalogProduct } from "./trust-risk";
+import { API_CDK_PLATFORM, apiCdkPublicVisible, getPublicRiskPrecheck, isPublicCatalogProduct } from "./trust-risk";
 import type {
   AdminSummary,
   CanonicalProduct,
@@ -78,8 +78,17 @@ const PUBLIC_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_OFFERS_SNAPSHOT_OFFSET = 0;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET = 0;
+const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS = OFFER_FILTER_TAGS.map((tag) => tag.id);
 const PUBLIC_OFFERS_SNAPSHOT_KEY = `default:limit:${PUBLIC_OFFERS_SNAPSHOT_LIMIT}`;
 const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
+const PUBLIC_LIST_SNAPSHOT_STOCKS = ["available"] as const;
+const PUBLIC_LIST_SNAPSHOT_SORTS = ["updated"] as const;
+const PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS = ["shopApi", "dujiao", "kami", "other"] as const;
+const PUBLIC_MERCHANT_SNAPSHOT_SIGNALS = ["lowest", "warranty", "platform_aftersales", "risk_clear"] as const;
+const PUBLIC_HOT_OFFER_PRODUCT_TYPES_BY_PLATFORM: Record<string, string[]> = {
+  ChatGPT: ["订阅/会员"],
+  Claude: ["成品账号"],
+};
 const PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND = "refresh_state";
 const PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY = "public-prices";
 const PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS = 3 * 60 * 1000;
@@ -208,6 +217,8 @@ export type PublicApiSnapshotRefreshResult = {
   explorer?: boolean;
   offers?: boolean;
   merchants?: boolean;
+  offerViews?: Array<{ key: string; ok: boolean }>;
+  merchantViews?: Array<{ key: string; ok: boolean }>;
   productOffers: Array<{ key: string; ok: boolean }>;
   productIds: string[];
 };
@@ -258,10 +269,12 @@ type PublicMerchantRow = Record<string, unknown> & {
 let publicOfferDataCache: { expiresAt: number; value: PublicOfferData } | null = null;
 let publicOfferDataPromise: Promise<PublicOfferData> | null = null;
 let publicOffersCache: { expiresAt: number; value: PublicOffersResult } | null = null;
+const publicOfferViewCache = new Map<string, { expiresAt: number; value: PublicOffersResult }>();
 let explorerDataCache: { expiresAt: number; value: ExplorerData } | null = null;
 let explorerDataPromise: Promise<ExplorerData> | null = null;
 let publicMerchantsCache: { expiresAt: number; value: PublicMerchantsResult } | null = null;
 let publicMerchantsPromise: Promise<PublicMerchantsResult> | null = null;
+const publicMerchantViewCache = new Map<string, { expiresAt: number; value: PublicMerchantsResult }>();
 let dashboardDataCache: { expiresAt: number; value: DashboardData } | null = null;
 let dashboardDataPromise: Promise<DashboardData> | null = null;
 let adminSummaryCache: { expiresAt: number; value: AdminSummary } | null = null;
@@ -318,10 +331,12 @@ export function clearPublicDataCache(): void {
   publicOfferDataCache = null;
   publicOfferDataPromise = null;
   publicOffersCache = null;
+  publicOfferViewCache.clear();
   explorerDataCache = null;
   explorerDataPromise = null;
   publicMerchantsCache = null;
   publicMerchantsPromise = null;
+  publicMerchantViewCache.clear();
   dashboardDataCache = null;
   dashboardDataPromise = null;
   clearAdminDataCache();
@@ -763,6 +778,7 @@ export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefr
     payload: offersData,
     generatedAt: offersData.generatedAt,
   });
+  const offerViews = await refreshPublicOfferListSnapshots();
 
   const merchantsData = await buildPublicMerchants({ skipSnapshot: true });
   const merchants = !merchantsData.degraded && await writePublicApiSnapshot({
@@ -771,6 +787,7 @@ export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefr
     payload: merchantsData,
     generatedAt: merchantsData.generatedAt,
   });
+  const merchantViews = await refreshPublicMerchantListSnapshots(merchantsData);
 
   const productRefs = explorerData.products
     .sort((a, b) => a.id.localeCompare(b.id))
@@ -783,6 +800,8 @@ export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefr
     explorer,
     offers,
     merchants,
+    offerViews,
+    merchantViews,
     productOffers,
     productIds: productRefs.map((product) => product.id),
   };
@@ -798,6 +817,8 @@ async function refreshPublicApiSnapshotsForScope({
   let explorer: boolean | undefined;
   let offers: boolean | undefined;
   let merchants: boolean | undefined;
+  let offerViews: Array<{ key: string; ok: boolean }> | undefined;
+  let merchantViews: Array<{ key: string; ok: boolean }> | undefined;
   let explorerProducts: Array<{ id: string; slug?: string | null }> = [];
 
   if (refreshGlobal) {
@@ -821,6 +842,7 @@ async function refreshPublicApiSnapshotsForScope({
       payload: offersData,
       generatedAt: offersData.generatedAt,
     });
+    offerViews = await refreshPublicOfferListSnapshots();
 
     const merchantsData = await buildPublicMerchants({ skipSnapshot: true });
     merchants = !merchantsData.degraded && await writePublicApiSnapshot({
@@ -829,6 +851,7 @@ async function refreshPublicApiSnapshotsForScope({
       payload: merchantsData,
       generatedAt: merchantsData.generatedAt,
     });
+    merchantViews = await refreshPublicMerchantListSnapshots(merchantsData);
   }
 
   const productRefs = await resolvePublicSnapshotProductRefs(productIds, explorerProducts);
@@ -840,6 +863,8 @@ async function refreshPublicApiSnapshotsForScope({
     explorer,
     offers,
     merchants,
+    offerViews,
+    merchantViews,
     productOffers,
     productIds: productRefs.map((product) => product.id),
   };
@@ -850,7 +875,7 @@ async function refreshPublicProductOfferSnapshots(
 ): Promise<Array<{ key: string; ok: boolean }>> {
   const productOffers: Array<{ key: string; ok: boolean }> = [];
   for (const product of products) {
-    const value = await loadPublicProductOffers(product.id, {
+    const defaultValue = await loadPublicProductOffers(product.id, {
       limit: PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT,
       offset: PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET,
       filterTags: [],
@@ -858,24 +883,146 @@ async function refreshPublicProductOfferSnapshots(
       excludeQuery: "",
       skipSnapshot: true,
     });
-    const key = publicProductOffersSnapshotKey(product.id);
-    let ok = !value.degraded && await writePublicApiSnapshot({
+    const defaultKey = publicProductOffersSnapshotKey(product.id);
+    let defaultOk = !defaultValue.degraded && await writePublicApiSnapshot({
       kind: "product_offers",
+      key: defaultKey,
+      payload: defaultValue,
+      generatedAt: defaultValue.generatedAt,
+    });
+    if (product.slug && product.slug !== product.id) {
+      defaultOk = defaultOk && await writePublicApiSnapshot({
+        kind: "product_offers",
+        key: publicProductOffersSnapshotKey(product.slug),
+        payload: defaultValue,
+        generatedAt: defaultValue.generatedAt,
+      });
+    }
+    productOffers.push({ key: defaultKey, ok: defaultOk });
+
+    const tagsWithOffers = new Set(
+      defaultValue.filterFacets
+        .filter((facet) => facet.count > 0)
+        .map((facet) => facet.id),
+    );
+    const snapshotTags = PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS.filter((tag) => tagsWithOffers.has(tag));
+    for (const tag of snapshotTags) {
+      const filterTags: OfferFilterTagId[] = [tag];
+      const value = await loadPublicProductOffers(product.id, {
+        limit: PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT,
+        offset: PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET,
+        filterTags,
+        query: "",
+        excludeQuery: "",
+        skipSnapshot: true,
+      });
+      const key = publicProductOffersSnapshotKey(product.id, filterTags);
+      let ok = !value.degraded && await writePublicApiSnapshot({
+        kind: "product_offers",
+        key,
+        payload: value,
+        generatedAt: value.generatedAt,
+      });
+      if (product.slug && product.slug !== product.id) {
+        ok = ok && await writePublicApiSnapshot({
+          kind: "product_offers",
+          key: publicProductOffersSnapshotKey(product.slug, filterTags),
+          payload: value,
+          generatedAt: value.generatedAt,
+        });
+      }
+      productOffers.push({ key, ok });
+    }
+  }
+  return productOffers;
+}
+
+async function refreshPublicOfferListSnapshots(): Promise<Array<{ key: string; ok: boolean }>> {
+  const outputs: Array<{ key: string; ok: boolean }> = [];
+  for (const filters of publicOfferListSnapshotWarmupFilters()) {
+    const key = publicOfferListSnapshotKeyForRequest(filters);
+    if (!key || isDefaultOfferListSnapshotKey(key)) continue;
+
+    const value = await loadPublicOffers({ ...filters, skipSnapshot: true });
+    const ok = !value.degraded && await writePublicApiSnapshot({
+      kind: "offers",
       key,
       payload: value,
       generatedAt: value.generatedAt,
     });
-    if (product.slug && product.slug !== product.id) {
-      ok = ok && await writePublicApiSnapshot({
-        kind: "product_offers",
-        key: publicProductOffersSnapshotKey(product.slug),
-        payload: value,
-        generatedAt: value.generatedAt,
-      });
-    }
-    productOffers.push({ key, ok });
+    outputs.push({ key, ok });
   }
-  return productOffers;
+  return outputs;
+}
+
+async function refreshPublicMerchantListSnapshots(
+  catalog?: PublicMerchantsResult,
+): Promise<Array<{ key: string; ok: boolean }>> {
+  const merchantCatalog = catalog ?? await loadPublicMerchantCatalog();
+  const outputs: Array<{ key: string; ok: boolean }> = [];
+  for (const filters of publicMerchantListSnapshotWarmupFilters()) {
+    const key = publicMerchantListSnapshotKeyForRequest(filters);
+    if (!key || isDefaultMerchantListSnapshotKey(key)) continue;
+
+    const value = paginatePublicMerchants(merchantCatalog, filters);
+    const ok = !value.degraded && await writePublicApiSnapshot({
+      kind: "merchants",
+      key,
+      payload: value,
+      generatedAt: value.generatedAt,
+    });
+    outputs.push({ key, ok });
+  }
+  return outputs;
+}
+
+function publicOfferListSnapshotWarmupFilters(): OfferListFilters[] {
+  const base = {
+    limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+    offset: PUBLIC_OFFERS_SNAPSHOT_OFFSET,
+  };
+  const filters: OfferListFilters[] = [];
+  const platforms = publicSnapshotPlatforms();
+
+  for (const platform of platforms) {
+    filters.push({ ...base, platform });
+  }
+  for (const stock of PUBLIC_LIST_SNAPSHOT_STOCKS) {
+    filters.push({ ...base, stock });
+  }
+  for (const sort of PUBLIC_LIST_SNAPSHOT_SORTS) {
+    filters.push({ ...base, sort });
+  }
+  for (const [platform, productTypes] of Object.entries(PUBLIC_HOT_OFFER_PRODUCT_TYPES_BY_PLATFORM)) {
+    if (!platforms.includes(platform)) continue;
+    for (const productType of productTypes) {
+      filters.push({ ...base, platform, productType });
+    }
+  }
+
+  return filters;
+}
+
+function publicMerchantListSnapshotWarmupFilters(): MerchantListFilters[] {
+  const base = {
+    limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+    offset: PUBLIC_OFFERS_SNAPSHOT_OFFSET,
+  };
+  const filters: MerchantListFilters[] = [];
+  const platforms = publicSnapshotPlatforms();
+
+  for (const platform of platforms) {
+    filters.push({ ...base, platform });
+  }
+  filters.push({ ...base, stock: "available" });
+  for (const collector of PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS) {
+    filters.push({ ...base, collector });
+  }
+  for (const signal of PUBLIC_MERCHANT_SNAPSHOT_SIGNALS) {
+    filters.push({ ...base, signal });
+  }
+
+  return filters;
 }
 
 async function resolvePublicSnapshotProductRefs(
@@ -1699,33 +1846,229 @@ function isPublicMerchantsSnapshot(value: unknown): value is PublicMerchantsResu
     typeof record.total === "number";
 }
 
-function isDefaultOfferListSnapshotRequest(filters: OfferListFilters): boolean {
-  return filters.limit === PUBLIC_OFFERS_SNAPSHOT_LIMIT &&
-    filters.offset === PUBLIC_OFFERS_SNAPSHOT_OFFSET &&
-    !filters.platform &&
-    !filters.productType &&
-    !filters.stock &&
-    !filters.query &&
-    filters.minPrice == null &&
-    filters.maxPrice == null &&
-    !filters.sort;
+function publicOfferListSnapshotKeyForRequest(filters: OfferListFilters): string | null {
+  if (
+    filters.limit !== PUBLIC_OFFERS_SNAPSHOT_LIMIT ||
+    filters.offset !== PUBLIC_OFFERS_SNAPSHOT_OFFSET ||
+    filters.query ||
+    filters.minPrice != null ||
+    filters.maxPrice != null
+  ) {
+    return null;
+  }
+
+  const platform = normalizePublicSnapshotPlatform(filters.platform);
+  const productType = normalizePublicSnapshotProductType(filters.productType);
+  const stock = normalizePublicSnapshotStock(filters.stock);
+  const sort = normalizePublicSnapshotSort(filters.sort);
+
+  if (!platform && !productType && !stock && !sort) return PUBLIC_OFFERS_SNAPSHOT_KEY;
+  if (!isAllowedOfferListSnapshotView({ platform, productType, stock, sort })) return null;
+
+  return publicListViewSnapshotKey("offers", {
+    platform,
+    productType,
+    stock,
+    sort,
+    limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+  });
 }
 
-function isDefaultProductOffersSnapshotRequest(filters: {
-  limit: number;
-  offset: number;
-  filterTags: OfferFilterTagId[];
-  query: string;
-  excludeQuery: string;
+function publicMerchantListSnapshotKeyForRequest(filters: MerchantListFilters): string | null {
+  if (
+    normalizePublicOfferLimit(filters.limit) !== PUBLIC_OFFERS_SNAPSHOT_LIMIT ||
+    normalizePublicOfferOffset(filters.offset) !== PUBLIC_OFFERS_SNAPSHOT_OFFSET ||
+    filters.query ||
+    filters.productType ||
+    filters.minPrice != null ||
+    filters.maxPrice != null ||
+    filters.sort
+  ) {
+    return null;
+  }
+
+  const platform = normalizePublicSnapshotPlatform(filters.platform);
+  const stock = normalizePublicSnapshotMerchantStock(filters.stock);
+  const collector = normalizePublicSnapshotMerchantCollector(filters.collector);
+  const signal = normalizePublicSnapshotMerchantSignal(filters.signal);
+
+  if (!isAllowedMerchantListSnapshotView({ platform, stock, collector, signal })) return null;
+
+  return publicListViewSnapshotKey("merchants", {
+    platform,
+    stock,
+    collector,
+    signal,
+    limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+  });
+}
+
+function publicProductOffersSnapshotKeyForRequest(
+  id: string,
+  filters: {
+    limit: number;
+    offset: number;
+    filterTags: OfferFilterTagId[];
+    query: string;
+    excludeQuery: string;
+  },
+): string | null {
+  if (
+    filters.limit !== PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT ||
+    filters.offset !== PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET ||
+    filters.query ||
+    filters.excludeQuery
+  ) {
+    return null;
+  }
+
+  if (filters.filterTags.length === 0) return publicProductOffersSnapshotKey(id);
+  if (
+    filters.filterTags.length === 1 &&
+    PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS.includes(filters.filterTags[0])
+  ) {
+    return publicProductOffersSnapshotKey(id, filters.filterTags);
+  }
+
+  return null;
+}
+
+function isAllowedOfferListSnapshotView({
+  platform,
+  productType,
+  stock,
+  sort,
+}: {
+  platform: string | null;
+  productType: string | null;
+  stock: string | null;
+  sort: string | null;
 }): boolean {
-  return filters.limit === PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT &&
-    filters.offset === PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET &&
-    filters.filterTags.length === 0 &&
-    !filters.query &&
-    !filters.excludeQuery;
+  if (productType) {
+    return Boolean(
+      platform &&
+      !stock &&
+      !sort &&
+      PUBLIC_HOT_OFFER_PRODUCT_TYPES_BY_PLATFORM[platform]?.includes(productType),
+    );
+  }
+
+  if (stock && sort) return false;
+  if (stock && !PUBLIC_LIST_SNAPSHOT_STOCKS.includes(stock as typeof PUBLIC_LIST_SNAPSHOT_STOCKS[number])) return false;
+  if (sort && !PUBLIC_LIST_SNAPSHOT_SORTS.includes(sort as typeof PUBLIC_LIST_SNAPSHOT_SORTS[number])) return false;
+
+  return Boolean(platform || stock || sort);
 }
 
-function publicProductOffersSnapshotKey(id: string): string {
+function isAllowedMerchantListSnapshotView({
+  platform,
+  stock,
+  collector,
+  signal,
+}: {
+  platform: string | null;
+  stock: string | null;
+  collector: string | null;
+  signal: string | null;
+}): boolean {
+  if (collector && signal) return false;
+  if (stock && (collector || signal)) return false;
+  return Boolean(platform || stock || collector || signal);
+}
+
+function normalizePublicSnapshotPlatform(value: string | null | undefined): string | null {
+  const normalized = normalizePublicSnapshotText(value);
+  if (!normalized || normalized === "全部") return null;
+  return publicSnapshotPlatforms().includes(normalized) ? normalized : null;
+}
+
+function normalizePublicSnapshotProductType(value: string | null | undefined): string | null {
+  const normalized = normalizePublicSnapshotText(value);
+  return normalized && normalized !== "全部" ? normalized : null;
+}
+
+function normalizePublicSnapshotStock(value: string | null | undefined): string | null {
+  const normalized = normalizePublicSnapshotText(value);
+  if (!normalized || normalized === "all") return null;
+  return PUBLIC_LIST_SNAPSHOT_STOCKS.includes(normalized as typeof PUBLIC_LIST_SNAPSHOT_STOCKS[number])
+    ? normalized
+    : null;
+}
+
+function normalizePublicSnapshotMerchantStock(value: string | null | undefined): string | null {
+  const normalized = normalizePublicSnapshotText(value);
+  if (!normalized || normalized === "all") return null;
+  return normalized === "available" ? normalized : null;
+}
+
+function normalizePublicSnapshotSort(value: string | null | undefined): string | null {
+  const normalized = normalizePublicSnapshotText(value);
+  if (!normalized || normalized === "available_price") return null;
+  return PUBLIC_LIST_SNAPSHOT_SORTS.includes(normalized as typeof PUBLIC_LIST_SNAPSHOT_SORTS[number])
+    ? normalized
+    : null;
+}
+
+function normalizePublicSnapshotMerchantCollector(value: string | null | undefined): string | null {
+  const normalized = normalizePublicSnapshotText(value);
+  if (!normalized || normalized === "all") return null;
+  return PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS.includes(normalized as typeof PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS[number])
+    ? normalized
+    : null;
+}
+
+function normalizePublicSnapshotMerchantSignal(value: string | null | undefined): string | null {
+  const normalized = normalizePublicSnapshotText(value);
+  if (!normalized || normalized === "all") return null;
+  return PUBLIC_MERCHANT_SNAPSHOT_SIGNALS.includes(normalized as typeof PUBLIC_MERCHANT_SNAPSHOT_SIGNALS[number])
+    ? normalized
+    : null;
+}
+
+function normalizePublicSnapshotText(value: string | null | undefined): string {
+  return String(value || "").trim();
+}
+
+function publicSnapshotPlatforms(): string[] {
+  return allPlatformOptions.filter((platform) => platform !== API_CDK_PLATFORM || apiCdkPublicVisible());
+}
+
+function publicListViewSnapshotKey(
+  scope: "offers" | "merchants",
+  filters: {
+    platform?: string | null;
+    productType?: string | null;
+    stock?: string | null;
+    sort?: string | null;
+    collector?: string | null;
+    signal?: string | null;
+    limit: number;
+  },
+): string {
+  const parts = [`scope:${scope}`, `limit:${filters.limit}`];
+  for (const key of ["platform", "productType", "stock", "sort", "collector", "signal"] as const) {
+    const value = filters[key];
+    if (value) parts.push(`${key}:${encodePublicSnapshotKeyPart(value)}`);
+  }
+  return `view:v1:${parts.join("|")}`;
+}
+
+function encodePublicSnapshotKeyPart(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function isDefaultOfferListSnapshotKey(key: string | null): boolean {
+  return key === PUBLIC_OFFERS_SNAPSHOT_KEY;
+}
+
+function isDefaultMerchantListSnapshotKey(key: string | null): boolean {
+  return key === PUBLIC_MERCHANTS_SNAPSHOT_KEY;
+}
+
+function publicProductOffersSnapshotKey(id: string, filterTags: OfferFilterTagId[] = []): string {
+  if (filterTags.length === 1) {
+    return `tag:${filterTags[0]}:${id}:limit:${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT}`;
+  }
   return `default:${id}:limit:${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT}`;
 }
 
@@ -2393,12 +2736,12 @@ async function loadPublicProductOffers(
     skipSnapshot?: boolean;
   },
 ) : Promise<PublicProductOffersResult> {
-  const snapshotEligible = isDefaultProductOffersSnapshotRequest(filters);
+  const snapshotKey = publicProductOffersSnapshotKeyForRequest(id, filters);
   let staleSnapshotValue: PublicProductOffersResult | null = null;
-  if (snapshotEligible && !filters.skipSnapshot) {
+  if (snapshotKey && !filters.skipSnapshot) {
     const snapshot = await readPublicApiSnapshot<PublicProductOffersResult>(
       "product_offers",
-      publicProductOffersSnapshotKey(id),
+      snapshotKey,
     );
     if (snapshot && isProductOffersSnapshot(snapshot.value)) {
       const value = hydrateGeneratedAt(snapshot);
@@ -2409,10 +2752,10 @@ async function loadPublicProductOffers(
 
   const rpcData = await getPublicProductOffersFromDatabase(id, filters);
   if (rpcData) {
-    if (snapshotEligible && !filters.skipSnapshot && !rpcData.degraded) {
+    if (snapshotKey && !filters.skipSnapshot && !rpcData.degraded) {
       await writePublicApiSnapshot({
         kind: "product_offers",
-        key: publicProductOffersSnapshotKey(id),
+        key: snapshotKey,
         payload: rpcData,
         generatedAt: rpcData.generatedAt,
       });
@@ -2461,10 +2804,10 @@ async function loadPublicProductOffers(
     message: publicData.message,
   };
 
-  if (snapshotEligible && !filters.skipSnapshot && !fallbackValue.degraded) {
+  if (snapshotKey && !filters.skipSnapshot && !fallbackValue.degraded) {
     await writePublicApiSnapshot({
       kind: "product_offers",
-      key: publicProductOffersSnapshotKey(id),
+      key: snapshotKey,
       payload: fallbackValue,
       generatedAt: fallbackValue.generatedAt,
     });
@@ -2630,29 +2973,40 @@ export async function listPublicOffers(filters: OfferListFilters = {}) {
     limit: normalizePublicOfferLimit(filters.limit),
     offset: normalizePublicOfferOffset(filters.offset),
   };
-  const snapshotEligible = isDefaultOfferListSnapshotRequest(normalizedFilters);
+  const snapshotKey = publicOfferListSnapshotKeyForRequest(normalizedFilters);
+  const snapshotEligible = Boolean(snapshotKey);
   const now = Date.now();
+  const cachedEntry = snapshotKey
+    ? isDefaultOfferListSnapshotKey(snapshotKey)
+      ? publicOffersCache
+      : publicOfferViewCache.get(snapshotKey) || null
+    : null;
   if (
     snapshotEligible &&
-    publicOffersCache &&
-    publicOffersCache.expiresAt > now &&
-    isReusableGeneratedValue(publicOffersCache.value)
+    cachedEntry &&
+    cachedEntry.expiresAt > now &&
+    isReusableGeneratedValue(cachedEntry.value)
   ) {
-    return publicOffersCache.value;
+    return cachedEntry.value;
   }
 
-  let staleSnapshotValue = snapshotEligible ? publicOffersCache?.value || null : null;
-  if (snapshotEligible && !normalizedFilters.skipSnapshot) {
-    const snapshot = await readPublicApiSnapshot<PublicOffersResult>("offers", PUBLIC_OFFERS_SNAPSHOT_KEY);
+  let staleSnapshotValue = snapshotEligible ? cachedEntry?.value || null : null;
+  if (snapshotKey && !normalizedFilters.skipSnapshot) {
+    const snapshot = await readPublicApiSnapshot<PublicOffersResult>("offers", snapshotKey);
     if (snapshot && isPublicOffersSnapshot(snapshot.value)) {
       const value = hydrateGeneratedAt(snapshot);
       if (!isPublicApiSnapshotFresh(snapshot)) {
         staleSnapshotValue = value;
       } else {
-        publicOffersCache = {
+        const entry = {
           expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
           value,
         };
+        if (isDefaultOfferListSnapshotKey(snapshotKey)) {
+          publicOffersCache = entry;
+        } else {
+          publicOfferViewCache.set(snapshotKey, entry);
+        }
         return value;
       }
     }
@@ -2660,28 +3014,79 @@ export async function listPublicOffers(filters: OfferListFilters = {}) {
 
   const value = await loadPublicOffers(normalizedFilters);
   const nextValue = snapshotEligible ? preferStalePublicOffers(staleSnapshotValue, value) : value;
-  if (snapshotEligible && !normalizedFilters.skipSnapshot && !value.degraded) {
+  if (snapshotKey && !normalizedFilters.skipSnapshot && !value.degraded) {
     await writePublicApiSnapshot({
       kind: "offers",
-      key: PUBLIC_OFFERS_SNAPSHOT_KEY,
+      key: snapshotKey,
       payload: value,
       generatedAt: value.generatedAt,
     });
   }
 
-  if (snapshotEligible) {
-    publicOffersCache = {
+  if (snapshotKey) {
+    const entry = {
       expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
       value: nextValue,
     };
+    if (isDefaultOfferListSnapshotKey(snapshotKey)) {
+      publicOffersCache = entry;
+    } else {
+      publicOfferViewCache.set(snapshotKey, entry);
+    }
   }
 
   return nextValue;
 }
 
 export async function listPublicMerchants(filters: MerchantListFilters = {}): Promise<PublicMerchantsResult> {
+  const normalizedFilters = {
+    ...filters,
+    limit: normalizePublicOfferLimit(filters.limit),
+    offset: normalizePublicOfferOffset(filters.offset),
+    query: normalizePublicOfferQuery(filters.query),
+  };
+  const snapshotKey = publicMerchantListSnapshotKeyForRequest(normalizedFilters);
+  if (snapshotKey) {
+    const now = Date.now();
+    const cached = publicMerchantViewCache.get(snapshotKey);
+    if (cached && cached.expiresAt > now && isReusableGeneratedValue(cached.value)) {
+      return cached.value;
+    }
+
+    let staleSnapshotValue = cached?.value || null;
+    const snapshot = await readPublicApiSnapshot<PublicMerchantsResult>("merchants", snapshotKey);
+    if (snapshot && isPublicMerchantsSnapshot(snapshot.value)) {
+      const value = hydrateGeneratedAt(snapshot);
+      if (isPublicApiSnapshotFresh(snapshot)) {
+        publicMerchantViewCache.set(snapshotKey, {
+          expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
+          value,
+        });
+        return value;
+      }
+      staleSnapshotValue = value;
+    }
+
+    const catalog = await loadPublicMerchantCatalog();
+    const value = paginatePublicMerchants(catalog, normalizedFilters);
+    const nextValue = preferStalePublicMerchants(staleSnapshotValue, value);
+    if (!value.degraded) {
+      await writePublicApiSnapshot({
+        kind: "merchants",
+        key: snapshotKey,
+        payload: value,
+        generatedAt: value.generatedAt,
+      });
+    }
+    publicMerchantViewCache.set(snapshotKey, {
+      expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
+      value: nextValue,
+    });
+    return nextValue;
+  }
+
   const catalog = await loadPublicMerchantCatalog();
-  return paginatePublicMerchants(catalog, filters);
+  return paginatePublicMerchants(catalog, normalizedFilters);
 }
 
 async function loadPublicMerchantCatalog(): Promise<PublicMerchantsResult> {
