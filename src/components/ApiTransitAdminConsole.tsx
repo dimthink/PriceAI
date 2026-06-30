@@ -42,6 +42,8 @@ import {
   TRANSIT_CHANNEL_TYPE_LABELS,
   TRANSIT_MODEL_FAMILY_OPTIONS,
   TRANSIT_RISK_LABELS,
+  TRANSIT_STATION_SYSTEM_LABELS,
+  type TransitStationSystem,
 } from "@/data/api-transit/types";
 import { apiTransitLogoDisplayUrl } from "@/lib/api-transit-logo-url";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
@@ -67,6 +69,7 @@ type ApiTransitStationEditInput = {
   summary: string | null;
   sourceType: string;
   commercialRelation: string;
+  stationSystem: TransitStationSystem;
   collectorKind: string;
   collectionStatus: string;
   channelTypes: string[];
@@ -113,6 +116,7 @@ const transitChannelTypeOptions = Object.entries(TRANSIT_CHANNEL_TYPE_LABELS);
 const transitAccountPoolOptions = Object.entries(TRANSIT_ACCOUNT_POOL_LABELS);
 const transitModelFamilyOptions = TRANSIT_MODEL_FAMILY_OPTIONS;
 const transitRiskLabelOptions = Object.entries(TRANSIT_RISK_LABELS);
+const transitStationSystemOptions = Object.entries(TRANSIT_STATION_SYSTEM_LABELS);
 
 export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) {
   return <ApiTransitAdminPanel data={data} framed />;
@@ -1346,6 +1350,7 @@ function StationEditDialog({
             summary: formNullableText(formData, "summary"),
             sourceType: formText(formData, "sourceType") || station.sourceType,
             commercialRelation: formText(formData, "commercialRelation") || station.commercialRelation,
+            stationSystem: stationSystemFromText(formText(formData, "stationSystem")) || station.stationSystem,
             collectorKind: formText(formData, "collectorKind") || station.collectorKind,
             collectionStatus: formText(formData, "collectionStatus") || station.collectionStatus,
             channelTypes: formList(formData, "channelTypes"),
@@ -1552,7 +1557,14 @@ function StationEditDialog({
             <AdminField label="API Base URL（内部采集）">
               <input name="apiBaseUrl" defaultValue={station.apiBaseUrl || ""} className={adminFieldClassName} type="url" />
             </AdminField>
-            <AdminField label="系统 / 采集器类型">
+            <AdminField label="前台系统标签">
+              <select name="stationSystem" defaultValue={station.stationSystem} className={adminFieldClassName}>
+                {transitStationSystemOptions.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </AdminField>
+            <AdminField label="采集器类型">
               <input name="collectorKind" defaultValue={station.collectorKind} className={adminFieldClassName} />
             </AdminField>
             <AdminField label="采集状态">
@@ -2288,6 +2300,11 @@ function offerStatusLabel(value: ApiTransitOfferStatus): string {
 
 function offerStatusFromText(value: string): ApiTransitOfferStatus | null {
   if (value === "active" || value === "needs_review" || value === "inactive") return value;
+  return null;
+}
+
+function stationSystemFromText(value: string): TransitStationSystem | null {
+  if (value === "new_api" || value === "sub_to_api" || value === "custom" || value === "unknown") return value;
   return null;
 }
 

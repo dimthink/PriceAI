@@ -1640,6 +1640,7 @@ create table if not exists api_transit_stations (
   status text not null default 'unknown' check (status in ('active', 'limited', 'unavailable', 'unknown')),
   source_type text not null default 'manual_collected' check (source_type in ('manual_collected', 'user_submitted', 'merchant_submitted')),
   commercial_relation text not null default 'unknown' check (commercial_relation in ('none', 'listed', 'partner', 'affiliate', 'sponsored', 'unknown')),
+  station_system text check (station_system in ('new_api', 'sub_to_api', 'custom', 'unknown')),
   summary text not null default '',
   channel_types text[] not null default '{}'::text[],
   account_pools text[] not null default '{}'::text[],

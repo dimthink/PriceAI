@@ -184,11 +184,14 @@ const apinodeSource = {
   websiteUrl: "https://apinode.ltd/",
   apiBaseUrl: "https://apinode.ltd/v1",
   pricingEndpointUrl: "https://apinode.ltd/api/v1/public/site-info",
-  collectorKind: "apinode_public_site_info",
+  collectorKind: "sub2api_public_site_info",
+  stationSystem: "sub_to_api",
   autoPublish: true,
 };
 const apinode = __test.parseApinodePublicSiteInfoPayload(apinodeSource, apinodePayload, "2026-06-30T07:12:00Z");
 assert.equal(apinode.offers.length, 7);
+assert.equal(apinode.station.collector_kind, "sub2api_public_site_info");
+assert.equal(apinode.station.station_system, "sub_to_api");
 assert.equal(apinode.station.availability_seven_day_samples, 2);
 assert.equal(apinode.station.availability_seven_day_rate, 0.978767);
 assert.equal(apinode.offers.some((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "image2 渠道"), false);
@@ -199,5 +202,12 @@ const apinodeGpt55Economy = apinode.offers.find(
 assert.equal(apinodeGpt55Economy.model_multiplier, 0.3);
 assert.equal(apinodeGpt55Economy.availability_seven_day_rate, 0.976494);
 assert.match(apinodeGpt55Economy.availability_note, /非 PriceAI API Key 实测/);
+
+const stationRefresh = __test.mergeStationForRefresh(
+  { id: "apinode-ltd", station_system: "sub_to_api", published: true, data_status: "verified" },
+  { id: "apinode-ltd", station_system: "custom", published: true },
+  {},
+);
+assert.equal(stationRefresh.station_system, "custom");
 
 console.log("api transit collector refresh test passed");

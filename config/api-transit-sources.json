@@ -45,16 +45,17 @@
     "pricingUrl": "https://apinode.ltd/api/v1/public/site-info",
     "pricingEndpointUrl": "https://apinode.ltd/api/v1/public/site-info",
     "monitorUrl": "https://apinode.ltd/api/v1/public/site-info",
-    "collectorKind": "apinode_public_site_info",
+    "collectorKind": "sub2api_public_site_info",
+    "stationSystem": "sub_to_api",
     "commercialRelation": "partner",
     "rechargeRatio": "1:1",
     "autoPublish": true,
     "channelTypes": ["first_party_pool", "mixed", "undisclosed"],
     "accountPools": ["plus", "team", "pro"],
     "riskLabels": ["insufficient_samples", "pending_feedback"],
-    "summary": "公开 site-info 接口可读取 OpenAI 分组倍率、充值倍率和 GPT 5.4/GPT 5.5 公开可用率；可用率来自站点公开监测，不等同 PriceAI API Key 实测。",
+    "summary": "APINode 使用 Sub2API 系统，公开 site-info 接口可读取 OpenAI 分组倍率、充值倍率和 GPT 5.4/GPT 5.5 公开可用率；可用率来自站点公开监测，不等同 PriceAI API Key 实测。",
     "strengths": [
-      "公开接口返回 Plus/Team/Pro 分组倍率、充值倍率和模型可用率窗口，适合纳入定时补充采集。",
+      "Sub2API 公开接口返回 Plus/Team/Pro 分组倍率、充值倍率和模型可用率窗口，适合纳入定时补充采集。",
       "接口无需登录即可读取，能作为 APINode 公开价格与公开监测快照的稳定来源。"
     ],
     "cautions": [

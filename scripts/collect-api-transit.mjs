@@ -23,7 +23,7 @@ const CALLAI_PARTNER_STATUS_COLLECTORS = new Set([
   "subway_api_partner_status",
 ]);
 const ONEHOP_PUBLIC_MODEL_COLLECTORS = new Set(["onehop_public_models"]);
-const APINODE_PUBLIC_SITE_INFO_COLLECTORS = new Set(["apinode_public_site_info"]);
+const APINODE_PUBLIC_SITE_INFO_COLLECTORS = new Set(["apinode_public_site_info", "sub2api_public_site_info"]);
 const SOURCE_SKIPPED = Symbol("source_skipped");
 const officialTransitPrices = {
   "Claude Sonnet 4.6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, imageOutput: null },
@@ -1073,6 +1073,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
     status: status === "failed" ? "unknown" : "active",
     source_type: "manual_collected",
     commercial_relation: source.commercialRelation || "none",
+    station_system: source.stationSystem || source.station_system || null,
     summary: source.summary || "公开价格接口可读取，已进入 PriceAI API 中转站自动价格采集池；稳定性和扣费检测仍需测试 Key 或人工样本补充。",
     channel_types: source.channelTypes || ["undisclosed"],
     account_pools: source.accountPools || ["undisclosed"],
@@ -1556,6 +1557,50 @@ async function readExistingStations(supabase, stationIds) {
           "id",
           "source_type",
           "commercial_relation",
+          "station_system",
+          "summary",
+          "payment_methods",
+          "minimum_top_up",
+          "balance_expiry",
+          "support_channels",
+          "refund_policy",
+          "data_status",
+          "monitor_url",
+          "commercial_offers",
+          "verification_events",
+          "availability_first_checked_at",
+          "published",
+          "admin_note",
+          "created_at",
+        ].join(","),
+      )
+      .in("id", chunk);
+    if (error) {
+      if (isMissingColumnError(error, "station_system")) {
+        return readExistingStationsWithoutStationSystem(supabase, stationIds);
+      }
+      if (isMissingColumnError(error, "availability_first_checked_at")) {
+        return readExistingStationsWithoutFirstCheckedAt(supabase, stationIds);
+      }
+      throw error;
+    }
+    for (const row of data || []) byId.set(row.id, row);
+  }
+  return byId;
+}
+
+async function readExistingStationsWithoutStationSystem(supabase, stationIds) {
+  const ids = uniqueText(stationIds).filter(Boolean);
+  const byId = new Map();
+  for (const chunk of chunks(ids, 300)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from("api_transit_stations")
+      .select(
+        [
+          "id",
+          "source_type",
+          "commercial_relation",
           "summary",
           "payment_methods",
           "minimum_top_up",
@@ -1634,6 +1679,7 @@ function mergeStationForRefresh(station, existing, options) {
     ...row,
     source_type: existing.source_type || station.source_type,
     commercial_relation: existing.commercial_relation || station.commercial_relation,
+    station_system: existing.station_system || station.station_system,
     summary: existing.summary || station.summary,
     payment_methods: Array.isArray(existing.payment_methods) ? existing.payment_methods : station.payment_methods,
     minimum_top_up: existing.minimum_top_up ?? station.minimum_top_up,
@@ -1655,8 +1701,12 @@ async function upsertRows(supabase, table, rows, options = {}) {
   for (const chunk of chunks(rows, 300)) {
     if (!chunk.length) continue;
     const { error } = await supabase.from(table).upsert(chunk, options);
-    if (error && table === "api_transit_stations" && isMissingColumnError(error, "availability_first_checked_at")) {
-      const compatibleChunk = removeFieldsFromRows(chunk, ["availability_first_checked_at"]);
+    if (
+      error &&
+      table === "api_transit_stations" &&
+      (isMissingColumnError(error, "availability_first_checked_at") || isMissingColumnError(error, "station_system"))
+    ) {
+      const compatibleChunk = removeFieldsFromRows(chunk, ["availability_first_checked_at", "station_system"]);
       const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
       if (!fallbackError) continue;
       fallbackError.table = table;
@@ -1926,6 +1976,7 @@ export const __test = {
   collectRefreshedOfferKeys,
   filterSourcesByPublishedStationIds,
   findStaleRefreshedOfferIds,
+  mergeStationForRefresh,
   mergeOfferForRefresh,
   parseApinodePublicSiteInfoPayload,
   shouldRestrictToPublishedStations,

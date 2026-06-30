@@ -24,6 +24,7 @@ import type {
   ApiTransitProbeStatus,
   ApiTransitRunStatus,
   ApiTransitStationStatus,
+  ApiTransitStationSystem,
   ApiTransitSubmissionReviewStatus,
   ApiTransitSubmissionType,
   ApiTransitUsageAdvice,
@@ -132,6 +133,7 @@ export async function updateApiTransitStation(input: {
   summary?: string | null;
   sourceType?: string;
   commercialRelation?: string;
+  stationSystem?: ApiTransitStationSystem;
   collectorKind?: string;
   collectionStatus?: ApiTransitCollectionStatus;
   channelTypes?: string[];
@@ -171,6 +173,7 @@ export async function updateApiTransitStation(input: {
   if (input.summary !== undefined) row.summary = cleanNullable(input.summary) || "";
   if (input.sourceType !== undefined) row.source_type = input.sourceType;
   if (input.commercialRelation !== undefined) row.commercial_relation = input.commercialRelation;
+  if (input.stationSystem !== undefined) row.station_system = input.stationSystem;
   if (input.collectorKind !== undefined) row.collector_kind = cleanRequired(input.collectorKind, "采集器类型不能为空。");
   if (input.collectionStatus) row.collection_status = input.collectionStatus;
   if (input.channelTypes !== undefined) row.channel_types = normalizeChannelTypes(input.channelTypes);
@@ -200,11 +203,28 @@ export async function updateApiTransitStation(input: {
     .select("*")
     .maybeSingle();
 
-  if (error && isMissingColumnError(error) && Object.prototype.hasOwnProperty.call(row, "logo_url")) {
+  if (error && isMissingColumnError(error, "logo_url") && Object.prototype.hasOwnProperty.call(row, "logo_url")) {
     const requestedLogoUrl = row.logo_url;
     delete row.logo_url;
     if (requestedLogoUrl) {
       throw new Error("Logo 字段尚未完成数据库迁移，请稍后再保存站点 Logo。");
+    }
+
+    const retryResult = await supabase
+      .from("api_transit_stations")
+      .update(row)
+      .eq("id", input.id)
+      .select("*")
+      .maybeSingle();
+    data = retryResult.data;
+    error = retryResult.error;
+  }
+
+  if (error && isMissingColumnError(error, "station_system") && Object.prototype.hasOwnProperty.call(row, "station_system")) {
+    const requestedStationSystem = row.station_system;
+    delete row.station_system;
+    if (requestedStationSystem && requestedStationSystem !== "unknown") {
+      throw new Error("系统标签字段尚未完成数据库迁移，请稍后再保存站点系统。");
     }
 
     const retryResult = await supabase
@@ -855,6 +875,7 @@ function mapStation(
     status: stationStatus(row.status),
     sourceType: stringValue(row.source_type) || "manual_collected",
     commercialRelation: stringValue(row.commercial_relation) || "unknown",
+    stationSystem: stationSystem(row.station_system),
     summary: stringValue(row.summary),
     channelTypes: stringArray(row.channel_types),
     accountPools: stringArray(row.account_pools),
@@ -1502,6 +1523,11 @@ function stationStatus(value: unknown): ApiTransitStationStatus {
   return text === "active" || text === "limited" || text === "unavailable" || text === "unknown" ? text : "unknown";
 }
 
+function stationSystem(value: unknown): ApiTransitStationSystem {
+  const text = stringValue(value);
+  return text === "new_api" || text === "sub_to_api" || text === "custom" || text === "unknown" ? text : "unknown";
+}
+
 function dataStatus(value: unknown): ApiTransitDataStatus {
   const text = stringValue(value);
   return text === "sample" || text === "pending_review" || text === "verified" ? text : "pending_review";
@@ -1546,11 +1572,19 @@ function runStatus(value: unknown): ApiTransitRunStatus {
   return text === "success" || text === "partial" || text === "failed" ? text : "failed";
 }
 
-function isMissingColumnError(error: unknown): boolean {
+function isMissingColumnError(error: unknown, columnName?: string): boolean {
+  const message = error && typeof error === "object"
+    ? String(
+      (error as { message?: unknown; details?: unknown }).message ||
+      (error as { message?: unknown; details?: unknown }).details ||
+      "",
+    )
+    : "";
   return Boolean(
     error &&
       typeof error === "object" &&
       "code" in error &&
-      ((error as { code?: unknown }).code === "42703" || (error as { code?: unknown }).code === "PGRST204")
+      ((error as { code?: unknown }).code === "42703" || (error as { code?: unknown }).code === "PGRST204") &&
+      (!columnName || message.includes(columnName))
   );
 }

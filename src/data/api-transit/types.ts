@@ -178,6 +178,13 @@ export const TRANSIT_MODEL_FAMILY_OPTIONS: { id: TransitModelFamily; label: stri
   })),
 ];
 
+export const TRANSIT_STATION_SYSTEM_LABELS: Record<TransitStationSystem, string> = {
+  new_api: "New API",
+  sub_to_api: "Sub2API",
+  custom: "自研",
+  unknown: "未知",
+};
+
 export const TRANSIT_STANDARD_MODELS = [
   "Claude Sonnet 4.6",
   "Claude Opus 4.6",
@@ -216,6 +223,10 @@ export function isTransitModelFamily(value: unknown): value is TransitModelFamil
 
 export function isTransitStandardModel(value: unknown): value is TransitStandardModel {
   return typeof value === "string" && TRANSIT_STANDARD_MODELS.includes(value as TransitStandardModel);
+}
+
+export function isTransitStationSystem(value: unknown): value is TransitStationSystem {
+  return value === "new_api" || value === "sub_to_api" || value === "custom" || value === "unknown";
 }
 
 export const TRANSIT_CHANNEL_TYPE_LABELS: Record<TransitChannelType, string> = {

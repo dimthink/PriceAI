@@ -33,6 +33,7 @@ const STATION_CORE_COLUMNS = [
   "status",
   "source_type",
   "commercial_relation",
+  "station_system",
   "summary",
   "collector_kind",
   "channel_types",
@@ -67,6 +68,7 @@ const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED = [
   "status",
   "source_type",
   "commercial_relation",
+  "station_system",
   "summary",
   "collector_kind",
   "channel_types",
@@ -99,6 +101,7 @@ const STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL = [
   "status",
   "source_type",
   "commercial_relation",
+  "station_system",
   "summary",
   "collector_kind",
   "channel_types",
@@ -415,21 +418,26 @@ async function queryPublishedStationRows(
   signal: AbortSignal,
   slug?: string
 ): Promise<DbRow[]> {
-  try {
-    return await queryStationRows(client, signal, STATION_CORE_COLUMNS, slug);
-  } catch (error) {
-    if (isMissingColumnError(error)) {
-      try {
-        return await queryStationRows(client, publicTransitReadSignal(), STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED, slug);
-      } catch (fallbackError) {
-        if (isMissingColumnError(fallbackError)) {
-          return queryStationRows(client, publicTransitReadSignal(), STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL, slug);
-        }
-        throw fallbackError;
-      }
+  const attempts = Array.from(new Set([
+    STATION_CORE_COLUMNS,
+    withoutColumn(STATION_CORE_COLUMNS, "station_system"),
+    STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED,
+    withoutColumn(STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED, "station_system"),
+    STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL,
+    withoutColumn(STATION_CORE_COLUMNS_WITHOUT_API_BASE_URL, "station_system"),
+  ]));
+
+  let lastMissingColumnError: unknown = null;
+  for (const columns of attempts) {
+    try {
+      return await queryStationRows(client, columns === STATION_CORE_COLUMNS ? signal : publicTransitReadSignal(), columns, slug);
+    } catch (error) {
+      if (!isMissingColumnError(error)) throw error;
+      lastMissingColumnError = error;
     }
-    throw error;
   }
+
+  throw lastMissingColumnError;
 }
 
 async function queryStationRows(
@@ -675,6 +683,7 @@ function mapStationRow(
     status: stationStatus(row.status),
     sourceType: sourceType(row.source_type),
     commercialRelation: commercialRelation(row.commercial_relation),
+    stationSystem: stationSystem(row.station_system),
     summary: stringValue(row.summary),
     channelTypes: enumArray(row.channel_types, isTransitChannelType),
     accountPools: enumArray(row.account_pools, isTransitAccountPool),
@@ -885,9 +894,22 @@ function enumArray<T extends string>(value: unknown, guard: (value: string) => v
   return stringArray(value).filter(guard);
 }
 
+function withoutColumn(columns: string, column: string): string {
+  return columns
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item && item !== column)
+    .join(",");
+}
+
 function stationStatus(value: unknown): TransitStation["status"] {
   const text = stringValue(value);
   return text === "active" || text === "limited" || text === "unavailable" || text === "unknown" ? text : "unknown";
+}
+
+function stationSystem(value: unknown): TransitStation["stationSystem"] {
+  const text = stringValue(value);
+  return text === "new_api" || text === "sub_to_api" || text === "custom" || text === "unknown" ? text : undefined;
 }
 
 function sourceType(value: unknown): TransitStation["sourceType"] {

@@ -6,6 +6,7 @@ export type ApiTransitAdminLoadError = {
 
 export type ApiTransitStationStatus = "active" | "limited" | "unavailable" | "unknown";
 export type ApiTransitDataStatus = "sample" | "pending_review" | "verified";
+export type ApiTransitStationSystem = "new_api" | "sub_to_api" | "custom" | "unknown";
 export type ApiTransitUsageAdvice = "try_small" | "cautious" | "not_recommended" | "pending";
 export type ApiTransitCollectionStatus = "pending" | "success" | "partial" | "failed" | "manual_review";
 export type ApiTransitOfferStatus = "active" | "needs_review" | "inactive";
@@ -49,6 +50,7 @@ export type ApiTransitAdminStation = {
   status: ApiTransitStationStatus;
   sourceType: string;
   commercialRelation: string;
+  stationSystem: ApiTransitStationSystem;
   summary: string;
   channelTypes: string[];
   accountPools: string[];

@@ -464,7 +464,7 @@ export function getStationComparisonSummary(
 }
 
 export function getTransitStationSystem(station: TransitStation): TransitStationSystem {
-  if (station.stationSystem && station.stationSystem !== "unknown") return station.stationSystem;
+  if (station.stationSystem) return station.stationSystem;
 
   const text = [
     station.collectorKind,
@@ -479,6 +479,7 @@ export function getTransitStationSystem(station: TransitStation): TransitStation
     text.includes("sub-to-api") ||
     text.includes("sub_to_api") ||
     text.includes("subway") ||
+    text.includes("apinode_public_site_info") ||
     text.includes("callai_partner_status")
   ) {
     return "sub_to_api";
@@ -500,7 +501,8 @@ export function getTransitStationSystemLabel(station: TransitStation): string {
   const system = getTransitStationSystem(station);
   if (system === "new_api") return "New API";
   if (system === "sub_to_api") return "Sub2API";
-  return "自研";
+  if (system === "custom") return "自研";
+  return "未知";
 }
 
 export function getNormalizedSourceTags(
