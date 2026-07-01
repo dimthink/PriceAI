@@ -1608,10 +1608,12 @@ function isChatGptPaymentLinkExtractionService(value: string): boolean {
 
   return matches(value, [
     "提链",
+    "扫码对接",
     "提取upi支付二维码",
     "提取 upi 支付二维码",
     "提取支付二维码",
     "支付二维码",
+    "二维码生成率",
     "支付链接",
     "提链服务",
   ]);

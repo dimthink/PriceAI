@@ -158,6 +158,8 @@ const cases = [
   ["印度 UPI | 荷兰 iDEAL 提链 | 10次卡 | 无质保", "chatgpt-codex-service"],
   ["UPI 提取UPI支付二维码 卡密", "chatgpt-codex-service"],
   ["【印尼upi渠道】提链服务", "chatgpt-codex-service"],
+  ["GPT-Plus印度UPI扫码对接（CDK）保持高二维码生成率", "chatgpt-codex-service"],
+  ["GPT-Plus印度UPI扫码对接（CDK）10次", "chatgpt-codex-service"],
   ["印度 upi 渠道 成品号 短效码 质保首登", "other-product"],
   ["Gemini pro 一年CDK充值订阅 10次卡（一张卡10次额度）", "gemini-pro-recharge"],
   ["Gemini 3.1pro 12个月pixel成品号带长效接码链接（包反重力）", "gemini-pro-year"],
