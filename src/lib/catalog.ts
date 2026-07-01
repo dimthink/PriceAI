@@ -1337,6 +1337,7 @@ function isTelegramContactOnly(value: string): boolean {
 
 function isXTwitterAccount(value: string): boolean {
   if (matches(value, ["twitter", "推特"])) return true;
+  if (isClaudeProduct(value) || isGeminiProduct(value) || isGrokProduct(value) || isChatGptProduct(value)) return false;
   if (matches(value, ["x premium", "x 会员", "x账号", "x 账号", "x 推特"])) return true;
   if (/\bx\s*(premium|account|账号|会员|推特)\b/.test(value)) return true;
 
@@ -1398,7 +1399,16 @@ function isCodexPhoneVerification(value: string): boolean {
 function isGooglePlayOrPixelRechargeProduct(value: string): boolean {
   const hasGoogleOrPixel = matches(value, ["pixel", "google", "谷歌", "play", "google play"]);
   if (!hasGoogleOrPixel) return false;
+  if (hasExplicitNonGeminiProductSignal(value)) return false;
   return matches(value, ["cdk", "cdkey", "兑换", "充值", "礼品卡", "提取链接", "优惠链接", "绑卡"]);
+}
+
+function hasExplicitNonGeminiProductSignal(value: string): boolean {
+  if (isClaudeProduct(value)) return true;
+  if (isGrokProduct(value)) return true;
+  if (isChatGptProduct(value)) return true;
+
+  return false;
 }
 
 function isChatGptTransitOrApiCreditProduct(value: string): boolean {

@@ -91,6 +91,8 @@ const cases = [
   ["Claude 20✖️Max成品号 无质保", "claude-max-20x"],
   ["Claude max💲100订阅人工交付", "claude-max-5x"],
   ["Claude max💲200订阅人工交付", "claude-max-20x"],
+  ["【正品谷歌内购超稳CDK】claude code MAX20 CDK 代充到自己账号 质保订阅30天 不质保封号", "claude-max-20x"],
+  ["Claude Max 20x 会员充值｜Google 渠道｜无需上号", "claude-max-20x"],
   ["Claude 充值", "claude-pro-month"],
   ["claude max 5X 独享成品号已过KYC", "claude-max-5x"],
   ["claude 20x成品号（免kyc验证）", "claude-max-20x"],
