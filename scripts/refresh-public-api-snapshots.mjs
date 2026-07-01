@@ -16,7 +16,7 @@ const baseUrl = normalizeBaseUrl(
     envValue("COLLECT_PRICES_URL") ||
     DEFAULT_BASE_URL,
 );
-const cronSecret = envValue("CRON_SECRET") || envValue("ADMIN_PASSWORD");
+const cronSecret = envValue("CRON_SECRET");
 
 if (!cronSecret) {
   await notifyAlert({

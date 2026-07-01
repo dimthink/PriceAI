@@ -15,11 +15,11 @@ if (!targetUrl) {
 
 const sourceName = args.name || sourceNameFromUrl(targetUrl);
 const endpoint = args.endpoint || "http://localhost:3000";
-const password = args.password || process.env.ADMIN_PASSWORD || process.env.CRON_SECRET || null;
+const password = args.password || process.env.CRON_SECRET || null;
 const browserPath = args.browser || process.env.BROWSER_PATH || findBrowserPath();
 
 if (args.post && !password) {
-  console.error("--post 写回后台需要 --password、ADMIN_PASSWORD 或 CRON_SECRET。");
+  console.error("--post 写回后台需要 --password 或 CRON_SECRET。");
   process.exit(1);
 }
 
@@ -67,7 +67,7 @@ if (args.post) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-admin-password": password,
+      "Authorization": `Bearer ${password}`,
     },
     body: JSON.stringify({
       sourceName,

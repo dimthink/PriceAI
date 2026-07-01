@@ -24,8 +24,6 @@ const endpoint =
   "https://priceai.cc";
 const password =
   args.password ||
-  process.env.ADMIN_PASSWORD ||
-  env.ADMIN_PASSWORD ||
   process.env.CRON_SECRET ||
   env.CRON_SECRET ||
   null;
@@ -138,7 +136,7 @@ async function runLocalJob(jobType) {
 
 async function runChannelPriceJob(sourceId) {
   if (!password) {
-    throw new Error("渠道采集写回需要 ADMIN_PASSWORD 或 CRON_SECRET。");
+    throw new Error("渠道采集写回需要 --password 或 CRON_SECRET。");
   }
 
   return runPriceCollection({

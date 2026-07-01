@@ -1,6 +1,38 @@
 import type { NextConfig } from "next";
 
+const isDevelopment = process.env.NODE_ENV === "development";
+
+const cspHeader = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  [
+    "script-src 'self' 'unsafe-inline'",
+    isDevelopment ? "'unsafe-eval'" : "",
+    "https://www.googletagmanager.com",
+    "https://umami.dimthink.com",
+    "https://challenges.cloudflare.com",
+  ].filter(Boolean).join(" "),
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  [
+    "connect-src 'self'",
+    "https:",
+    isDevelopment ? "http://localhost:* http://127.0.0.1:* ws: wss:" : "",
+  ].filter(Boolean).join(" "),
+  "frame-src https://challenges.cloudflare.com",
+  "worker-src 'self' blob:",
+  isDevelopment ? "" : "upgrade-insecure-requests",
+].filter(Boolean).join("; ");
+
 const securityHeaders = [
+  {
+    key: "Content-Security-Policy",
+    value: cspHeader,
+  },
   {
     key: "X-Content-Type-Options",
     value: "nosniff",

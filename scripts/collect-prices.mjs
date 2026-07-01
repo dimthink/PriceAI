@@ -1873,17 +1873,22 @@ function crawlLogPostConfig(options = {}) {
     "http://localhost:3000";
   const password =
     options.password ||
-    process.env.ADMIN_PASSWORD ||
-    env.ADMIN_PASSWORD ||
     process.env.CRON_SECRET ||
     env.CRON_SECRET;
   if (!password) {
-    throw new Error("写回采集结果需要 ADMIN_PASSWORD 或 CRON_SECRET。");
+    throw new Error("写回采集结果需要 --password 或 CRON_SECRET。");
   }
 
   return {
     endpoint: endpoint.replace(/\/$/, ""),
     password,
+  };
+}
+
+function cronWriteHeaders(config) {
+  return {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${config.password}`,
   };
 }
 
@@ -1912,10 +1917,7 @@ async function postCollectorHeartbeat(status, options = {}, input = {}) {
   };
   const response = await fetch(`${config.endpoint}/api/admin/collector-heartbeat`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-password": config.password,
-    },
+    headers: cronWriteHeaders(config),
     body: JSON.stringify(payload),
   });
 
@@ -1955,10 +1957,7 @@ async function postCrawlLogPayload(payload, options = {}) {
   const config = crawlLogPostConfig(options);
   const response = await fetch(`${config.endpoint}/api/admin/crawl-log`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-password": config.password,
-    },
+    headers: cronWriteHeaders(config),
     body: JSON.stringify(payload),
   });
 
@@ -1976,10 +1975,7 @@ async function postCrawlLogPayloadBatch(runs, options = {}, batchDetails = {}) {
   const config = crawlLogPostConfig(options);
   const response = await fetch(`${config.endpoint}/api/admin/crawl-log`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-admin-password": config.password,
-    },
+    headers: cronWriteHeaders(config),
     body: JSON.stringify({
       runs,
       batch: {
@@ -3039,11 +3035,13 @@ function printOfferPreview(offers) {
 
 function getSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    env.SUPABASE_SERVICE_ROLE_KEY ||
-    env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY;
+  if (url && !key) {
+    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY. collect-prices requires the service role key for Supabase reads and writes.");
+  }
+  if (!url && key) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL. collect-prices cannot use SUPABASE_SERVICE_ROLE_KEY without the Supabase URL.");
+  }
   if (!url || !key) return null;
 
   return createClient(url, key, {

@@ -30,7 +30,6 @@ jobs:
         env:
           COLLECT_PRICES_URL: ${{ secrets.COLLECT_PRICES_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          ADMIN_PASSWORD: ${{ secrets.CRON_SECRET }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           PRICEAI_COLLECTOR_NODE_ID: github-actions-dujiao

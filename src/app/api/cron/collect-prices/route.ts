@@ -48,7 +48,7 @@ async function runCronCollection(request: Request) {
       source,
       post: true,
       endpoint,
-      password: getRuntimeEnv("CRON_SECRET") || getRuntimeEnv("ADMIN_PASSWORD"),
+      password: getRuntimeEnv("CRON_SECRET"),
       silent: true,
     });
 

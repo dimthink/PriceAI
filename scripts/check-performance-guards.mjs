@@ -112,6 +112,11 @@ assert(/PRICEAI_BASE_URL/.test(snapshotRefreshScriptText), "scripts/refresh-publ
 assert(/CRON_SECRET/.test(snapshotRefreshScriptText), "scripts/refresh-public-api-snapshots.mjs: server snapshot refresh must use the protected cron secret.");
 assert(/PRICEAI_ALERT_WEBHOOK_URL/.test(snapshotRefreshScriptText), "scripts/refresh-public-api-snapshots.mjs: server snapshot refresh must alert on failures or dirty backlog.");
 
+const collectPricesScriptText = read("scripts/collect-prices.mjs");
+assert(!/NEXT_PUBLIC_SUPABASE_ANON_KEY/.test(collectPricesScriptText), "scripts/collect-prices.mjs: collector Supabase client must not fall back to the public anon key.");
+assert(/function cronWriteHeaders/.test(collectPricesScriptText), "scripts/collect-prices.mjs: collector writeback must use shared cron auth headers.");
+assert(!/["']x-admin-password["']\s*:/.test(collectPricesScriptText), "scripts/collect-prices.mjs: collector writeback must not post with the legacy admin password header.");
+
 const publicApiSnapshotsMigrationText = read("supabase/migrations/20260624083000_public_api_snapshots.sql");
 assert(/create table if not exists public_api_snapshots/.test(publicApiSnapshotsMigrationText), "public API snapshots migration must create the snapshot table.");
 assert(/primary key \(kind, cache_key\)/.test(publicApiSnapshotsMigrationText), "public API snapshots migration must key snapshots by kind and cache key.");
