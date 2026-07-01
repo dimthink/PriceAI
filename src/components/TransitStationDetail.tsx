@@ -23,6 +23,7 @@ import { FeedbackDialog, transitStationFeedbackTypes } from "@/components/Feedba
 import { TransitAvailabilityStrip } from "@/components/TransitAvailabilityStrip";
 import { TransitPriceBreakdown } from "@/components/TransitPriceBreakdown";
 import { TransitStationSystemIcon } from "@/components/TransitStationSystemIcon";
+import { useMediaQuery } from "@/lib/client-hooks";
 import { formatDateDay, formatDateMinute, formatDateShortMinute } from "@/lib/utils";
 import type {
   TransitModelFamily,
@@ -1913,20 +1914,4 @@ function nullableSortValue(value: number | null): number {
 
 function uniqueStrings(items: string[]): string[] {
   return Array.from(new Set(items.filter(Boolean)));
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const updateMatches = () => setMatches(mediaQuery.matches);
-
-    updateMatches();
-    mediaQuery.addEventListener("change", updateMatches);
-
-    return () => mediaQuery.removeEventListener("change", updateMatches);
-  }, [query]);
-
-  return matches;
 }

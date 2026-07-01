@@ -34,6 +34,7 @@ import {
 import { apiCdkPublicVisibleForClient } from "@/lib/trust-risk";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
+import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
@@ -140,22 +141,6 @@ const EMPTY_EXPLORER_DATA: ExplorerData = {
 let explorerMemoryCache: ExplorerData | null = null;
 const offerListMemoryCache = new Map<string, OfferListResponse>();
 const merchantListMemoryCache = new Map<string, MerchantListResponse>();
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const updateMatches = () => setMatches(mediaQuery.matches);
-
-    updateMatches();
-    mediaQuery.addEventListener("change", updateMatches);
-
-    return () => mediaQuery.removeEventListener("change", updateMatches);
-  }, [query]);
-
-  return matches;
-}
 
 export function PriceExplorer({
   data,

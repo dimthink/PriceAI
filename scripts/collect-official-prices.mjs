@@ -17,6 +17,8 @@ const userAgent =
 
 const DEFAULT_TIMEOUT_MS = 25000;
 const FETCH_DELAY_MS = 250;
+const DEFAULT_FETCH_CONCURRENCY = 4;
+const MAX_FETCH_CONCURRENCY = 8;
 const APPLE_STOREFRONT_IDS = {
   AR: "143505",
   AT: "143445",
@@ -105,139 +107,33 @@ export async function collectOfficialPrices(options = {}) {
   const unmatchedItems = [];
   const failures = [];
   const runItems = [];
-
-  for (const app of apps) {
-    const appRules = rules.filter((rule) => rule.appSlug === app.slug);
-
-    for (const region of regions) {
-      const sourceUrl = buildAppStoreUrl(app, region);
-      const startedAt = Date.now();
-
+  const fetchConcurrency = resolveFetchConcurrency(options.concurrency ?? process.env.PRICEAI_OFFICIAL_PRICE_FETCH_CONCURRENCY);
+  const appRulesBySlug = new Map(apps.map((app) => [app.slug, rules.filter((rule) => rule.appSlug === app.slug)]));
+  const tasks = apps.flatMap((app) => regions.map((region) => ({ app, appRules: appRulesBySlug.get(app.slug) || [], region })));
+  const taskResults = await mapWithConcurrency(
+    tasks,
+    fetchConcurrency,
+    async ({ app, appRules, region }) => {
       try {
-        const html = await fetchText(sourceUrl, {
-          timeoutMs: Number(options.timeoutMs || options.timeout || DEFAULT_TIMEOUT_MS),
-          headers: appStoreRequestHeaders(region),
-        });
-        assertExpectedAppStorePage(html, app, region, sourceUrl);
-        const rawItems = extractInAppPurchasePairs(html, sourceUrl);
-
-        if (!rawItems.length) {
-          const failure = buildFailure({
-            app,
-            region,
-            sourceUrl,
-            status: "parse_failed",
-            failureReason: "No App Store in-app purchase text-pair items were found.",
-            fetchedAt,
-          });
-          failures.push(failure);
-          runItems.push(runItem(app, region, "parse_failed", 0, rawItems.length, Date.now() - startedAt, failure.failureReason));
-          await delay(FETCH_DELAY_MS);
-          continue;
-        }
-
-        const matchedItemIndexes = new Set();
-
-        for (const rule of appRules) {
-          const candidates = rawItems
-            .map((item, index) => ({ item, index, score: scoreCandidate(item, rule, region, fx) }))
-            .filter((candidate) => candidate.score.matched);
-
-          const chosen = chooseCandidate(candidates);
-          if (!chosen) {
-            rows.push(
-              buildMissingRow({
-                app,
-                rule,
-                region,
-                sourceUrl,
-                fetchedAt,
-                failureReason: "No in-app purchase candidate matched this plan rule.",
-              }),
-            );
-            continue;
-          }
-
-          if (chosen.status === "needs_review") {
-            rows.push(
-              buildReviewRow({
-                app,
-                rule,
-                region,
-                sourceUrl,
-                fetchedAt,
-                candidates: chosen.candidates.map((candidate) => candidate.item),
-              }),
-            );
-            for (const candidate of chosen.candidates) matchedItemIndexes.add(candidate.index);
-            continue;
-          }
-
-          const rawItem = chosen.candidate.item;
-          matchedItemIndexes.add(chosen.candidate.index);
-          rows.push(
-            buildAvailableRow({
-              app,
-              rule,
-              region,
-              rawItem,
-              sourceUrl,
-              fetchedAt,
-              fx,
-            }),
-          );
-        }
-
-        rawItems.forEach((item, index) => {
-          if (matchedItemIndexes.has(index)) return;
-          unmatchedItems.push({
-            appSlug: app.slug,
-            countryCode: region.countryCode,
-            countryLabel: region.countryLabel,
-            sourceUrl,
-            rawTitle: item.title,
-            priceText: item.priceText,
-            priceValue: parsePriceValue(item.priceText),
-            rawSnippetHash: hashSnippet(`${item.title} ${item.priceText}`),
-            reason: "No plan rule consumed this in-app purchase item.",
-          });
-        });
-
-        runItems.push(runItem(app, region, "success", appRules.length, rawItems.length, Date.now() - startedAt));
-      } catch (error) {
-        const failureReason = errorMessage(error);
-        if (httpStatus(error) === 404) {
-          for (const rule of appRules) {
-            rows.push(
-              buildMissingRow({
-                app,
-                rule,
-                region,
-                sourceUrl,
-                fetchedAt,
-                failureReason: "App Store returned HTTP 404 for this app and region.",
-              }),
-            );
-          }
-          runItems.push(runItem(app, region, "missing", 0, 0, Date.now() - startedAt, failureReason));
-          await delay(FETCH_DELAY_MS);
-          continue;
-        }
-
-        const failure = buildFailure({
+        return await collectOfficialPriceRegion({
           app,
+          appRules,
           region,
-          sourceUrl,
-          status: "parse_failed",
-          failureReason,
+          fx,
           fetchedAt,
+          timeoutMs: Number(options.timeoutMs || options.timeout || DEFAULT_TIMEOUT_MS),
         });
-        failures.push(failure);
-        runItems.push(runItem(app, region, "failed", 0, 0, Date.now() - startedAt, failureReason));
+      } finally {
+        await delay(FETCH_DELAY_MS);
       }
+    },
+  );
 
-      await delay(FETCH_DELAY_MS);
-    }
+  for (const item of taskResults) {
+    rows.push(...item.rows);
+    unmatchedItems.push(...item.unmatchedItems);
+    failures.push(...item.failures);
+    runItems.push(item.runItem);
   }
 
   const result = {
@@ -265,6 +161,7 @@ export async function collectOfficialPrices(options = {}) {
       status: failures.length ? (rows.some((row) => row.status === "available") ? "partial_success" : "failed") : "success",
       appCount: apps.length,
       regionCount: regions.length,
+      fetchConcurrency,
       rowCount: rows.length,
       availableCount: rows.filter((row) => row.status === "available").length,
       missingCount: rows.filter((row) => row.status === "missing").length,
@@ -322,6 +219,154 @@ export async function refreshOfficialPriceFxRates(options = {}) {
   }
 
   return result;
+}
+
+async function collectOfficialPriceRegion({ app, appRules, region, fx, fetchedAt, timeoutMs }) {
+  const sourceUrl = buildAppStoreUrl(app, region);
+  const startedAt = Date.now();
+  const rows = [];
+  const unmatchedItems = [];
+  const failures = [];
+
+  try {
+    const html = await fetchText(sourceUrl, {
+      timeoutMs,
+      headers: appStoreRequestHeaders(region),
+    });
+    assertExpectedAppStorePage(html, app, region, sourceUrl);
+    const rawItems = extractInAppPurchasePairs(html, sourceUrl);
+
+    if (!rawItems.length) {
+      const failure = buildFailure({
+        app,
+        region,
+        sourceUrl,
+        status: "parse_failed",
+        failureReason: "No App Store in-app purchase text-pair items were found.",
+        fetchedAt,
+      });
+      failures.push(failure);
+      return {
+        rows,
+        unmatchedItems,
+        failures,
+        runItem: runItem(app, region, "parse_failed", 0, rawItems.length, Date.now() - startedAt, failure.failureReason),
+      };
+    }
+
+    const matchedItemIndexes = new Set();
+
+    for (const rule of appRules) {
+      const candidates = rawItems
+        .map((item, index) => ({ item, index, score: scoreCandidate(item, rule, region, fx) }))
+        .filter((candidate) => candidate.score.matched);
+
+      const chosen = chooseCandidate(candidates);
+      if (!chosen) {
+        rows.push(
+          buildMissingRow({
+            app,
+            rule,
+            region,
+            sourceUrl,
+            fetchedAt,
+            failureReason: "No in-app purchase candidate matched this plan rule.",
+          }),
+        );
+        continue;
+      }
+
+      if (chosen.status === "needs_review") {
+        rows.push(
+          buildReviewRow({
+            app,
+            rule,
+            region,
+            sourceUrl,
+            fetchedAt,
+            candidates: chosen.candidates.map((candidate) => candidate.item),
+          }),
+        );
+        for (const candidate of chosen.candidates) matchedItemIndexes.add(candidate.index);
+        continue;
+      }
+
+      const rawItem = chosen.candidate.item;
+      matchedItemIndexes.add(chosen.candidate.index);
+      rows.push(
+        buildAvailableRow({
+          app,
+          rule,
+          region,
+          rawItem,
+          sourceUrl,
+          fetchedAt,
+          fx,
+        }),
+      );
+    }
+
+    rawItems.forEach((item, index) => {
+      if (matchedItemIndexes.has(index)) return;
+      unmatchedItems.push({
+        appSlug: app.slug,
+        countryCode: region.countryCode,
+        countryLabel: region.countryLabel,
+        sourceUrl,
+        rawTitle: item.title,
+        priceText: item.priceText,
+        priceValue: parsePriceValue(item.priceText),
+        rawSnippetHash: hashSnippet(`${item.title} ${item.priceText}`),
+        reason: "No plan rule consumed this in-app purchase item.",
+      });
+    });
+
+    return {
+      rows,
+      unmatchedItems,
+      failures,
+      runItem: runItem(app, region, "success", appRules.length, rawItems.length, Date.now() - startedAt),
+    };
+  } catch (error) {
+    const failureReason = errorMessage(error);
+    if (httpStatus(error) === 404) {
+      for (const rule of appRules) {
+        rows.push(
+          buildMissingRow({
+            app,
+            rule,
+            region,
+            sourceUrl,
+            fetchedAt,
+            failureReason: "App Store returned HTTP 404 for this app and region.",
+          }),
+        );
+      }
+      return {
+        rows,
+        unmatchedItems,
+        failures,
+        runItem: runItem(app, region, "missing", 0, 0, Date.now() - startedAt, failureReason),
+      };
+    }
+
+    failures.push(
+      buildFailure({
+        app,
+        region,
+        sourceUrl,
+        status: "parse_failed",
+        failureReason,
+        fetchedAt,
+      }),
+    );
+    return {
+      rows,
+      unmatchedItems,
+      failures,
+      runItem: runItem(app, region, "failed", 0, 0, Date.now() - startedAt, failureReason),
+    };
+  }
 }
 
 async function loadConfig() {
@@ -1383,6 +1428,29 @@ function chunks(items, size) {
   return output;
 }
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
+}
+
+function resolveFetchConcurrency(value) {
+  const parsed = Number(value ?? DEFAULT_FETCH_CONCURRENCY);
+  if (!Number.isFinite(parsed)) return DEFAULT_FETCH_CONCURRENCY;
+  return Math.max(1, Math.min(MAX_FETCH_CONCURRENCY, Math.floor(parsed)));
+}
+
 function readEnvFile(filePath) {
   const output = {};
   if (!existsSync(filePath)) return output;
@@ -1442,6 +1510,7 @@ function normalizeOptions(options) {
     post: truthyOption(options.post),
     db: truthyOption(options.db),
     timeoutMs: options.timeoutMs ?? options["timeout-ms"] ?? options.timeout,
+    concurrency: options.concurrency ?? options["fetch-concurrency"],
   };
 }
 
@@ -1470,11 +1539,12 @@ function printSummary(result) {
   }
 
   console.log(
-    [
-      `Official price collection ${result.run.status}.`,
-      `apps=${result.scope.apps.length}`,
-      `regions=${result.scope.regions.length}`,
-      `rows=${result.run.rowCount}`,
+      [
+        `Official price collection ${result.run.status}.`,
+        `apps=${result.scope.apps.length}`,
+        `regions=${result.scope.regions.length}`,
+        `fetch_concurrency=${result.run.fetchConcurrency}`,
+        `rows=${result.run.rowCount}`,
       `available=${result.run.availableCount}`,
       `missing=${result.run.missingCount}`,
       `needs_review=${result.run.needsReviewCount}`,

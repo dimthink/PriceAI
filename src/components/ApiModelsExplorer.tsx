@@ -20,6 +20,7 @@ import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/compon
 import { CommunityPrompt } from "@/components/FeedbackLink";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SponsoredPlacementPreview } from "@/components/SponsoredPlacementPreview";
+import { useDebouncedValue, useMediaQuery } from "@/lib/client-hooks";
 import { listDetailHref, listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
 import {
   apiProviderTypeLabels,
@@ -1542,31 +1543,4 @@ function parseSubmittedUrls(value: string): string[] {
     .map((item) => item.trim())
     .filter(Boolean)))
     .slice(0, 10);
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const updateMatches = () => setMatches(mediaQuery.matches);
-
-    updateMatches();
-    mediaQuery.addEventListener("change", updateMatches);
-
-    return () => mediaQuery.removeEventListener("change", updateMatches);
-  }, [query]);
-
-  return matches;
-}
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => setDebouncedValue(value), delayMs);
-    return () => window.clearTimeout(timeoutId);
-  }, [delayMs, value]);
-
-  return debouncedValue;
 }

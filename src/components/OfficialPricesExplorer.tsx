@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "r
 import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/components/CategoryTabBar";
 import { SiteHeader } from "@/components/SiteHeader";
+import { useDebouncedValue, useMediaQuery } from "@/lib/client-hooks";
 import { listDetailHref, listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
 import {
   buildOfficialPriceOfferRows,
@@ -654,31 +655,4 @@ function comparePrice(a: number | null | undefined, b: number | null | undefined
   if (typeof a !== "number") return 1;
   if (typeof b !== "number") return -1;
   return a - b;
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(query);
-    const updateMatches = () => setMatches(mediaQuery.matches);
-
-    updateMatches();
-    mediaQuery.addEventListener("change", updateMatches);
-
-    return () => mediaQuery.removeEventListener("change", updateMatches);
-  }, [query]);
-
-  return matches;
-}
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => setDebouncedValue(value), delayMs);
-    return () => window.clearTimeout(timeoutId);
-  }, [delayMs, value]);
-
-  return debouncedValue;
 }

@@ -136,6 +136,40 @@ assert(/PRODUCT_OFFERS_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(productO
 assert(/PRODUCT_OFFERS_REFRESH_TIMEOUT_MS\s*=\s*10_000/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer refresh timeout must tolerate slow-tail product API responses.");
 assert(/createTimeoutSignal\(PRODUCT_OFFERS_REFRESH_TIMEOUT_MS\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offers must use the product-specific refresh timeout.");
 
+const clientHooksText = read("src/lib/client-hooks.ts");
+assert(/export function useMediaQuery/.test(clientHooksText), "src/lib/client-hooks.ts: shared client media query hook must stay centralized.");
+assert(/export function useDebouncedValue/.test(clientHooksText), "src/lib/client-hooks.ts: shared debounced value hook must stay centralized.");
+for (const componentFile of [
+  "src/components/PriceExplorer.tsx",
+  "src/components/ProductOffersPanel.tsx",
+  "src/components/ApiModelsExplorer.tsx",
+  "src/components/OfficialPricesExplorer.tsx",
+  "src/components/TransitStationDetail.tsx",
+]) {
+  const text = read(componentFile);
+  assert(!/function useMediaQuery/.test(text), `${componentFile}: useMediaQuery must be imported from src/lib/client-hooks.ts.`);
+  assert(!/function useDebouncedValue/.test(text), `${componentFile}: useDebouncedValue must be imported from src/lib/client-hooks.ts.`);
+}
+
+for (const routeStateFile of [
+  "src/app/channels/loading.tsx",
+  "src/app/channels/error.tsx",
+  "src/app/api-models/loading.tsx",
+  "src/app/api-models/error.tsx",
+  "src/app/official-prices/loading.tsx",
+  "src/app/official-prices/error.tsx",
+  "src/app/api-transit/models/loading.tsx",
+  "src/app/api-transit/models/error.tsx",
+]) {
+  assert(existsSync(path.join(repoRoot, routeStateFile)), `${routeStateFile}: high-traffic public routes must keep route-level loading/error states.`);
+}
+
+const officialPriceCollectText = read("scripts/collect-official-prices.mjs");
+assert(/DEFAULT_FETCH_CONCURRENCY\s*=\s*4/.test(officialPriceCollectText), "scripts/collect-official-prices.mjs: official price collection must keep a conservative default fetch concurrency.");
+assert(/MAX_FETCH_CONCURRENCY\s*=\s*8/.test(officialPriceCollectText), "scripts/collect-official-prices.mjs: official price collection must cap fetch concurrency.");
+assert(/mapWithConcurrency/.test(officialPriceCollectText), "scripts/collect-official-prices.mjs: official price collection must avoid fully serial app-region fetches.");
+assert(/PRICEAI_OFFICIAL_PRICE_FETCH_CONCURRENCY/.test(officialPriceCollectText), "scripts/collect-official-prices.mjs: official price collection concurrency must be configurable by env.");
+
 const productPageText = read("src/app/products/[id]/page.tsx");
 assert(/listPublicProductOffers/.test(productPageText), "src/app/products/[id]/page.tsx: product pages must server-prefetch the first offer page.");
 assert(/initialData=\{initialOffers\}/.test(productPageText), "src/app/products/[id]/page.tsx: product offer panel must receive server-prefetched initialData.");
