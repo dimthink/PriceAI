@@ -467,6 +467,7 @@ const sharedAccessGroups = buildProductGroups([
   makeOffer({ id: "exclusive-plus", title: "ChatGPT Plus 成品号 独享账号", price: 88, status: "in_stock" }),
   makeOffer({ id: "grok-people-car", title: "SuperGrok-三人车", price: 70, status: "in_stock" }),
   makeOffer({ id: "shared-double-car", title: "Claude Max 5X 双人车", price: 388, status: "in_stock" }),
+  makeOffer({ id: "plus-multi-trial", title: "chatgptplus多人体验号无质保", price: 5.92, status: "in_stock" }),
   makeOffer({ id: "team-boarding", title: "GPT Team 月卡Business 席位x1【质保上车】", price: 55, status: "in_stock" }),
 ]);
 const sharedClaudeGroup = sharedAccessGroups.find((group) => group.id === "claude-pro-month");
@@ -489,6 +490,10 @@ assert.ok(
 assert.ok(
   isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "shared-double-car")),
   "双人车 should be tagged as shared access.",
+);
+assert.ok(
+  isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "plus-multi-trial")),
+  "多人体验号 should be tagged as shared access.",
 );
 assert.ok(
   !isSharedAccessOffer(sharedAccessGroups.flatMap((group) => group.offers).find((offer) => offer.id === "team-boarding")),

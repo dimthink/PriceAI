@@ -355,7 +355,7 @@ function hasSharedAccessSignal(text: string): boolean {
 }
 
 function hasStrongSharedAccessSignal(text: string): boolean {
-  return /拼车|团购|拼团|车位|多人共享|多人共用|(?:二|两|双|三|四|五|六|七|八|九|十|[2-9]|[1-9][0-9])人(?:车|共享|共用|位)|多人车|车友|车队|家庭车|团号|团购车|拼车位|共享车/.test(text);
+  return /拼车|团购|拼团|车位|多人共享|多人共用|(?:多人|二人|两人|双人|三人|四人|五人|六人|七人|八人|九人|十人|[2-9]人|[1-9][0-9]人)体验(?:号|账号|帐号)|(?:二|两|双|三|四|五|六|七|八|九|十|[2-9]|[1-9][0-9])人(?:车|共享|共用|位)|多人车|车友|车队|家庭车|团号|团购车|拼车位|共享车/.test(text);
 }
 
 function hasWeakSharedAccessSignal(text: string): boolean {
