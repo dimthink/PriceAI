@@ -518,7 +518,7 @@ export function getStationComparisonSummary(
     station.accountPools.length ? "pools" : null,
   ].filter(Boolean).length;
 
-  const rateScore = bestCombinedRate === null ? 0 : Math.max(0, 40 - bestCombinedRate * 900);
+  const rateScore = scoreTransitCombinedRate(bestCombinedRate);
   const stabilityScore = (stabilityRate ?? 0) * 35;
   const sampleScore = Math.min(stabilitySamples / 12, 12);
   const completenessScore = Math.min(sourceCompleteness * 1.5, 9);
@@ -832,7 +832,7 @@ function getScopedOverallScore(
   summary: TransitStationComparisonSummary,
   scope: TransitFamilyRateSummary
 ): number {
-  const rateScore = scope.combinedRateMin === null ? 0 : Math.max(0, 40 - scope.combinedRateMin * 900);
+  const rateScore = scoreTransitCombinedRate(scope.combinedRateMin);
   const stabilityScore = (scope.sevenDayRate ?? 0) * 35;
   const sampleScore = Math.min(scope.sevenDaySamples / 12, 12);
   const completenessScore = Math.min(summary.sourceCompleteness * 1.5, 9);
@@ -858,6 +858,11 @@ function getScopedOverallScore(
   }, 0);
 
   return rateScore + stabilityScore + sampleScore + completenessScore + commercialScore + systemScore - riskPenalty;
+}
+
+export function scoreTransitCombinedRate(rate: number | null): number {
+  if (rate === null || !Number.isFinite(rate) || rate <= 0) return 0;
+  return Math.min(55, 18 / rate);
 }
 
 function compareNullableNumber(
