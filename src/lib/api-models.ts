@@ -973,7 +973,7 @@ export const apiProviders: ApiProvider[] = [
     billingMode: "按量计费",
     url: "https://ai.google.dev/gemini-api",
     pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
-    logoUrl: "/brand-icons/google.png",
+    logoUrl: "/brand-icons/gemini.svg",
     description: "Google Gemini 官方 API。当前在官方 API 模块中作为 Nano Banana、Veo、Gemini Omni 等图片/视频生成模型的官方来源基准。",
     limitSummary: "免费额度、付费价格、速率限制和模型可用性以 Gemini API 文档、价格页和控制台为准。",
     limitations: "多媒体模型价格口径可能按模型、地区、输入输出形态和预览状态变化，当前未结构化的条目只展示官方来源入口。",

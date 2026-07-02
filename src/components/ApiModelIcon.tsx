@@ -1,6 +1,6 @@
 import { Boxes, Layers3 } from "lucide-react";
 import Image from "next/image";
-import { BrandIcon } from "@/components/BrandIcon";
+import { ModelBrandIcon, modelBrandIconForModel } from "@/components/ModelBrandIcon";
 
 const iconByFamily: Record<string, string> = {
   DeepSeek: "/brand-icons/deepseek.png",
@@ -22,13 +22,13 @@ export function ApiModelIcon({
   className?: string;
 }) {
   const normalizedFamily = family.toLowerCase();
-  const normalizedModelName = modelName?.toLowerCase() ?? "";
+  const modelBrand = modelBrandIconForModel(modelName);
   if (normalizedFamily === "图片生成") {
-    if (normalizedModelName.startsWith("gpt image")) return <BrandIcon platform="ChatGPT" className={className} />;
+    if (modelBrand) return <ModelBrandIcon icon={modelBrand} className={className} />;
     return <GeneratedMediaIcon kind="image" className={className} />;
   }
   if (normalizedFamily === "视频生成") {
-    if (normalizedModelName.startsWith("sora")) return <BrandIcon platform="ChatGPT" className={className} />;
+    if (modelBrand) return <ModelBrandIcon icon={modelBrand} className={className} />;
     return <GeneratedMediaIcon kind="video" className={className} />;
   }
 

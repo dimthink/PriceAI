@@ -1,30 +1,12 @@
 import Image from "next/image";
 import { Boxes } from "lucide-react";
-import { BrandIcon } from "@/components/BrandIcon";
+import { ModelBrandIcon, modelBrandIconForModel } from "@/components/ModelBrandIcon";
 
 const iconByFamily: Record<string, string> = {
   claude: "/brand-icons/claude.svg",
   gemini: "/brand-icons/gemini.svg",
   glm: "/brand-icons/glm.png",
   deepseek: "/brand-icons/deepseek.png",
-};
-
-type ModelBrandIcon = "openai" | "gemini" | "volcengine" | "kling";
-
-const modelBrandIconByPrefix: { prefix: string; icon: ModelBrandIcon }[] = [
-  { prefix: "gpt image", icon: "openai" },
-  { prefix: "sora", icon: "openai" },
-  { prefix: "nano banana", icon: "gemini" },
-  { prefix: "veo", icon: "gemini" },
-  { prefix: "gemini omni", icon: "gemini" },
-  { prefix: "seedance", icon: "volcengine" },
-  { prefix: "kling", icon: "kling" },
-];
-
-const modelBrandImageSrc: Partial<Record<ModelBrandIcon, string>> = {
-  gemini: "/brand-icons/gemini.svg",
-  kling: "/brand-icons/kling.png",
-  volcengine: "/brand-icons/volcengine.png",
 };
 
 export function TransitModelIcon({
@@ -37,32 +19,12 @@ export function TransitModelIcon({
   className?: string;
 }) {
   const normalizedFamily = family.toLowerCase();
-  const normalizedStandardModel = standardModel?.toLowerCase() ?? "";
-  const modelBrand = modelBrandIconByPrefix.find((item) =>
-    normalizedStandardModel.startsWith(item.prefix)
-  )?.icon;
+  const modelBrand = modelBrandIconForModel(standardModel);
 
-  if (modelBrand === "openai") {
-    return <BrandIcon platform="ChatGPT" className={className} />;
-  }
-
-  const modelBrandSrc = modelBrand ? modelBrandImageSrc[modelBrand] : undefined;
-
-  if (modelBrandSrc) {
-    return (
-      <Image
-        src={modelBrandSrc}
-        alt=""
-        aria-hidden="true"
-        width={32}
-        height={32}
-        className={`${className} shrink-0 object-contain`}
-      />
-    );
-  }
+  if (modelBrand) return <ModelBrandIcon icon={modelBrand} className={className} />;
 
   if (normalizedFamily === "gpt") {
-    return <BrandIcon platform="ChatGPT" className={className} />;
+    return <ModelBrandIcon icon="openai" className={className} />;
   }
   if (normalizedFamily === "image") {
     return <GeneratedMediaIcon kind="image" className={className} />;
