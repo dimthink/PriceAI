@@ -171,6 +171,77 @@ assert.equal(fixedOffersByModel.get("GPT Image 2").model_multiplier, 0.008333);
 assert.equal(fixedOffersByModel.get("GPT Image 2").image_output_price, 0.008333);
 assert.equal(fixedOffersByModel.get("GPT Image 2").raw_payload.fixed_price, 0.25);
 
+const rtocSource = {
+  id: "ai-rtoc-cc",
+  name: "RTOC AI",
+  websiteUrl: "https://ai.rtoc.cc/",
+  pricingUrl: "https://ai.rtoc.cc/pricing",
+  pricingEndpointUrl: "https://api.rtoc.cc/api/pricing",
+  monitorUrl: "https://ai.rtoc.cc/pricing",
+  monitorEndpointUrl: "https://api.rtoc.cc/api/perf-metrics/summary?period=24",
+  collectorKind: "new_api_pricing",
+  stationSystem: "new_api",
+};
+const rtocParsed = __test.parsePricingPayload(
+  rtocSource,
+  {
+    data: [
+      {
+        model_name: "gpt-5.5",
+        model_ratio: 2.5,
+        completion_ratio: 6,
+        enable_groups: ["GPT", "GPT Pro"],
+      },
+      {
+        model_name: "claude-sonnet-4-6",
+        model_ratio: 1.5,
+        completion_ratio: 5,
+        enable_groups: ["Claude"],
+      },
+    ],
+    group_ratio: {
+      GPT: 0.06,
+      "GPT Pro": 0.2,
+      Claude: 1.32,
+    },
+  },
+  "2026-07-02T14:00:00.000Z",
+);
+__test.applyNewApiPerformanceSummaryAvailability(
+  rtocSource,
+  rtocParsed,
+  {
+    data: {
+      models: [
+        {
+          model_name: "gpt-5.5",
+          success_rate: 97.61,
+          avg_latency_ms: 17522,
+          avg_tps: 38.64,
+          recent_success_rates: [99.83, 100, 100],
+        },
+        {
+          model_name: "claude-sonnet-4-6",
+          success_rate: 97.27,
+          avg_latency_ms: 8438,
+          avg_tps: 64.94,
+          recent_success_rates: [100, 100, 50],
+        },
+      ],
+    },
+  },
+  "2026-07-02T14:00:00.000Z",
+);
+const rtocGptOffer = rtocParsed.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "GPT");
+assert.equal(rtocGptOffer.availability_seven_day_rate, 0.9761);
+assert.equal(rtocGptOffer.availability_seven_day_samples, 3);
+assert.equal(rtocGptOffer.availability_source_type, "public_status");
+assert.equal(rtocGptOffer.availability_source_url, "https://ai.rtoc.cc/pricing");
+assert.match(rtocGptOffer.availability_note, /performance summary 近 24 小时/);
+assert.equal(rtocParsed.station.availability_seven_day_rate, 0.9744);
+assert.equal(rtocParsed.station.availability_seven_day_samples, 6);
+assert.match(rtocParsed.station.availability_note, /2 个标准模型/);
+
 const apinodePayload = {
   code: 0,
   message: "success",

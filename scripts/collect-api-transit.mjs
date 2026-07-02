@@ -333,6 +333,10 @@ function applyAvailabilityPayloadToParsedRows(source, parsed, payload, collected
   if (!payload) return;
   if (isZivvModelHubSource(source)) {
     applyZivvStatusAvailability(source, parsed, payload, collectedAt);
+    return;
+  }
+  if (isNewApiPricingSource(source) && isNewApiPerformanceSummaryPayload(payload)) {
+    applyNewApiPerformanceSummaryAvailability(source, parsed, payload, collectedAt);
   }
 }
 
@@ -551,6 +555,10 @@ function isApinodePublicSiteInfoSource(source) {
 
 function isZivvModelHubSource(source) {
   return ZIVV_MODEL_HUB_COLLECTORS.has(source.collectorKind);
+}
+
+function isNewApiPricingSource(source) {
+  return source?.collectorKind === "new_api_pricing";
 }
 
 function normalizeOneHopPublicModels(payload) {
@@ -790,6 +798,105 @@ function applyZivvStatusAvailability(source, parsed, payload, collectedAt) {
       ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
     });
   }
+}
+
+function isNewApiPerformanceSummaryPayload(payload) {
+  return normalizeNewApiPerformanceSummaryModels(payload).some((model) => {
+    const rawName = stringOrNull(model?.model_name) || stringOrNull(model?.model) || stringOrNull(model?.name);
+    return Boolean(rawName && percentValueToRate(model?.success_rate ?? model?.successRate) !== null);
+  });
+}
+
+function applyNewApiPerformanceSummaryAvailability(source, parsed, payload, collectedAt) {
+  const availabilityByStandard = new Map();
+
+  for (const model of normalizeNewApiPerformanceSummaryModels(payload)) {
+    const rawName = stringOrNull(model?.model_name) || stringOrNull(model?.model) || stringOrNull(model?.name);
+    const standard = rawName ? standardizeModelName(rawName) : null;
+    if (!standard) continue;
+
+    const availability = newApiPerformanceAvailabilityFromModel(source, model, rawName, collectedAt);
+    if (!availability) continue;
+
+    availabilityByStandard.set(standard, availability);
+  }
+
+  if (!availabilityByStandard.size) return;
+
+  for (const offer of parsed.offers || []) {
+    const availability = availabilityByStandard.get(offer.standard_model);
+    if (!availability) continue;
+    applyAvailabilityToOffer(offer, availability);
+  }
+
+  const stationAvailability = summarizeNewApiPerformanceAvailability(source, availabilityByStandard, collectedAt);
+  if (parsed.station && stationAvailability) {
+    Object.assign(parsed.station, {
+      availability_seven_day_rate: stationAvailability.rate,
+      availability_seven_day_samples: stationAvailability.samples,
+      availability_first_checked_at: stationAvailability.firstCheckedAt,
+      availability_last_checked_at: stationAvailability.lastCheckedAt,
+      availability_note: stationAvailability.note,
+      availability_source_type: stationAvailability.availability_source_type,
+      availability_source_label: stationAvailability.availability_source_label,
+      availability_source_url: stationAvailability.availability_source_url,
+    });
+  }
+}
+
+function normalizeNewApiPerformanceSummaryModels(payload) {
+  if (Array.isArray(payload?.data?.models)) return payload.data.models;
+  if (Array.isArray(payload?.models)) return payload.models;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload)) return payload;
+  return [];
+}
+
+function newApiPerformanceAvailabilityFromModel(source, model, rawName, collectedAt) {
+  const rate = percentValueToRate(model?.success_rate ?? model?.successRate);
+  if (rate === null) return null;
+
+  const recentRates = Array.isArray(model?.recent_success_rates)
+    ? model.recent_success_rates.map(numberValue).filter((value) => value !== null)
+    : [];
+  const samples = recentRates.length || 1;
+  const latencyMs = numberValue(model?.avg_latency_ms ?? model?.average_latency_ms);
+  const tps = numberValue(model?.avg_tps ?? model?.tps);
+  const suffix = [
+    `成功率 ${formatPercentValue(model?.success_rate ?? model?.successRate)}`,
+    latencyMs === null ? null : `平均延迟 ${formatLatencyMs(latencyMs)}`,
+    tps === null ? null : `TPS ${formatNumberValue(tps)}`,
+  ].filter(Boolean).join("，");
+
+  return {
+    rate,
+    samples,
+    firstCheckedAt: collectedAt,
+    lastCheckedAt: collectedAt,
+    note: `${source.name} 公开 performance summary 近 24 小时：${rawName}${suffix ? ` ${suffix}` : ""}；非 PriceAI API Key 实测。`,
+    raw: model,
+    ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
+  };
+}
+
+function summarizeNewApiPerformanceAvailability(source, availabilityByStandard, collectedAt) {
+  const entries = Array.from(availabilityByStandard.values()).filter((availability) => availability.rate !== null);
+  const samples = entries.reduce((total, availability) => total + Math.max(availability.samples || 0, 1), 0);
+  if (!entries.length || !samples) return null;
+
+  const weightedRate = entries.reduce(
+    (total, availability) => total + availability.rate * Math.max(availability.samples || 0, 1),
+    0,
+  ) / samples;
+
+  return {
+    rate: round(weightedRate, 6),
+    samples,
+    firstCheckedAt: collectedAt,
+    lastCheckedAt: collectedAt,
+    note: `${source.name} 公开 performance summary 近 24 小时汇总：${entries.length} 个标准模型，${samples} 个近段成功率样本；非 PriceAI API Key 实测。`,
+    ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
+  };
 }
 
 function normalizeZivvStatusServices(payload) {
@@ -1384,6 +1491,20 @@ function formatPercentValue(value) {
   const number = numberValue(value);
   if (number === null) return "未知";
   return `${round(number > 1 ? number : number * 100, 2).toFixed(2)}%`;
+}
+
+function formatLatencyMs(value) {
+  const number = numberValue(value);
+  if (number === null) return "未知";
+  if (number >= 1000) return `${formatNumberValue(number / 1000)}s`;
+  return `${formatNumberValue(number)}ms`;
+}
+
+function formatNumberValue(value) {
+  const number = numberValue(value);
+  if (number === null) return "未知";
+  const rounded = round(number, 2);
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function buildCallaiPartnerOfferRow({
@@ -2653,6 +2774,7 @@ export const __test = {
   filterSourcesByPublishedStationIds,
   findStaleRefreshedOfferIds,
   mergeStationForRefresh,
+  applyNewApiPerformanceSummaryAvailability,
   applyZivvStatusAvailability,
   mergeOfferForRefresh,
   parseApinodePublicSiteInfoPayload,

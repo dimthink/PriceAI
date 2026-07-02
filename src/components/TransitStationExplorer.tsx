@@ -338,10 +338,10 @@ export default function TransitStationExplorer({ stations }: Props) {
       ) : (
         <>
           <DataTableShell className="hidden md:block">
-            <table className="w-full min-w-[920px] border-collapse text-left text-sm" role="table">
+            <table className="w-full min-w-[1180px] border-collapse text-left text-sm" role="table">
                 <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
                   <tr role="row">
-                    <DataTableHead>站点</DataTableHead>
+                    <DataTableHead className="w-[230px]">站点</DataTableHead>
                     <DataTableHead className="whitespace-nowrap" explanation={TRANSIT_COMBINED_RATE_EXPLANATION}>
                       {rateColumnLabel}
                     </DataTableHead>
@@ -564,7 +564,7 @@ function StationRow({
       role="row"
       aria-label={`查看 ${station.name} 详情`}
     >
-      <td className="max-w-[320px] px-5 py-4">
+      <td className="w-[230px] min-w-[230px] max-w-[260px] px-5 py-4">
         <StationIdentity station={station} />
       </td>
       <td className="px-5 py-4">
@@ -818,17 +818,17 @@ function StationIdentity({ station }: { station: TransitStation }) {
   const invoiceLabel = station.invoiceSupport === "supported" ? TRANSIT_INVOICE_SUPPORT_LABELS[station.invoiceSupport] : null;
 
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="flex min-w-[190px] max-w-full items-center gap-2.5">
       <TransitStationSystemIcon station={station} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold text-[#202829]">{station.name}</div>
         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className="inline-flex h-5 w-[72px] shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] px-2 text-[10px] font-bold text-[#5a6061]">
+          <span className="inline-flex h-5 min-w-[72px] max-w-[92px] shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] px-2 text-[10px] font-bold text-[#5a6061]">
             <span className="truncate">{getTransitStationSystemLabel(station)}</span>
           </span>
           {hasAff ? (
             <span
-              className="inline-flex h-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#adb3b4]/70 px-2 text-[10px] font-extrabold text-[#5a6061]"
+              className="inline-flex h-5 shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-dashed border-[#adb3b4]/70 px-2 text-[10px] font-extrabold text-[#5a6061]"
               title="后台标记该站点存在 AFF 关系，不影响页面价格口径。"
             >
               AFF
@@ -836,7 +836,7 @@ function StationIdentity({ station }: { station: TransitStation }) {
           ) : null}
           {offerLabel ? (
             <span
-              className="inline-flex h-5 max-w-[116px] shrink-0 items-center justify-center rounded-full bg-[#fff7e8] px-2 text-[10px] font-bold text-[#7a541b]"
+              className="inline-flex h-5 max-w-[124px] shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-[#fff7e8] px-2 text-[10px] font-bold text-[#7a541b]"
               title={offerTitle}
             >
               <span className="truncate">{offerLabel}</span>
@@ -866,7 +866,7 @@ function StationInfoTag({
       : "bg-[#f2f4f4] text-[#5a6061]";
 
   return (
-    <span className={`inline-flex h-5 shrink-0 items-center justify-center rounded-full px-2 text-[10px] font-bold ${className}`}>
+    <span className={`inline-flex h-5 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-2 text-[10px] font-bold ${className}`}>
       {label}
     </span>
   );

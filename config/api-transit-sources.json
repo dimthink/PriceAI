@@ -185,20 +185,23 @@
     "apiBaseUrl": "https://api.rtoc.cc/v1",
     "pricingUrl": "https://ai.rtoc.cc/pricing",
     "pricingEndpointUrl": "https://api.rtoc.cc/api/pricing",
-    "monitorUrl": "https://api.rtoc.cc/api/status",
+    "monitorUrl": "https://ai.rtoc.cc/pricing",
+    "monitorEndpointUrl": "https://api.rtoc.cc/api/perf-metrics/summary?period=24",
     "collectorKind": "new_api_pricing",
     "stationSystem": "new_api",
     "channelTypes": ["undisclosed"],
     "accountPools": ["undisclosed"],
-    "riskLabels": ["insufficient_samples", "pending_feedback"],
-    "summary": "公开前端为 New API，前端包和 /api/status 均指向服务端 https://api.rtoc.cc；公开 /api/pricing 可读取模型与分组倍率。价格可纳入定时采集，稳定性和真实扣费仍需测试 Key 或人工样本补充。",
+    "riskLabels": ["undisclosed_upstream", "pending_feedback"],
+    "summary": "公开前端为 New API，前端包和 /api/status 均指向服务端 https://api.rtoc.cc；公开 /api/pricing 可读取模型与分组倍率，公开 performance summary 可读取近 24 小时模型成功率。价格和公开稳定性可纳入定时采集，真实扣费仍需测试 Key 或人工样本补充。",
     "strengths": [
       "公开 /api/pricing 返回 New API 价格结构，包含 46 个模型和 GPT、GPT Pro、Kiro、Claude、生图等分组倍率。",
+      "/api/perf-metrics/summary 公开返回模型维度近 24 小时成功率、平均延迟和 TPS。",
       "/api/status 公开返回 server_address 与 frontend_address，可确认前后端域名映射。"
     ],
     "cautions": [
       "/api/ratio_config 未启用，分组倍率以 /api/pricing 返回的 group_ratio 为准。",
-      "/v1/models 需要 API Key，当前只能采集公开价格，不能替代 PriceAI API Key 实测可用性。"
+      "/api/perf-metrics/summary 是站点公开监测口径，不等同于 PriceAI API Key 实测。",
+      "/v1/models 需要 API Key，当前公开稳定性不能替代真实扣费核验。"
     ],
     "verificationEvents": [
       {
@@ -216,6 +219,14 @@
         "title": "公开价格接口可读取",
         "description": "2026-07-02 检查 https://api.rtoc.cc/api/pricing 返回 46 个模型和 7 个分组倍率；/api/ratio_config 未启用，/v1/models 需要 API Key。",
         "happenedAt": "2026-07-02T08:40:00.000Z"
+      },
+      {
+        "id": "ai-rtoc-public-performance-2026-07-02",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开 performance summary 可读取",
+        "description": "2026-07-02 检查 https://api.rtoc.cc/api/perf-metrics/summary?period=24 返回模型维度成功率、平均延迟与 TPS；该数据为公开监测口径，非 PriceAI API Key 实测。",
+        "happenedAt": "2026-07-02T13:30:00.000Z"
       }
     ]
   },
