@@ -169,60 +169,86 @@ end;
 $$;
 
 update raw_offers
-set
-  canonical_product_id = case
-    when lower(source_title) ~ '(twitter|推特|x-twitter|x twitter)'
-      and lower(source_title) !~ '(账号|账户|老号|新号|三绑|双绑|2fa|token|登录|登陆|邮箱绑定|手机验证|premium|会员|蓝标|蓝v|蓝 v|月卡|年卡|年度|cdk|卡密|直充|代开|激活码|ios)'
-      and lower(source_title) ~ '(涨粉|粉丝|关注|转发|点赞|评论|浏览|互动)'
-      then 'other-product'
-    when lower(source_title) ~ '(x premium|twitter premium|推特 premium|premium\+|推特会员|x 会员|蓝标|蓝v|蓝 v|会员直充|会员代开|会员卡密|月卡|年卡|年度会员|自助卡密|激活码|cdk|ios充值|ios 充值)'
-      and lower(source_title) ~ '(twitter|推特|x-twitter|x twitter|x premium)'
-      then 'x-twitter-premium'
-    when lower(source_title) ~ '(apple id|appleid|苹果 id|苹果id|苹果账号|apple 账号|美区id|美区 id|土区id|土区 id|日区id|日区 id|港区id|港区 id|外区id|外区 id|台湾id|台湾 id|香港id|香港 id|菲律宾id|菲律宾 id|美国id|美国 id|日本id|日本 id)'
-      and lower(source_title) ~ '(icloud|icoud|app|账号|账户|独享|老号|成品|可转区)'
-      then 'apple-id-account'
-    when lower(source_title) ~ '(icloud|icloud邮箱|icloud 邮箱|icoud|icoud邮箱|icoud 邮箱)'
-      and lower(source_title) !~ '(隐私邮箱|发货形式为邮箱|开plus|开 plus|绑定专用|取码url|取码 url|plus源头|plus 源头)'
-      and lower(source_title) ~ '(chatgpt|gpt|openai|codex|gptplus|gpt plus|plus)'
-      and lower(source_title) ~ '(成品号|成品账号|成品|账号|账户|月卡|会员|rt|凭证|质保首登|未接码|已接码|2fa|稳定成品|发货格式)'
-      then 'chatgpt-plus'
-    when lower(source_title) ~ '(icloud|icloud邮箱|icloud 邮箱|icoud|icoud邮箱|icoud 邮箱|icloud隐私邮箱|icloud 隐私邮箱)'
-      and lower(source_title) !~ '(apple id|appleid|苹果 id|苹果id|苹果账号|apple 账号|美区id|美区 id|土区id|土区 id|日区id|日区 id|港区id|港区 id|外区id|外区 id|台湾id|台湾 id|香港id|香港 id|菲律宾id|菲律宾 id|美国id|美国 id|日本id|日本 id)'
-      and lower(source_title) ~ '(icloud邮箱|icloud 邮箱|icoud邮箱|icoud 邮箱|icloud隐私邮箱|icloud 隐私邮箱|icoud隐私邮箱|icoud 隐私邮箱|隐私邮箱|母号|子号|子邮箱|取码url|取码 url|取码链接|发货形式为邮箱|绑定专用)'
-      and not (
-        lower(source_title) !~ '(隐私邮箱|发货形式为邮箱|开plus|开 plus|绑定专用|取码url|取码 url|plus源头|plus 源头)'
-        and lower(source_title) ~ '(chatgpt|gpt|openai|codex|gptplus|gpt plus|plus)'
-        and lower(source_title) ~ '(成品号|成品账号|成品|账号|账户|月卡|会员|rt|凭证|质保首登|未接码|已接码|2fa|稳定成品|发货格式)'
-      )
-      then 'icloud-email'
-    when lower(source_title) ~ '(supergrok|super grok|grok.*super|super.*grok)'
-      and lower(source_title) !~ '(适合super|适合 super|取邮件api|取邮件 api)'
-      and lower(source_title) ~ '(3天|三天|7天|七天|月卡|月会员|会员|成品|独享|直充|卡密|激活码|heavy)'
-      then 'super-grok'
-    when lower(source_title) like '%kiro%'
-      and not (
-        lower(source_title) ~ '(普号|free|固定50|50额度|kirors|kiro rs)'
-        and lower(source_title) !~ '(kiro pro|kiro pro\+|power|promax|1000|2000|5000|1w|10000|100刀|200刀|500刀|100\$|200\$|500\$)'
-      )
-      and lower(source_title) ~ '(kiro pro|kiro pro\+|kiro pro max|kiro promax|pro\+|promax|power|积分|额度号|额度|号池|可超额|1000|2000|5000|1w|10000|100刀|200刀|500刀|100\$|200\$|500\$)'
-      then 'kiro-pro-account'
-    when lower(source_title) like '%kiro%'
-      and lower(source_title) !~ '(源码|源代码|脚本源码|注册机源码|注册机|生成器|工具包)'
-      then 'kiro-account'
-    else canonical_product_id
-  end,
-  updated_at = now()
+set canonical_product_id = 'other-product', updated_at = now()
 where hidden = false
-  and (
-    lower(source_title) ~ '(twitter|推特|x-twitter|x twitter|x premium)'
-    or lower(source_title) ~ '(icloud|icloud邮箱|icloud 邮箱|icoud|icoud邮箱|icoud 邮箱|icloud隐私邮箱|icloud 隐私邮箱)'
-    or lower(source_title) ~ '(supergrok|super grok|grok.*super|super.*grok)'
-    or lower(source_title) like '%kiro%'
+  and canonical_product_id = 'x-twitter-account'
+  and lower(source_title) ~ '(twitter|推特|x-twitter|x twitter)'
+  and lower(source_title) !~ '(账号|账户|老号|新号|三绑|双绑|2fa|token|登录|登陆|邮箱绑定|手机验证|premium|会员|蓝标|蓝v|蓝 v|月卡|年卡|年度|cdk|卡密|直充|代开|激活码|ios)'
+  and lower(source_title) ~ '(涨粉|粉丝|关注|转发|点赞|评论|浏览|互动)';
+
+update raw_offers
+set canonical_product_id = 'x-twitter-premium', updated_at = now()
+where hidden = false
+  and canonical_product_id = 'x-twitter-account'
+  and lower(source_title) ~ '(x premium|twitter premium|推特 premium|premium\+|推特会员|x 会员|蓝标|蓝v|蓝 v|会员直充|会员代开|会员卡密|月卡|年卡|年度会员|自助卡密|激活码|cdk|ios充值|ios 充值)'
+  and lower(source_title) ~ '(twitter|推特|x-twitter|x twitter|x premium)';
+
+update raw_offers
+set canonical_product_id = 'apple-id-account', updated_at = now()
+where hidden = false
+  and canonical_product_id in ('email-account', 'other-product')
+  and lower(source_title) ~ '(apple id|appleid|苹果 id|苹果id|苹果账号|apple 账号|美区id|美区 id|土区id|土区 id|日区id|日区 id|港区id|港区 id|外区id|外区 id|台湾id|台湾 id|香港id|香港 id|菲律宾id|菲律宾 id|美国id|美国 id|日本id|日本 id)'
+  and lower(source_title) ~ '(icloud|icoud|app|账号|账户|独享|老号|成品|可转区)';
+
+update raw_offers
+set canonical_product_id = 'chatgpt-plus', updated_at = now()
+where hidden = false
+  and canonical_product_id = 'email-account'
+  and lower(source_title) ~ '(icloud|icloud邮箱|icloud 邮箱|icoud|icoud邮箱|icoud 邮箱)'
+  and lower(source_title) !~ '(隐私邮箱|发货形式为邮箱|开plus|开 plus|绑定专用|取码url|取码 url|plus源头|plus 源头)'
+  and lower(source_title) ~ '(chatgpt|gpt|openai|codex|gptplus|gpt plus|plus)'
+  and lower(source_title) ~ '(成品号|成品账号|成品|账号|账户|月卡|会员|rt|凭证|质保首登|未接码|已接码|2fa|稳定成品|发货格式)';
+
+update raw_offers
+set canonical_product_id = 'icloud-email', updated_at = now()
+where hidden = false
+  and canonical_product_id = 'email-account'
+  and lower(source_title) ~ '(icloud|icloud邮箱|icloud 邮箱|icoud|icoud邮箱|icoud 邮箱|icloud隐私邮箱|icloud 隐私邮箱)'
+  and lower(source_title) !~ '(apple id|appleid|苹果 id|苹果id|苹果账号|apple 账号|美区id|美区 id|土区id|土区 id|日区id|日区 id|港区id|港区 id|外区id|外区 id|台湾id|台湾 id|香港id|香港 id|菲律宾id|菲律宾 id|美国id|美国 id|日本id|日本 id)'
+  and lower(source_title) ~ '(icloud邮箱|icloud 邮箱|icoud邮箱|icoud 邮箱|icloud隐私邮箱|icloud 隐私邮箱|icoud隐私邮箱|icoud 隐私邮箱|隐私邮箱|母号|子号|子邮箱|取码url|取码 url|取码链接|发货形式为邮箱|绑定专用)'
+  and not (
+    lower(source_title) !~ '(隐私邮箱|发货形式为邮箱|开plus|开 plus|绑定专用|取码url|取码 url|plus源头|plus 源头)'
+    and lower(source_title) ~ '(chatgpt|gpt|openai|codex|gptplus|gpt plus|plus)'
+    and lower(source_title) ~ '(成品号|成品账号|成品|账号|账户|月卡|会员|rt|凭证|质保首登|未接码|已接码|2fa|稳定成品|发货格式)'
   );
 
 update raw_offers
+set canonical_product_id = 'dreamina-account', updated_at = now()
+where hidden = false
+  and canonical_product_id in ('grok-account', 'other-product')
+  and lower(source_title) ~ '(dreamina|jimeng|即梦|吉梦|seedance|c档2.0|c档 2.0|c 档2.0|c 档 2.0)';
+
+update raw_offers
+set canonical_product_id = 'super-grok', updated_at = now()
+where hidden = false
+  and canonical_product_id = 'grok-account'
+  and lower(source_title) ~ '(supergrok|super grok|grok.*super|super.*grok)'
+  and lower(source_title) !~ '(适合super|适合 super|取邮件api|取邮件 api)'
+  and lower(source_title) ~ '(3天|三天|7天|七天|月卡|月会员|会员|成品|独享|直充|卡密|激活码|heavy)';
+
+update raw_offers
+set canonical_product_id = 'kiro-pro-account', updated_at = now()
+where hidden = false
+  and canonical_product_id = 'kiro-account'
+  and not (
+    lower(source_title) ~ '(普号|free|固定50|50额度|kirors|kiro rs)'
+    and lower(source_title) !~ '(kiro pro|kiro pro\+|power|promax|1000|2000|5000|1w|10000|100刀|200刀|500刀|100\$|200\$|500\$)'
+  )
+  and lower(source_title) ~ '(kiro pro|kiro pro\+|kiro pro max|kiro promax|pro\+|promax|power|积分|额度号|额度|号池|可超额|1000|2000|5000|1w|10000|100刀|200刀|500刀|100\$|200\$|500\$)';
+
+update raw_offers
 set source_title = source_title
-where coalesce(public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(source_title, tags);
+where hidden = false
+  and canonical_product_id in (
+    'super-grok',
+    'grok-account',
+    'x-twitter-premium',
+    'openai-phone-verification',
+    'google-phone-verification',
+    'paypal-phone-verification',
+    'phone-verification'
+  )
+  and coalesce(public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(source_title, tags);
 
 create or replace function list_public_product_offer_filter_facets(
   p_product_id text
