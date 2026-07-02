@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
-import { priceDataCacheHeaders } from "./cache-headers";
+import { noStoreCacheHeaders } from "./cache-headers";
 
 export function logApiError(scope: string, error: unknown): void {
   if (error instanceof Error) {
@@ -44,7 +44,7 @@ export function publicPriceApiErrorResponse(scope: string, error: unknown): Next
     },
     {
       status: publicPriceApiErrorStatus(error),
-      headers: priceDataCacheHeaders(),
+      headers: noStoreCacheHeaders(),
     },
   );
 }

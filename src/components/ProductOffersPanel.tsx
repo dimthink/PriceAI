@@ -7,7 +7,7 @@ import { isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
-import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
+import { createTimeoutSignal, isGeneratedDatasetStale, newestUsableGeneratedDataset } from "@/lib/client-refresh";
 import {
   OFFER_FILTER_TAG_BY_ID,
   parseOfferFilterTagsForProduct,
@@ -90,7 +90,7 @@ export function ProductOffersPanel({
   const initialCacheKey = productOffersCacheKey(productId, 0, normalizedInitialFilterTags, normalizedInitialQuery, normalizedInitialExcludeQuery);
   const activeCacheKey = productOffersCacheKey(productId, 0, selectedFilterTags, offerQueryKey, offerExcludeQueryKey);
   const activeCacheKeyRef = useRef(activeCacheKey);
-  const cachedInitialData = newestGeneratedDataset(productOffersMemoryCache.get(initialCacheKey), initialData);
+  const cachedInitialData = newestUsableGeneratedDataset(productOffersMemoryCache.get(initialCacheKey), initialData);
   const [data, setData] = useState<ProductOffersResponse | null>(cachedInitialData);
   const [dataCacheKey, setDataCacheKey] = useState<string | null>(cachedInitialData ? initialCacheKey : null);
   const [loading, setLoading] = useState(!cachedInitialData);
@@ -140,15 +140,14 @@ export function ProductOffersPanel({
         filterTags.join(",") === initialFilterKey &&
         query === normalizedInitialQuery &&
         excludeQuery === normalizedInitialExcludeQuery;
-      const cachedData = newestGeneratedDataset(
+      const cachedData = newestUsableGeneratedDataset(
         productOffersMemoryCache.get(cacheKey),
         shouldUseInitialData ? initialData : null,
         readSessionCache<ProductOffersResponse>(cacheKey, PRODUCT_OFFERS_CACHE_TTL_MS),
       );
 
       if (cachedData) {
-        rememberProductOffers(cacheKey, cachedData);
-        writeSessionCache(cacheKey, cachedData);
+        rememberHealthyProductOffers(cacheKey, cachedData);
         setData(cachedData);
         setDataCacheKey(cacheKey);
         setLoading(false);
@@ -166,9 +165,8 @@ export function ProductOffersPanel({
       try {
         const nextData = await fetchProductOfferPage(productId, 0, filterTags, query, excludeQuery, timeout.signal);
         if (!active) return;
-        const latestData = newestGeneratedDataset(nextData, productOffersMemoryCache.get(cacheKey)) ?? nextData;
-        rememberProductOffers(cacheKey, latestData);
-        writeSessionCache(cacheKey, latestData);
+        const latestData = newestUsableGeneratedDataset(nextData, productOffersMemoryCache.get(cacheKey)) ?? nextData;
+        rememberHealthyProductOffers(cacheKey, latestData);
         setData(latestData);
         setDataCacheKey(cacheKey);
         setError(null);
@@ -242,8 +240,7 @@ export function ProductOffersPanel({
         };
 
         const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery);
-        rememberProductOffers(cacheKey, mergedData);
-        writeSessionCache(cacheKey, mergedData);
+        rememberHealthyProductOffers(cacheKey, mergedData);
 
         return mergedData;
       });
@@ -448,6 +445,13 @@ function rememberProductOffers(cacheKey: string, value: ProductOffersResponse) {
     if (!oldestKey) break;
     productOffersMemoryCache.delete(oldestKey);
   }
+}
+
+function rememberHealthyProductOffers(cacheKey: string, value: ProductOffersResponse) {
+  if (value.degraded) return;
+
+  rememberProductOffers(cacheKey, value);
+  writeSessionCache(cacheKey, value);
 }
 
 function normalizeOfferSearchQuery(value: string, limit = 80): string {

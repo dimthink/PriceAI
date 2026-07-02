@@ -35,7 +35,7 @@ import { apiCdkPublicVisibleForClient } from "@/lib/trust-risk";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
-import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset } from "@/lib/client-refresh";
+import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset, newestUsableGeneratedDataset } from "@/lib/client-refresh";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
@@ -374,9 +374,8 @@ export function PriceExplorer({
   useEffect(() => {
     if (!data) return;
 
-    const seededData = newestGeneratedDataset(data, explorerMemoryCache) ?? data;
-    explorerMemoryCache = seededData;
-    writeSessionCache(EXPLORER_CACHE_KEY, seededData);
+    const seededData = newestUsableGeneratedDataset(data, explorerMemoryCache) ?? data;
+    rememberHealthyExplorerData(seededData);
 
     if (!isGeneratedDatasetStale(seededData, EXPLORER_CACHE_TTL_MS)) return;
 
@@ -387,9 +386,8 @@ export function PriceExplorer({
       try {
         const nextData = await fetchExplorerData(timeout.signal);
         if (!active) return;
-        const latestData = newestGeneratedDataset(nextData, explorerMemoryCache) ?? nextData;
-        explorerMemoryCache = latestData;
-        writeSessionCache(EXPLORER_CACHE_KEY, latestData);
+        const latestData = newestUsableGeneratedDataset(nextData, explorerMemoryCache) ?? nextData;
+        rememberHealthyExplorerData(latestData);
         setExplorerData(latestData);
         setDataError(null);
       } catch (error) {
@@ -413,16 +411,14 @@ export function PriceExplorer({
     if (!initialMerchants) return;
 
     const cacheKey = merchantListCacheKey("", 0);
-    rememberMerchantList(cacheKey, initialMerchants);
-    writeSessionCache(cacheKey, initialMerchants);
+    rememberHealthyMerchantList(cacheKey, initialMerchants);
   }, [initialMerchants]);
 
   useEffect(() => {
     if (!initialOffers) return;
 
     const cacheKey = offerListCacheKey("", 0);
-    rememberOfferList(cacheKey, initialOffers);
-    writeSessionCache(cacheKey, initialOffers);
+    rememberHealthyOfferList(cacheKey, initialOffers);
   }, [initialOffers]);
 
   useEffect(() => {
@@ -431,10 +427,13 @@ export function PriceExplorer({
     const controller = new AbortController();
 
     async function loadExplorerData() {
-      const cachedData = explorerMemoryCache ?? readSessionCache<ExplorerData>(EXPLORER_CACHE_KEY, EXPLORER_CACHE_TTL_MS);
+      const cachedData = newestUsableGeneratedDataset(
+        explorerMemoryCache,
+        readSessionCache<ExplorerData>(EXPLORER_CACHE_KEY, EXPLORER_CACHE_TTL_MS),
+      );
 
       if (cachedData) {
-        explorerMemoryCache = cachedData;
+        rememberHealthyExplorerData(cachedData);
         setExplorerData(cachedData);
         setDataLoading(false);
       } else {
@@ -445,9 +444,9 @@ export function PriceExplorer({
 
       try {
         const nextData = await fetchExplorerData(controller.signal);
-        explorerMemoryCache = nextData;
-        writeSessionCache(EXPLORER_CACHE_KEY, nextData);
-        setExplorerData(nextData);
+        const latestData = newestUsableGeneratedDataset(nextData, explorerMemoryCache) ?? nextData;
+        rememberHealthyExplorerData(latestData);
+        setExplorerData(latestData);
       } catch (error) {
         if (controller.signal.aborted) return;
         setDataError(error instanceof Error ? error.message : "商品数据加载失败");
@@ -528,11 +527,13 @@ export function PriceExplorer({
 
     async function loadOffers() {
       const cachedOffers =
-        offerListMemoryCache.get(cacheKey) ??
-        readSessionCache<OfferListResponse>(cacheKey, OFFER_LIST_CACHE_TTL_MS);
+        newestUsableGeneratedDataset(
+          offerListMemoryCache.get(cacheKey),
+          readSessionCache<OfferListResponse>(cacheKey, OFFER_LIST_CACHE_TTL_MS),
+        );
 
       if (cachedOffers) {
-        rememberOfferList(cacheKey, cachedOffers);
+        rememberHealthyOfferList(cacheKey, cachedOffers);
         setOfferResponse(cachedOffers);
         setOffersLoading(false);
         if (!isGeneratedDatasetStale(cachedOffers, OFFER_LIST_CACHE_TTL_MS)) return;
@@ -546,9 +547,9 @@ export function PriceExplorer({
       try {
         const nextResponse = await fetchOfferPage(requestQueryString, 0, controller.signal);
         if (activeOfferQueryRef.current !== requestQueryString) return;
-        rememberOfferList(cacheKey, nextResponse);
-        writeSessionCache(cacheKey, nextResponse);
-        setOfferResponse(nextResponse);
+        const latestResponse = newestUsableGeneratedDataset(nextResponse, offerListMemoryCache.get(cacheKey)) ?? nextResponse;
+        rememberHealthyOfferList(cacheKey, latestResponse);
+        setOfferResponse(latestResponse);
       } catch (error) {
         if (controller.signal.aborted) return;
         if (activeOfferQueryRef.current !== requestQueryString) return;
@@ -592,8 +593,7 @@ export function PriceExplorer({
         };
 
         const cacheKey = offerListCacheKey(offerQueryString, 0);
-        rememberOfferList(cacheKey, mergedResponse);
-        writeSessionCache(cacheKey, mergedResponse);
+        rememberHealthyOfferList(cacheKey, mergedResponse);
 
         return mergedResponse;
       });
@@ -635,11 +635,13 @@ export function PriceExplorer({
 
     async function loadMerchants() {
       const cachedMerchants =
-        merchantListMemoryCache.get(cacheKey) ??
-        readSessionCache<MerchantListResponse>(cacheKey, MERCHANT_LIST_CACHE_TTL_MS);
+        newestUsableGeneratedDataset(
+          merchantListMemoryCache.get(cacheKey),
+          readSessionCache<MerchantListResponse>(cacheKey, MERCHANT_LIST_CACHE_TTL_MS),
+        );
 
       if (cachedMerchants) {
-        rememberMerchantList(cacheKey, cachedMerchants);
+        rememberHealthyMerchantList(cacheKey, cachedMerchants);
         setMerchantResponse(cachedMerchants);
         setMerchantsLoading(false);
         if (!isGeneratedDatasetStale(cachedMerchants, MERCHANT_LIST_CACHE_TTL_MS)) return;
@@ -653,9 +655,9 @@ export function PriceExplorer({
       try {
         const nextResponse = await fetchMerchantPage(requestQueryString, 0, controller.signal);
         if (activeMerchantQueryRef.current !== requestQueryString) return;
-        rememberMerchantList(cacheKey, nextResponse);
-        writeSessionCache(cacheKey, nextResponse);
-        setMerchantResponse(nextResponse);
+        const latestResponse = newestUsableGeneratedDataset(nextResponse, merchantListMemoryCache.get(cacheKey)) ?? nextResponse;
+        rememberHealthyMerchantList(cacheKey, latestResponse);
+        setMerchantResponse(latestResponse);
       } catch (error) {
         if (controller.signal.aborted) return;
         if (activeMerchantQueryRef.current !== requestQueryString) return;
@@ -699,8 +701,7 @@ export function PriceExplorer({
         };
 
         const cacheKey = merchantListCacheKey(merchantQueryString, 0);
-        rememberMerchantList(cacheKey, mergedResponse);
-        writeSessionCache(cacheKey, mergedResponse);
+        rememberHealthyMerchantList(cacheKey, mergedResponse);
 
         return mergedResponse;
       });
@@ -2491,6 +2492,13 @@ function merchantListCacheKey(queryString: string, offset: number): string {
   return `${MERCHANT_LIST_CACHE_KEY}:${queryString || "all"}:${offset}:${PUBLIC_MERCHANT_PAGE_SIZE}`;
 }
 
+function rememberHealthyExplorerData(value: ExplorerData) {
+  if (value.degraded) return;
+
+  explorerMemoryCache = value;
+  writeSessionCache(EXPLORER_CACHE_KEY, value);
+}
+
 function rememberOfferList(cacheKey: string, value: OfferListResponse) {
   offerListMemoryCache.delete(cacheKey);
   offerListMemoryCache.set(cacheKey, value);
@@ -2502,6 +2510,13 @@ function rememberOfferList(cacheKey: string, value: OfferListResponse) {
   }
 }
 
+function rememberHealthyOfferList(cacheKey: string, value: OfferListResponse) {
+  if (value.degraded) return;
+
+  rememberOfferList(cacheKey, value);
+  writeSessionCache(cacheKey, value);
+}
+
 function rememberMerchantList(cacheKey: string, value: MerchantListResponse) {
   merchantListMemoryCache.delete(cacheKey);
   merchantListMemoryCache.set(cacheKey, value);
@@ -2511,6 +2526,13 @@ function rememberMerchantList(cacheKey: string, value: MerchantListResponse) {
     if (!oldestKey) break;
     merchantListMemoryCache.delete(oldestKey);
   }
+}
+
+function rememberHealthyMerchantList(cacheKey: string, value: MerchantListResponse) {
+  if (value.degraded) return;
+
+  rememberMerchantList(cacheKey, value);
+  writeSessionCache(cacheKey, value);
 }
 
 function metricValue(value: number, loading: boolean): string {

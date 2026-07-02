@@ -12,6 +12,7 @@ const cspHeader = [
     "script-src 'self' 'unsafe-inline'",
     isDevelopment ? "'unsafe-eval'" : "",
     "https://www.googletagmanager.com",
+    "https://static.cloudflareinsights.com",
     "https://umami.dimthink.com",
     "https://challenges.cloudflare.com",
   ].filter(Boolean).join(" "),

@@ -37,3 +37,7 @@ export function priceDataCacheHeaders(): HeadersInit {
     staleSeconds: PRICE_DATA_STALE_SECONDS,
   });
 }
+
+export function priceDataCacheHeadersForResult(result: { degraded?: boolean | null } | null | undefined): HeadersInit {
+  return result?.degraded ? noStoreCacheHeaders() : priceDataCacheHeaders();
+}

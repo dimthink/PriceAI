@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publicPriceApiErrorResponse } from "@/lib/api-errors";
-import { priceDataCacheHeaders } from "@/lib/cache-headers";
+import { priceDataCacheHeadersForResult } from "@/lib/cache-headers";
 import { listPublicProductOffers } from "@/lib/data";
 import { parsePublicOfferPaginationForRoute } from "@/lib/public-offer-route";
 
@@ -24,7 +24,7 @@ export async function GET(
     });
 
     return NextResponse.json(result, {
-      headers: priceDataCacheHeaders(),
+      headers: priceDataCacheHeadersForResult(result),
     });
   } catch (error) {
     return publicPriceApiErrorResponse("public product offers API", error);

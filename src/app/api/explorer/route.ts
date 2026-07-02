@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { publicPriceApiErrorResponse } from "@/lib/api-errors";
-import { priceDataCacheHeaders } from "@/lib/cache-headers";
+import { priceDataCacheHeadersForResult } from "@/lib/cache-headers";
 import { getExplorerData } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export async function GET() {
     const result = await getExplorerData();
 
     return NextResponse.json(result, {
-      headers: priceDataCacheHeaders(),
+      headers: priceDataCacheHeadersForResult(result),
     });
   } catch (error) {
     return publicPriceApiErrorResponse("public explorer API", error);

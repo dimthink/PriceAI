@@ -5,12 +5,15 @@ const DEFAULT_TIMEOUT_MS = 4_000;
 
 type GeneratedDataset = {
   generatedAt?: string | null;
+  degraded?: boolean | null;
 };
 
 export function isGeneratedDatasetStale(
   dataset: GeneratedDataset | null | undefined,
   staleAfterMs = DEFAULT_STALE_AFTER_MS,
 ): boolean {
+  if (dataset?.degraded) return true;
+
   const timestamp = generatedAtMs(dataset);
   if (!timestamp) return true;
 
@@ -34,6 +37,13 @@ export function newestGeneratedDataset<T extends GeneratedDataset>(
   }
 
   return newest;
+}
+
+export function newestUsableGeneratedDataset<T extends GeneratedDataset>(
+  ...datasets: Array<T | null | undefined>
+): T | null {
+  const healthy = newestGeneratedDataset(...datasets.filter((dataset) => !dataset?.degraded));
+  return healthy ?? newestGeneratedDataset(...datasets);
 }
 
 export function createTimeoutSignal(timeoutMs = DEFAULT_TIMEOUT_MS): {

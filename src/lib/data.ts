@@ -1074,10 +1074,12 @@ async function readPublicOfferData(): Promise<PublicOfferData> {
   publicOfferDataPromise = loadPublicOfferData()
     .then((value) => {
       const nextValue = preferStalePublicOfferData(staleValue, value);
-      publicOfferDataCache = {
-        expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
-        value: nextValue,
-      };
+      if (!nextValue.degraded) {
+        publicOfferDataCache = {
+          expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
+          value: nextValue,
+        };
+      }
       return nextValue;
     })
     .finally(() => {
@@ -1153,10 +1155,12 @@ export async function getExplorerData(): Promise<ExplorerData> {
   explorerDataPromise = buildExplorerData()
     .then((value) => {
       const nextValue = preferStaleExplorerData(staleValue, value);
-      explorerDataCache = {
-        expiresAt: Date.now() + EXPLORER_DATA_CACHE_TTL_MS,
-        value: nextValue,
-      };
+      if (!nextValue.degraded) {
+        explorerDataCache = {
+          expiresAt: Date.now() + EXPLORER_DATA_CACHE_TTL_MS,
+          value: nextValue,
+        };
+      }
       return nextValue;
     })
     .finally(() => {
@@ -1743,7 +1747,7 @@ function isPublicApiSnapshotFresh<T extends { generatedAt: string }>(snapshot: P
 }
 
 function isReusableGeneratedValue(value: { degraded?: boolean; generatedAt?: string | null }): boolean {
-  return value.degraded === true || isGeneratedAtFresh(value.generatedAt);
+  return value.degraded !== true && isGeneratedAtFresh(value.generatedAt);
 }
 
 function isGeneratedAtFresh(value: string | null | undefined): boolean {
@@ -2690,10 +2694,12 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   const staleValue = cached?.value || null;
   const value = await loadPublicProductOffers(id, { limit, offset, filterTags, filterProductId, query, excludeQuery });
   const nextValue = sanitizePublicProductOffersResultForProduct(filterProductId, preferStaleProductOffers(staleValue, value));
-  productOffersCache.set(cacheKey, {
-    expiresAt: Date.now() + PRODUCT_OFFERS_CACHE_TTL_MS,
-    value: nextValue,
-  });
+  if (!nextValue.degraded) {
+    productOffersCache.set(cacheKey, {
+      expiresAt: Date.now() + PRODUCT_OFFERS_CACHE_TTL_MS,
+      value: nextValue,
+    });
+  }
 
   if (productOffersCache.size > 120) {
     const expiredAt = Date.now();
@@ -3051,7 +3057,7 @@ export async function listPublicOffers(filters: OfferListFilters = {}) {
     });
   }
 
-  if (snapshotKey) {
+  if (snapshotKey && !nextValue.degraded) {
     const entry = {
       expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
       value: nextValue,
@@ -3106,10 +3112,12 @@ export async function listPublicMerchants(filters: MerchantListFilters = {}): Pr
         generatedAt: value.generatedAt,
       });
     }
-    publicMerchantViewCache.set(snapshotKey, {
-      expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
-      value: nextValue,
-    });
+    if (!nextValue.degraded) {
+      publicMerchantViewCache.set(snapshotKey, {
+        expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
+        value: nextValue,
+      });
+    }
     return nextValue;
   }
 
@@ -3133,10 +3141,12 @@ async function loadPublicMerchantCatalog(): Promise<PublicMerchantsResult> {
   publicMerchantsPromise = buildPublicMerchants()
     .then((value) => {
       const nextValue = preferStalePublicMerchants(staleValue, value);
-      publicMerchantsCache = {
-        expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
-        value: nextValue,
-      };
+      if (!nextValue.degraded) {
+        publicMerchantsCache = {
+          expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
+          value: nextValue,
+        };
+      }
       return nextValue;
     })
     .finally(() => {

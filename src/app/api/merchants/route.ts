@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { publicPriceApiErrorResponse } from "@/lib/api-errors";
-import { priceDataCacheHeaders } from "@/lib/cache-headers";
+import { priceDataCacheHeadersForResult } from "@/lib/cache-headers";
 import { listPublicMerchants } from "@/lib/data";
 import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import { parsePublicOfferPaginationForRoute } from "@/lib/public-offer-route";
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json(result, {
-      headers: priceDataCacheHeaders(),
+      headers: priceDataCacheHeadersForResult(result),
     });
   } catch (error) {
     return publicPriceApiErrorResponse("public merchants API", error);
