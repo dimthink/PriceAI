@@ -505,12 +505,22 @@ export const canonicalCatalog: CanonicalProduct[] = [
   {
     id: "telegram-account",
     slug: "telegram-account",
-    displayName: "Telegram",
+    displayName: "Telegram 账号",
     platform: "其他",
     productType: "工具账号",
-    spec: "账号 / 星星 / 相关权益",
-    summary: "Telegram、TG、电报、飞机号成品账号、Telegram 星星或相关权益商品。",
-    aliases: ["telegram", "tg", "电报", "飞机号", "telegram 账号", "telegram 星星"],
+    spec: "成品账号 / 地区号",
+    summary: "Telegram、TG、电报、飞机号成品账号、老号、精养号、地区号、API 链接或直登账号。",
+    aliases: ["telegram", "tg", "电报", "飞机号", "telegram 账号", "tg 账号", "电报账号", "telegram 老号"],
+  },
+  {
+    id: "telegram-premium",
+    slug: "telegram-premium",
+    displayName: "Telegram Premium / Pro 会员",
+    platform: "其他",
+    productType: "订阅/会员",
+    spec: "Premium / Stars",
+    summary: "Telegram Premium、Pro 会员、3/6/12 个月会员、会员兑换码、代开、用户名赠送会员或 Telegram Stars 星星增值功能。",
+    aliases: ["telegram premium", "telegram pro", "tg premium", "tg pro", "telegram 会员", "tg 会员", "telegram 星星", "telegram stars", "星星代充"],
   },
   {
     id: "gift-card",
@@ -628,6 +638,10 @@ function classifyOfferByTitle(
 
   if (isDreaminaProduct(value)) {
     return getCanonicalProduct("dreamina-account");
+  }
+
+  if (isTelegramPremiumProduct(value, contextValue)) {
+    return getCanonicalProduct("telegram-premium");
   }
 
   if (isTelegramProduct(value, contextValue)) {
@@ -1333,6 +1347,7 @@ function classifyVerificationService(value: string): string {
 
 function isOtherTool(value: string): boolean {
   if (isDreaminaProduct(value)) return true;
+  if (isTelegramPremiumProduct(value)) return true;
   if (isTelegramProduct(value)) return true;
   if (isXTwitterEngagementService(value)) return true;
   if (isXTwitterAccount(value)) return true;
@@ -1379,6 +1394,7 @@ function isOtherTool(value: string): boolean {
 
 function classifyOtherTool(value: string): string {
   if (isDreaminaProduct(value)) return "dreamina-account";
+  if (isTelegramPremiumProduct(value)) return "telegram-premium";
   if (isTelegramProduct(value)) return "telegram-account";
   if (isXTwitterEngagementService(value)) return "other-product";
   if (isXTwitterPremiumProduct(value)) return "x-twitter-premium";
@@ -1401,8 +1417,11 @@ function isDreaminaProduct(value: string): boolean {
 function isTelegramProduct(value: string, contextValue = ""): boolean {
   if (matches(value, ["飞机大厨", "airplane chefs"])) return false;
   if (isTelegramContactOnly(value)) return false;
+  if (isNonTelegramAccountProduct(value)) return false;
   if (matches(value, ["grok", "supergrok", "super grok"])) return false;
+  if (isTelegramPremiumProduct(value, contextValue)) return false;
   if (hasTelegramSignal(value)) return true;
+  if (hasTelegramRegionAccountSignal(value)) return true;
   if (!contextValue || !hasTelegramSignal(contextValue)) return false;
   if (matches(value, ["esim", "e sim", "电子卡", "实体卡", "电话卡", "手机卡", "sim 卡"])) return false;
 
@@ -1411,6 +1430,120 @@ function isTelegramProduct(value: string, contextValue = ""): boolean {
 
 function hasTelegramSignal(value: string): boolean {
   return /\b(tg|telegram)\b/.test(value) || matches(value, ["电报", "飞机号", "飞机账号", "飞机成品", "telegram 星星"]);
+}
+
+function hasTelegramRegionAccountSignal(value: string): boolean {
+  if (
+    matches(value, [
+      "esim",
+      "e sim",
+      "电子卡",
+      "实体卡",
+      "电话卡",
+      "手机卡",
+      "sim 卡",
+      "手机号",
+      "号码",
+      "接码",
+      "upi",
+      "邮箱",
+      "mail",
+      "hotmail",
+      "outlook",
+      "gcp",
+      "apple id",
+      "appid",
+      "app id",
+      "id 独享",
+      "id账号",
+      "id 账号",
+    ])
+  ) {
+    return false;
+  }
+
+  if (isKnownNonTelegramPlatformAccount(value)) return false;
+
+  const hasRegion = /(?:^|[^0-9])(?:\+|➕)1(?:[^0-9]|$)|(?:\+|➕)91|区号91/.test(value);
+  if (!hasRegion) return false;
+
+  return matches(value, ["成品号", "账号", "账户", "老号", "白号", "精养", "高权重", "抗风控", "满月", "新号"]);
+}
+
+function isTelegramPremiumProduct(value: string, contextValue = ""): boolean {
+  if (isTelegramContactOnly(value)) return false;
+  if (matches(value, ["飞机大厨", "airplane chefs"])) return false;
+  if (hasTelegramStarsSignal(value)) return true;
+
+  const hasTelegram = hasTelegramSignal(value) || Boolean(contextValue && hasTelegramSignal(contextValue));
+  if (!hasTelegram) return false;
+
+  return matches(value, [
+    "telegram premium",
+    "tg premium",
+    "电报 premium",
+    "telegram pro",
+    "tg pro",
+    "premium会员",
+    "premium 会员",
+    "会员代开",
+    "会员兑换码",
+    "会员 3个月",
+    "会员 6个月",
+    "会员 12个月",
+    "用户名赠送会员",
+    "电报三月会员",
+    "电报六月会员",
+    "电报一年会员",
+    "三个月订阅",
+    "六个月订阅",
+    "一年订阅",
+  ]);
+}
+
+function hasTelegramStarsSignal(value: string): boolean {
+  return (hasTelegramSignal(value) && /星星|stars?/.test(value)) || matches(value, ["telegram stars", "telegram 星星", "星星兑换码", "星星代充"]);
+}
+
+function isNonTelegramAccountProduct(value: string): boolean {
+  return matches(value, [
+    "linkedin",
+    "领英",
+    "instagram",
+    "tiktok",
+    "tik tok",
+    "facebook",
+    "figma",
+    "whatsapp",
+    "line账号",
+    "全地区tiktok",
+  ]);
+}
+
+function isKnownNonTelegramPlatformAccount(value: string): boolean {
+  return matches(value, [
+    "chatgpt",
+    "openai",
+    "gpt",
+    "claude",
+    "gemini",
+    "google",
+    "gmail",
+    "icloud",
+    "apple",
+    "grok",
+    "cursor",
+    "kiro",
+    "windsurf",
+    "perplexity",
+    "suno",
+    "midjourney",
+    "discord",
+    "github",
+    "spotify",
+    "netflix",
+    "youtube",
+  ]);
 }
 
 function isTelegramContactOnly(value: string): boolean {

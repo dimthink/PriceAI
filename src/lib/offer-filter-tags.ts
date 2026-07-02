@@ -2,6 +2,8 @@ export const OFFER_FILTER_TAG_GROUPS = {
   access: "交付方式",
   duration: "时长",
   proxy: "反代能力",
+  telegramAccount: "Telegram 地区",
+  telegramPremium: "Telegram 权益",
   verification: "接码时效",
   warranty: "质保",
 } as const;
@@ -19,6 +21,12 @@ export type OfferFilterTagId =
   | "verification_short"
   | "verification_long"
   | "verification_monthly"
+  | "telegram_region_us"
+  | "telegram_region_india"
+  | "telegram_premium_quarter"
+  | "telegram_premium_half_year"
+  | "telegram_premium_year"
+  | "telegram_stars"
   | "proxy_supported"
   | "warranty_long";
 
@@ -95,6 +103,42 @@ export const OFFER_FILTER_TAGS: OfferFilterTagDefinition[] = [
     description: "月租号码、包月接码、长期租号或 30 天接码服务。",
   },
   {
+    id: "telegram_region_us",
+    label: "美区 +1",
+    group: "telegramAccount",
+    description: "美国 +1、美区或美国号码 Telegram 账号。",
+  },
+  {
+    id: "telegram_region_india",
+    label: "印度 +91",
+    group: "telegramAccount",
+    description: "印度 +91 或区号 91 的 Telegram 账号。",
+  },
+  {
+    id: "telegram_premium_quarter",
+    label: "3个月",
+    group: "telegramPremium",
+    description: "Telegram Premium 3 个月、三个月会员、兑换码或代开。",
+  },
+  {
+    id: "telegram_premium_half_year",
+    label: "6个月",
+    group: "telegramPremium",
+    description: "Telegram Premium 6 个月、六个月会员、兑换码或代开。",
+  },
+  {
+    id: "telegram_premium_year",
+    label: "12个月",
+    group: "telegramPremium",
+    description: "Telegram Premium 12 个月、一年会员、兑换码或代开。",
+  },
+  {
+    id: "telegram_stars",
+    label: "星星/增值功能",
+    group: "telegramPremium",
+    description: "Telegram Stars、星星兑换码、星星代充或其他增值功能。",
+  },
+  {
     id: "proxy_supported",
     label: "可反代",
     group: "proxy",
@@ -125,6 +169,16 @@ const VERIFICATION_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "verification_short",
   "verification_long",
   "verification_monthly",
+]);
+const TELEGRAM_ACCOUNT_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
+  "telegram_region_us",
+  "telegram_region_india",
+]);
+const TELEGRAM_PREMIUM_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
+  "telegram_premium_quarter",
+  "telegram_premium_half_year",
+  "telegram_premium_year",
+  "telegram_stars",
 ]);
 const DURATION_FILTER_PRODUCT_IDS = new Set<string>([
   "grok-account",
@@ -175,6 +229,8 @@ export function filterOfferFilterFacetsForProduct(productId: string, facets: Off
 export function offerFilterTagAppliesToProduct(productId: string, tagId: OfferFilterTagId): boolean {
   if (DURATION_FILTER_TAG_IDS.has(tagId)) return DURATION_FILTER_PRODUCT_IDS.has(productId);
   if (VERIFICATION_FILTER_TAG_IDS.has(tagId)) return VERIFICATION_FILTER_PRODUCT_IDS.has(productId);
+  if (TELEGRAM_ACCOUNT_FILTER_TAG_IDS.has(tagId)) return productId === "telegram-account";
+  if (TELEGRAM_PREMIUM_FILTER_TAG_IDS.has(tagId)) return productId === "telegram-premium";
   return true;
 }
 
@@ -213,6 +269,22 @@ export function deriveOfferFilterTags(input: {
     output.add("verification_short");
   } else if (hasVerificationSingleSignal(text)) {
     output.add("verification_single");
+  }
+
+  if (hasTelegramUsRegionSignal(text)) {
+    output.add("telegram_region_us");
+  } else if (hasTelegramIndiaRegionSignal(text)) {
+    output.add("telegram_region_india");
+  }
+
+  if (hasTelegramStarsSignal(text)) {
+    output.add("telegram_stars");
+  } else if (hasTelegramPremiumYearSignal(text)) {
+    output.add("telegram_premium_year");
+  } else if (hasTelegramPremiumHalfYearSignal(text)) {
+    output.add("telegram_premium_half_year");
+  } else if (hasTelegramPremiumQuarterSignal(text)) {
+    output.add("telegram_premium_quarter");
   }
 
   if (
@@ -328,6 +400,37 @@ function hasVerificationLongSignal(text: string): boolean {
 
 function hasVerificationMonthlySignal(text: string): boolean {
   return /月租|包月接码|接码包月|包月号码|长期租号|月付接码|30天接码|一个月接码|1个月接码/.test(text);
+}
+
+function hasTelegramUsRegionSignal(text: string): boolean {
+  return /(?:^|[^0-9])(?:\+|➕)1(?:[^0-9]|$)|美区|美国|🇺🇸/.test(text);
+}
+
+function hasTelegramIndiaRegionSignal(text: string): boolean {
+  return /(?:\+|➕)91|区号91|印度/.test(text);
+}
+
+function hasTelegramStarsSignal(text: string): boolean {
+  return /telegram.{0,12}(星星|star|stars)|(?:星星|star|stars).{0,12}telegram|星星兑换码|星星代充/.test(text);
+}
+
+function hasTelegramPremiumQuarterSignal(text: string): boolean {
+  if (!hasTelegramPremiumSignal(text)) return false;
+  return /3个月|三个月|三月|3月|3month|3months/.test(text);
+}
+
+function hasTelegramPremiumHalfYearSignal(text: string): boolean {
+  if (!hasTelegramPremiumSignal(text)) return false;
+  return /6个月|六个月|六月|6月|半年|6month|6months/.test(text);
+}
+
+function hasTelegramPremiumYearSignal(text: string): boolean {
+  if (!hasTelegramPremiumSignal(text)) return false;
+  return /12个月|十二个月|一年|1年|年费|一年会员|12month|12months/.test(text);
+}
+
+function hasTelegramPremiumSignal(text: string): boolean {
+  return /telegram.{0,16}(premium|会员|pro)|tg.{0,16}(premium|会员|pro)|电报.{0,16}(premium|会员|pro)|飞机.{0,16}(premium|会员|pro)|premium.{0,16}(telegram|tg)|会员.{0,16}(telegram|tg|电报)/.test(text);
 }
 
 function hasBlockingNoWarrantySignal(text: string): boolean {

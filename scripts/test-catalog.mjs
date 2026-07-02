@@ -212,7 +212,17 @@ const cases = [
   ["3个月-X-推特 Premium（自带Super Grok）", "x-twitter-premium"],
   ["Telegram成品号 / 规格5", "telegram-account"],
   ["TG电报高权重老号", "telegram-account"],
-  ["Telegram-星星 1000 stars", "telegram-account"],
+  ["Telegram账号|+1美国|1月注册", "telegram-account"],
+  ["【印度+91】1~3年 精养老号 | 高权重 | 抗风控强", "telegram-account"],
+  ["Telegram Premium会员兑换码 3个月", "telegram-premium"],
+  ["Telegram Premium会员代开（6个月）", "telegram-premium"],
+  ["Telegram Premium 会员 1年", "telegram-premium"],
+  ["TG用户名赠送会员3个月", "telegram-premium"],
+  ["Telegram 星星兑换码 50颗", "telegram-premium"],
+  ["Telegram-星星 1000 stars", "telegram-premium"],
+  ["Figma教育版成品号 一年会员", "other-product"],
+  ["领英Linkedin-白号-随机IP注册(2FA)", "other-product"],
+  ["全地区TikTok满月账号（满月白号）", "other-product"],
   ["飞机大厨自动充值金币宝石燃油 Airplane Chefs Top up", "other-product"],
   ["接pixel代订阅谷歌gemini一年（下单后联系TG客服）", "gemini-pro-year"],
   ["港区礼品卡Apple Gift Card(App store) / 50HKD面额", "gift-card"],
@@ -362,6 +372,12 @@ const tagCases = [
   ["短效接码 antigravity 验证使用gmail", ["verification_short"]],
   ["【长效接码链接】GPT Codex 接码（7.5号到期）", ["verification_long"]],
   ["OpenAI 接码包月 月租号码", ["verification_monthly"]],
+  ["Telegram账号|+1美国|1月注册", ["telegram_region_us"]],
+  ["【印度+91】1~3年 精养老号 | 高权重 | 抗风控强", ["telegram_region_india"]],
+  ["Telegram Premium会员兑换码 3个月", ["telegram_premium_quarter"]],
+  ["Telegram Premium会员代开（6个月）", ["telegram_premium_half_year"]],
+  ["Telegram Premium 会员 1年", ["telegram_premium_year"]],
+  ["Telegram 星星兑换码 50颗", ["telegram_stars"]],
 ];
 
 for (const [title, expectedTags] of tagCases) {
@@ -375,6 +391,12 @@ const productFacetCases = buildOfferFilterFacets([
   { sourceTitle: "ChatGPT Plus 月卡 30天质保 拼车" },
   { sourceTitle: "Super Grok 独享成品号 3天会员" },
   { sourceTitle: "OpenAI Codex 单次接码 1次验证" },
+  { sourceTitle: "Telegram账号|+1美国|1月注册" },
+  { sourceTitle: "【印度+91】1~3年 精养老号 | 高权重 | 抗风控强" },
+  { sourceTitle: "Telegram Premium会员兑换码 3个月" },
+  { sourceTitle: "Telegram Premium会员代开（6个月）" },
+  { sourceTitle: "Telegram Premium 会员 1年" },
+  { sourceTitle: "Telegram 星星兑换码 50颗" },
 ]);
 const chatGptFacetIds = filterOfferFilterFacetsForProduct("chatgpt-plus", productFacetCases).map((facet) => facet.id);
 assert.ok(!chatGptFacetIds.includes("duration_month"), "ChatGPT Plus must not show duration filters.");
@@ -410,6 +432,29 @@ assert.deepEqual(
   parseOfferFilterTagsForProduct("x-twitter-premium", "duration_quarter"),
   [],
   "X/Twitter Premium should not accept Grok duration filters.",
+);
+const telegramAccountFacetIds = filterOfferFilterFacetsForProduct("telegram-account", productFacetCases).map((facet) => facet.id);
+assert.ok(telegramAccountFacetIds.includes("telegram_region_us"), "Telegram account should show US region filters.");
+assert.ok(telegramAccountFacetIds.includes("telegram_region_india"), "Telegram account should show India region filters.");
+assert.ok(!telegramAccountFacetIds.includes("telegram_premium_quarter"), "Telegram account must not show Premium duration filters.");
+assert.ok(!telegramAccountFacetIds.includes("telegram_stars"), "Telegram account must not show Stars filters.");
+
+const telegramPremiumFacetIds = filterOfferFilterFacetsForProduct("telegram-premium", productFacetCases).map((facet) => facet.id);
+assert.ok(telegramPremiumFacetIds.includes("telegram_premium_quarter"), "Telegram Premium should show 3-month filters.");
+assert.ok(telegramPremiumFacetIds.includes("telegram_premium_half_year"), "Telegram Premium should show 6-month filters.");
+assert.ok(telegramPremiumFacetIds.includes("telegram_premium_year"), "Telegram Premium should show 12-month filters.");
+assert.ok(telegramPremiumFacetIds.includes("telegram_stars"), "Telegram Premium should show Stars value-added filters.");
+assert.ok(!telegramPremiumFacetIds.includes("telegram_region_us"), "Telegram Premium must not show account region filters.");
+
+assert.deepEqual(
+  parseOfferFilterTagsForProduct("telegram-account", "telegram_region_us,telegram_premium_quarter,telegram_stars"),
+  ["telegram_region_us"],
+  "Telegram account should accept only account region filters.",
+);
+assert.deepEqual(
+  parseOfferFilterTagsForProduct("telegram-premium", "telegram_region_us,telegram_premium_quarter,telegram_stars"),
+  ["telegram_premium_quarter", "telegram_stars"],
+  "Telegram Premium should accept only Premium/Stars filters.",
 );
 
 const sharedAccessGroups = buildProductGroups([
