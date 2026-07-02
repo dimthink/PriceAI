@@ -9,6 +9,7 @@ import {
   apiProviderTypeLabels,
   formatApiDisplayText,
   formatApiPrice,
+  getApiOutputPriceLabel,
   formatPlanPriceFrom,
   getPlanMonthlyPriceCny,
   getApiModelOffersByModel,
@@ -101,7 +102,7 @@ export default async function ApiModelDetailPage({
             <div className="min-w-0 max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge>
-                  <ApiModelIcon family={summary.family} className="h-4 w-4" />
+                  <ApiModelIcon family={summary.family} modelName={summary.displayName} className="h-4 w-4" />
                   {summary.family}
                 </Badge>
                 <Badge>{summary.model.modelId}</Badge>
@@ -195,7 +196,7 @@ function ApiOfferMobileList({ rows, currency }: { rows: ApiModelOfferWithRelatio
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-              <PriceMetric label="输出" value={formatApiPrice(offer.outputPrice, currency)} />
+              <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
             </div>
             <div className="mt-2">
               <PriceMetric
@@ -280,7 +281,7 @@ function ApiOfferRow({ offer, currency }: { offer: ApiModelOfferWithRelations; c
       <td className="px-5 py-4">
         <div className="grid gap-2 sm:grid-cols-3">
           <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-          <PriceMetric label="输出" value={formatApiPrice(offer.outputPrice, currency)} />
+          <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
           <PriceMetric
             label="缓存"
             value={formatCacheApiPrice(offer.cacheReadPrice, currency)}

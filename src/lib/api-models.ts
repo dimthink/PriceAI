@@ -166,8 +166,15 @@ type ApiModelDatasetIndex = {
 const apiModelDatasetIndexCache = new WeakMap<ApiModelDataset, ApiModelDatasetIndex>();
 
 const OPENCODE_GO_REFERRAL_URL = "https://opencode.ai/go?ref=22QZ8PAKGD";
+const openAiPricingUrl = "https://platform.openai.com/docs/pricing";
+const openAiVideoGenerationUrl = "https://platform.openai.com/docs/guides/video-generation";
+const geminiImageGenerationUrl = "https://ai.google.dev/gemini-api/docs/image-generation";
+const geminiModelDocsUrl = "https://ai.google.dev/gemini-api/docs/models";
+const bytePlusSeedanceDocsUrl = "https://docs.byteplus.com/en/docs/ModelArk/1520757";
+const klingVideoDocsUrl = "https://app.klingai.com/global/dev/document-api/apiReference/model/video";
 
 export const apiModelUpdatedAt = "2026-06-07";
+export const apiMediaModelUpdatedAt = "2026-07-03";
 
 export const apiModelFxSummary: ApiModelFxSummary = {
   baseCurrency: "USD",
@@ -560,6 +567,150 @@ export const apiModels: ApiModel[] = [
     suitableTools: ["Codex", "Cursor", "OpenCode", "Open WebUI"],
     updatedAt: apiModelUpdatedAt,
   },
+  {
+    id: "gpt-image-2",
+    displayName: "GPT Image 2",
+    family: "图片生成",
+    modelId: "gpt-image-2",
+    description: "OpenAI 图片生成标准模型，沿用中转 API 图片生成分组，主要作为官方输入、缓存和图片输出价格基准。",
+    sourceUrl: openAiPricingUrl,
+    sourceLabel: "OpenAI API Pricing",
+    capabilities: ["image-generation", "multimodal"],
+    suitableTools: ["自建应用", "OpenAI-compatible", "Open WebUI"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "nano-banana-pro",
+    displayName: "Nano Banana Pro",
+    family: "图片生成",
+    modelId: "nano-banana-pro",
+    description: "Google Gemini 图片生成标准模型，沿用中转 API 图片生成分组，当前先保留官方文档入口和待结构化价格。",
+    sourceUrl: geminiImageGenerationUrl,
+    sourceLabel: "Google Gemini Image Generation",
+    capabilities: ["image-generation", "multimodal"],
+    suitableTools: ["自建应用", "Gemini API", "Open WebUI"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "nano-banana-2",
+    displayName: "Nano Banana 2",
+    family: "图片生成",
+    modelId: "nano-banana-2",
+    description: "Google Gemini 图片生成标准模型，沿用中转 API 图片生成分组，当前先保留官方文档入口和待结构化价格。",
+    sourceUrl: geminiImageGenerationUrl,
+    sourceLabel: "Google Gemini Image Generation",
+    capabilities: ["image-generation", "multimodal"],
+    suitableTools: ["自建应用", "Gemini API", "Open WebUI"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "nano-banana",
+    displayName: "Nano Banana",
+    family: "图片生成",
+    modelId: "nano-banana",
+    description: "Google Gemini 图片生成标准模型，沿用中转 API 图片生成分组，当前先保留官方文档入口和待结构化价格。",
+    sourceUrl: geminiImageGenerationUrl,
+    sourceLabel: "Google Gemini Image Generation",
+    capabilities: ["image-generation", "multimodal"],
+    suitableTools: ["自建应用", "Gemini API", "Open WebUI"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "nano-banana-lite",
+    displayName: "Nano Banana Lite",
+    family: "图片生成",
+    modelId: "nano-banana-lite",
+    description: "Google Gemini 图片生成轻量标准模型，沿用中转 API 图片生成分组，当前先保留官方文档入口和待结构化价格。",
+    sourceUrl: geminiImageGenerationUrl,
+    sourceLabel: "Google Gemini Image Generation",
+    capabilities: ["image-generation", "multimodal"],
+    suitableTools: ["自建应用", "Gemini API", "Open WebUI"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "sora-2",
+    displayName: "Sora 2",
+    family: "视频生成",
+    modelId: "sora-2",
+    description: "OpenAI 视频生成标准模型，沿用中转 API 视频生成分组，当前先保留官方视频生成文档入口和待结构化价格。",
+    sourceUrl: openAiVideoGenerationUrl,
+    sourceLabel: "OpenAI Video Generation",
+    capabilities: ["video-generation", "multimodal"],
+    suitableTools: ["自建应用", "OpenAI API"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "sora-2-pro",
+    displayName: "Sora 2 Pro",
+    family: "视频生成",
+    modelId: "sora-2-pro",
+    description: "OpenAI 视频生成高规格标准模型，沿用中转 API 视频生成分组，当前先保留官方视频生成文档入口和待结构化价格。",
+    sourceUrl: openAiVideoGenerationUrl,
+    sourceLabel: "OpenAI Video Generation",
+    capabilities: ["video-generation", "multimodal"],
+    suitableTools: ["自建应用", "OpenAI API"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "veo-3-1",
+    displayName: "Veo 3.1",
+    family: "视频生成",
+    modelId: "veo-3.1",
+    description: "Google Gemini 视频生成标准模型，沿用中转 API 视频生成分组，当前先保留官方模型文档入口和待结构化价格。",
+    sourceUrl: geminiModelDocsUrl,
+    sourceLabel: "Google Gemini Models",
+    capabilities: ["video-generation", "multimodal"],
+    suitableTools: ["自建应用", "Gemini API"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "veo-3-1-lite",
+    displayName: "Veo 3.1 Lite",
+    family: "视频生成",
+    modelId: "veo-3.1-lite",
+    description: "Google Gemini 视频生成轻量标准模型，沿用中转 API 视频生成分组，当前先保留官方模型文档入口和待结构化价格。",
+    sourceUrl: geminiModelDocsUrl,
+    sourceLabel: "Google Gemini Models",
+    capabilities: ["video-generation", "multimodal"],
+    suitableTools: ["自建应用", "Gemini API"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "gemini-omni-flash",
+    displayName: "Gemini Omni Flash",
+    family: "视频生成",
+    modelId: "gemini-omni-flash",
+    description: "Google Gemini 视频/全模态标准模型，沿用中转 API 视频生成分组，当前先保留官方模型文档入口和待结构化价格。",
+    sourceUrl: geminiModelDocsUrl,
+    sourceLabel: "Google Gemini Models",
+    capabilities: ["video-generation", "multimodal"],
+    suitableTools: ["自建应用", "Gemini API"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "seedance-2-0",
+    displayName: "Seedance 2.0",
+    family: "视频生成",
+    modelId: "seedance-2.0",
+    description: "BytePlus ModelArk 视频生成标准模型，沿用中转 API 视频生成分组，当前先保留官方文档入口和待结构化价格。",
+    sourceUrl: bytePlusSeedanceDocsUrl,
+    sourceLabel: "BytePlus ModelArk Docs",
+    capabilities: ["video-generation"],
+    suitableTools: ["自建应用", "ModelArk"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "kling-2-5-turbo",
+    displayName: "Kling 2.5 Turbo",
+    family: "视频生成",
+    modelId: "kling-2.5-turbo",
+    description: "Kling API 视频生成标准模型，沿用中转 API 视频生成分组，当前先保留官方 API 文档入口和待结构化价格。",
+    sourceUrl: klingVideoDocsUrl,
+    sourceLabel: "Kling API Docs",
+    capabilities: ["video-generation"],
+    suitableTools: ["自建应用", "Kling API"],
+    updatedAt: apiMediaModelUpdatedAt,
+  },
 ];
 
 export const apiProviders: ApiProvider[] = [
@@ -800,6 +951,62 @@ export const apiProviders: ApiProvider[] = [
     limitations: "价格分国内/国际站点；当前结构化字段采用国内 RMB 价格，国际 USD 价格在文档中保留说明。",
     sourceLabel: "StepFun 定价与限速",
     updatedAt: apiModelUpdatedAt,
+  },
+  {
+    id: "openai-official",
+    name: "OpenAI API",
+    type: "official",
+    billingMode: "按量计费",
+    url: "https://platform.openai.com/",
+    pricingUrl: openAiPricingUrl,
+    logoUrl: "/brand-icons/chatgpt.svg",
+    description: "OpenAI 官方 API。当前在官方 API 模块中作为 GPT Image 2、Sora 等图片/视频生成模型的官方价格和文档基准。",
+    limitSummary: "图片和视频生成的速率、尺寸、时长与可用模型以 OpenAI 控制台和官方文档为准。",
+    limitations: "多媒体模型价格和可用性可能按模型、分辨率、时长、地区和账号权限变化，最终以 OpenAI 官方页面为准。",
+    sourceLabel: "OpenAI API Pricing",
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "google-gemini-api",
+    name: "Google Gemini API",
+    type: "official",
+    billingMode: "按量计费",
+    url: "https://ai.google.dev/gemini-api",
+    pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
+    logoUrl: "/brand-icons/google.png",
+    description: "Google Gemini 官方 API。当前在官方 API 模块中作为 Nano Banana、Veo、Gemini Omni 等图片/视频生成模型的官方来源基准。",
+    limitSummary: "免费额度、付费价格、速率限制和模型可用性以 Gemini API 文档、价格页和控制台为准。",
+    limitations: "多媒体模型价格口径可能按模型、地区、输入输出形态和预览状态变化，当前未结构化的条目只展示官方来源入口。",
+    sourceLabel: "Google Gemini API Docs",
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "byteplus-modelark",
+    name: "BytePlus ModelArk",
+    type: "official",
+    billingMode: "按量计费",
+    url: "https://www.byteplus.com/en/product/modelark",
+    pricingUrl: bytePlusSeedanceDocsUrl,
+    logoUrl: "/brand-icons/volcengine.png",
+    description: "BytePlus ModelArk 官方模型服务。当前用于定位 Seedance 2.0 视频生成模型的官方文档和价格基准。",
+    limitSummary: "模型调用限制、地区和价格以 BytePlus ModelArk 官方文档与控制台为准。",
+    limitations: "Seedance 相关价格和能力会随地区、模型版本和商业策略变化，当前先展示官方文档入口。",
+    sourceLabel: "BytePlus ModelArk Docs",
+    updatedAt: apiMediaModelUpdatedAt,
+  },
+  {
+    id: "kling-api",
+    name: "Kling API",
+    type: "official",
+    billingMode: "按量计费",
+    url: "https://klingai.com/",
+    pricingUrl: klingVideoDocsUrl,
+    logoUrl: "/brand-icons/kling.png",
+    description: "Kling 官方视频生成 API。当前用于定位 Kling 2.5 Turbo 的官方模型文档和价格基准。",
+    limitSummary: "模型调用、任务队列、分辨率和价格以 Kling 官方 API 文档与控制台为准。",
+    limitations: "Kling 视频生成价格和模型版本可能调整，当前先展示官方 API 文档入口。",
+    sourceLabel: "Kling API Docs",
+    updatedAt: apiMediaModelUpdatedAt,
   },
   {
     id: "stepfun-step-plan",
@@ -1632,6 +1839,7 @@ export const apiModelOffers: ApiModelOffer[] = [
     compatibility: ["OpenAI-compatible", "Coding Agent", "中文模型", "多模态"],
     pricingUrl: "https://platform.stepfun.com/docs/zh/guides/pricing/details",
   }),
+  ...officialMediaGenerationOffers(),
   ...opencodeGoOffers(),
   ...opencodeZenOffers(),
   ...modelScopeApiInferenceOffers(),
@@ -1679,7 +1887,7 @@ export const apiModelOffers: ApiModelOffer[] = [
 
 export const staticApiModelDataset: ApiModelDataset = {
   source: "static",
-  generatedAt: apiModelUpdatedAt,
+  generatedAt: apiMediaModelUpdatedAt,
   fxSummary: apiModelFxSummary,
   models: apiModels,
   providers: apiProviders,
@@ -1745,6 +1953,32 @@ export function getPlanMonthlyPriceCny(plan: ApiPlan) {
 export function formatApiBillingMode(value: ApiBillingMode) {
   if (value === "订阅套餐") return "Token Plan";
   return value;
+}
+
+export function getApiOutputPriceLabel(family: string) {
+  if (isImageGenerationFamily(family)) return "图片输出";
+  if (isVideoGenerationFamily(family)) return "视频输出";
+  return "输出";
+}
+
+export function getApiPrimaryPriceValue(offer: {
+  model: { family: string };
+  inputPrice: ApiPriceValue;
+  outputPrice: ApiPriceValue;
+}) {
+  return isMediaGenerationFamily(offer.model.family) ? offer.outputPrice : offer.inputPrice;
+}
+
+export function formatApiPrimaryPrice(
+  offer: {
+    model: { family: string };
+    inputPrice: ApiPriceValue;
+    outputPrice: ApiPriceValue;
+  },
+  currency: ApiCurrency,
+  options: { maximumFractionDigits?: number } = {},
+) {
+  return formatApiPrice(getApiPrimaryPriceValue(offer), currency, options);
 }
 
 export function formatApiDisplayText(value: string) {
@@ -2020,6 +2254,109 @@ function offer(
     pricingUrl: values.pricingUrl ?? provider?.pricingUrl ?? provider?.url,
     updatedAt: values.updatedAt ?? apiModelUpdatedAt,
   };
+}
+
+function officialMediaGenerationOffers(): ApiModelOffer[] {
+  const pendingImagePrice = {
+    inputPrice: textPrice("待官方价格结构化"),
+    outputPrice: textPrice("待官方图片输出价格结构化"),
+    cacheReadPrice: textPrice("以官方价格页为准"),
+    freeOrPlan: "官方按量计费口径待结构化，先展示官方文档入口。",
+    limitations: "具体价格可能受模型版本、图片尺寸、质量、地区和账号权限影响，最终以官方文档和控制台为准。",
+    compatibility: ["官方 API", "图片生成", "多模态"],
+    suitableTools: ["自建应用", "Open WebUI"],
+  };
+  const pendingVideoPrice = {
+    inputPrice: textPrice("待官方价格结构化"),
+    outputPrice: textPrice("待官方视频输出价格结构化"),
+    cacheReadPrice: textPrice("以官方价格页为准"),
+    freeOrPlan: "官方按量计费口径待结构化，先展示官方文档入口。",
+    limitations: "具体价格可能受模型版本、分辨率、时长、地区和账号权限影响，最终以官方文档和控制台为准。",
+    compatibility: ["官方 API", "视频生成", "多模态"],
+    suitableTools: ["自建应用", "Open WebUI"],
+  };
+
+  return [
+    offer("openai-gpt-image-2", "gpt-image-2", "openai-official", {
+      routeModelId: "gpt-image-2",
+      inputPrice: usd(5),
+      outputPrice: usd(30),
+      cacheReadPrice: usd(1.25),
+      freeOrPlan: "OpenAI 官方按量计费，图片输出价格作为该模型的主要价格基准。",
+      limitSummary: "速率、图片规格和可用性以 OpenAI 控制台与价格页为准。",
+      limitations: "价格口径来自现有中转 API 官方价基准；实际计费还需结合 OpenAI 官方页面的最新模型、尺寸和质量规则。",
+      compatibility: ["官方 API", "图片生成", "OpenAI-compatible"],
+      suitableTools: ["自建应用", "Open WebUI"],
+      sourceLabel: "OpenAI API Pricing",
+      pricingUrl: openAiPricingUrl,
+    }),
+    offer("google-nano-banana-pro", "nano-banana-pro", "google-gemini-api", {
+      ...pendingImagePrice,
+      routeModelId: "nano-banana-pro",
+      sourceLabel: "Google Gemini Image Generation",
+      pricingUrl: geminiImageGenerationUrl,
+    }),
+    offer("google-nano-banana-2", "nano-banana-2", "google-gemini-api", {
+      ...pendingImagePrice,
+      routeModelId: "nano-banana-2",
+      sourceLabel: "Google Gemini Image Generation",
+      pricingUrl: geminiImageGenerationUrl,
+    }),
+    offer("google-nano-banana", "nano-banana", "google-gemini-api", {
+      ...pendingImagePrice,
+      routeModelId: "nano-banana",
+      sourceLabel: "Google Gemini Image Generation",
+      pricingUrl: geminiImageGenerationUrl,
+    }),
+    offer("google-nano-banana-lite", "nano-banana-lite", "google-gemini-api", {
+      ...pendingImagePrice,
+      routeModelId: "nano-banana-lite",
+      sourceLabel: "Google Gemini Image Generation",
+      pricingUrl: geminiImageGenerationUrl,
+    }),
+    offer("openai-sora-2", "sora-2", "openai-official", {
+      ...pendingVideoPrice,
+      routeModelId: "sora-2",
+      sourceLabel: "OpenAI Video Generation",
+      pricingUrl: openAiVideoGenerationUrl,
+    }),
+    offer("openai-sora-2-pro", "sora-2-pro", "openai-official", {
+      ...pendingVideoPrice,
+      routeModelId: "sora-2-pro",
+      sourceLabel: "OpenAI Video Generation",
+      pricingUrl: openAiVideoGenerationUrl,
+    }),
+    offer("google-veo-3-1", "veo-3-1", "google-gemini-api", {
+      ...pendingVideoPrice,
+      routeModelId: "veo-3.1",
+      sourceLabel: "Google Gemini Models",
+      pricingUrl: geminiModelDocsUrl,
+    }),
+    offer("google-veo-3-1-lite", "veo-3-1-lite", "google-gemini-api", {
+      ...pendingVideoPrice,
+      routeModelId: "veo-3.1-lite",
+      sourceLabel: "Google Gemini Models",
+      pricingUrl: geminiModelDocsUrl,
+    }),
+    offer("google-gemini-omni-flash", "gemini-omni-flash", "google-gemini-api", {
+      ...pendingVideoPrice,
+      routeModelId: "gemini-omni-flash",
+      sourceLabel: "Google Gemini Models",
+      pricingUrl: geminiModelDocsUrl,
+    }),
+    offer("byteplus-seedance-2-0", "seedance-2-0", "byteplus-modelark", {
+      ...pendingVideoPrice,
+      routeModelId: "seedance-2.0",
+      sourceLabel: "BytePlus ModelArk Docs",
+      pricingUrl: bytePlusSeedanceDocsUrl,
+    }),
+    offer("kling-2-5-turbo", "kling-2-5-turbo", "kling-api", {
+      ...pendingVideoPrice,
+      routeModelId: "kling-2.5-turbo",
+      sourceLabel: "Kling API Docs",
+      pricingUrl: klingVideoDocsUrl,
+    }),
+  ];
 }
 
 function opencodeGoOffers(): ApiModelOffer[] {
@@ -2534,7 +2871,7 @@ function uniqueById<T extends { id: string }>(values: T[]) {
   });
 }
 
-const familyOrder = ["DeepSeek", "Qwen", "Kimi", "GLM", "MiniMax", "MiMo", "StepFun"];
+const familyOrder = ["DeepSeek", "Qwen", "Kimi", "GLM", "MiniMax", "MiMo", "StepFun", "图片生成", "视频生成"];
 
 const modelOrder = [
   "deepseek-v4-flash",
@@ -2554,6 +2891,18 @@ const modelOrder = [
   "mimo-v2-5-pro",
   "mimo-v2-5",
   "step-3-7-flash",
+  "gpt-image-2",
+  "nano-banana-pro",
+  "nano-banana-2",
+  "nano-banana",
+  "nano-banana-lite",
+  "sora-2-pro",
+  "sora-2",
+  "veo-3-1",
+  "veo-3-1-lite",
+  "gemini-omni-flash",
+  "seedance-2-0",
+  "kling-2-5-turbo",
 ];
 
 const apiModelFamilySlugByName: Record<string, string> = {
@@ -2564,7 +2913,21 @@ const apiModelFamilySlugByName: Record<string, string> = {
   MiniMax: "minimax",
   MiMo: "mimo",
   StepFun: "stepfun",
+  图片生成: "image-generation",
+  视频生成: "video-generation",
 };
+
+function isImageGenerationFamily(family: string) {
+  return family === "图片生成" || apiModelFamilyId(family) === "image-generation";
+}
+
+function isVideoGenerationFamily(family: string) {
+  return family === "视频生成" || apiModelFamilyId(family) === "video-generation";
+}
+
+function isMediaGenerationFamily(family: string) {
+  return isImageGenerationFamily(family) || isVideoGenerationFamily(family);
+}
 
 function compareFamilyLabel(a: string, b: string) {
   const aIndex = familyOrder.indexOf(a);

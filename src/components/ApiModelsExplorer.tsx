@@ -27,7 +27,9 @@ import {
   formatApiBillingMode,
   formatApiDisplayText,
   formatApiPrice,
+  formatApiPrimaryPrice,
   formatPlanPriceFrom,
+  getApiOutputPriceLabel,
   getPlanMonthlyPriceCny,
   getApiModelOffers,
   getApiModelFamilyOptions,
@@ -657,7 +659,7 @@ function ApiOfferTable({
                         className="group flex min-w-0 items-center gap-3"
                       >
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
-                          <ApiModelIcon family={offer.model.family} className="h-7 w-7" />
+                          <ApiModelIcon family={offer.model.family} modelName={offer.model.displayName} className="h-7 w-7" />
                         </span>
                         <span className="min-w-0">
                           <span className="block truncate font-semibold text-[#202829] group-hover:text-[#2f7a4b]">{offer.model.displayName}</span>
@@ -682,7 +684,7 @@ function ApiOfferTable({
                   <td className="px-5 py-4">
                     <div className="grid gap-2 sm:grid-cols-3">
                       <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-                      <PriceMetric label="输出" value={formatApiPrice(offer.outputPrice, currency)} />
+                      <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
                       <PriceMetric
                         label="缓存"
                         value={formatCacheApiPrice(offer.cacheReadPrice, currency)}
@@ -738,7 +740,7 @@ function ApiOfferMobileList({
           <article key={offer.id} className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
             <div className="flex min-w-0 items-start gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
-                <ApiModelIcon family={offer.model.family} className="h-7 w-7" />
+                <ApiModelIcon family={offer.model.family} modelName={offer.model.displayName} className="h-7 w-7" />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -766,7 +768,7 @@ function ApiOfferMobileList({
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-                  <PriceMetric label="输出" value={formatApiPrice(offer.outputPrice, currency)} />
+                  <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
                 </div>
                 <div className="mt-2">
                   <PriceMetric
@@ -823,7 +825,7 @@ function ApiModelSummaryMobileList({
           >
             <div className="flex min-w-0 items-start gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
-                <ApiModelIcon family={summary.family} className="h-7 w-7" />
+                <ApiModelIcon family={summary.family} modelName={summary.displayName} className="h-7 w-7" />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -834,7 +836,7 @@ function ApiModelSummaryMobileList({
                     </p>
                   </div>
                   <p className="shrink-0 text-right text-sm font-bold leading-6 text-[#202829]">
-                    {primaryOffer ? formatApiPrice(primaryOffer.inputPrice, currency) : "暂无价格"}
+                    {primaryOffer ? formatApiPrimaryPrice(primaryOffer, currency) : "暂无价格"}
                   </p>
                 </div>
                 <p className="mt-3 line-clamp-2 text-sm leading-6 text-[#5a6061]">
@@ -893,7 +895,7 @@ function ApiModelSummaryTable({
                   <td className="max-w-[330px] px-5 py-4">
                     <Link href={href} onClick={listDetailClickHandler(href, returnQuery)} className="group flex min-w-0 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
-                        <ApiModelIcon family={summary.family} className="h-7 w-7" />
+                        <ApiModelIcon family={summary.family} modelName={summary.displayName} className="h-7 w-7" />
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate font-semibold text-[#202829] group-hover:text-[#2f7a4b]">{summary.displayName}</span>
@@ -907,7 +909,7 @@ function ApiModelSummaryTable({
                   <td className="max-w-[270px] px-5 py-4">
                     <span className="block truncate font-semibold text-[#202829]">{primaryOffer?.provider.name || summary.model.sourceLabel}</span>
                     <span className="mt-1 block truncate text-xs text-[#5a6061]">
-                      {primaryOffer ? `${formatApiPrice(primaryOffer.inputPrice, currency)} · ${formatApiBillingMode(primaryOffer.billingMode)}` : "暂无价格，保留来源"}
+                      {primaryOffer ? `${formatApiPrimaryPrice(primaryOffer, currency)} · ${formatApiBillingMode(primaryOffer.billingMode)}` : "暂无价格，保留来源"}
                     </span>
                   </td>
                   <td className="px-5 py-4">
@@ -920,7 +922,7 @@ function ApiModelSummaryTable({
                   </td>
                   <td className="max-w-[240px] px-5 py-4">
                     <p className="font-semibold leading-6 text-[#202829]">
-                      {primaryOffer ? formatApiPrice(primaryOffer.inputPrice, currency) : "暂无价格"}
+                      {primaryOffer ? formatApiPrimaryPrice(primaryOffer, currency) : "暂无价格"}
                     </p>
                     <p className="mt-1 text-xs leading-5 text-[#5a6061]">{primaryOffer ? formatApiDisplayText(primaryOffer.freeOrPlan) : "保留来源，等待补充报价"}</p>
                   </td>
@@ -1384,7 +1386,7 @@ function scopeCountLabel(scopeMode: ScopeMode) {
 
 function searchPlaceholder(scopeMode: ScopeMode) {
   return {
-    models: "搜索 DeepSeek V4、Qwen3.7、Kimi K2.6",
+    models: "搜索 DeepSeek V4、GPT Image 2、Sora 2",
     offers: "搜索模型、渠道、Token Plan 或限制",
     providers: "搜索 OpenCode Go、Kimi Code、官方 API",
   }[scopeMode];

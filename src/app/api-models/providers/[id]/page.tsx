@@ -9,6 +9,7 @@ import {
   apiProviderTypeLabels,
   formatApiDisplayText,
   formatApiPrice,
+  getApiOutputPriceLabel,
   formatPlanPriceFrom,
   getPlanMonthlyPriceCny,
   getApiModelOffersByProvider,
@@ -210,7 +211,7 @@ function ApiOfferMobileList({ rows, currency }: { rows: ApiModelOfferWithRelatio
 
             <div className="mt-3 grid grid-cols-2 gap-2">
               <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-              <PriceMetric label="输出" value={formatApiPrice(offer.outputPrice, currency)} />
+              <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
             </div>
             <div className="mt-2">
               <PriceMetric
@@ -293,7 +294,7 @@ function ApiOfferRow({ offer, currency }: { offer: ApiModelOfferWithRelations; c
       <td className="px-5 py-4">
         <div className="grid gap-2 sm:grid-cols-3">
           <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-          <PriceMetric label="输出" value={formatApiPrice(offer.outputPrice, currency)} />
+          <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
           <PriceMetric
             label="缓存"
             value={formatCacheApiPrice(offer.cacheReadPrice, currency)}
