@@ -21,9 +21,32 @@ begin
 end;
 $migration$;
 
+with multi_person_trial_candidates as (
+  select id
+  from raw_offers
+  where (
+      source_title ilike '%体验%'
+      or array_to_string(coalesce(tags, array[]::text[]), ' ') ilike '%体验%'
+    )
+    and regexp_replace(
+      lower(
+        regexp_replace(
+          coalesce(source_title, '') || ' ' || array_to_string(coalesce(tags, array[]::text[]), ' '),
+          '[[:space:]]+',
+          '',
+          'g'
+        )
+      ),
+      '[【】\[\]（）()]',
+      ' ',
+      'g'
+    ) ~ '(多人|二人|两人|双人|三人|四人|五人|六人|七人|八人|九人|十人|[2-9]人|[1-9][0-9]人)体验(号|账号|帐号)'
+)
 update raw_offers
-set source_title = source_title
-where coalesce(public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(source_title, tags);
+set source_title = raw_offers.source_title
+from multi_person_trial_candidates
+where raw_offers.id = multi_person_trial_candidates.id
+  and coalesce(raw_offers.public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags);
 
 delete from public_api_snapshots
 where kind in ('explorer', 'offers', 'product_offers');
