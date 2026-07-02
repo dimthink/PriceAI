@@ -42,7 +42,7 @@ export function GlobalSponsorFooter() {
     <SponsoredPlacementPreview
       kind="listFooter"
       settings={sponsorSettings}
-      className="mx-auto w-full max-w-5xl px-5 pb-8 sm:px-8"
+      className="mx-auto mb-8 w-[calc(100%-2.5rem)] max-w-[1500px] sm:w-[calc(100%-4rem)]"
     />
   );
 }
