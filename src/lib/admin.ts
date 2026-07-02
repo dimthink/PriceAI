@@ -837,7 +837,7 @@ export async function recordSourceCollectionResult(input: {
 
   let changedOfferCount = await clearOfferCollectionFailure(input.sourceId);
 
-  if (input.status === "success" && input.fullSnapshot && input.seenOfferIds?.length) {
+  if (input.status === "success" && input.fullSnapshot && input.seenOfferIds) {
     changedOfferCount += await hideMissingOffersAsDelisted(input.sourceId, input.seenOfferIds, input.checkedAt);
   }
 

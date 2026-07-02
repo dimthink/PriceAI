@@ -23,6 +23,10 @@ const DEFAULT_PAGE_DELAY_MS = 300;
 const DEFAULT_CONCURRENCY = 1;
 const DEFAULT_FLUSH_SOURCE_COUNT = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 120_000;
+const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
+const STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT = 600;
+const STRUCTURED_FULL_SNAPSHOT_COLLECTORS = new Set(["kami", "shopApi"]);
+const EMPTY_FULL_SNAPSHOT_COLLECTORS = new Set(["kami"]);
 const AUTO_DETECT_COLLECTOR_KINDS = [
   "dujiao",
   "kami",
@@ -257,10 +261,13 @@ async function collectOneTarget(target, options, logger, lockOwner, familyState,
     const collection = await collectTargetWithRetries(target, options, logger);
     const collectedAt = new Date().toISOString();
     const offers = collection.offers;
-    const status = offers.length ? "success" : "failed";
+    const emptyFullSnapshot = !offers.length && isEmptyResultFullSnapshotTarget(target);
+    const status = offers.length || emptyFullSnapshot ? "success" : "failed";
     const message = offers.length
       ? `HTTP collector found ${offers.length} offers after ${collection.attempts.length} attempt(s).`
-      : `HTTP collector found no offers after ${collection.attempts.length} attempt(s).`;
+      : emptyFullSnapshot
+        ? `HTTP collector found no offers after ${collection.attempts.length} attempt(s); treating as a complete empty snapshot.`
+        : `HTTP collector found no offers after ${collection.attempts.length} attempt(s).`;
 
     if (logger) printOfferPreview(offers);
 
@@ -557,7 +564,7 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
         message,
       });
 
-      if (offers.length) return { offers, attempts, maxAttempts };
+      if (offers.length || isEmptyResultFullSnapshotTarget(target)) return { offers, attempts, maxAttempts };
 
       lastError = new Error(message);
     } catch (error) {
@@ -1828,7 +1835,7 @@ function crawlLogPayloadFor(target, offers, status, message, options = {}, detai
 }
 
 function crawlLogPayloadsFor(target, offers, status, message, options = {}, details = {}) {
-  const fullSnapshot = shouldIncludeFullSnapshot(offers, status, options);
+  const fullSnapshot = shouldIncludeFullSnapshot(target, offers, status, options);
 
   if (status !== "success" || offers.length <= postBatchSizeFor(options)) {
     return [
@@ -2204,20 +2211,27 @@ function postRequestOfferLimitFor(options = {}) {
   return Math.max(1, Math.min(Math.trunc(value), 1000));
 }
 
-function fullSnapshotOfferLimitFor(options = {}) {
+function fullSnapshotOfferLimitFor(target, options = {}) {
+  const defaultLimit = STRUCTURED_FULL_SNAPSHOT_COLLECTORS.has(target?.kind)
+    ? STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT
+    : DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT;
   const value = Number(
     options.fullSnapshotOfferLimit ||
       options["full-snapshot-offer-limit"] ||
       process.env.PRICEAI_COLLECT_FULL_SNAPSHOT_OFFER_LIMIT ||
       env.PRICEAI_COLLECT_FULL_SNAPSHOT_OFFER_LIMIT ||
-      200,
+      defaultLimit,
   );
-  if (!Number.isFinite(value)) return 200;
+  if (!Number.isFinite(value)) return defaultLimit;
   return Math.max(0, Math.min(Math.trunc(value), 2000));
 }
 
-function shouldIncludeFullSnapshot(offers, status, options = {}) {
-  return status === "success" && offers.length <= fullSnapshotOfferLimitFor(options);
+function shouldIncludeFullSnapshot(target, offers, status, options = {}) {
+  return status === "success" && offers.length <= fullSnapshotOfferLimitFor(target, options);
+}
+
+function isEmptyResultFullSnapshotTarget(target) {
+  return EMPTY_FULL_SNAPSHOT_COLLECTORS.has(target.kind);
 }
 
 function flushSourceCountFor(options = {}) {

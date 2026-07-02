@@ -173,14 +173,15 @@ async function saveCrawlLogRun(
     const successCount = upsertResult.receivedCount;
     const savedAt = new Date().toISOString();
     const seenOfferIds = seenOfferIdsFromDetails(payload.details) || offers.map(rawOfferInputId);
-    const fullSnapshot = fullSnapshotFromDetails(payload.details, payload.status);
+    const fullSnapshot = fullSnapshotFromDetails(payload.details, payload.status, offers.length);
+    const collectionStatus = fullSnapshot && payload.status === "failed" && offers.length === 0 ? "success" : payload.status;
     const changedByPayload = upsertResult.writtenCount > 0 || upsertResult.refreshedCount > 0;
     const affectedOfferIds = changedByPayload ? offers.map(rawOfferInputId) : [];
     const affectedProductIds = changedByPayload ? offers.map(productIdFromCrawlOffer) : [];
 
     const sourceCollectionResult = await recordSourceCollectionResult({
       sourceId: source.id,
-      status: payload.status,
+      status: collectionStatus,
       checkedAt: collectedAt,
       message: payload.message || null,
       seenOfferIds,
@@ -192,7 +193,7 @@ async function saveCrawlLogRun(
       source_id: source.id,
       source_name: payload.sourceName,
       mode: payload.mode,
-      status: payload.status,
+      status: collectionStatus,
       started_at: startedAt,
       finished_at: collectedAt,
       success_count: successCount,
@@ -202,6 +203,7 @@ async function saveCrawlLogRun(
         `采集到 ${successCount} 条报价，写入 ${upsertResult.writtenCount} 条，刷新 ${upsertResult.refreshedCount} 条。`,
       details: {
         ...(payload.details || {}),
+        receivedStatus: payload.status,
         receivedAt,
         savedAt,
         collectedAt,
@@ -228,7 +230,7 @@ async function saveCrawlLogRun(
     const result = {
       sourceId: source.id,
       sourceName: source.name,
-      status: payload.status,
+      status: collectionStatus,
       successCount,
       writtenCount: upsertResult.writtenCount,
       unchangedCount: upsertResult.unchangedCount,
@@ -454,7 +456,8 @@ function collectorKindFromDetails(details: Record<string, unknown> | undefined) 
   return normalizeCollectorKind(details?.collector);
 }
 
-function fullSnapshotFromDetails(details: Record<string, unknown> | undefined, status: string): boolean {
+function fullSnapshotFromDetails(details: Record<string, unknown> | undefined, status: string, offerCount: number): boolean {
+  if (status === "failed" && offerCount === 0 && isCompleteEmptySnapshot(details)) return true;
   if (typeof details?.fullSnapshot === "boolean") return status === "success" && details.fullSnapshot;
   return status === "success";
 }
@@ -463,6 +466,19 @@ function seenOfferIdsFromDetails(details: Record<string, unknown> | undefined): 
   const value = details?.seenOfferIds;
   if (!Array.isArray(value)) return null;
   return value.map((item) => String(item)).filter(Boolean);
+}
+
+function isCompleteEmptySnapshot(details: Record<string, unknown> | undefined): boolean {
+  const collector = normalizeCollectorKind(details?.collector);
+  if (!["kami"].includes(collector || "")) return false;
+
+  const attempts = details?.attempts;
+  if (!Array.isArray(attempts) || attempts.length === 0) return false;
+  return attempts.every((attempt) => {
+    if (!attempt || typeof attempt !== "object") return false;
+    const record = attempt as Record<string, unknown>;
+    return record.status === "empty" && Number(record.offers || 0) === 0;
+  });
 }
 
 function crawlLogRunIdSuffix(details: Record<string, unknown> | undefined, status: string): string | null {
