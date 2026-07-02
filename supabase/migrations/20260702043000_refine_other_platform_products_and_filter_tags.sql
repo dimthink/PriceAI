@@ -236,20 +236,6 @@ where hidden = false
   )
   and lower(source_title) ~ '(kiro pro|kiro pro\+|kiro pro max|kiro promax|pro\+|promax|power|积分|额度号|额度|号池|可超额|1000|2000|5000|1w|10000|100刀|200刀|500刀|100\$|200\$|500\$)';
 
-update raw_offers
-set source_title = source_title
-where hidden = false
-  and canonical_product_id in (
-    'super-grok',
-    'grok-account',
-    'x-twitter-premium',
-    'openai-phone-verification',
-    'google-phone-verification',
-    'paypal-phone-verification',
-    'phone-verification'
-  )
-  and coalesce(public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(source_title, tags);
-
 create or replace function list_public_product_offer_filter_facets(
   p_product_id text
 )
