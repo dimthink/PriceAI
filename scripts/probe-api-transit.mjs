@@ -414,6 +414,7 @@ async function probeCompletion(profile, baseUrl, target, options) {
   const firstError = attempts.find((item) => item.message) || {};
   const status = firstError.status || null;
   const message = firstError.message || "探测请求失败。";
+  const parameterCompatibilityFailure = isParameterCompatibilityFailure(attempts);
   return {
     family: target.family,
     standardModel: target.standardModel,
@@ -426,6 +427,8 @@ async function probeCompletion(profile, baseUrl, target, options) {
     status,
     errorType: classifyProbeError({ status, message }),
     message,
+    countsTowardAvailability: !parameterCompatibilityFailure,
+    diagnosticOnly: parameterCompatibilityFailure,
     latencyMs: attempts.reduce((total, item) => total + Number(item.latencyMs || 0), 0),
     checkedAt,
     attempts,
@@ -952,7 +955,7 @@ function availabilitySampleRow(input) {
 }
 
 function isAvailabilitySample(item) {
-  return item && typeof item === "object" && typeof item.ok === "boolean";
+  return item && typeof item === "object" && typeof item.ok === "boolean" && item.countsTowardAvailability !== false;
 }
 
 function availabilityNote(label, availability) {
@@ -1408,6 +1411,16 @@ function isParameterRetryable(message) {
   return /max_tokens|max_completion_tokens|max_output_tokens|temperature|unsupported|not support|不支持/i.test(String(message || ""));
 }
 
+function isParameterCompatibilityFailure(attempts) {
+  const failedAttempts = Array.isArray(attempts) ? attempts.filter((item) => item && item.ok === false) : [];
+  if (!failedAttempts.length) return false;
+  return failedAttempts.every((item) => isParameterRetryable(item.message) && isExplicitParameterMessage(item.message));
+}
+
+function isExplicitParameterMessage(message) {
+  return /parameter|参数|max_tokens|max_completion_tokens|max_output_tokens|temperature/i.test(String(message || ""));
+}
+
 function runStatus(input) {
   if (!input.modelListOk) return "failed";
   if (input.skipCompletions) return input.modelCount > 0 ? "success" : "partial";
@@ -1629,6 +1642,9 @@ export const __test = {
   completionBody,
   availabilitySamplesFromProbe,
   filterProfilesByRunnableStationIds,
+  isAvailabilitySample,
+  isExplicitParameterMessage,
+  isParameterCompatibilityFailure,
   keywordsForStandardModel,
   normalizeFamily,
   selectProbeTargets,

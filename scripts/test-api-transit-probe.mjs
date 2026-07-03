@@ -329,6 +329,22 @@ assert.deepEqual(
   ["max_tokens"],
 );
 
+assert.equal(
+  __test.isParameterCompatibilityFailure([
+    { ok: false, status: 400, message: "Unsupported parameter: max_output_tokens", parameterMode: "max_tokens" },
+    { ok: false, status: 400, message: "Unsupported parameter: max_output_tokens", parameterMode: "max_completion_tokens" },
+  ]),
+  true,
+  "Probe request parameter compatibility failures are diagnostics, not merchant availability failures.",
+);
+assert.equal(
+  __test.isParameterCompatibilityFailure([
+    { ok: false, status: 400, message: "Unsupported model", parameterMode: "max_tokens" },
+  ]),
+  false,
+  "Generic unsupported errors can still reflect real model availability.",
+);
+
 const probeSamples = __test.availabilitySamplesFromProbe({
   runId: "run-1",
   stationId: "station-1",
@@ -345,5 +361,28 @@ const probeSamples = __test.availabilitySamplesFromProbe({
 assert.equal(probeSamples.length, 2);
 assert.equal(probeSamples[0].source_type, "priceai_probe");
 assert.equal(probeSamples[0].source_label, "PriceAI 实测");
+
+const diagnosticOnlyProbeSamples = __test.availabilitySamplesFromProbe({
+  runId: "run-parameter-diagnostic",
+  stationId: "station-1",
+  checkedAt: "2026-07-03T08:00:00.000Z",
+  targetResults: [
+    {
+      standardModel: "GPT 5.5",
+      groupName: "gpt-plus",
+      ok: false,
+      countsTowardAvailability: false,
+      diagnosticOnly: true,
+      errorType: "request_failed",
+      message: "Unsupported parameter: max_output_tokens",
+      checkedAt: "2026-07-03T08:00:00.000Z",
+    },
+  ],
+});
+assert.equal(
+  diagnosticOnlyProbeSamples.length,
+  0,
+  "Diagnostic-only probe failures must not create availability samples.",
+);
 
 console.log("api transit probe target test passed");

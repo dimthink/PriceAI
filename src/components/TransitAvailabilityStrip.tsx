@@ -25,7 +25,7 @@ export function TransitAvailabilityStrip({
     <div
       className={`flex h-4 items-end gap-[2px] ${className}`}
       aria-label={availabilityAriaLabel(rate, samples, emptyCount)}
-      title="近 7 日滚动样本概览：绿色为成功，黄色/红色为异常或失败，浅灰为空白未检测。"
+      title="近 7 日滚动样本比例概览，非时间顺序：绿色为成功，黄色/红色为异常或失败，浅灰为空白未检测。"
     >
       {bars.map((tone, index) => (
         <span
@@ -60,14 +60,12 @@ function buildAvailabilityBars({
   if (monitoredBars <= 0) return Array(total).fill("empty");
 
   const clamped = Math.max(0, Math.min(1, rate));
-  const goodCount = Math.round(clamped * monitoredBars);
-  const weakCount = Math.max(0, monitoredBars - goodCount);
-
   return Array.from({ length: total }, (_, index) => {
     if (index >= monitoredBars) return "empty";
-    if (index < goodCount) return "good";
-    if (weakCount <= 2) return "warn";
-    return index % 3 === 0 ? "bad" : "warn";
+    const expectedGoodCount = Math.round(clamped * (index + 1));
+    const previousGoodCount = Math.round(clamped * index);
+    if (expectedGoodCount > previousGoodCount) return "good";
+    return clamped >= 0.75 ? "warn" : "bad";
   });
 }
 
@@ -134,7 +132,7 @@ function parseTimestamp(value: string | null): number | null {
 
 function availabilityAriaLabel(rate: number | null, samples: number, emptyCount: number): string {
   if (rate === null || samples <= 0) return "稳定性样本不足，暂无可用性监测样本";
-  const rateText = `稳定性样本概览 ${(rate * 100).toFixed(1)}%，样本 ${samples}`;
+  const rateText = `稳定性样本比例概览 ${(rate * 100).toFixed(1)}%，样本 ${samples}，非时间顺序`;
   if (emptyCount <= 0) return rateText;
   return `${rateText}，${emptyCount} 段未检测`;
 }
