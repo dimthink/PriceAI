@@ -76,6 +76,11 @@ const ADMIN_DATA_CACHE_TTL_MS = 120_000;
 const ADMIN_OFFER_SAMPLE_LIMIT = 80;
 const EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH = 480;
 const STALE_PUBLIC_DATA_MESSAGE = "报价服务响应变慢，已先显示最近缓存结果。";
+const PRIMARY_COLLECTOR_NODE_IDS = new Set([
+  "huoshan2-nonshop",
+  "aliyun4-beijing-priceai",
+  "aliyun5-chengdu-priceai",
+]);
 const PUBLIC_EXPLORER_SNAPSHOT_KEY = "default";
 const PUBLIC_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_OFFERS_SNAPSHOT_OFFSET = 0;
@@ -2431,6 +2436,7 @@ function buildCollectorNodeSummaries(
   const map = new Map<string, CollectorHealthNodeSummary>();
 
   for (const heartbeat of heartbeats) {
+    if (!isPrimaryCollectorNode(heartbeat.node.id)) continue;
     const ageMinutes = minutesSince(heartbeat.lastSeenAt, nowMs);
     const health = nodeHealthFor(ageMinutes, heartbeat.status);
     map.set(heartbeat.node.id, {
@@ -2452,6 +2458,7 @@ function buildCollectorNodeSummaries(
 
   for (const run of recentRuns) {
     if (map.has(run.node.id)) continue;
+    if (!isPrimaryCollectorNode(run.node.id)) continue;
     const ageMinutes = run.finishedAt ? minutesSince(run.finishedAt, nowMs) : null;
     const health = nodeHealthFor(ageMinutes, run.status === "failed" ? "failed" : "unknown");
     map.set(run.node.id, {
@@ -2477,6 +2484,10 @@ function buildCollectorNodeSummaries(
     if (riskDiff) return riskDiff;
     return (b.ageMinutes ?? 999999) - (a.ageMinutes ?? 999999);
   });
+}
+
+function isPrimaryCollectorNode(nodeId: string): boolean {
+  return PRIMARY_COLLECTOR_NODE_IDS.has(nodeId);
 }
 
 function runSummaryFor(run: CrawlRun, nowMs: number): CollectorHealthRunSummary {

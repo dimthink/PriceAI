@@ -70,6 +70,7 @@ const config = {
 
 let lastControlEndpoint = config.endpoint;
 let directRetryAfter = 0;
+let cachedCollectorNode = null;
 
 if (!config.token) {
   console.error("Missing PRICEAI_AGENT_TOKEN. Pass it as env or --token.");
@@ -219,6 +220,9 @@ async function runCycle(startedAt = new Date().toISOString()) {
           fullSnapshot: status === "success" && collection.fullSnapshot,
           partialReason: collection.partialReason || null,
           failurePhase: status === "success" ? null : "collect",
+          collectionJobId: target.collectionJobId || null,
+          collectionJobRequestedBy: target.collectionJobRequestedBy || null,
+          collectionJobCreatedAt: target.collectionJobCreatedAt || null,
         });
       } catch (error) {
         failed += 1;
@@ -268,6 +272,8 @@ async function fetchTasks(options = {}) {
   if (options.excludeSourceIds?.length) {
     searchParams.set("excludeSourceIds", options.excludeSourceIds.join(","));
   }
+  searchParams.set("worker", collectorNodeDetails().id);
+  searchParams.set("includeQueued", "1");
 
   const { body } = await fetchControlJson(`/api/admin/collector-agent/tasks?${searchParams.toString()}`, {
     headers: authHeaders(),
@@ -642,6 +648,9 @@ function normalizeTask(task) {
     baseUrl,
     kind: String(task.collectorKind || DEFAULT_KIND),
     rawOfferUrls: Array.isArray(task.rawOfferUrls) ? task.rawOfferUrls.map(String) : [],
+    collectionJobId: task.collectionJobId ? String(task.collectionJobId) : null,
+    collectionJobRequestedBy: task.collectionJobRequestedBy ? String(task.collectionJobRequestedBy) : null,
+    collectionJobCreatedAt: task.collectionJobCreatedAt ? String(task.collectionJobCreatedAt) : null,
   };
 }
 
@@ -723,14 +732,16 @@ function makeOffer(target, input) {
 }
 
 function collectorNodeDetails() {
+  if (cachedCollectorNode) return cachedCollectorNode;
   const id = process.env.PRICEAI_COLLECTOR_NODE_ID || `edge-${os.hostname()}`;
-  return compactObject({
+  cachedCollectorNode = compactObject({
     id,
     name: process.env.PRICEAI_COLLECTOR_NODE_NAME || id,
     type: process.env.PRICEAI_COLLECTOR_NODE_TYPE || "vps",
     runtime: process.env.PRICEAI_COLLECTOR_NODE_RUNTIME || "edge-runner",
     region: process.env.PRICEAI_COLLECTOR_NODE_REGION || null,
   });
+  return cachedCollectorNode;
 }
 
 function defaultHeaders(url) {

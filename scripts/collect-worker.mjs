@@ -97,6 +97,9 @@ async function runJob(job) {
         worker: workerId,
       },
     });
+    if (job.requested_by === "feedback") {
+      await updateFeedbackForCompletedJob(job, status, result);
+    }
     console.log(`Collection job ${job.id} ${status}.`);
   } catch (error) {
     const message = errorMessage(error);
@@ -117,6 +120,39 @@ async function runJob(job) {
   }
 
   await pruneOperationalLogs(supabase, env);
+}
+
+async function updateFeedbackForCompletedJob(job, status, result) {
+  const feedbackId = job?.result?.feedbackId;
+  if (!feedbackId) return;
+
+  const finishedAt = new Date().toISOString();
+  const successful = status === "success";
+  const message = successful
+    ? `来源「${job.source_name || job.source_id || "未知来源"}」已完成重采；请按最新报价状态复核该反馈。`
+    : `来源「${job.source_name || job.source_id || "未知来源"}」重采未成功：${firstFailureMessage(result)}`;
+
+  const { error } = await supabase
+    .from("offer_feedback")
+    .update({
+      verification_status: successful ? "manual_review" : "failed",
+      verification_result: successful ? "inconclusive" : "blocked",
+      verification_message: message,
+      verification_checked_at: finishedAt,
+      ai_review_result: {
+        ...(job.result || {}),
+        verificationStatus: successful ? "manual_review" : "failed",
+        verificationResult: successful ? "inconclusive" : "blocked",
+        verificationMessage: message,
+        verifiedAt: finishedAt,
+        completedCollectionJobId: job.id,
+      },
+    })
+    .eq("id", feedbackId);
+
+  if (error) {
+    console.warn(`Feedback ${feedbackId} update after collection job failed: ${error.message || String(error)}`);
+  }
 }
 
 async function runCollectionJobByType(job, sourceId) {

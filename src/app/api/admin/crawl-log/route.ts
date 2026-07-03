@@ -7,7 +7,7 @@ import {
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
 import { classifyOffer } from "@/lib/catalog";
 import { normalizeCollectorKind } from "@/lib/collector-registry";
-import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
+import { clearAdminDataCache, clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminOrCronRequest } from "@/lib/env";
 import { pruneOperationalLogs } from "@/lib/operational-logs";
 import { getSupabaseServerClient } from "@/lib/supabase";
@@ -54,6 +54,7 @@ const CRAWL_LOG_INGEST_PROCESSING_TTL_MS = 2 * 60 * 1000;
 const CRAWL_LOG_INGEST_COMPLETED_RETENTION_MS = 24 * 60 * 60 * 1000;
 const CRAWL_LOG_INGEST_FAILED_RETRY_MS = 60 * 1000;
 const CRAWL_LOG_INGEST_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const COVERED_COLLECTION_JOB_LIMIT = 20;
 
 let lastCrawlLogIngestPrunedAt = 0;
 
@@ -70,6 +71,7 @@ type SaveCrawlLogRunResult = {
   affectedOfferIds: string[];
   affectedSourceIds: string[];
   shouldClearCache: boolean;
+  completedCollectionJobs?: string[];
   duplicate?: boolean;
   duplicateReason?: "completed" | "processing";
 };
@@ -230,6 +232,17 @@ async function saveCrawlLogRun(
       throw error;
     }
 
+    const completedCollectionJobs = await completeCoveredCollectionJobs(supabase, {
+      sourceId: source.id,
+      sourceName: source.name,
+      collectedAt,
+      fullSnapshot,
+      collectionStatus,
+      runId,
+      collectorNodeId: collectorNodeIdFromDetails(payload.details),
+      explicitJobId: stringFromDetails(payload.details, "collectionJobId"),
+    });
+
     const result = {
       sourceId: source.id,
       sourceName: source.name,
@@ -246,6 +259,7 @@ async function saveCrawlLogRun(
         upsertResult.writtenCount > 0 ||
         upsertResult.refreshedCount > 0 ||
         sourceCollectionResult.changedOfferCount > 0,
+      completedCollectionJobs,
     };
     await completeCrawlLogIngest(supabase, runId, source.id, compactResult(result));
     return result;
@@ -270,6 +284,151 @@ function aggregateResults(
   );
 }
 
+async function completeCoveredCollectionJobs(
+  supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  input: {
+    sourceId: string;
+    sourceName: string;
+    collectedAt: string;
+    fullSnapshot: boolean;
+    collectionStatus: string;
+    runId: string;
+    collectorNodeId: string | null;
+    explicitJobId: string | null;
+  },
+): Promise<string[]> {
+  if (input.collectionStatus !== "success") return [];
+
+  const { data, error } = await supabase
+    .from("collection_jobs")
+    .select("id,created_at,requested_by,result,status,locked_until")
+    .eq("job_type", "source")
+    .eq("source_id", input.sourceId)
+    .in("status", ["pending", "running"])
+    .lte("created_at", input.collectedAt)
+    .order("priority", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(COVERED_COLLECTION_JOB_LIMIT);
+  if (error) throw error;
+
+  const now = new Date().toISOString();
+  const nowMs = new Date(now).getTime();
+  const jobs = (data || [])
+    .filter((job) => {
+      if (input.explicitJobId && String(job.id) === input.explicitJobId) return true;
+      if (!coveredJobCandidate(job, nowMs)) return false;
+      return input.fullSnapshot;
+    });
+  if (!jobs.length) return [];
+
+  const jobIds = jobs.map((job) => String(job.id));
+  const resultByJobId = new Map(
+    jobs.map((job) => [
+      String(job.id),
+      job.result && typeof job.result === "object"
+        ? job.result as Record<string, unknown>
+        : {},
+    ]),
+  );
+
+  for (const jobId of jobIds) {
+    const previousResult = resultByJobId.get(jobId) || {};
+    const { error: updateError } = await supabase
+      .from("collection_jobs")
+      .update({
+        status: "success",
+        finished_at: now,
+        locked_by: null,
+        locked_until: null,
+        last_error: null,
+        result: {
+          ...previousResult,
+          coveredBy: "crawl_log",
+          sourceId: input.sourceId,
+          sourceName: input.sourceName,
+          crawlRunId: input.runId,
+          collectedAt: input.collectedAt,
+          collectorNodeId: input.collectorNodeId,
+        },
+        updated_at: now,
+      })
+      .eq("id", jobId);
+    if (updateError) throw updateError;
+  }
+
+  const feedbackJobIds = jobs
+    .filter((job) => String(job.requested_by || "") === "feedback")
+    .map((job) => String(job.id));
+  if (feedbackJobIds.length) {
+    await markFeedbackRecollectionCovered(supabase, {
+      jobIds: feedbackJobIds,
+      sourceName: input.sourceName,
+      collectedAt: input.collectedAt,
+      now,
+    });
+  }
+
+  clearAdminDataCache();
+  return jobIds;
+}
+
+function coveredJobCandidate(job: {
+  status?: unknown;
+  locked_until?: unknown;
+}, nowMs: number): boolean {
+  const status = String(job.status || "pending");
+  if (status === "pending") return true;
+  if (status !== "running") return false;
+
+  const lockedUntil = new Date(String(job.locked_until || "")).getTime();
+  return Number.isFinite(lockedUntil) && lockedUntil < nowMs;
+}
+
+async function markFeedbackRecollectionCovered(
+  supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  input: {
+    jobIds: string[];
+    sourceName: string;
+    collectedAt: string;
+    now: string;
+  },
+): Promise<void> {
+  const message = `来源「${input.sourceName}」已完成重采，最近确认时间 ${input.collectedAt}；请按最新报价状态复核该反馈。`;
+  const { data: feedbackRows, error: readError } = await supabase
+    .from("offer_feedback")
+    .select("id,ai_review_result")
+    .in("created_collection_job_id", input.jobIds);
+  if (readError && !isMissingFeedbackVerificationColumnError(readError)) throw readError;
+
+  const rows = feedbackRows || [];
+  for (const row of rows) {
+    const { error } = await supabase
+      .from("offer_feedback")
+      .update({
+        verification_status: "manual_review",
+        verification_result: "inconclusive",
+        verification_message: message,
+        verification_checked_at: input.now,
+        ai_review_result: {
+          ...objectRecord(row.ai_review_result),
+          verificationStatus: "manual_review",
+          verificationResult: "inconclusive",
+          verificationMessage: message,
+          verifiedAt: input.now,
+          coveredCollectionJobIds: input.jobIds,
+        },
+      })
+      .eq("id", row.id);
+    if (error && !isMissingFeedbackVerificationColumnError(error)) throw error;
+  }
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
 function compactResult(result: {
   sourceId: string;
   sourceName: string;
@@ -279,6 +438,7 @@ function compactResult(result: {
   unchangedCount: number;
   refreshedCount?: number;
   confirmedCount?: number;
+  completedCollectionJobs?: string[];
   duplicate?: boolean;
   duplicateReason?: string;
 }) {
@@ -291,6 +451,7 @@ function compactResult(result: {
     unchangedCount: result.unchangedCount,
     refreshedCount: result.refreshedCount || 0,
     confirmedCount: result.confirmedCount || 0,
+    completedCollectionJobs: result.completedCollectionJobs?.length ? result.completedCollectionJobs : undefined,
     duplicate: result.duplicate || undefined,
     duplicateReason: result.duplicateReason || undefined,
   };
@@ -447,6 +608,12 @@ function isMissingCrawlLogIngestTableError(error: unknown): boolean {
   );
 }
 
+function isMissingFeedbackVerificationColumnError(error: unknown): boolean {
+  const code = supabaseErrorCode(error);
+  const message = supabaseErrorMessage(error);
+  return code === "PGRST204" && /verification_(status|result|message|checked_at)|created_collection_job_id|ai_review_result/.test(message);
+}
+
 function supabaseErrorCode(error: unknown): string {
   return error && typeof error === "object" && "code" in error ? String(error.code || "") : "";
 }
@@ -464,6 +631,18 @@ function productIdFromCrawlOffer(offer: z.infer<typeof offerSchema>): string {
 
 function collectorKindFromDetails(details: Record<string, unknown> | undefined) {
   return normalizeCollectorKind(details?.collector);
+}
+
+function collectorNodeIdFromDetails(details: Record<string, unknown> | undefined): string | null {
+  const node = details?.collectorNode;
+  if (!node || typeof node !== "object") return null;
+  const id = (node as Record<string, unknown>).id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function stringFromDetails(details: Record<string, unknown> | undefined, key: string): string | null {
+  const value = details?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function fullSnapshotFromDetails(details: Record<string, unknown> | undefined, status: string, offerCount: number): boolean {

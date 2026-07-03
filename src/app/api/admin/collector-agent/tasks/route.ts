@@ -20,6 +20,9 @@ const querySchema = z.object({
   shardIndex: z.coerce.number().int().min(0).max(31).optional().default(0),
   staleBefore: z.string().datetime().optional(),
   excludeSourceIds: z.string().optional(),
+  worker: z.string().trim().min(1).max(160).optional(),
+  lockSeconds: z.coerce.number().int().min(60).max(7200).optional().default(1800),
+  includeQueued: z.string().optional().default("1"),
 });
 
 export async function GET(request: Request) {
@@ -53,6 +56,34 @@ export async function GET(request: Request) {
         .map((item) => item.trim())
         .filter(Boolean),
     );
+    const queuedTasks = truthyQueryFlag(query.includeQueued)
+      ? await claimQueuedSourceTasks({
+          kind: query.kind,
+          family: query.family,
+          hostCandidates,
+          limit: query.limit,
+          shardCount: query.shardCount,
+          shardIndex: query.shardIndex,
+          excludedSourceIds,
+          worker: query.worker || `collector-agent:${query.kind}:${query.shardIndex}/${query.shardCount}`,
+          lockSeconds: query.lockSeconds,
+        })
+      : [];
+    if (queuedTasks.length) {
+      return Response.json({
+        ok: true,
+        generatedAt,
+        kind: query.kind,
+        family: query.family,
+        limit: query.limit,
+        shardCount: query.shardCount,
+        shardIndex: query.shardIndex,
+        staleBefore,
+        source: "collection_jobs",
+        tasks: queuedTasks,
+      });
+    }
+
     const fetchLimit = Math.max(query.limit * 50 * query.shardCount, query.limit);
     let sourcesQuery = supabase
       .from("sources")
@@ -88,20 +119,7 @@ export async function GET(request: Request) {
 
     await markSourcesDispatched(selectedSources.map((source) => String(source.id)), generatedAt);
     const rawOfferUrlsBySource = await loadRawOfferUrlsBySource(selectedSources.map((source) => String(source.id)));
-    const tasks = selectedSources.map((source) => {
-      const sourceUrl = String(source.entry_url || source.base_url || "");
-      const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
-      return {
-        sourceId: String(source.id),
-        sourceName: String(source.name || source.id),
-        sourceUrl,
-        baseUrl,
-        collectorKind: query.kind,
-        lastCheckedAt: source.last_checked_at ? String(source.last_checked_at) : null,
-        lastSuccessAt: source.last_success_at ? String(source.last_success_at) : null,
-        rawOfferUrls: rawOfferUrlsBySource.get(String(source.id)) || [],
-      };
-    });
+    const tasks = selectedSources.map((source) => sourceTaskFromRow(source, rawOfferUrlsBySource.get(String(source.id)) || []));
 
     return Response.json({
       ok: true,
@@ -127,6 +145,97 @@ export async function GET(request: Request) {
       { status },
     );
   }
+}
+
+async function claimQueuedSourceTasks(input: {
+  kind: string;
+  family: string;
+  hostCandidates: string[] | null;
+  limit: number;
+  shardCount: number;
+  shardIndex: number;
+  excludedSourceIds: Set<string>;
+  worker: string;
+  lockSeconds: number;
+}): Promise<Array<ReturnType<typeof sourceTaskFromRow> & {
+  collectionJobId: string;
+  collectionJobRequestedBy: string | null;
+  collectionJobCreatedAt: string | null;
+}>> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+
+  const { data: jobs, error: jobsError } = await supabase
+    .from("collection_jobs")
+    .select("id,source_id,source_name,status,requested_by,created_at,priority,attempts,max_attempts,locked_until")
+    .eq("job_type", "source")
+    .in("status", ["pending", "running"])
+    .not("source_id", "is", null)
+    .order("priority", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(Math.min(Math.max(input.limit * 20, 20), 100));
+  if (jobsError) throw jobsError;
+
+  const sourceIds = Array.from(new Set((jobs || []).map((job) => String(job.source_id || "")).filter(Boolean)));
+  if (!sourceIds.length) return [];
+
+  const { data: sources, error: sourcesError } = await supabase
+    .from("sources")
+    .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at")
+    .in("id", sourceIds);
+  if (sourcesError) throw sourcesError;
+
+  const sourceById = new Map((sources || []).map((source) => [String(source.id), source]));
+  const tasks: Array<ReturnType<typeof sourceTaskFromRow> & {
+    collectionJobId: string;
+    collectionJobRequestedBy: string | null;
+    collectionJobCreatedAt: string | null;
+  }> = [];
+  const selectedSourceIds = new Set<string>();
+  const nowMs = Date.now();
+
+  for (const job of jobs || []) {
+    if (tasks.length >= input.limit) break;
+    if (!claimableJobCandidate(job, nowMs)) continue;
+    const sourceId = String(job.source_id || "");
+    if (!sourceId || input.excludedSourceIds.has(sourceId) || selectedSourceIds.has(sourceId)) continue;
+
+    const source = sourceById.get(sourceId);
+    if (!source || !source.enabled || source.collection_method === "public_json") continue;
+    if (source.collector_kind !== input.kind) continue;
+    if (!sourceInShard(sourceId, input.shardCount, input.shardIndex)) continue;
+
+    const sourceUrl = String(source.entry_url || source.base_url || "");
+    const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
+    if (input.hostCandidates) {
+      const host = normalizeHostname(baseUrl || sourceUrl);
+      if (!input.hostCandidates.includes(host)) continue;
+    }
+
+    const { data: claimed, error: claimError } = await supabase.rpc("claim_collection_job_by_id", {
+      p_job_id: String(job.id),
+      p_worker: input.worker,
+      p_lock_seconds: input.lockSeconds,
+    });
+    if (claimError) {
+      if (isMissingClaimByIdRpcError(claimError)) return tasks;
+      throw claimError;
+    }
+    const claimedJob = Array.isArray(claimed) ? claimed[0] : claimed;
+    if (!claimedJob) continue;
+
+    const rawOfferUrlsBySource = await loadRawOfferUrlsBySource([sourceId]);
+    tasks.push({
+      ...sourceTaskFromRow(source, rawOfferUrlsBySource.get(sourceId) || []),
+      collectionJobId: String(job.id),
+      collectionJobRequestedBy: job.requested_by ? String(job.requested_by) : null,
+      collectionJobCreatedAt: job.created_at ? String(job.created_at) : null,
+    });
+    selectedSourceIds.add(sourceId);
+  }
+
+  await markSourcesDispatched(tasks.map((task) => task.sourceId), new Date().toISOString());
+  return tasks;
 }
 
 async function markSourcesDispatched(sourceIds: string[], checkedAt: string): Promise<void> {
@@ -173,6 +282,60 @@ async function loadRawOfferUrlsBySource(sourceIds: string[]): Promise<Map<string
   }
 
   return map;
+}
+
+function sourceTaskFromRow(source: {
+  id: unknown;
+  name?: unknown;
+  base_url?: unknown;
+  entry_url?: unknown;
+  collector_kind?: unknown;
+  last_checked_at?: unknown;
+  last_success_at?: unknown;
+}, rawOfferUrls: string[]) {
+  const sourceUrl = String(source.entry_url || source.base_url || "");
+  const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
+  return {
+    sourceId: String(source.id || ""),
+    sourceName: String(source.name || source.id),
+    sourceUrl,
+    baseUrl,
+    collectorKind: String(source.collector_kind || ""),
+    lastCheckedAt: source.last_checked_at ? String(source.last_checked_at) : null,
+    lastSuccessAt: source.last_success_at ? String(source.last_success_at) : null,
+    rawOfferUrls,
+  };
+}
+
+function claimableJobCandidate(job: {
+  status?: unknown;
+  locked_until?: unknown;
+  attempts?: unknown;
+  max_attempts?: unknown;
+}, nowMs: number): boolean {
+  const status = String(job.status || "pending");
+  if (status === "pending") return true;
+  if (status !== "running") return false;
+
+  const lockedUntil = new Date(String(job.locked_until || "")).getTime();
+  const attempts = Number(job.attempts || 0);
+  const maxAttempts = Number(job.max_attempts || 1);
+  return Number.isFinite(lockedUntil) && lockedUntil < nowMs && attempts < maxAttempts;
+}
+
+function isMissingClaimByIdRpcError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const text = [
+    candidate.code,
+    candidate.message,
+    candidate.details,
+    candidate.hint,
+  ]
+    .map((value) => String(value || ""))
+    .join(" ");
+
+  return /claim_collection_job_by_id|function/i.test(text) && /PGRST202|not find|not found|missing|does not exist/i.test(text);
 }
 
 function sourceWithinCooldown(value: unknown, nowIso: string): boolean {
@@ -228,4 +391,9 @@ function normalizeHostname(value: string): string {
   } catch {
     return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
   }
+}
+
+function truthyQueryFlag(value: string | undefined): boolean {
+  if (value === undefined) return true;
+  return /^(1|true|yes|on)$/i.test(value.trim());
 }
