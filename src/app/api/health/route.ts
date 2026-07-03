@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/env";
+import type { CrawlRun } from "@/lib/types";
 import { getSupabaseServerClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -39,7 +40,7 @@ export async function GET() {
   let checks: HealthCheck[] = [];
 
   try {
-    checks = await Promise.all([
+    const [sourcesConnectivity, sourcesSchema, publicApiSnapshots, latestCrawl, latestSuccessfulCrawl] = await Promise.all([
       runHeadCheck("sources_connectivity", () =>
         supabase
           .from("sources")
@@ -61,9 +62,18 @@ export async function GET() {
           .limit(1)
           .abortSignal(AbortSignal.timeout(HEALTH_SUPABASE_TIMEOUT_MS)),
       ),
+      readLatestCrawlRun(supabase, "latest_crawl"),
+      readLatestCrawlRun(supabase, "latest_successful_crawl", ["success", "partial"]),
     ]);
+    checks = [
+      sourcesConnectivity,
+      sourcesSchema,
+      publicApiSnapshots,
+      latestCrawl.check,
+      latestSuccessfulCrawl.check,
+    ];
 
-    const failed = checks.find((check) => !check.ok);
+    const failed = [sourcesConnectivity, sourcesSchema, publicApiSnapshots].find((check) => !check.ok);
     if (failed) throw new Error(failed.message || `${failed.name} 健康检查失败。`);
 
     return NextResponse.json({
@@ -73,9 +83,9 @@ export async function GET() {
       supabaseConfigured,
       supabaseReachable: true,
       checks,
-      latestSuccessfulCrawlAt: null,
-      latestCrawlAt: null,
-      latestCrawlStatus: null,
+      latestSuccessfulCrawlAt: latestSuccessfulCrawl.run ? crawlRunObservedAt(latestSuccessfulCrawl.run) : null,
+      latestCrawlAt: latestCrawl.run ? crawlRunObservedAt(latestCrawl.run) : null,
+      latestCrawlStatus: latestCrawl.run?.status || null,
       message: null,
     });
   } catch (error) {
@@ -127,6 +137,54 @@ type HealthCheckError = {
   details?: string | null;
   hint?: string | null;
 };
+
+type SupabaseClient = NonNullable<ReturnType<typeof getSupabaseServerClient>>;
+type CrawlRunRow = Pick<CrawlRun, "status" | "startedAt" | "finishedAt">;
+
+async function readLatestCrawlRun(
+  supabase: SupabaseClient,
+  name: string,
+  statuses?: Array<CrawlRun["status"]>,
+): Promise<{ check: HealthCheck; run: CrawlRunRow | null }> {
+  try {
+    let query = supabase
+      .from("crawl_runs")
+      .select("status,started_at,finished_at")
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .abortSignal(AbortSignal.timeout(HEALTH_SUPABASE_TIMEOUT_MS));
+    if (statuses?.length) query = query.in("status", statuses);
+    const { data, error } = await query;
+
+    return {
+      check: {
+        ok: !error,
+        name,
+        message: error ? formatHealthCheckError(name, error) : null,
+      },
+      run: error || !data?.[0]
+        ? null
+        : {
+            status: String(data[0].status || "failed") as CrawlRun["status"],
+            startedAt: String(data[0].started_at || new Date().toISOString()),
+            finishedAt: data[0].finished_at ? String(data[0].finished_at) : null,
+          },
+    };
+  } catch (error) {
+    return {
+      check: {
+        ok: false,
+        name,
+        message: error instanceof Error ? error.message : `${name} 健康检查失败。`,
+      },
+      run: null,
+    };
+  }
+}
+
+function crawlRunObservedAt(run: CrawlRunRow): string {
+  return run.finishedAt || run.startedAt;
+}
 
 function formatHealthCheckError(name: string, error: HealthCheckError): string {
   const parts = [error.code, error.message, error.details, error.hint]

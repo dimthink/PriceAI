@@ -56,6 +56,7 @@ import {
   type SponsorCreative,
 } from "@/lib/sponsor-settings-shared";
 import type {
+  AdminCollectorStatus,
   AdminSummary,
   ChannelSubmission,
   CollectionJob,
@@ -121,8 +122,16 @@ type PasswordDraft = {
   confirmPassword: string;
 };
 type BadgeTone = "default" | "info" | "warn" | "success" | "danger" | "muted";
+type CollectorStatusState = Pick<
+  AdminCollectorStatus,
+  "generatedAt" | "crawlRuns" | "collectorHealth" | "latestCrawlAt" | "latestSuccessfulCrawlAt" | "latestCrawlStatus"
+> & {
+  loading: boolean;
+  error: string | null;
+};
 
 const ADMIN_LIST_PREVIEW_ROWS = 8;
+const ADMIN_COLLECTOR_STATUS_REFRESH_MS = 60_000;
 
 type ProbeOffer = {
   sourceStoreName?: string | null;
@@ -313,6 +322,16 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [riskReviewSettings, setRiskReviewSettings] = useState<RiskReviewSettings>(data.riskReviewSettings);
   const [sponsorSettings, setSponsorSettings] = useState<SponsorSettings>(data.sponsorSettings);
   const [passwordStatus, setPasswordStatus] = useState<PasswordStatus>(data.passwordStatus);
+  const [collectorStatus, setCollectorStatus] = useState<CollectorStatusState>({
+    generatedAt: data.collectorHealth.generatedAt || data.generatedAt,
+    crawlRuns: data.crawlRuns,
+    collectorHealth: data.collectorHealth,
+    latestCrawlAt: latestCrawlRunTime(data.crawlRuns),
+    latestSuccessfulCrawlAt: latestCrawlRunTime(data.crawlRuns.filter((run) => run.status === "success" || run.status === "partial")),
+    latestCrawlStatus: latestCrawlRunByTime(data.crawlRuns)?.status || null,
+    loading: false,
+    error: null,
+  });
   const [passwordDraft, setPasswordDraft] = useState<PasswordDraft>({
     currentPassword: "",
     newPassword: "",
@@ -358,6 +377,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     },
   });
   const offerMaintenanceRef = useRef(offerMaintenance);
+  const collectorRefreshRequestRef = useRef(0);
   const feedbackStatusFilterRef = useRef<OfferFeedbackStatus>("pending");
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -537,6 +557,49 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
   }, [rowFeedback]);
 
+  const refreshCollectorStatus = useCallback(async () => {
+    const requestId = collectorRefreshRequestRef.current + 1;
+    collectorRefreshRequestRef.current = requestId;
+    setCollectorStatus((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const response = await fetch("/api/admin/collector-status", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      const result = await response.json() as ({ ok: true } & AdminCollectorStatus) | { ok: false; message?: string };
+      if (!response.ok || !result.ok) throw new Error(("message" in result && result.message) || "读取采集状态失败。");
+      if (collectorRefreshRequestRef.current !== requestId) return;
+
+      setCollectorStatus({
+        generatedAt: result.generatedAt,
+        crawlRuns: result.crawlRuns,
+        collectorHealth: result.collectorHealth,
+        latestCrawlAt: result.latestCrawlAt,
+        latestSuccessfulCrawlAt: result.latestSuccessfulCrawlAt,
+        latestCrawlStatus: result.latestCrawlStatus,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      if (collectorRefreshRequestRef.current !== requestId) return;
+      setCollectorStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: error instanceof Error ? error.message : "读取采集状态失败。",
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!authed || !["collect", "health", "logs"].includes(activeTab)) return;
+    void refreshCollectorStatus();
+    const timer = window.setInterval(() => {
+      void refreshCollectorStatus();
+    }, ADMIN_COLLECTOR_STATUS_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [activeTab, authed, refreshCollectorStatus]);
+
   useEffect(() => {
     offerMaintenanceRef.current = offerMaintenance;
   }, [offerMaintenance]);
@@ -681,17 +744,17 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   );
   const todoProbeTargetCount = selectedTodoSubmissions.length || filteredTodo.length;
   const failedRunCount = useMemo(
-    () => data.crawlRuns.filter((r) => r.status === "failed").length,
-    [data.crawlRuns],
+    () => collectorStatus.crawlRuns.filter((r) => r.status === "failed").length,
+    [collectorStatus.crawlRuns],
   );
   const collectorHealthIssueCount = useMemo(() => {
-    const health = data.collectorHealth;
+    const health = collectorStatus.collectorHealth;
     return (
       Number(health.overall.failedSources || 0) +
       Number(health.overall.downNodes || 0) +
       Number(health.overall.staleNodes || 0)
     );
-  }, [data.collectorHealth]);
+  }, [collectorStatus.collectorHealth]);
   const adminTabs: Array<{ id: AdminTab; label: string; count: number | null; icon: ReactNode }> = useMemo(
     () => [
       { id: "review", label: "审核", count: reviewSubmissions.length, icon: <Inbox size={15} /> },
@@ -707,9 +770,9 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { id: "apiTransit", label: "中转 API", count: data.apiTransit.metrics.candidateOffers || data.apiTransit.metrics.pendingStations || null, icon: <Server size={15} /> },
       { id: "sources", label: "渠道", count: sources.length, icon: <Store size={15} /> },
       { id: "manual", label: "维护", count: null, icon: <Plus size={15} /> },
-      { id: "logs", label: "日志", count: data.crawlRuns.length, icon: <Clock size={15} /> },
+      { id: "logs", label: "日志", count: collectorStatus.crawlRuns.length, icon: <Clock size={15} /> },
     ],
-    [apiModels.offers.length, collectorHealthIssueCount, collectorTodoSubmissions.length, data.apiTransit.metrics.candidateOffers, data.apiTransit.metrics.pendingStations, data.crawlRuns.length, failedRunCount, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length, sponsorSettings],
+    [apiModels.offers.length, collectorHealthIssueCount, collectorStatus.crawlRuns.length, collectorTodoSubmissions.length, data.apiTransit.metrics.candidateOffers, data.apiTransit.metrics.pendingStations, failedRunCount, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length, sponsorSettings],
   );
 
   /* ─── Keyboard shortcuts ─── */
@@ -3127,7 +3190,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
 
                 <div className="space-y-5">
                   <CollectionJobsPanel jobs={data.collectionJobs.slice(0, 8)} />
-                  <RecentRunsPanel runs={data.crawlRuns.slice(0, 8)} />
+                  <CollectorStatusSnapshot status={collectorStatus} onRefresh={refreshCollectorStatus} />
+                  <RecentRunsPanel runs={collectorStatus.crawlRuns.slice(0, 8)} />
                 </div>
               </div>
             )}
@@ -3135,7 +3199,10 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
             {/* Health tab */}
             {activeTab === "health" && (
               <div role="tabpanel" id="tabpanel-health">
-                <CollectorHealthPanel health={data.collectorHealth} />
+                <div className="mb-5">
+                  <CollectorStatusSnapshot status={collectorStatus} onRefresh={refreshCollectorStatus} />
+                </div>
+                <CollectorHealthPanel health={collectorStatus.collectorHealth} />
               </div>
             )}
 
@@ -3412,7 +3479,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
             )}
 
             {/* Logs tab */}
-            {activeTab === "logs" && <div role="tabpanel" id="tabpanel-logs"><RecentRunsPanel runs={data.crawlRuns} /></div>}
+            {activeTab === "logs" && (
+              <div role="tabpanel" id="tabpanel-logs" className="space-y-5">
+                <CollectorStatusSnapshot status={collectorStatus} onRefresh={refreshCollectorStatus} />
+                <RecentRunsPanel runs={collectorStatus.crawlRuns} />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -7994,6 +8066,54 @@ function CollectionJobsPanel({ jobs }: { jobs: CollectionJob[] }) {
   );
 }
 
+function CollectorStatusSnapshot({
+  status,
+  onRefresh,
+}: {
+  status: CollectorStatusState;
+  onRefresh: () => void;
+}) {
+  return (
+    <Panel title="采集状态" icon={<Activity size={17} />}>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <HealthMetric
+          label="最新采集"
+          value={status.latestCrawlAt ? formatRelativeTime(status.latestCrawlAt) : "未记录"}
+          tone={status.latestCrawlStatus === "failed" ? "danger" : "success"}
+        />
+        <HealthMetric
+          label="最新成功"
+          value={status.latestSuccessfulCrawlAt ? formatRelativeTime(status.latestSuccessfulCrawlAt) : "未记录"}
+          tone={status.latestSuccessfulCrawlAt ? "success" : "warn"}
+        />
+        <HealthMetric
+          label="状态生成"
+          value={formatRelativeTime(status.generatedAt)}
+          tone={status.error ? "warn" : "muted"}
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#5a6061]">
+        <span>
+          {status.loading
+            ? "正在刷新采集状态..."
+            : status.error
+              ? `刷新失败：${status.error}`
+              : "后台会在采集、健康和日志页低频刷新。"}
+        </span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={status.loading}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[#adb3b4]/25 bg-white px-3 py-1.5 font-medium text-[#2d3435] transition hover:border-[#6f7779]/40 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {status.loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />}
+          刷新
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
 function RecentRunsPanel({ runs }: { runs: CrawlRun[] }) {
   return (
     <Panel title="最近采集记录" icon={<RefreshCcw size={17} />}>
@@ -8995,6 +9115,22 @@ function crawlStatusClass(value: CrawlRun["status"]): string {
   if (value === "partial") return "bg-[#fff7e8] text-[#7a541b]";
   if (value === "skipped") return "bg-[#eef3f8] text-[#47657a]";
   return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
+function crawlRunTime(run: CrawlRun): string {
+  return run.finishedAt || run.startedAt;
+}
+
+function latestCrawlRunByTime(runs: CrawlRun[]): CrawlRun | null {
+  return runs.reduce<CrawlRun | null>((latest, run) => {
+    if (!latest) return run;
+    return crawlRunTime(run) > crawlRunTime(latest) ? run : latest;
+  }, null);
+}
+
+function latestCrawlRunTime(runs: CrawlRun[]): string | null {
+  const latest = latestCrawlRunByTime(runs);
+  return latest ? crawlRunTime(latest) : null;
 }
 
 function collectionJobStatusLabel(value: CollectionJob["status"]): string {

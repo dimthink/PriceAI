@@ -37,6 +37,7 @@ import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
 import { API_CDK_PLATFORM, API_CDK_PRODUCT_ID, apiCdkPublicVisible, getPublicRiskPrecheck, isPublicCatalogProduct } from "./trust-risk";
 import type {
+  AdminCollectorStatus,
   AdminSummary,
   CanonicalProduct,
   CollectorHeartbeat,
@@ -1404,6 +1405,62 @@ export async function listAdminOfferMaintenancePage(options: {
   };
 }
 
+export async function getAdminCollectorStatus(): Promise<AdminCollectorStatus> {
+  const generatedAt = new Date().toISOString();
+  const supabase = getSupabaseServerClient();
+
+  if (!supabase) {
+    return {
+      generatedAt,
+      crawlRuns: [],
+      collectorHealth: emptyCollectorHealthSummary(generatedAt),
+      latestCrawlAt: null,
+      latestSuccessfulCrawlAt: null,
+      latestCrawlStatus: null,
+    };
+  }
+
+  const [sourcesResult, crawlRunsResult, heartbeatsResult] = await Promise.all([
+    supabase.from("sources").select(PUBLIC_SOURCE_SELECT).order("name"),
+    supabase
+      .from("crawl_runs")
+      .select("*")
+      .order("started_at", { ascending: false })
+      .limit(120),
+    supabase
+      .from("collector_heartbeats")
+      .select("*")
+      .order("last_seen_at", { ascending: false })
+      .limit(50),
+  ]);
+
+  if (sourcesResult.error) throw sourcesResult.error;
+  if (crawlRunsResult.error) throw crawlRunsResult.error;
+  if (heartbeatsResult.error) throw heartbeatsResult.error;
+
+  const sources = (sourcesResult.data || []).map(mapSource);
+  const crawlRuns = (crawlRunsResult.data || []).map(mapCrawlRun);
+  const heartbeats = (heartbeatsResult.data || []).map(mapCollectorHeartbeat);
+  const latestCrawl = latestRunByTime(crawlRuns);
+  const latestSuccessfulCrawl = latestRunByTime(
+    crawlRuns.filter((run) => run.status === "success" || run.status === "partial"),
+  );
+
+  return {
+    generatedAt,
+    crawlRuns,
+    collectorHealth: buildCollectorHealthSummary({
+      generatedAt,
+      sources,
+      crawlRuns,
+      heartbeats,
+    }),
+    latestCrawlAt: latestCrawl ? crawlRunObservedAt(latestCrawl) : null,
+    latestSuccessfulCrawlAt: latestSuccessfulCrawl ? crawlRunObservedAt(latestSuccessfulCrawl) : null,
+    latestCrawlStatus: latestCrawl?.status || null,
+  };
+}
+
 async function readAdminSummary(): Promise<AdminSummary> {
   const supabase = getSupabaseServerClient();
 
@@ -2385,6 +2442,17 @@ function runSummaryFor(run: CrawlRun, nowMs: number): CollectorHealthRunSummary 
     failureCount: run.failureCount,
     message: run.message || null,
   };
+}
+
+function crawlRunObservedAt(run: CrawlRun): string {
+  return run.finishedAt || run.startedAt;
+}
+
+function latestRunByTime(runs: CrawlRun[]): CrawlRun | null {
+  return runs.reduce<CrawlRun | null>((latest, run) => {
+    if (!latest) return run;
+    return crawlRunObservedAt(run) > crawlRunObservedAt(latest) ? run : latest;
+  }, null);
 }
 
 function mapCollectorHeartbeat(row: Record<string, unknown>): CollectorHeartbeat {

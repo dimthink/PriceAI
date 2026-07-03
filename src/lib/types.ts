@@ -234,6 +234,15 @@ export type AdminSummary = DashboardData & {
   passwordStatus: AdminPasswordStatus;
 };
 
+export type AdminCollectorStatus = {
+  generatedAt: string;
+  crawlRuns: CrawlRun[];
+  collectorHealth: CollectorHealthSummary;
+  latestCrawlAt: string | null;
+  latestSuccessfulCrawlAt: string | null;
+  latestCrawlStatus: CrawlRun["status"] | null;
+};
+
 export type RiskReviewSettingsSummary = {
   configured: boolean;
   tableReady: boolean;
