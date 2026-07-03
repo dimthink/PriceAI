@@ -312,11 +312,9 @@ async function completeCoveredCollectionJobs(
   if (error) throw error;
 
   const now = new Date().toISOString();
-  const nowMs = new Date(now).getTime();
   const jobs = (data || [])
     .filter((job) => {
       if (input.explicitJobId && String(job.id) === input.explicitJobId) return true;
-      if (!coveredJobCandidate(job, nowMs)) return false;
       return input.fullSnapshot;
     });
   if (!jobs.length) return [];
@@ -370,18 +368,6 @@ async function completeCoveredCollectionJobs(
 
   clearAdminDataCache();
   return jobIds;
-}
-
-function coveredJobCandidate(job: {
-  status?: unknown;
-  locked_until?: unknown;
-}, nowMs: number): boolean {
-  const status = String(job.status || "pending");
-  if (status === "pending") return true;
-  if (status !== "running") return false;
-
-  const lockedUntil = new Date(String(job.locked_until || "")).getTime();
-  return Number.isFinite(lockedUntil) && lockedUntil < nowMs;
 }
 
 async function markFeedbackRecollectionCovered(
