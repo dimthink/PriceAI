@@ -129,6 +129,18 @@ const RAW_OFFER_PUBLIC_SELECT_FIELDS = [
   "failure_reason",
 ];
 const RAW_OFFER_PUBLIC_SELECT = RAW_OFFER_PUBLIC_SELECT_FIELDS.join(",");
+const RAW_OFFER_CONFIRMATION_SELECT = [
+  "raw_offer_id",
+  "captured_at",
+  "last_seen_at",
+  "verified_at",
+  "expires_at",
+  "source_status",
+  "effective_status",
+  "freshness_status",
+  "source_priority",
+  "confidence",
+].join(",");
 const RAW_OFFER_ADMIN_SELECT = [
   ...RAW_OFFER_PUBLIC_SELECT_FIELDS,
   "listed_price",
@@ -618,6 +630,11 @@ function chunks<T>(items: T[], size: number): T[][] {
   return output;
 }
 
+function isMissingRawOfferConfirmationsTableError(error: unknown): boolean {
+  const maybe = error as { code?: string; message?: string } | null;
+  return maybe?.code === "42P01" || /raw_offer_confirmations/i.test(String(maybe?.message || ""));
+}
+
 async function resolvePublicApiSnapshotRefreshScope(
   state: PublicApiSnapshotRefreshState,
 ): Promise<{ productIds: string[]; fullRequired: boolean }> {
@@ -1058,6 +1075,42 @@ async function listVisibleRawOfferRows(): Promise<Record<string, unknown>[]> {
     const batch = (data || []) as unknown as Record<string, unknown>[];
     rows.push(...batch);
     if (batch.length < SUPABASE_PAGE_SIZE) break;
+  }
+
+  return overlayRawOfferConfirmations(rows);
+}
+
+async function overlayRawOfferConfirmations(rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase || !rows.length) return rows;
+
+  const byId = new Map(rows.map((row) => [String(row.id), row]));
+  for (const idChunk of chunks(Array.from(byId.keys()), 500)) {
+    const { data, error } = await supabase
+      .from("raw_offer_confirmations")
+      .select(RAW_OFFER_CONFIRMATION_SELECT)
+      .in("raw_offer_id", idChunk)
+      .abortSignal(publicSupabaseReadSignal());
+
+    if (error) {
+      if (isMissingRawOfferConfirmationsTableError(error)) return rows;
+      throw error;
+    }
+
+    const confirmations = (data || []) as unknown as Array<Record<string, unknown>>;
+    for (const confirmation of confirmations) {
+      const row = byId.get(String(confirmation.raw_offer_id || ""));
+      if (!row) continue;
+      row.captured_at = confirmation.captured_at || row.captured_at;
+      row.last_seen_at = confirmation.last_seen_at || row.last_seen_at;
+      row.verified_at = confirmation.verified_at || row.verified_at;
+      row.expires_at = confirmation.expires_at || row.expires_at;
+      row.source_status = confirmation.source_status || row.source_status;
+      row.effective_status = confirmation.effective_status || row.effective_status;
+      row.freshness_status = confirmation.freshness_status || row.freshness_status;
+      row.source_priority = confirmation.source_priority ?? row.source_priority;
+      row.confidence = confirmation.confidence ?? row.confidence;
+    }
   }
 
   return rows;

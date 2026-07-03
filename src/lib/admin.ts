@@ -48,8 +48,8 @@ import { normalizeStatus, parseTags, slugify, stableId, stableOfferInputId } fro
 export const ADMIN_SOURCE_HIDE_REASON_PREFIX = "管理员手动下架渠道";
 export const ADMIN_OFFER_HIDE_REASON_PREFIX = "管理员手动下架报价";
 export const ADMIN_MANUAL_HIDE_REASON_PREFIX = "管理员手动下架";
-const UNCHANGED_OFFER_REFRESH_INTERVAL_MS = 25 * 60 * 1000;
 const RAW_OFFER_WRITE_CHUNK_SIZE = 5;
+const RAW_OFFER_CONFIRMATION_WRITE_CHUNK_SIZE = 100;
 const MISSING_OFFER_HIDE_CHUNK_SIZE = 25;
 const MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION = 100;
 const STALE_OFFER_FAILURE_THRESHOLD = 3;
@@ -61,6 +61,7 @@ export type RawOfferUpsertResult = {
   writtenCount: number;
   unchangedCount: number;
   refreshedCount: number;
+  confirmedCount: number;
 };
 
 let canonicalProductsEnsurePromise: Promise<void> | null = null;
@@ -453,7 +454,7 @@ export async function upsertRawOffers(
   }
 
   const rows = dedupeRawOfferRowsById(collectedRows);
-  if (!rows.length) return { receivedCount: 0, writtenCount: 0, unchangedCount: 0, refreshedCount: 0 };
+  if (!rows.length) return { receivedCount: 0, writtenCount: 0, unchangedCount: 0, refreshedCount: 0, confirmedCount: 0 };
 
   const manualHiddenById = await getManualHiddenOffersById(rows.map((row) => String(row.id)));
   for (const row of rows) {
@@ -467,13 +468,11 @@ export async function upsertRawOffers(
   const existingById = await getExistingOfferRowsById(rows.map((row) => String(row.id)));
   const changedRows = [];
   const unchangedRows = [];
-  const refreshRows = [];
 
   for (const row of rows) {
     const existingRow = existingById.get(String(row.id));
     if (isRawOfferRowUnchanged(row, existingRow)) {
       unchangedRows.push(row);
-      if (shouldRefreshUnchangedOffer(row, existingRow)) refreshRows.push(row);
     } else {
       changedRows.push(row);
     }
@@ -484,13 +483,14 @@ export async function upsertRawOffers(
     if (error) throw error;
   }
 
-  const refreshedCount = refreshRows.length ? await refreshSeenRawOfferRows(refreshRows) : 0;
+  const confirmedCount = await upsertRawOfferConfirmations(rows);
 
   return {
     receivedCount: rows.length,
     writtenCount: changedRows.length,
     unchangedCount: unchangedRows.length,
-    refreshedCount,
+    refreshedCount: unchangedRows.length,
+    confirmedCount,
   };
 }
 
@@ -537,16 +537,6 @@ function isRawOfferRowUnchanged(next: Record<string, unknown>, existing?: Record
   ];
 
   return keys.every((key) => comparableValue(next[key]) === comparableValue(existing[key]));
-}
-
-function shouldRefreshUnchangedOffer(next: Record<string, unknown>, existing?: Record<string, unknown>): boolean {
-  if (!existing) return true;
-
-  const nextTime = timestampMs(next.last_seen_at || next.verified_at || next.updated_at);
-  const existingTime = timestampMs(existing.last_seen_at || existing.verified_at || existing.updated_at);
-  if (!nextTime || !existingTime) return true;
-
-  return nextTime - existingTime >= UNCHANGED_OFFER_REFRESH_INTERVAL_MS;
 }
 
 function dedupeRawOfferRowsById(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
@@ -623,13 +613,60 @@ async function refreshSeenRawOfferRows(rows: Array<Record<string, unknown>>): Pr
   return refreshedCount;
 }
 
-function compactUndefined(input: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+async function upsertRawOfferConfirmations(rows: Array<Record<string, unknown>>): Promise<number> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase || !rows.length) return 0;
+
+  const confirmationRows = rows.map(rawOfferConfirmationRow);
+
+  try {
+    for (const rowChunk of chunks(confirmationRows, RAW_OFFER_CONFIRMATION_WRITE_CHUNK_SIZE)) {
+      const { error } = await supabase
+        .from("raw_offer_confirmations")
+        .upsert(rowChunk, { onConflict: "raw_offer_id" });
+
+      if (error) throw error;
+    }
+  } catch (error) {
+    if (!isMissingRawOfferConfirmationsTableError(error)) throw error;
+
+    // Compatibility during deploy ordering: once the migration is live,
+    // unchanged offers write only to raw_offer_confirmations.
+    return refreshSeenRawOfferRows(rows);
+  }
+
+  return confirmationRows.length;
 }
 
-function timestampMs(value: unknown): number {
-  const time = new Date(String(value || "")).getTime();
-  return Number.isFinite(time) ? time : 0;
+function rawOfferConfirmationRow(row: Record<string, unknown>): Record<string, unknown> {
+  const confirmedAt =
+    normalizedDateString(stringOrNull(row.verified_at)) ||
+    normalizedDateString(stringOrNull(row.last_seen_at)) ||
+    normalizedDateString(stringOrNull(row.captured_at)) ||
+    normalizedDateString(stringOrNull(row.updated_at)) ||
+    new Date().toISOString();
+
+  return compactUndefined({
+    raw_offer_id: String(row.id),
+    source_id: row.source_id ? String(row.source_id) : null,
+    confirmed_at: confirmedAt,
+    captured_at: normalizedDateString(stringOrNull(row.captured_at)) || confirmedAt,
+    last_seen_at: normalizedDateString(stringOrNull(row.last_seen_at)) || confirmedAt,
+    verified_at: normalizedDateString(stringOrNull(row.verified_at)) || confirmedAt,
+    expires_at: normalizedDateString(stringOrNull(row.expires_at)),
+    source_status: row.source_status ? String(row.source_status) : String(row.status || "unknown"),
+    effective_status: row.effective_status ? String(row.effective_status) : "low_confidence",
+    freshness_status: row.freshness_status ? String(row.freshness_status) : "fresh",
+    source_priority: row.source_priority,
+    confidence: row.confidence,
+    price: row.price,
+    stock_count: row.stock_count,
+    updated_at: confirmedAt,
+  });
+}
+
+function compactUndefined(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
 }
 
 function normalizedDateString(value: string | null | undefined): string | null {
@@ -637,6 +674,22 @@ function normalizedDateString(value: string | null | undefined): string | null {
   const time = new Date(value).getTime();
   if (!Number.isFinite(time)) return null;
   return new Date(time).toISOString();
+}
+
+function stringOrNull(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value);
+  return text ? text : null;
+}
+
+function isMissingRawOfferConfirmationsTableError(error: unknown): boolean {
+  const maybe = error as { code?: string; message?: string } | null;
+  return maybe?.code === "42P01" || /raw_offer_confirmations/i.test(String(maybe?.message || ""));
+}
+
+function isMissingRawOfferPublicStateError(error: unknown): boolean {
+  const maybe = error as { code?: string; message?: string } | null;
+  return maybe?.code === "42P01" || /raw_offer_public_state/i.test(String(maybe?.message || ""));
 }
 
 function comparableValue(value: unknown): string {
@@ -875,18 +928,7 @@ async function expireStaleOffersAfterRepeatedFailures(
 
   const failureReason = message || "本次采集失败，旧报价暂不更新。";
   const staleBefore = new Date(new Date(failedAt).getTime() - STALE_OFFER_FAILURE_AGE_MS).toISOString();
-  const { data, error } = await supabase
-    .from("raw_offers")
-    .select("id")
-    .eq("source_id", sourceId)
-    .or(`failure_reason.is.null,failure_reason.not.ilike.${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`)
-    .or(`verified_at.is.null,verified_at.lt.${staleBefore}`)
-    .order("verified_at", { ascending: true, nullsFirst: true })
-    .limit(MAX_STALE_OFFERS_TO_EXPIRE_PER_FAILURE);
-
-  if (error) throw error;
-
-  const ids = (data || []).map((row) => String(row.id)).filter(Boolean);
+  const ids = await selectStaleOfferIdsAfterFailures(supabase, sourceId, staleBefore);
   if (!ids.length) return 0;
 
   let changedCount = 0;
@@ -942,16 +984,7 @@ async function hideMissingOffersAsDelisted(sourceId: string, seenOfferIds: strin
   if (!supabase) return 0;
 
   const seen = new Set(seenOfferIds);
-  const { data, error } = await supabase
-    .from("raw_offers")
-    .select("id,last_seen_at")
-    .eq("source_id", sourceId)
-    .eq("hidden", false)
-    .or(`last_seen_at.is.null,last_seen_at.lt.${checkedAt}`)
-    .order("last_seen_at", { ascending: true, nullsFirst: true })
-    .limit(MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION + seenOfferIds.length);
-
-  if (error) throw error;
+  const data = await selectPotentialMissingOfferRows(supabase, sourceId, checkedAt, seenOfferIds.length);
 
   const missingIds = (data || [])
     .map((row) => String(row.id))
@@ -980,6 +1013,53 @@ async function hideMissingOffersAsDelisted(sourceId: string, seenOfferIds: strin
   }
 
   return changedCount;
+}
+
+async function selectStaleOfferIdsAfterFailures(
+  supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  sourceId: string,
+  staleBefore: string,
+): Promise<string[]> {
+  for (const tableName of ["raw_offer_public_state", "raw_offers"]) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("id")
+      .eq("source_id", sourceId)
+      .or(`failure_reason.is.null,failure_reason.not.ilike.${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`)
+      .or(`verified_at.is.null,verified_at.lt.${staleBefore}`)
+      .order("verified_at", { ascending: true, nullsFirst: true })
+      .limit(MAX_STALE_OFFERS_TO_EXPIRE_PER_FAILURE);
+
+    if (!error) return (data || []).map((row) => String(row.id)).filter(Boolean);
+    if (tableName === "raw_offer_public_state" && isMissingRawOfferPublicStateError(error)) continue;
+    throw error;
+  }
+
+  return [];
+}
+
+async function selectPotentialMissingOfferRows(
+  supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  sourceId: string,
+  checkedAt: string,
+  seenOfferCount: number,
+): Promise<Array<Record<string, unknown>>> {
+  for (const tableName of ["raw_offer_public_state", "raw_offers"]) {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select("id,last_seen_at")
+      .eq("source_id", sourceId)
+      .eq("hidden", false)
+      .or(`last_seen_at.is.null,last_seen_at.lt.${checkedAt}`)
+      .order("last_seen_at", { ascending: true, nullsFirst: true })
+      .limit(MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION + seenOfferCount);
+
+    if (!error) return (data || []) as Array<Record<string, unknown>>;
+    if (tableName === "raw_offer_public_state" && isMissingRawOfferPublicStateError(error)) continue;
+    throw error;
+  }
+
+  return [];
 }
 
 function chunks<T>(items: T[], size: number): T[][] {
@@ -2053,15 +2133,20 @@ async function findSourceFromKnownOfferUrl(itemUrl: string): Promise<Source | nu
   if (!candidates.length) return null;
 
   const { data: exactRows, error: exactError } = await supabase
-    .from("raw_offers")
+    .from("raw_offer_public_state")
     .select("source_id,url,last_seen_at,captured_at")
     .in("url", candidates)
     .not("source_id", "is", null)
     .order("last_seen_at", { ascending: false })
     .limit(1);
-  if (exactError) throw exactError;
+  if (exactError && !isMissingRawOfferPublicStateError(exactError)) throw exactError;
 
-  const exactSourceId = exactRows?.[0]?.source_id ? String(exactRows[0].source_id) : null;
+  const fallbackExactSourceId = exactError && isMissingRawOfferPublicStateError(exactError)
+    ? await findSourceIdByKnownOfferUrls("raw_offers", candidates)
+    : null;
+  const exactSourceId = !exactError && exactRows?.[0]?.source_id
+    ? String(exactRows[0].source_id)
+    : fallbackExactSourceId;
   if (exactSourceId) return getSourceById(exactSourceId);
 
   const parsed = safeUrl(itemUrl);
@@ -2069,16 +2154,53 @@ async function findSourceFromKnownOfferUrl(itemUrl: string): Promise<Source | nu
 
   const pathPattern = `%://${parsed.host}${parsed.pathname}%`;
   const { data: pathRows, error: pathError } = await supabase
-    .from("raw_offers")
+    .from("raw_offer_public_state")
     .select("source_id,url,last_seen_at,captured_at")
     .ilike("url", pathPattern)
     .not("source_id", "is", null)
     .order("last_seen_at", { ascending: false })
     .limit(1);
-  if (pathError) throw pathError;
+  if (pathError && !isMissingRawOfferPublicStateError(pathError)) throw pathError;
 
-  const pathSourceId = pathRows?.[0]?.source_id ? String(pathRows[0].source_id) : null;
+  const fallbackPathSourceId = pathError && isMissingRawOfferPublicStateError(pathError)
+    ? await findSourceIdByKnownOfferPath("raw_offers", pathPattern)
+    : null;
+  const pathSourceId = !pathError && pathRows?.[0]?.source_id
+    ? String(pathRows[0].source_id)
+    : fallbackPathSourceId;
   return pathSourceId ? getSourceById(pathSourceId) : null;
+}
+
+async function findSourceIdByKnownOfferUrls(tableName: string, candidates: string[]): Promise<string | null> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase || !candidates.length) return null;
+
+  const { data, error } = await supabase
+    .from(tableName)
+    .select("source_id,url,last_seen_at,captured_at")
+    .in("url", candidates)
+    .not("source_id", "is", null)
+    .order("last_seen_at", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+
+  return data?.[0]?.source_id ? String(data[0].source_id) : null;
+}
+
+async function findSourceIdByKnownOfferPath(tableName: string, pathPattern: string): Promise<string | null> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from(tableName)
+    .select("source_id,url,last_seen_at,captured_at")
+    .ilike("url", pathPattern)
+    .not("source_id", "is", null)
+    .order("last_seen_at", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+
+  return data?.[0]?.source_id ? String(data[0].source_id) : null;
 }
 
 function knownOfferUrlCandidates(value: string): string[] {

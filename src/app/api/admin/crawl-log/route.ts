@@ -65,6 +65,7 @@ type SaveCrawlLogRunResult = {
   writtenCount: number;
   unchangedCount: number;
   refreshedCount: number;
+  confirmedCount: number;
   affectedProductIds: string[];
   affectedOfferIds: string[];
   affectedSourceIds: string[];
@@ -126,6 +127,7 @@ export async function POST(request: Request) {
       writtenCount: totals.writtenCount,
       unchangedCount: totals.unchangedCount,
       refreshedCount: totals.refreshedCount,
+      confirmedCount: totals.confirmedCount,
       snapshotRefreshQueued,
       runCount: results.length,
       results: isBatch ? results.map(compactResult) : undefined,
@@ -212,6 +214,7 @@ async function saveCrawlLogRun(
           writtenCount: upsertResult.writtenCount,
           unchangedCount: upsertResult.unchangedCount,
           refreshedCount: upsertResult.refreshedCount,
+          confirmedCount: upsertResult.confirmedCount,
         },
       },
     };
@@ -235,6 +238,7 @@ async function saveCrawlLogRun(
       writtenCount: upsertResult.writtenCount,
       unchangedCount: upsertResult.unchangedCount,
       refreshedCount: upsertResult.refreshedCount,
+      confirmedCount: upsertResult.confirmedCount,
       affectedProductIds,
       affectedOfferIds,
       affectedSourceIds: sourceCollectionResult.changedOfferCount > 0 ? [source.id] : [],
@@ -251,15 +255,18 @@ async function saveCrawlLogRun(
   }
 }
 
-function aggregateResults(results: Array<{ successCount: number; writtenCount: number; unchangedCount: number; refreshedCount: number }>) {
+function aggregateResults(
+  results: Array<Pick<SaveCrawlLogRunResult, "successCount" | "writtenCount" | "unchangedCount" | "refreshedCount" | "confirmedCount">>,
+) {
   return results.reduce(
     (totals, result) => ({
       successCount: totals.successCount + result.successCount,
       writtenCount: totals.writtenCount + result.writtenCount,
       unchangedCount: totals.unchangedCount + result.unchangedCount,
-      refreshedCount: totals.refreshedCount + (result.refreshedCount || 0),
+      refreshedCount: totals.refreshedCount + result.refreshedCount,
+      confirmedCount: totals.confirmedCount + result.confirmedCount,
     }),
-    { successCount: 0, writtenCount: 0, unchangedCount: 0, refreshedCount: 0 },
+    { successCount: 0, writtenCount: 0, unchangedCount: 0, refreshedCount: 0, confirmedCount: 0 },
   );
 }
 
@@ -271,6 +278,7 @@ function compactResult(result: {
   writtenCount: number;
   unchangedCount: number;
   refreshedCount?: number;
+  confirmedCount?: number;
   duplicate?: boolean;
   duplicateReason?: string;
 }) {
@@ -282,6 +290,7 @@ function compactResult(result: {
     writtenCount: result.writtenCount,
     unchangedCount: result.unchangedCount,
     refreshedCount: result.refreshedCount || 0,
+    confirmedCount: result.confirmedCount || 0,
     duplicate: result.duplicate || undefined,
     duplicateReason: result.duplicateReason || undefined,
   };
@@ -413,6 +422,7 @@ function duplicateCrawlLogResult(
     writtenCount: 0,
     unchangedCount: 0,
     refreshedCount: 0,
+    confirmedCount: 0,
     affectedProductIds: [],
     affectedOfferIds: [],
     affectedSourceIds: [],

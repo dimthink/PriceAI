@@ -21,6 +21,9 @@ const DEFAULT_LIANDONG_SHOP_HTTP_403_COOLDOWN_MINUTES = 5;
 const DEFAULT_LIANDONG_SHOP_HTTP_403_THRESHOLD = 3;
 const DEFAULT_PAGE_DELAY_MS = 300;
 const DEFAULT_CONCURRENCY = 1;
+const DEFAULT_POST_BATCH_SIZE = 25;
+const MIN_POST_BATCH_SIZE = 10;
+const MAX_POST_BATCH_SIZE = 500;
 const DEFAULT_FLUSH_SOURCE_COUNT = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 120_000;
 const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
@@ -2181,9 +2184,15 @@ function crawlLogRequestBatches(runs, maxRunsPerRequest, maxOffersPerRequest) {
 }
 
 function postBatchSizeFor(options = {}) {
-  const value = Number(options.postBatchSize || options["post-batch-size"] || 200);
-  if (!Number.isFinite(value)) return 200;
-  return Math.max(50, Math.min(Math.trunc(value), 500));
+  const value = Number(
+    options.postBatchSize ||
+      options["post-batch-size"] ||
+      process.env.PRICEAI_COLLECT_POST_BATCH_SIZE ||
+      env.PRICEAI_COLLECT_POST_BATCH_SIZE ||
+      DEFAULT_POST_BATCH_SIZE,
+  );
+  if (!Number.isFinite(value)) return DEFAULT_POST_BATCH_SIZE;
+  return Math.max(MIN_POST_BATCH_SIZE, Math.min(Math.trunc(value), MAX_POST_BATCH_SIZE));
 }
 
 function postRunBatchSizeFor(options = {}) {

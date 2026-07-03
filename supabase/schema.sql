@@ -129,6 +129,24 @@ set
   )
 where true;
 
+create table if not exists raw_offer_confirmations (
+  raw_offer_id text primary key references raw_offers(id) on delete cascade,
+  source_id text references sources(id) on delete set null,
+  confirmed_at timestamptz not null,
+  captured_at timestamptz,
+  last_seen_at timestamptz not null,
+  verified_at timestamptz not null,
+  expires_at timestamptz,
+  source_status text not null default 'unknown',
+  effective_status text not null default 'low_confidence',
+  freshness_status text not null default 'fresh',
+  source_priority integer,
+  confidence numeric,
+  price numeric,
+  stock_count integer,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists offer_matches (
   id text primary key,
   raw_offer_id text not null references raw_offers(id) on delete cascade,
@@ -337,6 +355,55 @@ create index if not exists raw_offers_public_filter_tags_idx
   on raw_offers using gin (public_filter_tags)
   where hidden = false;
 
+create index if not exists raw_offer_confirmations_confirmed_at_idx
+  on raw_offer_confirmations(confirmed_at desc);
+
+create index if not exists raw_offer_confirmations_source_confirmed_at_idx
+  on raw_offer_confirmations(source_id, confirmed_at desc);
+
+create index if not exists raw_offer_confirmations_expires_at_idx
+  on raw_offer_confirmations(expires_at);
+
+drop view if exists raw_offer_public_state;
+
+create view raw_offer_public_state as
+select
+  raw_offers.id,
+  raw_offers.source_id,
+  raw_offers.source_name,
+  raw_offers.source_store_name,
+  raw_offers.source_title,
+  raw_offers.price,
+  raw_offers.listed_price,
+  raw_offers.fee_amount,
+  raw_offers.price_basis,
+  raw_offers.currency,
+  raw_offers.status,
+  coalesce(raw_offer_confirmations.source_status, raw_offers.source_status) as source_status,
+  coalesce(raw_offer_confirmations.effective_status, raw_offers.effective_status) as effective_status,
+  coalesce(raw_offer_confirmations.freshness_status, raw_offers.freshness_status) as freshness_status,
+  raw_offers.url,
+  raw_offers.tags,
+  raw_offers.public_filter_tags,
+  raw_offers.stock_count,
+  raw_offers.hidden,
+  raw_offers.canonical_product_id,
+  raw_offers.category_slug,
+  coalesce(raw_offer_confirmations.captured_at, raw_offers.captured_at) as captured_at,
+  raw_offers.source_updated_at,
+  coalesce(raw_offer_confirmations.last_seen_at, raw_offers.last_seen_at) as last_seen_at,
+  coalesce(raw_offer_confirmations.verified_at, raw_offers.verified_at) as verified_at,
+  coalesce(raw_offer_confirmations.expires_at, raw_offers.expires_at) as expires_at,
+  coalesce(raw_offer_confirmations.source_priority, raw_offers.source_priority) as source_priority,
+  coalesce(raw_offer_confirmations.confidence, raw_offers.confidence) as confidence,
+  raw_offers.last_failed_at,
+  raw_offers.failure_reason,
+  raw_offers.created_at,
+  raw_offers.updated_at
+from raw_offers
+left join raw_offer_confirmations
+  on raw_offer_confirmations.raw_offer_id = raw_offers.id;
+
 create or replace function acquire_source_collection_lock(
   p_source_id text,
   p_owner text,
@@ -459,7 +526,7 @@ as $$
       end as shared_access_rank,
       coalesce(raw_offers.verified_at, raw_offers.last_seen_at, raw_offers.captured_at, raw_offers.source_updated_at) as public_updated_at,
       coalesce(raw_offers.source_store_name, raw_offers.source_name, '') as public_source_label
-    from raw_offers
+    from raw_offer_public_state raw_offers
     where raw_offers.hidden = false
       and raw_offers.canonical_product_id = p_product_id
   )
@@ -556,7 +623,7 @@ as $$
       coalesce(raw_offers.public_filter_tags, priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags)) as public_offer_filter_tags,
       coalesce(raw_offers.verified_at, raw_offers.last_seen_at, raw_offers.captured_at, raw_offers.source_updated_at) as public_updated_at,
       coalesce(raw_offers.source_store_name, raw_offers.source_name, '') as public_source_label
-    from raw_offers
+    from raw_offer_public_state raw_offers
     join products on products.id = raw_offers.canonical_product_id
     where raw_offers.hidden = false
   ),
@@ -790,6 +857,11 @@ create trigger raw_offers_set_updated_at
 before update on raw_offers
 for each row execute function set_updated_at();
 
+drop trigger if exists raw_offer_confirmations_set_updated_at on raw_offer_confirmations;
+create trigger raw_offer_confirmations_set_updated_at
+before update on raw_offer_confirmations
+for each row execute function set_updated_at();
+
 drop trigger if exists crawl_log_ingest_runs_set_updated_at on crawl_log_ingest_runs;
 create trigger crawl_log_ingest_runs_set_updated_at
 before update on crawl_log_ingest_runs
@@ -810,6 +882,7 @@ for each row execute function set_updated_at();
 alter table canonical_products enable row level security;
 alter table sources enable row level security;
 alter table raw_offers enable row level security;
+alter table raw_offer_confirmations enable row level security;
 alter table offer_matches enable row level security;
 alter table crawl_runs enable row level security;
 alter table crawl_log_ingest_runs enable row level security;
@@ -956,7 +1029,7 @@ as $$
         raw_offers.source_title,
         raw_offers.price
       ) as public_dedupe_key
-    from raw_offers
+    from raw_offer_public_state raw_offers
     join products on products.id = raw_offers.canonical_product_id
     left join sources on sources.id = raw_offers.source_id
     where raw_offers.hidden = false
