@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ExternalLink, Info, LogIn, LogOut, Menu, MessageCircle, SearchCheck, UserRound, X } from "lucide-react";
+import { CircleUserRound, ExternalLink, LogIn, LogOut, Menu, MessageCircle, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
@@ -38,7 +38,6 @@ export function SiteHeader({
   compactActionLabelFrom?: "sm" | "2xl" | "never";
 }) {
   const pathname = usePathname();
-  const aboutActive = pathname.startsWith("/about");
   const desktopCenterNavClassName = "hidden items-center rounded-full bg-[#e4e9ea] p-1 text-sm font-semibold text-[#5a6061] min-[720px]:flex";
   const actionGroupGapClassName =
     compactActionLabelFrom === "never" ? "gap-1.5" : compactActionLabelFrom === "2xl" ? "gap-1.5 2xl:gap-3" : "gap-1.5 sm:gap-3";
@@ -104,7 +103,6 @@ export function SiteHeader({
       {mobileDrawerOpen ? (
         <MobileModuleDrawer
           activeKey={activeNavItem?.key}
-          aboutActive={aboutActive}
           accountUser={accountUser}
           accountLoaded={accountLoaded}
           onClose={() => setMobileDrawerOpen(false)}
@@ -126,7 +124,6 @@ export function SiteHeader({
 
 function MobileModuleDrawer({
   activeKey,
-  aboutActive,
   accountUser,
   accountLoaded,
   onClose,
@@ -134,7 +131,6 @@ function MobileModuleDrawer({
   onQQGroup,
 }: {
   activeKey?: (typeof navItems)[number]["key"];
-  aboutActive: boolean;
   accountUser: AccountUser | null;
   accountLoaded: boolean;
   onClose: () => void;
@@ -204,22 +200,6 @@ function MobileModuleDrawer({
         <div className="mt-4 border-t border-[var(--color-border-soft)] pt-3">
           <div className="space-y-1">
             <MobileAccountLinks user={accountUser} loaded={accountLoaded} onClose={onClose} />
-            <Link
-              href="/about"
-              onClick={onClose}
-              className={`flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold transition ${
-                aboutActive
-                  ? "bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]"
-                  : "text-[var(--color-text-body)] hover:bg-[var(--color-surface-hover)]"
-              }`}
-              aria-current={aboutActive ? "page" : undefined}
-            >
-              <span className="inline-flex items-center gap-3">
-                <Info size={17} />
-                边界与披露
-              </span>
-              {aboutActive ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" aria-hidden="true" /> : null}
-            </Link>
             <button
               type="button"
               onClick={onFeedback}
@@ -291,7 +271,7 @@ function MobileAccountLinks({
     return (
       <div className="flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-soft)]" aria-live="polite">
         <span className="inline-flex items-center gap-3">
-          <UserRound size={17} />
+          <CircleUserRound size={17} />
           读取账户状态
         </span>
       </div>
@@ -316,18 +296,6 @@ function MobileAccountLinks({
         <span className="inline-flex items-center gap-3">
           <UserRound size={17} />
           账户中心
-        </span>
-      </Link>
-      <Link href="/account/feedback" onClick={onClose} className={rowClassName}>
-        <span className="inline-flex items-center gap-3">
-          <MessageCircle size={17} />
-          我的反馈
-        </span>
-      </Link>
-      <Link href="/account/detector-reports" onClick={onClose} className={rowClassName}>
-        <span className="inline-flex items-center gap-3">
-          <SearchCheck size={17} />
-          我的检测
         </span>
       </Link>
       <form action="/auth/signout" method="post">
