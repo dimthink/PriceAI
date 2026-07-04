@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogIn, LogOut, UserRound } from "lucide-react";
+import { CircleUserRound, LogOut, UserRoundPlus } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AccountUser } from "@/lib/account-client";
 import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
@@ -19,6 +19,27 @@ function getLabelClassName(compact: boolean, labelFrom: HeaderActionLabelFrom) {
   if (!compact) return undefined;
   if (labelFrom === "never") return "hidden";
   return labelFrom === "2xl" ? "hidden 2xl:inline" : "hidden sm:inline";
+}
+
+function accountInitial(user: AccountUser): string {
+  const source = user.displayName || user.email || "";
+  const first = source.trim().charAt(0);
+  return first ? first.toUpperCase() : "P";
+}
+
+function AccountMark({ user, size = 16 }: { user?: AccountUser | null; size?: number }) {
+  if (user) {
+    return (
+      <span
+        aria-hidden="true"
+        className="grid h-[1.35em] w-[1.35em] place-items-center rounded-full bg-[#e8f3ec] text-[0.62rem] font-bold leading-none text-[#2f7a4b] ring-1 ring-[#45bf78]/20"
+      >
+        {accountInitial(user)}
+      </span>
+    );
+  }
+
+  return <CircleUserRound size={size} />;
 }
 
 export function AuthButton({
@@ -67,7 +88,7 @@ export function AuthButton({
   if (!loaded) {
     return (
       <div className={baseClassName} aria-hidden="true">
-        <UserRound size={16} />
+        <AccountMark size={16} />
         <span className={labelClassName}>账户</span>
       </div>
     );
@@ -76,7 +97,7 @@ export function AuthButton({
   if (!user) {
     return (
       <a href={buildGoogleAuthHref(getBrowserAuthNextPath())} className={baseClassName} aria-label="登录 PriceAI">
-        <LogIn size={16} />
+        <UserRoundPlus size={16} />
         <span className={labelClassName}>登录</span>
       </a>
     );
@@ -93,7 +114,7 @@ export function AuthButton({
         aria-controls={menuId}
         onClick={() => setMenuOpen((open) => !open)}
       >
-        <UserRound size={16} />
+        <AccountMark user={user} size={16} />
         <span className={labelClassName}>账户</span>
       </button>
       {menuOpen ? (
@@ -110,22 +131,6 @@ export function AuthButton({
             className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35"
           >
             账户中心
-          </Link>
-          <Link
-            href="/account/feedback"
-            role="menuitem"
-            onClick={() => setMenuOpen(false)}
-            className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35"
-          >
-            我的反馈
-          </Link>
-          <Link
-            href="/account/detector-reports"
-            role="menuitem"
-            onClick={() => setMenuOpen(false)}
-            className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35"
-          >
-            我的检测
           </Link>
           <form action="/auth/signout" method="post" className="mt-1 border-t border-[#edf0f1] pt-1">
             <button
