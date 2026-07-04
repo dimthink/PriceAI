@@ -693,39 +693,11 @@
     "targets": [
       {
         "family": "claude",
-        "standardModel": "Claude Sonnet 4.6",
-        "groupName": "官转",
-        "accountPool": "official_transfer",
-        "candidates": ["claude-sonnet-4-6"],
-        "keywords": ["claude", "sonnet", "4.6"]
-      },
-      {
-        "family": "claude",
-        "standardModel": "Claude Opus 4.7",
-        "groupName": "官转",
-        "accountPool": "official_transfer",
-        "candidates": ["claude-opus-4-7"],
-        "keywords": ["claude", "opus", "4.7"]
-      },
-      {
-        "family": "claude",
-        "standardModel": "Claude Opus 4.8",
-        "groupName": "官转",
-        "accountPool": "official_transfer",
-        "candidates": ["claude-opus-4-8"],
-        "keywords": ["claude", "opus", "4.8"]
-      },
-      {
-        "family": "claude",
         "standardModel": "Claude Sonnet 5",
+        "groupName": "官转",
+        "accountPool": "official_transfer",
         "candidates": ["claude-sonnet-5", "claude-sonnet-5-0", "claude-5-sonnet"],
         "keywords": ["claude", "sonnet", "5"]
-      },
-      {
-        "family": "claude",
-        "standardModel": "Claude Fable 5",
-        "candidates": ["claude-fable-5", "claude-fable-5-0", "claude-5-fable"],
-        "keywords": ["claude", "fable", "5"]
       }
     ]
   },

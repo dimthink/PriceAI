@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { __test } from "./probe-api-transit.mjs";
 import { __test as sub2ApiTest } from "./import-sub2api-api-transit.mjs";
+
+const probeProfiles = JSON.parse(
+  readFileSync(new URL("../config/api-transit-probes.json", import.meta.url), "utf8"),
+);
 
 assert.equal(__test.normalizeFamily("google/gemini-3.5-flash"), "gemini");
 assert.equal(__test.normalizeFamily("zhipu/glm-5.2"), "glm");
@@ -64,6 +69,24 @@ const latestPriorityClaudeTargets = __test.selectProbeTargets({
 assert.deepEqual(
   latestPriorityClaudeTargets.map((target) => [target.standardModel, target.modelId]),
   [["Claude Fable 5", "claude-fable-5"]],
+);
+
+const mfapiOfficialTransferProfile = probeProfiles.find(
+  (profile) => profile.profileId === "mfttai-com-official-transfer",
+);
+assert.ok(mfapiOfficialTransferProfile, "MFAPI official-transfer probe profile must exist.");
+const mfapiOfficialTransferTargets = __test.selectProbeTargets({
+  profileFamily: "claude",
+  targetPriority: mfapiOfficialTransferProfile.targetPriority,
+  configuredTargets: mfapiOfficialTransferProfile.targets,
+  offerModels: [],
+  availableModels: ["claude-fable-5", "claude-sonnet-5", "claude-opus-4-8", "claude-sonnet-4-6"],
+  targetLimit: mfapiOfficialTransferProfile.targetLimit,
+});
+assert.deepEqual(
+  mfapiOfficialTransferTargets.map((target) => [target.standardModel, target.modelId]),
+  [["Claude Sonnet 5", "claude-sonnet-5"]],
+  "MFAPI official-transfer monitoring should use Sonnet 5 instead of higher-cost Fable 5.",
 );
 
 assert.deepEqual(
