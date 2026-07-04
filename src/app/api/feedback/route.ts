@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { after } from "next/server";
 import { createOfferFeedback, runOfferFeedbackRiskPrecheck } from "@/lib/admin";
+import { getCurrentUser } from "@/lib/auth";
+import { noStoreCacheHeaders } from "@/lib/cache-headers";
 import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { runOfferFeedbackAutoVerification } from "@/lib/feedback-auto-verification";
 import { isFeedbackEvidenceReference } from "@/lib/feedback-evidence";
@@ -10,7 +12,7 @@ import {
   getPublicRequestErrorStatus,
   readJsonWithLimit,
 } from "@/lib/public-request";
-import { feedbackRequiresContact, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
+import { feedbackRequiresContact, HIGH_RISK_FEEDBACK_REASONS, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import { offerFeedbackReasonValues } from "@/lib/types";
 
 const PUBLIC_OFFER_FEEDBACK_RATE_LIMIT_PER_HOUR = 20;
@@ -86,6 +88,14 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
+    const user = await getCurrentUser();
+    if (HIGH_RISK_FEEDBACK_REASONS.has(payload.reason) && !user) {
+      return Response.json(
+        { ok: false, code: "auth_required", message: "这类反馈可能影响公开展示和商家声誉，需要登录后提交。" },
+        { status: 401, headers: noStoreCacheHeaders() },
+      );
+    }
+
     if (feedbackRequiresContact(payload.reason) && !payload.contact?.trim()) {
       return Response.json(
         { ok: false, message: "这类反馈需要留下 QQ、微信或 Telegram，方便后台核验和追问证据。" },
@@ -115,6 +125,9 @@ export async function POST(request: Request) {
       notes: payload.notes || null,
       contact: payload.contact || null,
       submitterIp,
+      userId: user?.id || null,
+      userEmail: user?.email || null,
+      userDisplayName: user?.displayName || null,
     });
 
     after(async () => {

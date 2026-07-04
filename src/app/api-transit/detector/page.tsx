@@ -103,6 +103,7 @@ export default async function ApiTransitDetectorPage() {
           serviceUrl={detectorServiceUrl}
           stations={stationOptions}
           turnstileSiteKey={turnstileSiteKey}
+          loginHref="/login?next=/api-transit/detector"
         />
       </main>
     </div>

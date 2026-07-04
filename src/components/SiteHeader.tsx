@@ -7,6 +7,7 @@ import { ExternalLink, Info, Menu, MessageCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
+import { AuthButton } from "@/components/AuthButton";
 import { FeedbackDialog, FeedbackLink, GitHubLink, QQGroupDialog, QQGroupLink, TelegramLink } from "@/components/FeedbackLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { qqGroupNumber, telegramUrl } from "@/lib/community";
@@ -92,6 +93,7 @@ export function SiteHeader({
           <QQGroupLink compact labelFrom={compactActionLabelFrom} />
           <TelegramLink compact labelFrom={compactActionLabelFrom} />
           <GitHubLink compact labelFrom={compactActionLabelFrom} />
+          <AuthButton compact labelFrom={compactActionLabelFrom} />
         </div>
       </div>
 
@@ -191,6 +193,16 @@ function MobileModuleDrawer({
 
         <div className="mt-4 border-t border-[var(--color-border-soft)] pt-3">
           <div className="space-y-1">
+            <Link
+              href="/login"
+              onClick={onClose}
+              className="flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-body)] transition hover:bg-[var(--color-surface-hover)]"
+            >
+              <span className="inline-flex items-center gap-3">
+                <Info size={17} />
+                登录 / 账户
+              </span>
+            </Link>
             <Link
               href="/about"
               onClick={onClose}

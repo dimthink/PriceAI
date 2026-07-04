@@ -1227,6 +1227,9 @@ function mapOfferFeedbackRow(row: Record<string, unknown>): OfferFeedback {
     status: String(row.status || "pending") as OfferFeedbackStatus,
     reviewerNote: row.reviewer_note ? String(row.reviewer_note) : null,
     submitterIp: row.submitter_ip ? String(row.submitter_ip) : null,
+    userId: row.user_id ? String(row.user_id) : null,
+    userEmail: row.user_email ? String(row.user_email) : null,
+    userDisplayName: row.user_display_name ? String(row.user_display_name) : null,
     createdAt: String(row.created_at || new Date().toISOString()),
     reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
   };
@@ -2360,6 +2363,9 @@ export async function createOfferFeedback(input: {
   notes?: string | null;
   contact?: string | null;
   submitterIp?: string | null;
+  userId?: string | null;
+  userEmail?: string | null;
+  userDisplayName?: string | null;
   rateLimitPerHour?: number;
 }): Promise<{ id: string; status: "pending" }> {
   const supabase = getSupabaseServerClient();
@@ -2449,6 +2455,9 @@ export async function createOfferFeedback(input: {
     contact: input.contact?.trim() || null,
     status: "pending",
     submitter_ip: ip,
+    user_id: input.userId || null,
+    user_email: input.userEmail || null,
+    user_display_name: input.userDisplayName || null,
   });
   if (error) throw error;
 

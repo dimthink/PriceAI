@@ -822,8 +822,45 @@ export type OfferFeedback = {
   status: OfferFeedbackStatus;
   reviewerNote: string | null;
   submitterIp: string | null;
+  userId: string | null;
+  userEmail: string | null;
+  userDisplayName: string | null;
   createdAt: string;
   reviewedAt: string | null;
+};
+
+export type FeedbackFollowup = {
+  id: string;
+  feedbackId: string;
+  userId: string | null;
+  role: "user" | "admin";
+  message: string;
+  evidenceUrls: string[];
+  createdAt: string;
+};
+
+export type TransitDetectorJobStatus = "queued" | "running" | "done" | "error";
+
+export type TransitDetectorJob = {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  protocol: string;
+  baseUrl: string | null;
+  targetModel: string;
+  intensity: string;
+  includeLongContext: boolean;
+  upstreamType: string | null;
+  status: TransitDetectorJobStatus;
+  detectorJobId: string | null;
+  statusUrl: string | null;
+  resultUrl: string | null;
+  jsonUrl: string | null;
+  imageUrl: string | null;
+  errorMessage: string | null;
+  submittedAt: string;
+  completedAt: string | null;
+  updatedAt: string;
 };
 
 export type OfferFeedbackRiskPrecheck = {
