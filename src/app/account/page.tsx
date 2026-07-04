@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
+import { buildGoogleAuthHref } from "@/lib/auth-paths";
 
 export const metadata: Metadata = {
   title: "账户",
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 
 export default async function AccountPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/login?next=/account");
+  if (!user) redirect(buildGoogleAuthHref("/account"));
 
   return (
     <main className="min-h-screen bg-[#f7f9f9]">

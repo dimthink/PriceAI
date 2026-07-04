@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAuthServerClient, normalizeSupabaseUser, upsertPublicUserProfile } from "@/lib/auth";
+import { safeAuthNextPath } from "@/lib/auth-paths";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const next = safeNextPath(requestUrl.searchParams.get("next"));
+  const next = safeAuthNextPath(requestUrl.searchParams.get("next"));
   const origin = requestUrl.origin;
 
   if (code) {
@@ -18,9 +19,4 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.redirect(new URL(next, origin));
-}
-
-function safeNextPath(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/account";
-  return value;
 }

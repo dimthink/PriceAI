@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { LogIn, LogOut, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
+import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 
 type HeaderActionLabelFrom = "sm" | "2xl" | "never";
 type AccountUser = {
@@ -70,10 +71,10 @@ export function AuthButton({
 
   if (!user) {
     return (
-      <Link href="/login" className={baseClassName} aria-label="登录 PriceAI">
+      <a href={buildGoogleAuthHref(getBrowserAuthNextPath())} className={baseClassName} aria-label="登录 PriceAI">
         <LogIn size={16} />
         <span className={labelClassName}>登录</span>
-      </Link>
+      </a>
     );
   }
 

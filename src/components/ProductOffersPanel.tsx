@@ -5,6 +5,7 @@ import { AlertTriangle, ExternalLink, Filter, Flag, ImageUp, Loader2, ShieldAler
 import { type ChangeEvent, type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CommunityPrompt } from "@/components/FeedbackLink";
 import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
+import { buildGoogleAuthHref } from "@/lib/auth-paths";
 import { isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
@@ -1917,7 +1918,7 @@ export function OfferFeedbackDialog({
 
   function buildLoginHref() {
     const next = typeof window === "undefined" ? `/products/${productSlug}` : `${window.location.pathname}${window.location.search}`;
-    return `/login?next=${encodeURIComponent(next)}`;
+    return buildGoogleAuthHref(next);
   }
 
   return (

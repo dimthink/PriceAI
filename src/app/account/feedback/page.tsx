@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
+import { buildGoogleAuthHref } from "@/lib/auth-paths";
 import { listUserOfferFeedback } from "@/lib/account";
 import type { OfferFeedback } from "@/lib/types";
 
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 
 export default async function AccountFeedbackPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/login?next=/account/feedback");
+  if (!user) redirect(buildGoogleAuthHref("/account/feedback"));
 
   let feedback: OfferFeedback[] = [];
   let errorMessage = "";

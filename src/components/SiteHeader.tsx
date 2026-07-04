@@ -10,6 +10,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { FeedbackDialog, FeedbackLink, GitHubLink, QQGroupDialog, QQGroupLink, TelegramLink } from "@/components/FeedbackLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 import { qqGroupNumber, telegramUrl } from "@/lib/community";
 import { supportPagePath } from "@/lib/support";
 
@@ -234,8 +235,8 @@ function MobileModuleDrawer({
               </span>
               {wholesaleActive ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" aria-hidden="true" /> : null}
             </Link>
-            <Link
-              href="/login"
+            <a
+              href={buildGoogleAuthHref(getBrowserAuthNextPath())}
               onClick={onClose}
               className="flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-body)] transition hover:bg-[var(--color-surface-hover)]"
             >
@@ -243,7 +244,7 @@ function MobileModuleDrawer({
                 <Info size={17} />
                 登录 / 账户
               </span>
-            </Link>
+            </a>
             <Link
               href="/about"
               onClick={onClose}
