@@ -1,7 +1,25 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { __test } from "./collect-api-transit.mjs";
+
+const transitSourceConfig = JSON.parse(readFileSync(new URL("../config/api-transit-sources.json", import.meta.url), "utf8"));
+const configuredRtocSource = transitSourceConfig.find((source) => source.id === "ai-rtoc-cc");
+assert.ok(configuredRtocSource, "RTOC AI must stay in API transit public collection sources.");
+assert.equal(configuredRtocSource.collectorKind, "new_api_pricing");
+assert.equal(configuredRtocSource.monitorUrl, "https://ai.rtoc.cc/pricing");
+assert.equal(configuredRtocSource.monitorEndpointUrl, "https://api.rtoc.cc/api/perf-metrics/summary?period=24");
+
+const scheduledPublishedRtocSources = __test.selectSources(
+  __test.filterSourcesByPublishedStationIds(transitSourceConfig, new Set(["ai-rtoc-cc"])),
+  { post: true },
+);
+assert.deepEqual(
+  scheduledPublishedRtocSources.map((source) => source.id),
+  ["ai-rtoc-cc"],
+  "RTOC AI must be eligible for the scheduled public pricing and monitoring refresh once published.",
+);
 
 const existingStations = new Map([
   ["published-new-api", { id: "published-new-api", published: true }],
@@ -222,17 +240,7 @@ assert.equal(fixedOffersByModel.get("GPT Image 2").model_multiplier, 0.008333);
 assert.equal(fixedOffersByModel.get("GPT Image 2").image_output_price, 0.008333);
 assert.equal(fixedOffersByModel.get("GPT Image 2").raw_payload.fixed_price, 0.25);
 
-const rtocSource = {
-  id: "ai-rtoc-cc",
-  name: "RTOC AI",
-  websiteUrl: "https://ai.rtoc.cc/",
-  pricingUrl: "https://ai.rtoc.cc/pricing",
-  pricingEndpointUrl: "https://api.rtoc.cc/api/pricing",
-  monitorUrl: "https://ai.rtoc.cc/pricing",
-  monitorEndpointUrl: "https://api.rtoc.cc/api/perf-metrics/summary?period=24",
-  collectorKind: "new_api_pricing",
-  stationSystem: "new_api",
-};
+const rtocSource = configuredRtocSource;
 const rtocParsed = __test.parsePricingPayload(
   rtocSource,
   {

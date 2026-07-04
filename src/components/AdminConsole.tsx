@@ -9241,7 +9241,7 @@ function collectionJobName(job: CollectionJob): string {
   if (job.jobType === "all") return "全部渠道";
   if (job.jobType === "official_prices") return job.sourceName || "官方地区价";
   if (job.jobType === "api_models") return job.sourceName || "API 模型";
-  if (job.jobType === "api_transit_public_pricing") return job.sourceName || "API 中转公开倍率";
+  if (job.jobType === "api_transit_public_pricing") return job.sourceName || "API 中转公开倍率与监测";
   return job.sourceName || job.sourceId || "未知渠道";
 }
 

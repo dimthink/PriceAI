@@ -2846,6 +2846,7 @@ export const __test = {
   parseOneHopPublicModelsPayload,
   parsePricingPayload,
   parseZivvModelHubPayload,
+  selectSources,
   standardizeModelName,
   shouldRestrictToPublishedStations,
 };

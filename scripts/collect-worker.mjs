@@ -341,7 +341,7 @@ function jobStatusForResult(job, result) {
 function firstFailureMessage(result) {
   if (result?.source === "api_transit_public_pricing") {
     const failedRun = Array.isArray(result.runs) ? result.runs.find((run) => run?.status === "failed") : null;
-    return failedRun?.error_message || "API 中转公开倍率刷新未成功完成。";
+    return failedRun?.error_message || "API 中转公开倍率与监测刷新未成功完成。";
   }
 
   if (result?.source?.kind === "static_api_model_dataset_with_source_probe") {

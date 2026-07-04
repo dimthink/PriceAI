@@ -104,7 +104,7 @@ export function apiTransitJobTypeFromRequest(): ApiTransitJobType {
 
 function apiTransitJobName(jobType: ApiTransitJobType, stationId: string | null): string {
   const scope = stationId ? `：${stationId}` : "";
-  return `API 中转公开倍率刷新${scope}`;
+  return `API 中转公开倍率与监测刷新${scope}`;
 }
 
 async function resolveExistingApiTransitJob(

@@ -107,7 +107,7 @@ function collectionJobFallbackName(
   if (jobType === "all") return "全部渠道";
   if (jobType === "official_prices") return officialMode === "fx_only" ? "官方地区价汇率刷新" : "官方地区价周全量";
   if (jobType === "api_models") return "API 模型";
-  if (jobType === "api_transit_public_pricing") return stationId ? `API 中转公开倍率：${stationId}` : "API 中转公开倍率";
+  if (jobType === "api_transit_public_pricing") return stationId ? `API 中转公开倍率与监测：${stationId}` : "API 中转公开倍率与监测";
   return sourceId;
 }
 

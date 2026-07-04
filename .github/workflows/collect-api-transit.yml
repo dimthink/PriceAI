@@ -2,7 +2,7 @@ name: Collect API Transit
 
 on:
   schedule:
-    # 公开倍率走云服务器 worker 执行；GitHub 只负责入队。
+    # 公开倍率和站方公开监测走云服务器 worker 执行；GitHub 只负责半小时入队。
     - cron: "7,37 * * * *"
   workflow_dispatch:
     inputs:
