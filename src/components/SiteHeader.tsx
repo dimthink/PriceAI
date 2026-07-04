@@ -3,13 +3,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ExternalLink, Info, Menu, MessageCircle, X } from "lucide-react";
+import { ExternalLink, Info, LogIn, LogOut, Menu, MessageCircle, SearchCheck, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { FeedbackDialog, FeedbackLink, GitHubLink, QQGroupDialog, QQGroupLink, TelegramLink } from "@/components/FeedbackLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import type { AccountUser } from "@/lib/account-client";
+import { useAccountUser } from "@/lib/account-client";
 import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 import { qqGroupNumber, telegramUrl } from "@/lib/community";
 
@@ -44,6 +46,7 @@ export function SiteHeader({
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [qqGroupOpen, setQqGroupOpen] = useState(false);
+  const { user: accountUser, loaded: accountLoaded } = useAccountUser();
 
   return (
     <header>
@@ -94,7 +97,7 @@ export function SiteHeader({
           <QQGroupLink compact labelFrom={compactActionLabelFrom} />
           <TelegramLink compact labelFrom={compactActionLabelFrom} />
           <GitHubLink compact labelFrom={compactActionLabelFrom} />
-          <AuthButton compact labelFrom={compactActionLabelFrom} />
+          <AuthButton compact labelFrom={compactActionLabelFrom} user={accountUser} loaded={accountLoaded} />
         </div>
       </div>
 
@@ -102,6 +105,8 @@ export function SiteHeader({
         <MobileModuleDrawer
           activeKey={activeNavItem?.key}
           aboutActive={aboutActive}
+          accountUser={accountUser}
+          accountLoaded={accountLoaded}
           onClose={() => setMobileDrawerOpen(false)}
           onFeedback={() => {
             setMobileDrawerOpen(false);
@@ -122,12 +127,16 @@ export function SiteHeader({
 function MobileModuleDrawer({
   activeKey,
   aboutActive,
+  accountUser,
+  accountLoaded,
   onClose,
   onFeedback,
   onQQGroup,
 }: {
   activeKey?: (typeof navItems)[number]["key"];
   aboutActive: boolean;
+  accountUser: AccountUser | null;
+  accountLoaded: boolean;
   onClose: () => void;
   onFeedback: () => void;
   onQQGroup: () => void;
@@ -194,16 +203,7 @@ function MobileModuleDrawer({
 
         <div className="mt-4 border-t border-[var(--color-border-soft)] pt-3">
           <div className="space-y-1">
-            <a
-              href={buildGoogleAuthHref(getBrowserAuthNextPath())}
-              onClick={onClose}
-              className="flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-body)] transition hover:bg-[var(--color-surface-hover)]"
-            >
-              <span className="inline-flex items-center gap-3">
-                <Info size={17} />
-                登录 / 账户
-              </span>
-            </a>
+            <MobileAccountLinks user={accountUser} loaded={accountLoaded} onClose={onClose} />
             <Link
               href="/about"
               onClick={onClose}
@@ -272,5 +272,75 @@ function MobileModuleDrawer({
       </aside>
     </div>,
     document.body,
+  );
+}
+
+function MobileAccountLinks({
+  user,
+  loaded,
+  onClose,
+}: {
+  user: AccountUser | null;
+  loaded: boolean;
+  onClose: () => void;
+}) {
+  const rowClassName =
+    "flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-body)] transition hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35";
+
+  if (!loaded) {
+    return (
+      <div className="flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-soft)]" aria-live="polite">
+        <span className="inline-flex items-center gap-3">
+          <UserRound size={17} />
+          读取账户状态
+        </span>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <a href={buildGoogleAuthHref(getBrowserAuthNextPath())} onClick={onClose} className={rowClassName}>
+        <span className="inline-flex items-center gap-3">
+          <LogIn size={17} />
+          登录
+        </span>
+      </a>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="truncate px-3 pb-1 pt-1 text-xs font-semibold text-[var(--color-text-soft)]">{user.email || user.displayName || "已登录"}</p>
+      <Link href="/account" onClick={onClose} className={rowClassName}>
+        <span className="inline-flex items-center gap-3">
+          <UserRound size={17} />
+          账户中心
+        </span>
+      </Link>
+      <Link href="/account/feedback" onClick={onClose} className={rowClassName}>
+        <span className="inline-flex items-center gap-3">
+          <MessageCircle size={17} />
+          我的反馈
+        </span>
+      </Link>
+      <Link href="/account/detector-reports" onClick={onClose} className={rowClassName}>
+        <span className="inline-flex items-center gap-3">
+          <SearchCheck size={17} />
+          我的检测
+        </span>
+      </Link>
+      <form action="/auth/signout" method="post">
+        <button
+          type="submit"
+          className="flex h-11 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-semibold text-[#7a2f28] transition hover:bg-[#fbe9e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b3328]/25"
+        >
+          <span className="inline-flex items-center gap-3">
+            <LogOut size={17} />
+            退出登录
+          </span>
+        </button>
+      </form>
+    </div>
   );
 }

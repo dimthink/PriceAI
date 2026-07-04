@@ -2,16 +2,11 @@
 
 import Link from "next/link";
 import { LogIn, LogOut, UserRound } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import type { AccountUser } from "@/lib/account-client";
 import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 
 type HeaderActionLabelFrom = "sm" | "2xl" | "never";
-type AccountUser = {
-  id: string;
-  email: string | null;
-  displayName: string | null;
-  avatarUrl: string | null;
-};
 
 function getCompactButtonClassName(labelFrom: HeaderActionLabelFrom) {
   if (labelFrom === "never") return "h-10 w-10 gap-0 px-0";
@@ -29,34 +24,43 @@ function getLabelClassName(compact: boolean, labelFrom: HeaderActionLabelFrom) {
 export function AuthButton({
   compact = false,
   labelFrom = "sm",
+  user,
+  loaded,
 }: {
   compact?: boolean;
   labelFrom?: HeaderActionLabelFrom;
+  user: AccountUser | null;
+  loaded: boolean;
 }) {
-  const [user, setUser] = useState<AccountUser | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/account/me", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((payload) => {
-        if (!cancelled) setUser(payload?.user || null);
-      })
-      .catch(() => {
-        if (!cancelled) setUser(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
+    if (!menuOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current && !menuRef.current.contains(target)) {
+        setMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      cancelled = true;
+      document.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [menuOpen]);
 
   const labelClassName = getLabelClassName(compact, labelFrom);
-  const baseClassName = `inline-flex shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:-translate-y-0.5 hover:bg-[#f5f7f7] hover:text-[#202829] ${
+  const baseClassName = `inline-flex shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:-translate-y-0.5 hover:bg-[#f5f7f7] hover:text-[#202829] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/45 ${
     compact ? getCompactButtonClassName(labelFrom) : "h-10 gap-2 px-3"
   }`;
 
@@ -79,26 +83,62 @@ export function AuthButton({
   }
 
   return (
-    <div className="group relative">
-      <Link href="/account" className={baseClassName} aria-label="打开账户中心">
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        className={baseClassName}
+        aria-label="打开账户菜单"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-controls={menuId}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
         <UserRound size={16} />
         <span className={labelClassName}>账户</span>
-      </Link>
-      <div className="invisible absolute right-0 top-full z-30 w-52 translate-y-2 rounded-lg bg-white p-2 opacity-0 shadow-[0_18px_50px_rgba(32,40,41,0.14)] ring-1 ring-[#adb3b4]/20 transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-        <p className="truncate px-2 py-2 text-xs font-semibold text-[#5a6061]">{user.email || user.displayName || "已登录"}</p>
-        <Link href="/account/feedback" className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] hover:bg-[#f2f4f4]">
-          我的反馈
-        </Link>
-        <Link href="/account/detector-reports" className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] hover:bg-[#f2f4f4]">
-          我的检测
-        </Link>
-        <form action="/auth/signout" method="post" className="mt-1 border-t border-[#edf0f1] pt-1">
-          <button type="submit" className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold text-[#7a2f28] hover:bg-[#fbe9e7]">
-            <LogOut size={15} />
-            退出登录
-          </button>
-        </form>
-      </div>
+      </button>
+      {menuOpen ? (
+        <div
+          id={menuId}
+          role="menu"
+          className="absolute right-0 top-[calc(100%+0.35rem)] z-30 w-56 rounded-lg bg-white p-2 opacity-100 shadow-[0_18px_50px_rgba(32,40,41,0.14)] ring-1 ring-[#adb3b4]/20"
+        >
+          <p className="truncate px-2 py-2 text-xs font-semibold text-[#5a6061]">{user.email || user.displayName || "已登录"}</p>
+          <Link
+            href="/account"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35"
+          >
+            账户中心
+          </Link>
+          <Link
+            href="/account/feedback"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35"
+          >
+            我的反馈
+          </Link>
+          <Link
+            href="/account/detector-reports"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35"
+          >
+            我的检测
+          </Link>
+          <form action="/auth/signout" method="post" className="mt-1 border-t border-[#edf0f1] pt-1">
+            <button
+              type="submit"
+              role="menuitem"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold text-[#7a2f28] transition hover:bg-[#fbe9e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b3328]/25"
+            >
+              <LogOut size={15} />
+              退出登录
+            </button>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
