@@ -28,6 +28,13 @@ function accountInitial(user: AccountUser): string {
 }
 
 function AccountMark({ user, size = 16 }: { user?: AccountUser | null; size?: number }) {
+  if (user?.avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={user.avatarUrl} alt="" aria-hidden="true" className="h-[1.45em] w-[1.45em] rounded-full object-cover ring-1 ring-[#adb3b4]/30" referrerPolicy="no-referrer" />
+    );
+  }
+
   if (user) {
     return (
       <span
