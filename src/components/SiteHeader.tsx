@@ -10,6 +10,7 @@ import { AppLogo } from "@/components/AppLogo";
 import { AuthButton } from "@/components/AuthButton";
 import { FeedbackDialog, FeedbackLink, GitHubLink, QQGroupDialog, QQGroupLink, TelegramLink } from "@/components/FeedbackLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 import { qqGroupNumber, telegramUrl } from "@/lib/community";
 
 const navItems = [
@@ -193,8 +194,8 @@ function MobileModuleDrawer({
 
         <div className="mt-4 border-t border-[var(--color-border-soft)] pt-3">
           <div className="space-y-1">
-            <Link
-              href="/login"
+            <a
+              href={buildGoogleAuthHref(getBrowserAuthNextPath())}
               onClick={onClose}
               className="flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-body)] transition hover:bg-[var(--color-surface-hover)]"
             >
@@ -202,7 +203,7 @@ function MobileModuleDrawer({
                 <Info size={17} />
                 登录 / 账户
               </span>
-            </Link>
+            </a>
             <Link
               href="/about"
               onClick={onClose}

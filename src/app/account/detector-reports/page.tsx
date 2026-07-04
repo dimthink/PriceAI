@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
+import { buildGoogleAuthHref } from "@/lib/auth-paths";
 import { listUserDetectorJobs } from "@/lib/account";
 import { buildDetectorReportAssetUrl, buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
 import type { TransitDetectorJob } from "@/lib/types";
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
 
 export default async function AccountDetectorReportsPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/login?next=/account/detector-reports");
+  if (!user) redirect(buildGoogleAuthHref("/account/detector-reports"));
 
   let jobs: TransitDetectorJob[] = [];
   let errorMessage = "";

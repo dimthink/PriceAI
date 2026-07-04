@@ -194,7 +194,7 @@ const upstreamOptions: Array<{ value: UpstreamType; label: string; detail: strin
   { value: "mixed_pool", label: "混合线路", detail: "需要多次采样，不同请求可能命中不同上游。" },
 ];
 
-export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstileSiteKey = "", loginHref = "/login?next=/api-transit/detector" }: DetectorClientProps) {
+export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstileSiteKey = "", loginHref = "/auth/google?next=%2Fapi-transit%2Fdetector" }: DetectorClientProps) {
   const runIdRef = useRef(0);
   const turnstileRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AlertTriangle, ExternalLink, Flag, ImageUp, Loader2, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { type ChangeEvent, type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CommunityPrompt } from "@/components/FeedbackLink";
+import { buildGoogleAuthHref } from "@/lib/auth-paths";
 import { isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
@@ -1499,7 +1500,7 @@ export function OfferFeedbackDialog({
 
   function buildLoginHref() {
     const next = typeof window === "undefined" ? `/products/${productSlug}` : `${window.location.pathname}${window.location.search}`;
-    return `/login?next=${encodeURIComponent(next)}`;
+    return buildGoogleAuthHref(next);
   }
 
   return (
