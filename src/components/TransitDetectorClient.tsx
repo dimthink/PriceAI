@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { TransitStandardModel } from "@/data/api-transit/types";
 import { getOfficialTransitModelPrice } from "@/lib/api-transit";
+import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { buildDetectorReportAssetUrl, buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
 
 type DetectorProtocol = "openai_chat" | "openai_responses" | "claude" | "gemini";
@@ -202,6 +203,10 @@ const longContextAddon: CostProfile = {
   requests: 4,
 };
 
+const DETECTOR_RESULTS_CACHE_KEY = "priceai:transit-detector:results:v1";
+const DETECTOR_RESULTS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const DETECTOR_RESULTS_CACHE_LIMIT = 12;
+
 const upstreamOptions: Array<{ value: UpstreamType; label: string; detail: string }> = [
   { value: "unknown", label: "暂不确定", detail: "先按未知来源处理，结论会更保守。" },
   { value: "official_api", label: "官方 API 转发", detail: "重点核验模型能力、Token 用量和响应特征。" },
@@ -231,6 +236,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   const [showApiKey, setShowApiKey] = useState(false);
   const [taskStatus, setTaskStatus] = useState<DetectionStatus | "idle">("idle");
   const [results, setResults] = useState<DetectionResult[]>([]);
+  const [resultsCacheReady, setResultsCacheReady] = useState(false);
   const [turnstileScriptReady, setTurnstileScriptReady] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileError, setTurnstileError] = useState("");
@@ -262,6 +268,25 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
     const failed = results.filter((item) => item.status === "error").length;
     return `${results.length} 次检测，${done} 次完成${failed ? `，${failed} 次失败` : ""}`;
   }, [results]);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      const cachedResults = readCachedDetectionResults();
+      if (cachedResults.length > 0) {
+        runIdRef.current = maxRunIdFromResults(cachedResults);
+        setResults(cachedResults);
+        setTaskStatus(cachedResults[0].status);
+      }
+      setResultsCacheReady(true);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
+
+  useEffect(() => {
+    if (!resultsCacheReady) return;
+    writeCachedDetectionResults(results);
+  }, [results, resultsCacheReady]);
 
   function handlePresetClick(preset: PresetModel) {
     setForcePreflight(false);
@@ -942,6 +967,98 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function readCachedDetectionResults(): DetectionResult[] {
+  const cachedResults = readSessionCache<unknown>(DETECTOR_RESULTS_CACHE_KEY, DETECTOR_RESULTS_CACHE_TTL_MS);
+  if (!Array.isArray(cachedResults)) return [];
+
+  return cachedResults
+    .map(parseCachedDetectionResult)
+    .filter((item): item is DetectionResult => Boolean(item))
+    .slice(0, DETECTOR_RESULTS_CACHE_LIMIT);
+}
+
+function writeCachedDetectionResults(results: DetectionResult[]) {
+  const cacheableResults = results
+    .filter((item) => item.status === "done" || item.status === "error")
+    .map(sanitizeDetectionResultForCache)
+    .slice(0, DETECTOR_RESULTS_CACHE_LIMIT);
+
+  writeSessionCache(DETECTOR_RESULTS_CACHE_KEY, cacheableResults);
+}
+
+function parseCachedDetectionResult(value: unknown): DetectionResult | null {
+  if (!isRecord(value)) return null;
+
+  const status = parseDetectionStatus(value.status);
+  if (status !== "done" && status !== "error") return null;
+
+  const localId = stringValue(value.localId);
+  const modelLabel = stringValue(value.modelLabel);
+  const model = stringValue(value.model);
+  const protocolLabel = stringValue(value.protocolLabel);
+  const modeLabel = stringValue(value.modeLabel);
+  const upstreamLabel = stringValue(value.upstreamLabel);
+  const message = stringValue(value.message);
+  const submittedAt = stringValue(value.submittedAt);
+  const costEstimateLabel = stringValue(value.costEstimateLabel);
+
+  if (!localId || !modelLabel || !model || !protocolLabel || !modeLabel || !upstreamLabel || !message || !submittedAt || !costEstimateLabel) {
+    return null;
+  }
+
+  return {
+    localId,
+    modelLabel,
+    model,
+    protocolLabel,
+    modeLabel,
+    upstreamLabel,
+    status,
+    message,
+    submittedAt,
+    costEstimateLabel,
+    jobId: stringValue(value.jobId) || undefined,
+    resultUrl: stringValue(value.resultUrl) || undefined,
+    jsonUrl: stringValue(value.jsonUrl) || undefined,
+    imageUrl: stringValue(value.imageUrl) || undefined,
+    errorCode: stringValue(value.errorCode) || undefined,
+    canForceSubmit: typeof value.canForceSubmit === "boolean" ? value.canForceSubmit : undefined,
+  };
+}
+
+function sanitizeDetectionResultForCache(result: DetectionResult): DetectionResult {
+  return {
+    localId: result.localId,
+    modelLabel: result.modelLabel,
+    model: result.model,
+    protocolLabel: result.protocolLabel,
+    modeLabel: result.modeLabel,
+    upstreamLabel: result.upstreamLabel,
+    status: result.status,
+    message: result.message,
+    submittedAt: result.submittedAt,
+    costEstimateLabel: result.costEstimateLabel,
+    jobId: result.jobId,
+    resultUrl: result.resultUrl,
+    jsonUrl: result.jsonUrl,
+    imageUrl: result.imageUrl,
+    errorCode: result.errorCode,
+    canForceSubmit: result.canForceSubmit,
+  };
+}
+
+function parseDetectionStatus(value: unknown): DetectionStatus | null {
+  if (value === "queued" || value === "running" || value === "done" || value === "error") return value;
+  return null;
+}
+
+function maxRunIdFromResults(results: DetectionResult[]) {
+  return results.reduce((maxValue, item) => {
+    const nextValue = Number.parseInt(item.localId.split("-")[0] ?? "", 10);
+    return Number.isFinite(nextValue) ? Math.max(maxValue, nextValue) : maxValue;
+  }, 0);
 }
 
 interface DetectorErrorView {
