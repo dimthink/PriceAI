@@ -433,7 +433,7 @@ function productOffersCacheKey(
   query = "",
   excludeQuery = "",
 ): string {
-  return `priceai:product-offers:v10:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}`;
+  return `priceai:product-offers:v11-risk-feedback:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}`;
 }
 
 function rememberProductOffers(cacheKey: string, value: ProductOffersResponse) {

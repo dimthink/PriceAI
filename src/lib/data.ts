@@ -89,6 +89,7 @@ const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET = 0;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS = OFFER_FILTER_TAGS.map((tag) => tag.id);
 const PUBLIC_OFFERS_SNAPSHOT_KEY = `default:limit:${PUBLIC_OFFERS_SNAPSHOT_LIMIT}`;
 const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
+const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION = "v2-risk-feedback";
 const PUBLIC_LIST_SNAPSHOT_STOCKS = ["available"] as const;
 const PUBLIC_LIST_SNAPSHOT_SORTS = ["updated"] as const;
 const PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS = ["shopApi", "dujiao", "kami", "other"] as const;
@@ -2163,9 +2164,9 @@ function isDefaultOfferListSnapshotKey(key: string | null): boolean {
 
 function publicProductOffersSnapshotKey(id: string, filterTags: OfferFilterTagId[] = []): string {
   if (filterTags.length === 1) {
-    return `tag:${filterTags[0]}:${id}:limit:${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT}`;
+    return `${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION}:tag:${filterTags[0]}:${id}:limit:${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT}`;
   }
-  return `default:${id}:limit:${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT}`;
+  return `${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION}:default:${id}:limit:${PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT}`;
 }
 
 function filterAdminOfferMaintenanceRows(offers: RawOffer[], query: string): RawOffer[] {
@@ -2839,7 +2840,7 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   const filterTags = parseOfferFilterTagsForProduct(filterProductId, filters.filterTags || []);
   const query = normalizeProductOfferQuery(filters.query);
   const excludeQuery = normalizeProductOfferQuery(filters.excludeQuery, 160);
-  const cacheKey = `${id}:${limit}:${offset}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:offer-filter-v4`;
+  const cacheKey = `${id}:${limit}:${offset}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:offer-filter-v5-risk-feedback`;
   const now = Date.now();
   const cached = productOffersCache.get(cacheKey);
 
@@ -3020,7 +3021,9 @@ async function getPublicProductOffersFromDatabase(
     return null;
   })) ?? []);
   const rows = ((data || []) as unknown as Record<string, unknown>[]);
-  const offers = await attachSourceCollectorKinds(rows.map(mapRawOffer));
+  const offers = await attachPublicRiskFeedbackForOffers(
+    await attachSourceCollectorKinds(rows.map(mapRawOffer)),
+  );
   const total = rows.length ? Number(rows[0].total_count || rows.length) : 0;
 
   return {
@@ -3632,7 +3635,9 @@ async function listPublicOffersFromDatabase(filters: OfferListFilters = {}) {
   const total = rows.length === allRows.length
     ? rows.length ? Number(rows[0].total_count || rows.length) : 0
     : rows.length;
-  const offers = await attachSourceCollectorKinds(rows.map((row) => mapRawOffer(row)));
+  const offers = await attachPublicRiskFeedbackForOffers(
+    await attachSourceCollectorKinds(rows.map((row) => mapRawOffer(row))),
+  );
   const products = publicCatalogProducts(canonicalCatalog)
     .map(makeEmptyProductGroup)
     .map(toExplorerProductSummary);
@@ -3916,16 +3921,13 @@ function isPublicOfferForProducts(offer: RawOffer, products: CanonicalProduct[])
 }
 
 async function listPublicRiskFeedbackSummary(): Promise<PublicRiskFeedbackSummary> {
-  const empty = {
-    byOfferId: new Map<string, PublicRiskFeedbackAggregate>(),
-    bySourceId: new Map<string, PublicRiskFeedbackAggregate>(),
-  };
+  const empty = emptyPublicRiskFeedbackSummary();
   const supabase = getSupabaseServerClient();
   if (!supabase) return empty;
 
   const { data, error } = await supabase
     .from("offer_feedback")
-    .select("offer_id,source_id,ai_review_result,created_at")
+    .select("id,offer_id,source_id,ai_review_result,created_at")
     .not("ai_review_result", "is", null)
     .neq("status", "ignored")
     .order("created_at", { ascending: false })
@@ -3937,8 +3939,76 @@ async function listPublicRiskFeedbackSummary(): Promise<PublicRiskFeedbackSummar
     return empty;
   }
 
-  const summary = empty;
-  for (const row of (data || []) as Array<Record<string, unknown>>) {
+  return buildPublicRiskFeedbackSummaryFromRows((data || []) as Array<Record<string, unknown>>);
+}
+
+async function listPublicRiskFeedbackSummaryForOffers(offers: RawOffer[]): Promise<PublicRiskFeedbackSummary> {
+  const empty = emptyPublicRiskFeedbackSummary();
+  const supabase = getSupabaseServerClient();
+  if (!supabase || !offers.length) return empty;
+
+  const offerIds = uniqueStrings(offers.map((offer) => offer.id));
+  const sourceIds = uniqueStrings(offers.map((offer) => offer.sourceId || null));
+  if (!offerIds.length && !sourceIds.length) return empty;
+
+  const rowBatches: Array<Array<Record<string, unknown>>> = [];
+
+  if (offerIds.length) {
+    const { data, error } = await supabase
+      .from("offer_feedback")
+      .select("id,offer_id,source_id,ai_review_result,created_at")
+      .not("ai_review_result", "is", null)
+      .neq("status", "ignored")
+      .in("offer_id", offerIds)
+      .order("created_at", { ascending: false })
+      .limit(1000)
+      .abortSignal(publicSupabaseReadSignal());
+
+    if (error) {
+      console.warn("Public offer risk feedback read failed:", error.message);
+    } else {
+      rowBatches.push((data || []) as Array<Record<string, unknown>>);
+    }
+  }
+
+  if (sourceIds.length) {
+    const { data, error } = await supabase
+      .from("offer_feedback")
+      .select("id,offer_id,source_id,ai_review_result,created_at")
+      .not("ai_review_result", "is", null)
+      .neq("status", "ignored")
+      .in("source_id", sourceIds)
+      .order("created_at", { ascending: false })
+      .limit(1000)
+      .abortSignal(publicSupabaseReadSignal());
+
+    if (error) {
+      console.warn("Public source risk feedback read failed:", error.message);
+    } else {
+      rowBatches.push((data || []) as Array<Record<string, unknown>>);
+    }
+  }
+
+  return buildPublicRiskFeedbackSummaryFromRows(dedupePublicRiskFeedbackRows(rowBatches.flat()));
+}
+
+async function attachPublicRiskFeedbackForOffers(offers: RawOffer[]): Promise<RawOffer[]> {
+  if (!offers.length) return offers;
+
+  return attachPublicRiskFeedback(offers, await listPublicRiskFeedbackSummaryForOffers(offers));
+}
+
+function emptyPublicRiskFeedbackSummary(): PublicRiskFeedbackSummary {
+  return {
+    byOfferId: new Map<string, PublicRiskFeedbackAggregate>(),
+    bySourceId: new Map<string, PublicRiskFeedbackAggregate>(),
+  };
+}
+
+function buildPublicRiskFeedbackSummaryFromRows(rows: Array<Record<string, unknown>>): PublicRiskFeedbackSummary {
+  const summary = emptyPublicRiskFeedbackSummary();
+
+  for (const row of rows) {
     const offerId = typeof row.offer_id === "string" ? row.offer_id : null;
     const sourceId = typeof row.source_id === "string" ? row.source_id : null;
     const createdAt = typeof row.created_at === "string" ? row.created_at : null;
@@ -3960,6 +4030,17 @@ async function listPublicRiskFeedbackSummary(): Promise<PublicRiskFeedbackSummar
   }
 
   return summary;
+}
+
+function dedupePublicRiskFeedbackRows(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const id = typeof row.id === "string" ? row.id : null;
+    if (!id) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function attachPublicRiskFeedback(offers: RawOffer[], summary: PublicRiskFeedbackSummary): RawOffer[] {
@@ -4464,6 +4545,10 @@ function comparePublicMerchants(a: PublicMerchantSummary, b: PublicMerchantSumma
 function arrayFromRow(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map(String).filter(Boolean);
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
 }
 
 function offerHost(value: string | null | undefined): string | null {

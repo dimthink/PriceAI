@@ -2485,7 +2485,7 @@ async function fetchMerchantPage(
 }
 
 function offerListCacheKey(queryString: string, offset: number): string {
-  return `priceai:offers:v3:${queryString || "all"}:${offset}:${OFFER_PAGE_SIZE}`;
+  return `priceai:offers:v4-risk-feedback:${queryString || "all"}:${offset}:${OFFER_PAGE_SIZE}`;
 }
 
 function merchantListCacheKey(queryString: string, offset: number): string {
