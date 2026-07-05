@@ -1388,7 +1388,7 @@ function PriceGroupMobileCard({
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <MobilePriceFact label="充值折算" value={formatRate(group.rechargeCoefficient)} />
+        <MobilePriceFact label="充值倍率" value={formatRate(group.rechargeCoefficient)} />
         <MobilePriceFact label="模型倍率" value={group.modelMultiplierLabel} />
         <MobilePriceFact label="缓存命中率" value={formatCacheHitRate(group.cacheUsage)} />
         <MobilePriceFact label="覆盖" value={`${group.prices.length} 个模型`} />
@@ -1501,7 +1501,7 @@ function PriceGroupRow({
           {formatRate(group.combinedRate)}
         </span>
         <div className="mt-2 space-y-1 text-[11px] font-semibold text-[#5a6061]">
-          <div title={TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}>充值折算 {formatRate(group.rechargeCoefficient)}</div>
+          <div title={TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}>充值倍率 {formatRate(group.rechargeCoefficient)}</div>
           <div title={TRANSIT_MODEL_MULTIPLIER_EXPLANATION}>模型倍率 {group.modelMultiplierLabel}</div>
           <div>{group.prices.length} 个模型</div>
         </div>

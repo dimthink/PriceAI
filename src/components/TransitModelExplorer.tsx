@@ -318,7 +318,7 @@ function ModelExpandedPanel({ summary, stationId }: { summary: TransitModelSumma
           <p className="text-sm font-extrabold text-[#202829]">
             {selectedStation ? selectedStation.name : "全部站点"} · {summary.standardModel}
           </p>
-          <p className="mt-1 text-xs text-[#5a6061]">展示该模型在对应站点/分组下的官方价、换算价、充值折算、模型倍率和综合倍率。</p>
+          <p className="mt-1 text-xs text-[#5a6061]">展示该模型在对应站点/分组下的官方价、换算价、充值倍率、模型倍率和综合倍率。</p>
         </div>
         {selectedStation ? (
           <Link
@@ -339,7 +339,7 @@ function ModelExpandedPanel({ summary, stationId }: { summary: TransitModelSumma
               <DataTableHead explanation={TRANSIT_MODEL_MULTIPLIER_EXPLANATION}>模型倍率</DataTableHead>
               <DataTableHead explanation={TRANSIT_COMBINED_RATE_EXPLANATION}>综合倍率</DataTableHead>
               <DataTableHead>输入 / 输出</DataTableHead>
-              <DataTableHead explanation={TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}>充值折算</DataTableHead>
+              <DataTableHead explanation={TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}>充值倍率</DataTableHead>
               <DataTableHead>渠道 / 号池</DataTableHead>
               <DataTableHead>确认时间</DataTableHead>
             </tr>

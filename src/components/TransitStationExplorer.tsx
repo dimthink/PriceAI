@@ -403,16 +403,17 @@ function RechargeRatioDisplay({ station }: { station: TransitStation }) {
     getStationRechargeCoefficient(station);
 
   if (!ratioText || coefficient === null) {
-    return <span className="text-xs text-[#7f8889]">未公开</span>;
+    return <span className="rounded-full bg-[#f2f4f4] px-2 py-0.5 text-[11px] font-semibold text-[#7f8889]">未公开</span>;
   }
 
   return (
     <span
-      className="inline-flex items-center gap-1.5"
+      className="inline-flex items-center gap-1 rounded-full bg-[#f2f4f4] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#5a6061]"
       title={rechargeRatioTitle(primaryRatioText, ratioText)}
     >
-      <span className="font-bold text-[#2d3435]">{formatRate(coefficient)}</span>
-      <span className="rounded-full bg-[#eef3f8] px-1.5 py-0.5 text-[10px] font-bold text-[#47657a]">{ratioText}</span>
+      <span className="font-extrabold text-[#2d3435]">{formatRate(coefficient)}</span>
+      <span className="text-[#9aa2a3]">·</span>
+      <span className="text-[10px] font-bold text-[#47657a]">{ratioText}</span>
     </span>
   );
 }
@@ -426,7 +427,7 @@ function getDisplayRechargeRatio(text: string | null): string | null {
 function rechargeRatioTitle(originalText: string | null, displayRatio: string): string {
   const quota = parseRechargeRatio(displayRatio);
   const quotaText = quota === null ? "未解析" : `1 元约等于 ${quota.toFixed(2)} 站内额度`;
-  const suffix = "这里只影响充值折算，不代表模型倍率。";
+  const suffix = "这里只影响充值倍率，不代表模型倍率。";
   return originalText && originalText !== displayRatio
     ? `充值比例：${displayRatio}；原始说明：${originalText}；${quotaText}；${suffix}`
     : `充值比例：${displayRatio}；${quotaText}；${suffix}`;
@@ -493,8 +494,8 @@ function PriceBreakdownCell({
 
   return (
     <div className={compact ? "space-y-1" : "min-w-[166px] space-y-1"}>
-      <div className="flex items-center justify-between gap-2 rounded-md bg-[#f2f4f4] px-2 py-1 text-[11px]">
-        <span className="font-semibold text-[#5a6061]">充值折算</span>
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+        <span className="shrink-0 text-[10px] font-extrabold text-[#7f8889]">充值倍率</span>
         <RechargeRatioDisplay station={station} />
       </div>
       <div className="flex items-start gap-1.5 text-[11px] font-semibold">
