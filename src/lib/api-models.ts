@@ -187,6 +187,7 @@ const incompletePublicApiOfferIds = new Set([
   "ctyun-xirang-deepseek-flash",
   "ctyun-xirang-glm51",
   "fireworks-fire-pass-kimi-k26",
+  "google-gemini-omni-flash",
   "glm-coding-glm5",
   "glm-coding-glm51",
   "volcengine-ark-deepseek-flash",
@@ -221,8 +222,8 @@ const claudePricingUrl = "https://claude.com/pricing";
 const geminiApiPricingUrl = "https://ai.google.dev/gemini-api/docs/pricing";
 const googleAiPlansUrl = "https://one.google.com/intl/en_us/about/google-ai-plans/";
 const geminiModelDocsUrl = "https://ai.google.dev/gemini-api/docs/models";
-const bytePlusSeedanceDocsUrl = "https://docs.byteplus.com/en/docs/ModelArk/1520757";
-const klingVideoDocsUrl = "https://app.klingai.com/global/dev/document-api/apiReference/model/video";
+const bytePlusSeedancePricingUrl = "https://docs.byteplus.com/en/docs/ModelArk/2191775";
+const klingPricingUrl = "https://kling.ai/dev/pricing";
 
 export const apiModelUpdatedAt = "2026-06-07";
 export const apiMediaModelUpdatedAt = "2026-07-03";
@@ -840,7 +841,7 @@ export const apiModels: ApiModel[] = [
     displayName: "GPT Image 2",
     family: "图片生成",
     modelId: "gpt-image-2",
-    description: "OpenAI 图片生成标准模型，沿用中转 API 图片生成分组，主要作为官方输入、缓存和图片输出价格基准。",
+    description: "OpenAI 图片生成标准模型，沿用中转 API 图片生成分组，主要作为官方提示/参考图、缓存输入和生成图片价格基准。",
     sourceUrl: openAiPricingUrl,
     sourceLabel: "OpenAI API Pricing",
     capabilities: ["image-generation", "multimodal"],
@@ -948,7 +949,7 @@ export const apiModels: ApiModel[] = [
     displayName: "Gemini Omni Flash",
     family: "视频生成",
     modelId: "gemini-omni-flash",
-    description: "Google Gemini 视频/全模态标准模型，沿用中转 API 视频生成分组，当前先保留官方模型文档入口和待结构化价格。",
+    description: "Google Gemini 视频/全模态标准模型，沿用中转 API 视频生成分组；价格未进入公开基准表前不展示为标准模型。",
     sourceUrl: geminiModelDocsUrl,
     sourceLabel: "Google Gemini Models",
     capabilities: ["video-generation", "multimodal"],
@@ -960,24 +961,24 @@ export const apiModels: ApiModel[] = [
     displayName: "Seedance 2.0",
     family: "视频生成",
     modelId: "seedance-2.0",
-    description: "BytePlus ModelArk 视频生成标准模型，沿用中转 API 视频生成分组，当前先保留官方文档入口和待结构化价格。",
-    sourceUrl: bytePlusSeedanceDocsUrl,
-    sourceLabel: "BytePlus ModelArk Docs",
+    description: "BytePlus ModelArk 视频生成标准模型，官方以 video tokens 和资源包扣减口径计费。",
+    sourceUrl: bytePlusSeedancePricingUrl,
+    sourceLabel: "BytePlus ModelArk Seedance Pricing",
     capabilities: ["video-generation"],
     suitableTools: ["自建应用", "ModelArk"],
-    updatedAt: apiMediaModelUpdatedAt,
+    updatedAt: apiOfficialPlatformUpdatedAt,
   },
   {
     id: "kling-2-5-turbo",
     displayName: "Kling 2.5 Turbo",
     family: "视频生成",
     modelId: "kling-2.5-turbo",
-    description: "Kling API 视频生成标准模型，沿用中转 API 视频生成分组，当前先保留官方 API 文档入口和待结构化价格。",
-    sourceUrl: klingVideoDocsUrl,
-    sourceLabel: "Kling API Docs",
+    description: "Kling API 视频生成标准模型，官方按资源包 Units 和视频规格扣减计费。",
+    sourceUrl: klingPricingUrl,
+    sourceLabel: "Kling API Pricing",
     capabilities: ["video-generation"],
     suitableTools: ["自建应用", "Kling API"],
-    updatedAt: apiMediaModelUpdatedAt,
+    updatedAt: apiOfficialPlatformUpdatedAt,
   },
 ];
 
@@ -1019,7 +1020,7 @@ export const apiProviders: ApiProvider[] = [
     pricingUrl: "https://help.aliyun.com/zh/model-studio/model-pricing",
     logoUrl: "/brand-icons/qwen.png",
     description: "阿里云百炼官方 Qwen / 通义千问模型 API，按输入、输出和上下文长度阶梯计费，适合作为 Qwen 官方价格基准。",
-    limitSummary: "部分模型提供新用户免费额度，Batch 调用和上下文缓存折扣以阿里云百炼价格页为准。",
+    limitSummary: "部分模型提供新用户免费额度；主表展示已结构化的实时推理输入/输出原价。",
     limitations: "价格分中国内地部署范围和具体模型阶梯；长上下文请求会进入更高价格档位。",
     sourceLabel: "阿里云百炼模型价格",
     updatedAt: apiModelUpdatedAt,
@@ -1229,7 +1230,7 @@ export const apiProviders: ApiProvider[] = [
     pricingUrl: openAiPricingUrl,
     logoUrl: "/brand-icons/chatgpt.svg",
     description: "OpenAI 官方 API。用于 GPT 文本模型、GPT Image、Sora 等模型的官方按量价格和文档基准。",
-    limitSummary: "GPT 文本模型按输入、缓存输入和输出计费；图片/视频生成另按模型、尺寸和时长计费，以 OpenAI 官方页面为准。",
+    limitSummary: "GPT 文本模型按输入、缓存输入和输出计费；图片/视频生成分别按图片 tokens、图片张数等价或视频秒数展示。",
     limitations: "ChatGPT Plus/Pro 等产品订阅不抵扣 API 费用；API 额度、速率和可用模型以 OpenAI Platform 控制台为准。",
     sourceLabel: "OpenAI API Pricing",
     updatedAt: apiOfficialPlatformUpdatedAt,
@@ -1310,13 +1311,13 @@ export const apiProviders: ApiProvider[] = [
     type: "official",
     billingMode: "按量计费",
     url: "https://www.byteplus.com/en/product/modelark",
-    pricingUrl: bytePlusSeedanceDocsUrl,
+    pricingUrl: bytePlusSeedancePricingUrl,
     logoUrl: "/brand-icons/volcengine.png",
     description: "BytePlus ModelArk 官方模型服务。当前用于定位 Seedance 2.0 视频生成模型的官方文档和价格基准。",
-    limitSummary: "模型调用限制、地区和价格以 BytePlus ModelArk 官方文档与控制台为准。",
-    limitations: "Seedance 相关价格和能力会随地区、模型版本和商业策略变化，当前先展示官方文档入口。",
-    sourceLabel: "BytePlus ModelArk Docs",
-    updatedAt: apiMediaModelUpdatedAt,
+    limitSummary: "Seedance 2.0 官方以 video tokens 和资源包扣减口径计费。",
+    limitations: "分辨率、是否包含视频输入和模型版本会影响 token 单价；主表展示已解析的公开价格区间。",
+    sourceLabel: "BytePlus ModelArk Seedance Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
   },
   {
     id: "kling-api",
@@ -1324,13 +1325,13 @@ export const apiProviders: ApiProvider[] = [
     type: "official",
     billingMode: "按量计费",
     url: "https://klingai.com/",
-    pricingUrl: klingVideoDocsUrl,
+    pricingUrl: klingPricingUrl,
     logoUrl: "/brand-icons/kling.png",
     description: "Kling 官方视频生成 API。当前用于定位 Kling 2.5 Turbo 的官方模型文档和价格基准。",
-    limitSummary: "模型调用、任务队列、分辨率和价格以 Kling 官方 API 文档与控制台为准。",
-    limitations: "Kling 视频生成价格和模型版本可能调整，当前先展示官方 API 文档入口。",
-    sourceLabel: "Kling API Docs",
-    updatedAt: apiMediaModelUpdatedAt,
+    limitSummary: "Kling 2.5 Turbo 按 5s/10s、std/pro 规格扣减资源包 Units。",
+    limitations: "主表折算为无音频 std/pro 每秒价；带音频、扩展和更多能力按 Kling Pricing 里的具体规格扣减。",
+    sourceLabel: "Kling API Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
   },
   {
     id: "stepfun-step-plan",
@@ -2446,45 +2447,40 @@ export const apiModelOffers: ApiModelOffer[] = [
     routeModelId: "qwen3.7-max",
     inputPrice: cny(12),
     outputPrice: cny(36),
-    cacheReadPrice: textPrice("上下文缓存享有折扣，具体折扣以百炼价格页为准"),
     freeOrPlan: "阿里云百炼官方按量计费。",
-    limitations: "官方价格页按模型和部署范围展示；Batch 调用和缓存折扣需看百炼当前规则。",
+    limitations: "Batch 调用按实时推理价格 50% 计费；上下文缓存仅输入 tokens 享折扣，主表不展开为固定缓存价。",
     compatibility: ["OpenAI-compatible", "Coding Agent", "中文模型"],
   }),
   offer("qwen-official-qwen37-plus", "qwen3-7-plus", "qwen-official", {
     routeModelId: "qwen3.7-plus",
     inputPrice: cny(2),
     outputPrice: cny(8),
-    cacheReadPrice: textPrice("上下文缓存享有折扣，具体折扣以百炼价格页为准"),
     freeOrPlan: "阿里云百炼官方按量计费。",
-    limitations: "当前结构化价格取 0-256K 档；256K-1M 档为输入 ¥6/M、输出 ¥24/M。",
+    limitations: "当前结构化价格取 0-256K 档；256K-1M 档为输入 ¥6/M、输出 ¥24/M；Batch 为实时推理 50%。",
     compatibility: ["OpenAI-compatible", "Coding Agent", "中文模型"],
   }),
   offer("qwen-official-qwen36-plus", "qwen3-6-plus", "qwen-official", {
     routeModelId: "qwen3.6-plus",
     inputPrice: cny(2),
     outputPrice: cny(12),
-    cacheReadPrice: textPrice("上下文缓存享有折扣，具体折扣以百炼价格页为准"),
     freeOrPlan: "阿里云百炼官方按量计费。",
-    limitations: "当前结构化价格取 0-256K 档；256K-1M 档为输入 ¥8/M、输出 ¥48/M。",
+    limitations: "当前结构化价格取 0-256K 档；256K-1M 档为输入 ¥8/M、输出 ¥48/M；Batch 为实时推理 50%。",
     compatibility: ["OpenAI-compatible", "Coding Agent", "中文模型"],
   }),
   offer("qwen-official-qwen35-plus", "qwen3-5-plus", "qwen-official", {
     routeModelId: "qwen3.5-plus",
     inputPrice: cny(0.8),
     outputPrice: cny(4.8),
-    cacheReadPrice: textPrice("上下文缓存享有折扣，具体折扣以百炼价格页为准"),
     freeOrPlan: "阿里云百炼官方按量计费。",
-    limitations: "当前结构化价格取 0-128K 档；128K-256K 为 ¥2/¥12，256K-1M 为 ¥4/¥24。",
+    limitations: "当前结构化价格取 0-128K 档；128K-256K 为 ¥2/¥12，256K-1M 为 ¥4/¥24；Batch 为实时推理 50%。",
     compatibility: ["OpenAI-compatible", "Coding Agent", "中文模型", "视觉"],
   }),
   offer("qwen-official-qwen3-coder-plus", "qwen3-coder-plus", "qwen-official", {
     routeModelId: "qwen3-coder-plus",
     inputPrice: cny(4),
     outputPrice: cny(16),
-    cacheReadPrice: textPrice("上下文缓存享有折扣，具体折扣以百炼价格页为准"),
     freeOrPlan: "阿里云百炼官方按量计费。",
-    limitations: "当前结构化价格取 0-32K 档；32K-128K 为 ¥6/¥24，128K-256K 为 ¥10/¥40，256K-1M 为 ¥20/¥200。",
+    limitations: "当前结构化价格取 0-32K 档；32K-128K 为 ¥6/¥24，128K-256K 为 ¥10/¥40，256K-1M 为 ¥20/¥200；Batch 为实时推理 50%。",
     compatibility: ["OpenAI-compatible", "Coding Agent", "中文模型"],
   }),
   offer("kimi-official-k26", "kimi-k2-6", "kimi-official", {
@@ -2699,9 +2695,41 @@ export function formatApiBillingMode(value: ApiBillingMode) {
 }
 
 export function getApiOutputPriceLabel(family: string) {
-  if (isImageGenerationFamily(family)) return "图片输出";
-  if (isVideoGenerationFamily(family)) return "视频输出";
-  return "输出";
+  return getApiBenchmarkPriceLabels(family).output;
+}
+
+export type ApiBenchmarkPriceLabels = {
+  input: string;
+  output: string;
+  cacheWrite: string;
+  cacheRead: string;
+};
+
+export function getApiBenchmarkPriceLabels(family: string | null | undefined): ApiBenchmarkPriceLabels {
+  if (family && isImageGenerationFamily(family)) {
+    return {
+      input: "提示/参考图",
+      output: "生成图片",
+      cacheWrite: "批量/低价",
+      cacheRead: "缓存输入",
+    };
+  }
+
+  if (family && isVideoGenerationFamily(family)) {
+    return {
+      input: "输入素材",
+      output: "生成视频",
+      cacheWrite: "批量/低价",
+      cacheRead: "备注",
+    };
+  }
+
+  return {
+    input: "输入",
+    output: "输出",
+    cacheWrite: "缓存写入",
+    cacheRead: "缓存读取",
+  };
 }
 
 export function getApiPrimaryPriceValue(offer: {
@@ -3003,11 +3031,11 @@ function offer(
 
 function officialMediaGenerationOffers(): ApiModelOffer[] {
   const pendingVideoPrice = {
-    inputPrice: textPrice("待官方价格结构化"),
-    outputPrice: textPrice("待官方视频输出价格结构化"),
-    cacheReadPrice: textPrice("以官方价格页为准"),
-    freeOrPlan: "官方按量计费口径待结构化，先展示官方文档入口。",
-    limitations: "具体价格可能受模型版本、分辨率、时长、地区和账号权限影响，最终以官方文档和控制台为准。",
+    inputPrice: textPrice("-"),
+    outputPrice: textPrice("-"),
+    cacheReadPrice: textPrice("-"),
+    freeOrPlan: "公开价格未进入基准库，前台不展示为标准模型。",
+    limitations: "需要补齐可核验价格单位后再展示。",
     compatibility: ["官方 API", "视频生成", "多模态"],
     suitableTools: ["自建应用", "Open WebUI"],
   };
@@ -3016,10 +3044,10 @@ function officialMediaGenerationOffers(): ApiModelOffer[] {
     offer("openai-gpt-image-2", "gpt-image-2", "openai-official", {
       routeModelId: "gpt-image-2",
       inputPrice: usd(8),
-      outputPrice: usd(30),
+      outputPrice: textPrice("$30 / 1M image tokens"),
       cacheReadPrice: usd(2),
-      freeOrPlan: "OpenAI 官方按量计费，图片输出价格作为该模型的主要价格基准。",
-      limitSummary: "图片输入 $8、图片 cached input $2、图片输出 $30 / 1M tokens。",
+      freeOrPlan: "OpenAI 官方按量计费，生成图片价格作为该模型的主要价格基准。",
+      limitSummary: "图片提示/参考图 $8、图片 cached input $2、生成图片 $30 / 1M image tokens。",
       limitations: "标准模型表取图片模态价格；同页文本输入为 $5/1M tokens、文本 cached input 为 $1.25/1M tokens。",
       compatibility: ["官方 API", "图片生成", "OpenAI-compatible"],
       suitableTools: ["自建应用", "Open WebUI"],
@@ -3030,10 +3058,10 @@ function officialMediaGenerationOffers(): ApiModelOffer[] {
     offer("google-nano-banana-pro", "nano-banana-pro", "google-gemini-api", {
       routeModelId: "gemini-3-pro-image",
       inputPrice: usd(2),
-      outputPrice: usd(120),
-      freeOrPlan: "Google Gemini API 付费层按量计费，图片输出按 image tokens 折算。",
-      limitSummary: "输入 $2/1M tokens；图片输出 $120/1M tokens，约 $0.134/张 1K/2K 或 $0.24/张 4K。",
-      limitations: "标准模型表输出列取图片输出 token 价；同页文本/思考输出为 $12/1M tokens，Batch/Flex/Priority 另有价格。",
+      outputPrice: textPrice("$0.134-$0.24 / image"),
+      freeOrPlan: "Google Gemini API 付费层按量计费，生成图片按 image tokens 折算。",
+      limitSummary: "提示/参考图 $2/1M tokens；生成图片 $120/1M tokens，约 $0.134/张 1K/2K 或 $0.24/张 4K。",
+      limitations: "标准模型表展示生成图片折算价；同页文本/思考输出为 $12/1M tokens，Batch/Flex/Priority 另有价格。",
       compatibility: ["官方 API", "图片生成", "Gemini API"],
       suitableTools: ["自建应用", "Open WebUI"],
       sourceLabel: "Gemini API Pricing",
@@ -3043,10 +3071,10 @@ function officialMediaGenerationOffers(): ApiModelOffer[] {
     offer("google-nano-banana-2", "nano-banana-2", "google-gemini-api", {
       routeModelId: "gemini-3.1-flash-image",
       inputPrice: usd(0.5),
-      outputPrice: usd(60),
-      freeOrPlan: "Google Gemini API 付费层按量计费，图片输出按 image tokens 折算。",
-      limitSummary: "输入 $0.50/1M tokens；图片输出 $60/1M tokens，约 $0.045-$0.151/张。",
-      limitations: "标准模型表输出列取图片输出 token 价；同页文本/思考输出为 $3/1M tokens，Batch 约半价。",
+      outputPrice: textPrice("$0.045-$0.151 / image"),
+      freeOrPlan: "Google Gemini API 付费层按量计费，生成图片按 image tokens 折算。",
+      limitSummary: "提示/参考图 $0.50/1M tokens；生成图片 $60/1M tokens，约 $0.045-$0.151/张。",
+      limitations: "标准模型表展示生成图片折算价；同页文本/思考输出为 $3/1M tokens，Batch 约半价。",
       compatibility: ["官方 API", "图片生成", "Gemini API"],
       suitableTools: ["自建应用", "Open WebUI"],
       sourceLabel: "Gemini API Pricing",
@@ -3057,9 +3085,9 @@ function officialMediaGenerationOffers(): ApiModelOffer[] {
       routeModelId: "gemini-2.5-flash-image",
       inputPrice: usd(0.3),
       outputPrice: textPrice("$0.039 / image"),
-      freeOrPlan: "Google Gemini API 付费层按量计费，图片输出也可按单张价格理解。",
-      limitSummary: "输入 $0.30/1M tokens；图片输出约 $0.039/张，Batch/Flex 约 $0.0195/张。",
-      limitations: "官方说明图片输出等效 $30/1M tokens，每张 1024x1024 图片约消耗 1290 output tokens。",
+      freeOrPlan: "Google Gemini API 付费层按量计费，生成图片也可按单张价格理解。",
+      limitSummary: "提示/参考图 $0.30/1M tokens；生成图片约 $0.039/张，Batch/Flex 约 $0.0195/张。",
+      limitations: "官方说明生成图片等效 $30/1M image tokens，每张 1024x1024 图片约消耗 1290 image output tokens。",
       compatibility: ["官方 API", "图片生成", "Gemini API"],
       suitableTools: ["自建应用", "Open WebUI"],
       sourceLabel: "Gemini API Pricing",
@@ -3069,10 +3097,10 @@ function officialMediaGenerationOffers(): ApiModelOffer[] {
     offer("google-nano-banana-lite", "nano-banana-lite", "google-gemini-api", {
       routeModelId: "gemini-3.1-flash-lite-image",
       inputPrice: usd(0.25),
-      outputPrice: usd(30),
-      freeOrPlan: "Google Gemini API 付费层按量计费，图片输出按 image tokens 折算。",
-      limitSummary: "输入 $0.25/1M tokens；图片输出 $30/1M tokens，约 $0.0336/张 1K 图。",
-      limitations: "标准模型表输出列取图片输出 token 价；同页文本/思考输出为 $1.50/1M tokens。",
+      outputPrice: textPrice("$0.0336 / image"),
+      freeOrPlan: "Google Gemini API 付费层按量计费，生成图片按 image tokens 折算。",
+      limitSummary: "提示/参考图 $0.25/1M tokens；生成图片 $30/1M tokens，约 $0.0336/张 1K 图。",
+      limitations: "标准模型表展示生成图片折算价；同页文本/思考输出为 $1.50/1M tokens。",
       compatibility: ["官方 API", "图片生成", "Gemini API"],
       suitableTools: ["自建应用", "Open WebUI"],
       sourceLabel: "Gemini API Pricing",
@@ -3142,16 +3170,32 @@ function officialMediaGenerationOffers(): ApiModelOffer[] {
       pricingUrl: geminiModelDocsUrl,
     }),
     offer("byteplus-seedance-2-0", "seedance-2-0", "byteplus-modelark", {
-      ...pendingVideoPrice,
       routeModelId: "seedance-2.0",
-      sourceLabel: "BytePlus ModelArk Docs",
-      pricingUrl: bytePlusSeedanceDocsUrl,
+      inputPrice: textPrice("-"),
+      outputPrice: textPrice("$0.0035-$0.0077 / 1K video tokens"),
+      cacheReadPrice: textPrice("-"),
+      freeOrPlan: "BytePlus ModelArk 按 Seedance 2.0 video tokens 消耗计费，资源包和后付费均按 token 扣减。",
+      limitSummary: "Seedance 2.0 resource pack：1M tokens $4.3；480p/720p 与 1080p 按是否包含视频输入有不同 token 单价。",
+      limitations: "官方口径是 video tokens 单价，不是固定每秒价；分辨率和是否包含视频输入会改变实际消耗。",
+      compatibility: ["官方 API", "视频生成", "BytePlus ModelArk"],
+      suitableTools: ["自建应用", "ModelArk"],
+      sourceLabel: "BytePlus ModelArk Seedance Pricing",
+      pricingUrl: bytePlusSeedancePricingUrl,
+      updatedAt: apiOfficialPlatformUpdatedAt,
     }),
     offer("kling-2-5-turbo", "kling-2-5-turbo", "kling-api", {
-      ...pendingVideoPrice,
       routeModelId: "kling-2.5-turbo",
-      sourceLabel: "Kling API Docs",
-      pricingUrl: klingVideoDocsUrl,
+      inputPrice: textPrice("-"),
+      outputPrice: textPrice("$0.042-$0.07 / 秒"),
+      cacheReadPrice: textPrice("-"),
+      freeOrPlan: "Kling API 按资源包 Units 扣减，标准价 1 Unit = $0.14。",
+      limitSummary: "Kling 2.5 Turbo：std 5s $0.21、std 10s $0.42；pro 5s $0.35、pro 10s $0.70。",
+      limitations: "主表按无音频 std/pro 折算每秒价；带音频、首尾帧和扩展能力按对应规格扣减。",
+      compatibility: ["官方 API", "视频生成", "Kling API"],
+      suitableTools: ["自建应用", "Kling API"],
+      sourceLabel: "Kling API Pricing",
+      pricingUrl: klingPricingUrl,
+      updatedAt: apiOfficialPlatformUpdatedAt,
     }),
   ];
 }

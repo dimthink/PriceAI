@@ -29,7 +29,7 @@ import {
   formatApiDisplayText,
   formatApiPrice,
   formatPlanPrice,
-  getApiOutputPriceLabel,
+  getApiBenchmarkPriceLabels,
   getPlanMonthlyPriceCny,
   getApiModelOffers,
   getApiModelFamilyOptions,
@@ -283,7 +283,7 @@ export function ApiModelsExplorer({
               </button>
             </div>
             <p className="mt-3 hidden max-w-[75ch] text-sm leading-7 text-[#5a6061] md:block">
-              标准模型是一套官方 API 基准价格库，默认按美元 / 1M tokens 看输入、输出、缓存写入和缓存读取；来源渠道页用来查看官方订阅与 Token Plan 额度。
+              标准模型是一套官方 API 基准价格库：文本模型按输入、输出和缓存 token 看，图片/视频生成按官方公开的图片或视频计费单位展示；来源渠道页用来查看官方订阅与 Token Plan 额度。
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[0.72rem] font-medium text-[#5a6061]">
               <span>{dataset.source === "supabase" ? "数据库同步" : "人工维护样本"}：{formatDatasetDate(dataset.generatedAt)}</span>
@@ -658,6 +658,8 @@ function ApiOfferTable({
               const modelHref = apiModelDetailHref(offer.modelId, returnQuery);
               const providerHref = apiProviderDetailHref(offer.providerId, returnQuery);
 
+              const priceLabels = getApiBenchmarkPriceLabels(offer.model.family);
+
               return (
                 <tr key={offer.id} className="align-top transition hover:bg-[#f7f9f9]">
                   <td className="px-5 py-4">
@@ -692,12 +694,12 @@ function ApiOfferTable({
                   </td>
                   <td className="px-5 py-4">
                     <div className="grid gap-2 sm:grid-cols-3">
-                      <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-                      <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
+                      <PriceMetric label={priceLabels.input} value={formatApiPrice(offer.inputPrice, currency)} />
+                      <PriceMetric label={priceLabels.output} value={formatApiPrice(offer.outputPrice, currency)} />
                       <PriceMetric
-                        label="缓存"
+                        label={priceLabels.cacheRead}
                         value={formatCacheApiPrice(offer.cacheReadPrice, currency)}
-                        helper={offer.cacheWritePrice ? `写入：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
+                        helper={offer.cacheWritePrice ? `${priceLabels.cacheWrite}：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
                       />
                     </div>
                   </td>
@@ -745,6 +747,8 @@ function ApiOfferMobileList({
         const modelHref = apiModelDetailHref(offer.modelId, returnQuery);
         const providerHref = apiProviderDetailHref(offer.providerId, returnQuery);
 
+        const priceLabels = getApiBenchmarkPriceLabels(offer.model.family);
+
         return (
           <article key={offer.id} className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
             <div className="flex min-w-0 items-start gap-3">
@@ -776,14 +780,14 @@ function ApiOfferMobileList({
                 </Link>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-                  <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
+                  <PriceMetric label={priceLabels.input} value={formatApiPrice(offer.inputPrice, currency)} />
+                  <PriceMetric label={priceLabels.output} value={formatApiPrice(offer.outputPrice, currency)} />
                 </div>
                 <div className="mt-2">
                   <PriceMetric
-                    label="缓存"
+                    label={priceLabels.cacheRead}
                     value={formatCacheApiPrice(offer.cacheReadPrice, currency)}
-                    helper={offer.cacheWritePrice ? `写入：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
+                    helper={offer.cacheWritePrice ? `${priceLabels.cacheWrite}：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
                   />
                 </div>
 
@@ -824,10 +828,11 @@ function ApiModelSummaryMobileList({
       {summaries.map((summary) => {
         const href = apiModelDetailHref(summary.id, returnQuery);
         const primaryOffer = summary.primaryOffer;
-        const inputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.inputPrice, currency) : "待确认";
-        const outputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.outputPrice, currency) : "待确认";
+        const inputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.inputPrice, currency) : "-";
+        const outputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.outputPrice, currency) : "-";
         const cacheWritePrice = formatBenchmarkCacheWritePrice(primaryOffer, currency);
         const cacheReadPrice = formatBenchmarkOptionalApiPrice(primaryOffer?.cacheReadPrice, currency);
+        const priceLabels = getApiBenchmarkPriceLabels(summary.family);
 
         return (
           <Link
@@ -850,10 +855,10 @@ function ApiModelSummaryMobileList({
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  <PriceMetric label="输入" value={inputPrice} />
-                  <PriceMetric label={getApiOutputPriceLabel(summary.family)} value={outputPrice} />
-                  <PriceMetric label="缓存写入" value={cacheWritePrice} />
-                  <PriceMetric label="缓存读取" value={cacheReadPrice} />
+                  <PriceMetric label={priceLabels.input} value={inputPrice} />
+                  <PriceMetric label={priceLabels.output} value={outputPrice} />
+                  <PriceMetric label={priceLabels.cacheWrite} value={cacheWritePrice} />
+                  <PriceMetric label={priceLabels.cacheRead} value={cacheReadPrice} />
                 </div>
                 <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#5a6061]">
                   基准来源：{primaryOffer?.provider.name || summary.model.sourceLabel} · {formatDatasetDate(summary.latestUpdatedAt)}
@@ -877,6 +882,8 @@ function ApiModelSummaryTable({
   returnQuery: string;
   summaries: ApiModelSummary[];
 }) {
+  const priceLabels = getApiBenchmarkPriceLabels(getSummaryTableFamily(summaries));
+
   return (
     <section className="overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
       <div className="overflow-x-auto">
@@ -893,10 +900,10 @@ function ApiModelSummaryTable({
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
               <TableHead>标准模型</TableHead>
-              <TableHead>输入</TableHead>
-              <TableHead>输出</TableHead>
-              <TableHead>缓存写入</TableHead>
-              <TableHead>缓存读取</TableHead>
+              <TableHead>{priceLabels.input}</TableHead>
+              <TableHead>{priceLabels.output}</TableHead>
+              <TableHead>{priceLabels.cacheWrite}</TableHead>
+              <TableHead>{priceLabels.cacheRead}</TableHead>
               <TableHead>最近更新</TableHead>
               <TableHead className="w-[120px] text-center">操作</TableHead>
             </tr>
@@ -905,8 +912,8 @@ function ApiModelSummaryTable({
             {summaries.map((summary) => {
               const href = apiModelDetailHref(summary.id, returnQuery);
               const primaryOffer = summary.primaryOffer;
-              const inputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.inputPrice, currency) : "待确认";
-              const outputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.outputPrice, currency) : "待确认";
+              const inputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.inputPrice, currency) : "-";
+              const outputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.outputPrice, currency) : "-";
               const cacheWritePrice = formatBenchmarkCacheWritePrice(primaryOffer, currency);
               const cacheReadPrice = formatBenchmarkOptionalApiPrice(primaryOffer?.cacheReadPrice, currency);
 
@@ -1467,6 +1474,11 @@ function formatDatasetDate(value: string) {
   return formatDateDay(value);
 }
 
+function getSummaryTableFamily(summaries: ApiModelSummary[]) {
+  const families = new Set(summaries.map((summary) => summary.family));
+  return families.size === 1 ? summaries[0]?.family : null;
+}
+
 function scopeCountLabel(scopeMode: ScopeMode) {
   return {
     models: "个标准模型",
@@ -1568,7 +1580,7 @@ function mobileFilterCount({
 
 function compareApiOffers(a: ApiModelOfferWithRelations, b: ApiModelOfferWithRelations, sort: MobileSortMode) {
   if (sort === "price") {
-    const priceDelta = compareOptionalNumber(apiPriceRank(a.inputPrice), apiPriceRank(b.inputPrice));
+    const priceDelta = compareOptionalNumber(apiPriceRank(getSortableOfferPrice(a)), apiPriceRank(getSortableOfferPrice(b)));
     if (priceDelta !== 0) return priceDelta;
   }
 
@@ -1585,6 +1597,10 @@ function compareApiOffers(a: ApiModelOfferWithRelations, b: ApiModelOfferWithRel
   const typeDelta = providerTypeRank(a.provider.type) - providerTypeRank(b.provider.type);
   if (typeDelta !== 0) return typeDelta;
   return a.model.displayName.localeCompare(b.model.displayName, "zh-CN") || a.provider.name.localeCompare(b.provider.name, "zh-CN");
+}
+
+function getSortableOfferPrice(offer: ApiModelOfferWithRelations) {
+  return offer.model.family === "图片生成" || offer.model.family === "视频生成" ? offer.outputPrice : offer.inputPrice;
 }
 
 function compareApiProviders(a: ApiProviderSummary, b: ApiProviderSummary, sort: MobileSortMode) {
@@ -1684,7 +1700,7 @@ function PriceMetric({ label, value, helper }: { label: string; value: string; h
 }
 
 function StandardPriceCell({ value }: { value: string }) {
-  const muted = value === "待确认" || value === "-";
+  const muted = value === "-";
 
   return (
     <span className={`block break-words text-sm font-semibold leading-6 ${muted ? "text-[#5a6061]" : "text-[#202829]"}`}>
@@ -1694,7 +1710,7 @@ function StandardPriceCell({ value }: { value: string }) {
 }
 
 function formatBenchmarkApiPrice(price: ApiModelOfferWithRelations["inputPrice"], currency: ApiCurrency) {
-  if (price.kind === "text") return price.text.trim() || "待确认";
+  if (price.kind === "text") return price.text.trim() || "-";
   return formatApiPrice(price, currency, { maximumFractionDigits: 3 }).replace(" / 1M tokens", "");
 }
 
@@ -1703,14 +1719,14 @@ function formatBenchmarkOptionalApiPrice(price: ApiModelOfferWithRelations["cach
 }
 
 function formatBenchmarkCacheWritePrice(offer: ApiModelOfferWithRelations | null | undefined, currency: ApiCurrency) {
-  if (!offer) return "待确认";
+  if (!offer) return "-";
   if (offer.cacheWritePrice) return formatBenchmarkApiPrice(offer.cacheWritePrice, currency);
   if (offer.cacheReadPrice) return "-";
   return "-";
 }
 
 function formatCacheApiPrice(price: ApiModelOfferWithRelations["cacheReadPrice"], currency: ApiCurrency) {
-  return price ? formatApiPrice(price, currency, { maximumFractionDigits: 3 }) : "待确认";
+  return price ? formatApiPrice(price, currency, { maximumFractionDigits: 3 }) : "-";
 }
 
 function parseSubmittedUrls(value: string): string[] {

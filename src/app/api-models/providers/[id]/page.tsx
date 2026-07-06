@@ -9,7 +9,7 @@ import {
   apiProviderTypeLabels,
   formatApiDisplayText,
   formatApiPrice,
-  getApiOutputPriceLabel,
+  getApiBenchmarkPriceLabels,
   formatPlanPriceFrom,
   getPlanMonthlyPriceCny,
   getApiModelOffersByProvider,
@@ -195,6 +195,7 @@ function ApiOfferMobileList({ rows, currency }: { rows: ApiModelOfferWithRelatio
     <section className="mt-5 grid grid-cols-1 gap-3 md:hidden">
       {rows.map((offer) => {
         const sourceHref = offer.pricingUrl ?? offer.provider.pricingUrl ?? offer.provider.url;
+        const priceLabels = getApiBenchmarkPriceLabels(offer.model.family);
 
         return (
           <article key={offer.id} className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
@@ -210,14 +211,14 @@ function ApiOfferMobileList({ rows, currency }: { rows: ApiModelOfferWithRelatio
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-              <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
+              <PriceMetric label={priceLabels.input} value={formatApiPrice(offer.inputPrice, currency)} />
+              <PriceMetric label={priceLabels.output} value={formatApiPrice(offer.outputPrice, currency)} />
             </div>
             <div className="mt-2">
               <PriceMetric
-                label="缓存"
+                label={priceLabels.cacheRead}
                 value={formatCacheApiPrice(offer.cacheReadPrice, currency)}
-                helper={offer.cacheWritePrice ? `写入：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
+                helper={offer.cacheWritePrice ? `${priceLabels.cacheWrite}：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
               />
             </div>
 
@@ -281,6 +282,7 @@ function ApiPlanMobileList({ plans, currency }: { plans: ApiPlan[]; currency: Ap
 
 function ApiOfferRow({ offer, currency }: { offer: ApiModelOfferWithRelations; currency: ApiCurrency }) {
   const sourceHref = offer.pricingUrl ?? offer.provider.pricingUrl ?? offer.provider.url;
+  const priceLabels = getApiBenchmarkPriceLabels(offer.model.family);
 
   return (
     <tr className="align-top transition hover:bg-[#f7f9f9]">
@@ -293,12 +295,12 @@ function ApiOfferRow({ offer, currency }: { offer: ApiModelOfferWithRelations; c
       </td>
       <td className="px-5 py-4">
         <div className="grid gap-2 sm:grid-cols-3">
-          <PriceMetric label="输入" value={formatApiPrice(offer.inputPrice, currency)} />
-          <PriceMetric label={getApiOutputPriceLabel(offer.model.family)} value={formatApiPrice(offer.outputPrice, currency)} />
+          <PriceMetric label={priceLabels.input} value={formatApiPrice(offer.inputPrice, currency)} />
+          <PriceMetric label={priceLabels.output} value={formatApiPrice(offer.outputPrice, currency)} />
           <PriceMetric
-            label="缓存"
+            label={priceLabels.cacheRead}
             value={formatCacheApiPrice(offer.cacheReadPrice, currency)}
-            helper={offer.cacheWritePrice ? `写入：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
+            helper={offer.cacheWritePrice ? `${priceLabels.cacheWrite}：${formatCacheApiPrice(offer.cacheWritePrice, currency)}` : undefined}
           />
         </div>
       </td>
