@@ -28,7 +28,6 @@ import {
   formatApiBillingMode,
   formatApiDisplayText,
   formatApiPrice,
-  formatApiPrimaryPrice,
   formatPlanPrice,
   getApiOutputPriceLabel,
   getPlanMonthlyPriceCny,
@@ -50,7 +49,7 @@ import { formatDateDay } from "@/lib/utils";
 
 const typeFilters = ["subscription", "official", "free", "all"] as const;
 const apiScopeOptions = ["models", "offers", "providers"] as const;
-const apiCurrencyOptions = ["CNY", "USD"] as const;
+const apiCurrencyOptions = ["USD", "CNY"] as const;
 const apiSortOptions = ["recommended", "price", "updated", "channels"] as const;
 type TypeFilter = (typeof typeFilters)[number];
 type ScopeMode = "models" | "offers" | "providers";
@@ -75,7 +74,7 @@ export function ApiModelsExplorer({
   const [scopeMode, setScopeMode] = useState<ScopeMode>("providers");
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("subscription");
-  const [currency, setCurrency] = useState<ApiCurrency>("CNY");
+  const [currency, setCurrency] = useState<ApiCurrency>("USD");
   const [mobileSort, setMobileSort] = useState<MobileSortMode>("recommended");
   const [urlStateReady, setUrlStateReady] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -146,6 +145,9 @@ export function ApiModelsExplorer({
   function handleScopeModeChange(nextScopeMode: ScopeMode) {
     setScopeMode(nextScopeMode);
     setTypeFilter(defaultTypeFilterForScope(nextScopeMode));
+    if (nextScopeMode === "models") {
+      setCurrency("USD");
+    }
   }
 
   useEffect(() => {
@@ -281,7 +283,7 @@ export function ApiModelsExplorer({
               </button>
             </div>
             <p className="mt-3 hidden max-w-[75ch] text-sm leading-7 text-[#5a6061] md:block">
-              把官方订阅、Token Plan 和官方 API 都放回来源渠道里看。默认先看订阅套餐能用多少额度，再切到标准模型或报价明细查 API 单价。
+              标准模型是一套官方 API 基准价格库，默认按美元 / 1M tokens 看输入、输出、缓存写入和缓存读取；来源渠道页用来查看官方订阅与 Token Plan 额度。
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[0.72rem] font-medium text-[#5a6061]">
               <span>{dataset.source === "supabase" ? "数据库同步" : "人工维护样本"}：{formatDatasetDate(dataset.generatedAt)}</span>
@@ -386,7 +388,7 @@ export function ApiModelsExplorer({
             </div>
 
             <div className="inline-flex h-12 shrink-0 items-center rounded-full bg-[#e4e9ea] p-1">
-              {(["CNY", "USD"] as ApiCurrency[]).map((item) => (
+              {apiCurrencyOptions.map((item) => (
                 <button
                   key={item}
                   type="button"
@@ -563,7 +565,7 @@ export function ApiModelsExplorer({
         onCurrencyChange={setCurrency}
         onTypeFilterChange={setTypeFilter}
         onReset={() => {
-          setCurrency("CNY");
+          setCurrency("USD");
           setTypeFilter(scopeMode === "providers" ? "subscription" : "all");
         }}
       />
@@ -822,6 +824,10 @@ function ApiModelSummaryMobileList({
       {summaries.map((summary) => {
         const href = apiModelDetailHref(summary.id, returnQuery);
         const primaryOffer = summary.primaryOffer;
+        const inputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.inputPrice, currency) : "待确认";
+        const outputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.outputPrice, currency) : "待确认";
+        const cacheWritePrice = formatBenchmarkCacheWritePrice(primaryOffer, currency);
+        const cacheReadPrice = formatBenchmarkOptionalApiPrice(primaryOffer?.cacheReadPrice, currency);
 
         return (
           <Link
@@ -842,21 +848,15 @@ function ApiModelSummaryMobileList({
                       {summary.model.modelId}{summary.model.contextWindow ? ` · ${summary.model.contextWindow}` : ""}
                     </p>
                   </div>
-                  <p className="shrink-0 text-right text-sm font-bold leading-6 text-[#202829]">
-                    {primaryOffer ? formatApiPrimaryPrice(primaryOffer, currency) : "暂无价格"}
-                  </p>
                 </div>
-                <p className="mt-3 line-clamp-2 text-sm leading-6 text-[#5a6061]">
-                  {primaryOffer ? `${primaryOffer.provider.name} · ${formatApiBillingMode(primaryOffer.billingMode)}` : summary.model.sourceLabel}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <CountBadge tone="neutral">渠道 {summary.providerCount}</CountBadge>
-                  <CountBadge tone="good">官方 {summary.officialCount}</CountBadge>
-                  <CountBadge tone="warn">免费 {summary.freeCount}</CountBadge>
-                  <CountBadge tone="neutral">订阅 {summary.planCount}</CountBadge>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <PriceMetric label="输入" value={inputPrice} />
+                  <PriceMetric label={getApiOutputPriceLabel(summary.family)} value={outputPrice} />
+                  <PriceMetric label="缓存写入" value={cacheWritePrice} />
+                  <PriceMetric label="缓存读取" value={cacheReadPrice} />
                 </div>
                 <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#5a6061]">
-                  {primaryOffer ? formatApiDisplayText(primaryOffer.limitSummary) : "保留来源，等待补充报价。"}
+                  基准来源：{primaryOffer?.provider.name || summary.model.sourceLabel} · {formatDatasetDate(summary.latestUpdatedAt)}
                 </p>
               </div>
               <ChevronRight size={17} className="mt-3 shrink-0 text-[#adb3b4]" />
@@ -880,14 +880,23 @@ function ApiModelSummaryTable({
   return (
     <section className="overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
       <div className="overflow-x-auto">
-        <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1180px] w-full table-fixed border-collapse text-left text-sm">
+          <colgroup>
+            <col className="w-[26%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[13%]" />
+            <col className="w-[12%]" />
+            <col className="w-[10%]" />
+          </colgroup>
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
               <TableHead>标准模型</TableHead>
-              <TableHead>官方/参考入口</TableHead>
-              <TableHead>渠道覆盖</TableHead>
-              <TableHead>价格/订阅</TableHead>
-              <TableHead>限制</TableHead>
+              <TableHead>输入</TableHead>
+              <TableHead>输出</TableHead>
+              <TableHead>缓存写入</TableHead>
+              <TableHead>缓存读取</TableHead>
               <TableHead>最近更新</TableHead>
               <TableHead className="w-[120px] text-center">操作</TableHead>
             </tr>
@@ -896,10 +905,14 @@ function ApiModelSummaryTable({
             {summaries.map((summary) => {
               const href = apiModelDetailHref(summary.id, returnQuery);
               const primaryOffer = summary.primaryOffer;
+              const inputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.inputPrice, currency) : "待确认";
+              const outputPrice = primaryOffer ? formatBenchmarkApiPrice(primaryOffer.outputPrice, currency) : "待确认";
+              const cacheWritePrice = formatBenchmarkCacheWritePrice(primaryOffer, currency);
+              const cacheReadPrice = formatBenchmarkOptionalApiPrice(primaryOffer?.cacheReadPrice, currency);
 
               return (
-                <tr key={summary.id} className="transition hover:bg-[#f7f9f9]">
-                  <td className="max-w-[330px] px-5 py-4">
+                <tr key={summary.id} className="align-top transition hover:bg-[#f7f9f9]">
+                  <td className="px-5 py-4">
                     <Link href={href} onClick={listDetailClickHandler(href, returnQuery)} className="group flex min-w-0 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
                         <ApiModelIcon family={summary.family} modelName={summary.displayName} className="h-7 w-7" />
@@ -910,30 +923,16 @@ function ApiModelSummaryTable({
                           {summary.model.modelId}
                           {summary.model.contextWindow ? ` · ${summary.model.contextWindow}` : ""}
                         </span>
+                        <span className="mt-1 block truncate text-xs text-[#5a6061]">
+                          {primaryOffer?.provider.name || summary.model.sourceLabel}
+                        </span>
                       </span>
                     </Link>
                   </td>
-                  <td className="max-w-[270px] px-5 py-4">
-                    <span className="block truncate font-semibold text-[#202829]">{primaryOffer?.provider.name || summary.model.sourceLabel}</span>
-                    <span className="mt-1 block truncate text-xs text-[#5a6061]">
-                      {primaryOffer ? `${formatApiPrimaryPrice(primaryOffer, currency)} · ${formatApiBillingMode(primaryOffer.billingMode)}` : "暂无价格，保留来源"}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-wrap gap-1.5">
-                      <CountBadge tone="neutral">渠道 {summary.providerCount}</CountBadge>
-                      <CountBadge tone="good">官方 {summary.officialCount}</CountBadge>
-                      <CountBadge tone="warn">免费 {summary.freeCount}</CountBadge>
-                      <CountBadge tone="neutral">订阅 {summary.planCount}</CountBadge>
-                    </div>
-                  </td>
-                  <td className="max-w-[240px] px-5 py-4">
-                    <p className="font-semibold leading-6 text-[#202829]">
-                      {primaryOffer ? formatApiPrimaryPrice(primaryOffer, currency) : "暂无价格"}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-[#5a6061]">{primaryOffer ? formatApiDisplayText(primaryOffer.freeOrPlan) : "保留来源，等待补充报价"}</p>
-                  </td>
-                  <td className="max-w-[270px] px-5 py-4 text-sm leading-6 text-[#5a6061]">{primaryOffer ? formatApiDisplayText(primaryOffer.limitSummary) : "未公开固定 RPM/TPM，以官方控制台为准。"}</td>
+                  <td className="px-5 py-4"><StandardPriceCell value={inputPrice} /></td>
+                  <td className="px-5 py-4"><StandardPriceCell value={outputPrice} /></td>
+                  <td className="px-5 py-4"><StandardPriceCell value={cacheWritePrice} /></td>
+                  <td className="px-5 py-4"><StandardPriceCell value={cacheReadPrice} /></td>
                   <td className="px-5 py-4 text-[#5a6061]">{formatDatasetDate(summary.latestUpdatedAt)}</td>
                   <td className="w-[120px] px-5 py-4 text-center">
                     <Link
@@ -1258,7 +1257,7 @@ function ApiMobileFilterSheet({
           <section>
             <p className="mb-2 text-xs font-semibold text-[#5a6061]">币种</p>
             <div className="inline-flex h-11 items-center rounded-full bg-[#e4e9ea] p-1">
-              {(["CNY", "USD"] as ApiCurrency[]).map((item) => (
+              {apiCurrencyOptions.map((item) => (
                 <button
                   key={item}
                   type="button"
@@ -1436,7 +1435,7 @@ function buildApiModelsSearchParams({
   if (scopeMode !== "providers") params.set("scope", scopeMode);
   if (normalizedQuery) params.set("q", normalizedQuery);
   if (typeFilter !== defaultTypeFilterForScope(scopeMode)) params.set("type", typeFilter);
-  if (currency !== "CNY") params.set("currency", currency);
+  if (currency !== "USD") params.set("currency", currency);
   if (mobileSort !== "recommended") params.set("sort", mobileSort);
 
   return params;
@@ -1450,7 +1449,7 @@ function parseApiModelsInitialState(params: URLSearchParams, familyOptions: { id
     scopeMode,
     query: params.get("q") || "",
     typeFilter: pickParam(params.get("type") || "", typeFilters, defaultTypeFilterForScope(scopeMode)),
-    currency: pickParam(params.get("currency") || "", apiCurrencyOptions, "CNY"),
+    currency: pickParam(params.get("currency") || "", apiCurrencyOptions, "USD"),
     mobileSort: pickParam(params.get("sort") || "", apiSortOptions, "recommended"),
   };
 }
@@ -1564,7 +1563,7 @@ function mobileFilterCount({
   scopeMode: ScopeMode;
   typeFilter: TypeFilter;
 }) {
-  return Number(currency !== "CNY") + Number(typeFilter !== defaultTypeFilterForScope(scopeMode));
+  return Number(currency !== "USD") + Number(typeFilter !== defaultTypeFilterForScope(scopeMode));
 }
 
 function compareApiOffers(a: ApiModelOfferWithRelations, b: ApiModelOfferWithRelations, sort: MobileSortMode) {
@@ -1682,6 +1681,32 @@ function PriceMetric({ label, value, helper }: { label: string; value: string; h
       {helper ? <p className="mt-1 break-words text-xs leading-5 text-[#5a6061]">{helper}</p> : null}
     </div>
   );
+}
+
+function StandardPriceCell({ value }: { value: string }) {
+  const muted = value === "待确认";
+
+  return (
+    <span className={`block break-words text-sm font-semibold leading-6 ${muted ? "text-[#5a6061]" : "text-[#202829]"}`}>
+      {value}
+    </span>
+  );
+}
+
+function formatBenchmarkApiPrice(price: ApiModelOfferWithRelations["inputPrice"], currency: ApiCurrency) {
+  if (price.kind !== "numeric") return "待确认";
+  return formatApiPrice(price, currency, { maximumFractionDigits: 3 }).replace(" / 1M tokens", "");
+}
+
+function formatBenchmarkOptionalApiPrice(price: ApiModelOfferWithRelations["cacheReadPrice"], currency: ApiCurrency) {
+  return price ? formatBenchmarkApiPrice(price, currency) : "待确认";
+}
+
+function formatBenchmarkCacheWritePrice(offer: ApiModelOfferWithRelations | null | undefined, currency: ApiCurrency) {
+  if (!offer) return "待确认";
+  if (offer.cacheWritePrice) return formatBenchmarkApiPrice(offer.cacheWritePrice, currency);
+  if (offer.cacheReadPrice?.kind === "numeric" && offer.inputPrice.kind === "numeric") return formatBenchmarkApiPrice(offer.inputPrice, currency);
+  return "待确认";
 }
 
 function formatCacheApiPrice(price: ApiModelOfferWithRelations["cacheReadPrice"], currency: ApiCurrency) {
