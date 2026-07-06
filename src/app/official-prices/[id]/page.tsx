@@ -228,8 +228,10 @@ function OfficialPriceMobileList({ rows }: { rows: OfficialPriceRow[] }) {
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-lg bg-white px-4 py-3 shadow-[0_12px_35px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15">
-      <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-[#5a6061]">{label}</p>
-      <p className="mt-1 truncate text-xl font-bold text-[#202829]">{value}</p>
+      <p className="text-xs font-semibold leading-4 text-[#5a6061]">{label}</p>
+      <p className="mt-1.5 min-h-[2.25rem] break-words text-lg font-bold leading-tight tracking-normal text-[#202829] sm:text-[1.05rem]">
+        {value}
+      </p>
     </div>
   );
 }

@@ -100,6 +100,8 @@ html[data-theme="dark"] {
 
 html {
   background: var(--background);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -107,6 +109,8 @@ body {
   color: var(--foreground);
   font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
   letter-spacing: 0;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 ::selection {

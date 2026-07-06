@@ -1125,8 +1125,8 @@ function OfferListItem({
         </div>
         <OfferStatusBadge available={available} />
       </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <div className="flex min-w-[112px] flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <p className={`text-2xl font-bold leading-none tracking-normal ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
             {formatCurrency(offer.price, offer.currency)}
           </p>

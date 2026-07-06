@@ -320,32 +320,41 @@ export function ApiModelsExplorer({
               onChange={(value) => setFamily(value)}
             />
           </div>
-          <div className="inline-flex h-11 max-w-full items-center overflow-x-auto rounded-full bg-[#e4e9ea] p-1">
-            <ViewToggleButton
-              active={scopeMode === "models"}
-              icon={<PackageCheck size={16} />}
-              label="标准"
-              onClick={() => handleScopeModeChange("models")}
-            />
-            <ViewToggleButton
-              active={scopeMode === "offers"}
-              icon={<Database size={16} />}
-              label="报价"
-              onClick={() => handleScopeModeChange("offers")}
-            />
-            <ViewToggleButton
-              active={scopeMode === "providers"}
-              icon={<Layers3 size={16} />}
-              label="渠道"
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+            <div className="inline-flex h-11 min-w-0 items-center rounded-full bg-[#e4e9ea] p-1">
+              <ViewToggleButton
+                active={scopeMode === "models"}
+                icon={<PackageCheck size={16} />}
+                label="标准"
+                onClick={() => handleScopeModeChange("models")}
+              />
+              <ViewToggleButton
+                active={scopeMode === "offers"}
+                icon={<Database size={16} />}
+                label="报价"
+                onClick={() => handleScopeModeChange("offers")}
+              />
+            </div>
+            <button
+              type="button"
+              aria-pressed={scopeMode === "providers"}
               onClick={() => handleScopeModeChange("providers")}
-            />
+              className={`inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
+                scopeMode === "providers"
+                  ? "bg-white text-[#202829] shadow-[0_8px_24px_rgba(45,52,53,0.08)] ring-1 ring-[#adb3b4]/15"
+                  : "bg-white text-[#5a6061] ring-1 ring-[#adb3b4]/15 hover:bg-[#f2f4f4] hover:text-[#202829]"
+              }`}
+            >
+              <Layers3 size={16} />
+              渠道
+            </button>
             <button
               type="button"
               onClick={() => setFiltersOpen(true)}
-              className={`inline-flex h-10 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold transition ${
+              className={`inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
                 mobileFilterCount({ currency, scopeMode, typeFilter })
                   ? "bg-white text-[#202829] shadow-[0_8px_24px_rgba(45,52,53,0.08)]"
-                  : "text-[#5a6061] hover:text-[#202829]"
+                  : "bg-white text-[#5a6061] ring-1 ring-[#adb3b4]/15 hover:bg-[#f2f4f4] hover:text-[#202829]"
               }`}
             >
               <Filter size={16} />
