@@ -15,12 +15,12 @@ import {
   Store,
   Table2,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import type { MouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/components/CategoryTabBar";
+import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
 import { OfferActions, OfferFeedbackButton, OfferFeedbackDialog, OfferLink } from "@/components/ProductOffersPanel";
 import { SiteHeader } from "@/components/SiteHeader";
 import { listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
@@ -36,6 +36,7 @@ import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset, newestUsableGeneratedDataset } from "@/lib/client-refresh";
+import { MERCHANT_COLLECTOR_FILTERS, merchantCollectorLabel } from "@/lib/merchant-collectors";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
@@ -43,7 +44,7 @@ import type {
   CanonicalProduct,
   ExplorerData,
   ExplorerProductSummary,
-  MerchantCollectorGroup,
+  MerchantCollectorFilter,
   PublicMerchantSummary,
   RawOffer,
 } from "@/lib/types";
@@ -92,7 +93,6 @@ type MerchantListResponse = {
   message?: string | null;
 };
 
-type MerchantCollectorFilter = "all" | MerchantCollectorGroup;
 type MerchantSignalFilter = "all" | "lowest" | "warranty" | "platform_aftersales" | "risk_clear";
 
 const productTypeLabels: Record<string, string> = {
@@ -124,7 +124,7 @@ const stockOptions = ["all", "available", "out_of_stock"] as const;
 const sortOptions = ["available_price", "price", "updated", "channels"] as const;
 const viewOptions = ["cards", "table"] as const;
 const scopeOptions = ["products", "offers", "merchants"] as const;
-const merchantCollectorOptions = ["all", "shopApi", "dujiao", "kami", "other"] as const;
+const merchantCollectorOptions = MERCHANT_COLLECTOR_FILTERS;
 const merchantSignalOptions = ["all", "lowest", "warranty", "platform_aftersales", "risk_clear"] as const;
 const visiblePlatformOptions = apiCdkPublicVisibleForClient() ? allPlatformOptions : platformOptions;
 
@@ -997,7 +997,7 @@ export function PriceExplorer({
                   label="采集来源"
                   value={merchantCollector}
                   onChange={(value) => setMerchantCollector(value as MerchantCollectorFilter)}
-                  options={merchantCollectorOptions.map((item) => [item, merchantCollectorFilterLabel(item)] as [string, string])}
+                  options={merchantCollectorOptions.map((item) => [item, merchantCollectorLabel(item)] as [string, string])}
                 />
                 <FilterSelect
                   label="商家信号"
@@ -1574,41 +1574,6 @@ function MerchantCard({ merchant }: { merchant: PublicMerchantSummary }) {
 function CollectorBadge({ merchant }: { merchant: PublicMerchantSummary }) {
   const tone = merchant.collectorGroup === "shopApi" ? "info" : merchant.collectorGroup === "other" ? "muted" : "warn";
   return <CountBadge tone={tone}>{merchant.collectorLabel}</CountBadge>;
-}
-
-function CollectorSourceLogo({
-  group,
-  size = "card",
-}: {
-  group: MerchantCollectorGroup;
-  size?: "card" | "table";
-}) {
-  const frameClassName = size === "table"
-    ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1"
-    : "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ring-1";
-  const imageClassName = size === "table" ? "h-7 w-7 shrink-0 object-contain" : "h-8 w-8 shrink-0 object-contain";
-  const logo = collectorSourceLogoAsset(group);
-
-  if (logo) {
-    return (
-      <span aria-hidden="true" className={`${frameClassName} ${logo.frameClassName}`}>
-        <Image src={logo.src} alt="" width={32} height={32} className={imageClassName} />
-      </span>
-    );
-  }
-
-  return (
-    <span aria-hidden="true" className={`${frameClassName} bg-[#f2f4f4] text-[#5a6061] ring-[#adb3b4]/15`}>
-      <Store size={size === "table" ? 18 : 19} />
-    </span>
-  );
-}
-
-function collectorSourceLogoAsset(group: MerchantCollectorGroup): { src: string; frameClassName: string } | null {
-  if (group === "shopApi") return { src: "/brand-icons/collector-ldxp.png", frameClassName: "bg-[#fff5ec] ring-[#ffd9bd]" };
-  if (group === "dujiao") return { src: "/brand-icons/collector-dujiao.png", frameClassName: "bg-[#f8f8f8] ring-[#adb3b4]/20" };
-  if (group === "kami") return { src: "/brand-icons/collector-kami.png", frameClassName: "bg-[#fff4f4] ring-[#ffd0d2]" };
-  return null;
 }
 
 function merchantDescription(merchant: PublicMerchantSummary): string {
@@ -2278,7 +2243,7 @@ function MobileFilterSheet({
                 label="采集来源"
                 value={merchantCollector}
                 onChange={(value) => onMerchantCollectorChange(value as MerchantCollectorFilter)}
-                options={merchantCollectorOptions.map((item) => [item, merchantCollectorFilterLabel(item)] as [string, string])}
+                options={merchantCollectorOptions.map((item) => [item, merchantCollectorLabel(item)] as [string, string])}
               />
               <FilterSelect
                 label="商家信号"
@@ -2715,7 +2680,7 @@ function buildActiveFilterChips({
   if (stock === "available") filters.push("有货");
   if (stock === "out_of_stock") filters.push("缺货");
   if (minPrice || maxPrice) filters.push(`¥${minPrice || "0"}-${maxPrice || "不限"}`);
-  if (showingMerchants && merchantCollector !== "all") filters.push(merchantCollectorFilterLabel(merchantCollector));
+  if (showingMerchants && merchantCollector !== "all") filters.push(merchantCollectorLabel(merchantCollector));
   if (showingMerchants && merchantSignal !== "all") filters.push(merchantSignalLabel(merchantSignal));
   return filters;
 }
@@ -2770,14 +2735,6 @@ function buildTitle(platform: string, productType: string, scopeMode: ScopeMode)
   }
 
   return `${platformName} ${typeName}报价`;
-}
-
-function merchantCollectorFilterLabel(value: MerchantCollectorFilter): string {
-  if (value === "all") return "全部来源";
-  if (value === "shopApi") return "链动小铺";
-  if (value === "dujiao") return "独角数卡";
-  if (value === "kami") return "Kami";
-  return "其他";
 }
 
 function merchantSignalLabel(value: MerchantSignalFilter): string {

@@ -1,13 +1,20 @@
 "use client";
 
-import { AlertTriangle, ExternalLink, Flag, ImageUp, Loader2, Search, ShieldAlert, Trash2, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Filter, Flag, ImageUp, Loader2, ShieldAlert, Trash2, X } from "lucide-react";
 import { type ChangeEvent, type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CommunityPrompt } from "@/components/FeedbackLink";
+import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
 import { isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestUsableGeneratedDataset } from "@/lib/client-refresh";
+import {
+  MERCHANT_COLLECTOR_FILTERS,
+  merchantCollectorGroup,
+  merchantCollectorLabel,
+  parseMerchantCollectorFilter,
+} from "@/lib/merchant-collectors";
 import {
   OFFER_FILTER_TAG_BY_ID,
   parseOfferFilterTagsForProduct,
@@ -27,7 +34,7 @@ import {
 } from "@/lib/trust-risk";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
-import type { RawOffer } from "@/lib/types";
+import type { MerchantCollectorFilter, RawOffer } from "@/lib/types";
 import { formatCurrency, formatDateMinute, formatRelativeTime } from "@/lib/utils";
 
 type ProductOffersResponse = {
@@ -64,6 +71,9 @@ export function ProductOffersPanel({
   initialFilterTags = [],
   initialQuery = "",
   initialExcludeQuery = "",
+  initialCollector = "all",
+  initialMinPrice = "",
+  initialMaxPrice = "",
 }: {
   productId: string;
   productSlug: string;
@@ -73,22 +83,53 @@ export function ProductOffersPanel({
   initialFilterTags?: string[];
   initialQuery?: string;
   initialExcludeQuery?: string;
+  initialCollector?: string;
+  initialMinPrice?: string;
+  initialMaxPrice?: string;
 }) {
   const normalizedInitialFilterTags = useMemo(() => parseOfferFilterTagsForProduct(productId, initialFilterTags), [initialFilterTags, productId]);
   const normalizedInitialQuery = useMemo(() => normalizeOfferSearchQuery(initialQuery), [initialQuery]);
   const normalizedInitialExcludeQuery = useMemo(() => normalizeOfferSearchQuery(initialExcludeQuery, 160), [initialExcludeQuery]);
+  const normalizedInitialCollector = useMemo(() => parseMerchantCollectorFilter(initialCollector), [initialCollector]);
+  const normalizedInitialMinPrice = useMemo(() => normalizeOfferPriceInput(initialMinPrice), [initialMinPrice]);
+  const normalizedInitialMaxPrice = useMemo(() => normalizeOfferPriceInput(initialMaxPrice), [initialMaxPrice]);
   const [selectedFilterTags, setSelectedFilterTags] = useState<OfferFilterTagId[]>(normalizedInitialFilterTags);
-  const [searchOpen, setSearchOpen] = useState(Boolean(normalizedInitialQuery || normalizedInitialExcludeQuery));
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [selectedCollector, setSelectedCollector] = useState<MerchantCollectorFilter>(normalizedInitialCollector);
   const [queryInput, setQueryInput] = useState(normalizedInitialQuery);
   const [excludeInput, setExcludeInput] = useState(normalizedInitialExcludeQuery);
+  const [minPriceInput, setMinPriceInput] = useState(normalizedInitialMinPrice);
+  const [maxPriceInput, setMaxPriceInput] = useState(normalizedInitialMaxPrice);
   const [offerQuery, setOfferQuery] = useState(normalizedInitialQuery);
   const [offerExcludeQuery, setOfferExcludeQuery] = useState(normalizedInitialExcludeQuery);
+  const [offerMinPrice, setOfferMinPrice] = useState(normalizedInitialMinPrice);
+  const [offerMaxPrice, setOfferMaxPrice] = useState(normalizedInitialMaxPrice);
   const selectedFilterKey = selectedFilterTags.join(",");
   const offerQueryKey = offerQuery.trim();
   const offerExcludeQueryKey = offerExcludeQuery.trim();
+  const offerMinPriceKey = offerMinPrice.trim();
+  const offerMaxPriceKey = offerMaxPrice.trim();
   const initialFilterKey = normalizedInitialFilterTags.join(",");
-  const initialCacheKey = productOffersCacheKey(productId, 0, normalizedInitialFilterTags, normalizedInitialQuery, normalizedInitialExcludeQuery);
-  const activeCacheKey = productOffersCacheKey(productId, 0, selectedFilterTags, offerQueryKey, offerExcludeQueryKey);
+  const initialCacheKey = productOffersCacheKey(
+    productId,
+    0,
+    normalizedInitialFilterTags,
+    normalizedInitialQuery,
+    normalizedInitialExcludeQuery,
+    normalizedInitialCollector,
+    normalizedInitialMinPrice,
+    normalizedInitialMaxPrice,
+  );
+  const activeCacheKey = productOffersCacheKey(
+    productId,
+    0,
+    selectedFilterTags,
+    offerQueryKey,
+    offerExcludeQueryKey,
+    selectedCollector,
+    offerMinPriceKey,
+    offerMaxPriceKey,
+  );
   const activeCacheKeyRef = useRef(activeCacheKey);
   const cachedInitialData = newestUsableGeneratedDataset(productOffersMemoryCache.get(initialCacheKey), initialData);
   const [data, setData] = useState<ProductOffersResponse | null>(cachedInitialData);
@@ -112,16 +153,24 @@ export function ProductOffersPanel({
     const nextFilterTags = parseOfferFilterTagsForProduct(productId, urlFilters.tags);
     const nextQuery = normalizeOfferSearchQuery(urlFilters.query);
     const nextExcludeQuery = normalizeOfferSearchQuery(urlFilters.excludeQuery, 160);
-    const hasUrlFilters = nextFilterTags.length > 0 || Boolean(nextQuery || nextExcludeQuery);
+    const nextCollector = parseMerchantCollectorFilter(urlFilters.collector);
+    const nextMinPrice = normalizeOfferPriceInput(urlFilters.minPrice);
+    const nextMaxPrice = normalizeOfferPriceInput(urlFilters.maxPrice);
+    const hasUrlFilters = nextFilterTags.length > 0 || Boolean(nextQuery || nextExcludeQuery || nextMinPrice || nextMaxPrice || nextCollector !== "all");
     if (!hasUrlFilters) return;
 
     const frameId = window.requestAnimationFrame(() => {
       setSelectedFilterTags(nextFilterTags);
+      setSelectedCollector(nextCollector);
       setQueryInput(nextQuery);
       setExcludeInput(nextExcludeQuery);
+      setMinPriceInput(nextMinPrice);
+      setMaxPriceInput(nextMaxPrice);
       setOfferQuery(nextQuery);
       setOfferExcludeQuery(nextExcludeQuery);
-      setSearchOpen(true);
+      setOfferMinPrice(nextMinPrice);
+      setOfferMaxPrice(nextMaxPrice);
+      setFilterOpen(true);
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -131,7 +180,9 @@ export function ProductOffersPanel({
     const filterTags = parseOfferFilterTagsForProduct(productId, selectedFilterKey);
     const query = normalizeOfferSearchQuery(offerQuery);
     const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
-    const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery);
+    const minPrice = normalizeOfferPriceInput(offerMinPrice);
+    const maxPrice = normalizeOfferPriceInput(offerMaxPrice);
+    const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
     let cancelRefresh: (() => void) | null = null;
     let active = true;
 
@@ -139,7 +190,10 @@ export function ProductOffersPanel({
       const shouldUseInitialData =
         filterTags.join(",") === initialFilterKey &&
         query === normalizedInitialQuery &&
-        excludeQuery === normalizedInitialExcludeQuery;
+        excludeQuery === normalizedInitialExcludeQuery &&
+        selectedCollector === normalizedInitialCollector &&
+        minPrice === normalizedInitialMinPrice &&
+        maxPrice === normalizedInitialMaxPrice;
       const cachedData = newestUsableGeneratedDataset(
         productOffersMemoryCache.get(cacheKey),
         shouldUseInitialData ? initialData : null,
@@ -163,7 +217,7 @@ export function ProductOffersPanel({
       cancelRefresh = timeout.cancel;
 
       try {
-        const nextData = await fetchProductOfferPage(productId, 0, filterTags, query, excludeQuery, timeout.signal);
+        const nextData = await fetchProductOfferPage(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice, timeout.signal);
         if (!active) return;
         const latestData = newestUsableGeneratedDataset(nextData, productOffersMemoryCache.get(cacheKey)) ?? nextData;
         rememberHealthyProductOffers(cacheKey, latestData);
@@ -197,16 +251,22 @@ export function ProductOffersPanel({
     initialData,
     initialFilterKey,
     normalizedInitialExcludeQuery,
+    normalizedInitialCollector,
+    normalizedInitialMaxPrice,
+    normalizedInitialMinPrice,
     normalizedInitialQuery,
     offerExcludeQuery,
+    offerMaxPrice,
+    offerMinPrice,
     offerQuery,
     productId,
+    selectedCollector,
     selectedFilterKey,
   ]);
 
   const activeData = dataCacheKey === activeCacheKey ? data : null;
   const offers = activeData?.offers ?? [];
-  const total = activeData?.total ?? (selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey) ? 0 : initialCount);
+  const total = activeData?.total ?? (selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all") ? 0 : initialCount);
   const filterFacets = productOfferFilterFacets(
     activeData?.filterFacets,
     data?.filterFacets,
@@ -214,21 +274,23 @@ export function ProductOffersPanel({
     selectedFilterTags,
   );
   const hasMore = Boolean(activeData) && !loading && offers.length < total;
-  const activeFilters = selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey);
+  const activeFilters = selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all");
 
   const loadMoreOffers = useCallback(async () => {
     if (!activeData || loading || paging || offers.length >= total) return;
     const filterTags = parseOfferFilterTagsForProduct(productId, selectedFilterTags);
     const query = normalizeOfferSearchQuery(offerQuery);
     const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
-    const requestCacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery);
+    const minPrice = normalizeOfferPriceInput(offerMinPrice);
+    const maxPrice = normalizeOfferPriceInput(offerMaxPrice);
+    const requestCacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
     if (dataCacheKey !== requestCacheKey) return;
 
     setPaging(true);
     setError(null);
 
     try {
-      const nextPage = await fetchProductOfferPage(productId, offers.length, filterTags, query, excludeQuery);
+      const nextPage = await fetchProductOfferPage(productId, offers.length, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
       if (activeCacheKeyRef.current !== requestCacheKey) return;
       setData((current) => {
         if (activeCacheKeyRef.current !== requestCacheKey) return current;
@@ -244,7 +306,7 @@ export function ProductOffersPanel({
           limited: nextPage.limited,
         };
 
-        const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery);
+        const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
         rememberHealthyProductOffers(cacheKey, mergedData);
 
         return mergedData;
@@ -255,7 +317,7 @@ export function ProductOffersPanel({
     } finally {
       if (activeCacheKeyRef.current === requestCacheKey) setPaging(false);
     }
-  }, [activeData, dataCacheKey, loading, offerExcludeQuery, offerQuery, offers.length, paging, productId, selectedFilterTags, total]);
+  }, [activeData, dataCacheKey, loading, offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, offers.length, paging, productId, selectedCollector, selectedFilterTags, total]);
 
   useEffect(() => {
     if (!hasMore) return;
@@ -280,29 +342,44 @@ export function ProductOffersPanel({
   const handleToggleFilterTag = useCallback((tagId: OfferFilterTagId) => {
     const nextTags = toggleOfferFilterTag(selectedFilterTags, tagId);
     setSelectedFilterTags(nextTags);
-    syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery);
-  }, [offerExcludeQuery, offerQuery, selectedFilterTags]);
+    syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice);
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags]);
 
   const handleSearchSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextQuery = normalizeOfferSearchQuery(queryInput);
     const nextExcludeQuery = normalizeOfferSearchQuery(excludeInput, 160);
+    const nextMinPrice = normalizeOfferPriceInput(minPriceInput);
+    const nextMaxPrice = normalizeOfferPriceInput(maxPriceInput);
     setQueryInput(nextQuery);
     setExcludeInput(nextExcludeQuery);
+    setMinPriceInput(nextMinPrice);
+    setMaxPriceInput(nextMaxPrice);
     setOfferQuery(nextQuery);
     setOfferExcludeQuery(nextExcludeQuery);
-    setSearchOpen(Boolean(nextQuery || nextExcludeQuery) || searchOpen);
-    syncOfferFiltersToUrl(selectedFilterTags, nextQuery, nextExcludeQuery);
-  }, [excludeInput, queryInput, searchOpen, selectedFilterTags]);
+    setOfferMinPrice(nextMinPrice);
+    setOfferMaxPrice(nextMaxPrice);
+    syncOfferFiltersToUrl(selectedFilterTags, nextQuery, nextExcludeQuery, selectedCollector, nextMinPrice, nextMaxPrice);
+  }, [excludeInput, maxPriceInput, minPriceInput, queryInput, selectedCollector, selectedFilterTags]);
+
+  const handleCollectorChange = useCallback((collector: MerchantCollectorFilter) => {
+    setSelectedCollector(collector);
+    syncOfferFiltersToUrl(selectedFilterTags, offerQuery, offerExcludeQuery, collector, offerMinPrice, offerMaxPrice);
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedFilterTags]);
 
   const clearOfferFilters = useCallback(() => {
     setSelectedFilterTags([]);
+    setSelectedCollector("all");
     setQueryInput("");
     setExcludeInput("");
+    setMinPriceInput("");
+    setMaxPriceInput("");
     setOfferQuery("");
     setOfferExcludeQuery("");
-    setSearchOpen(false);
-    syncOfferFiltersToUrl([], "", "");
+    setOfferMinPrice("");
+    setOfferMaxPrice("");
+    setFilterOpen(false);
+    syncOfferFiltersToUrl([], "", "", "all", "", "");
   }, []);
 
   if (loading && !data) {
@@ -330,16 +407,26 @@ export function ProductOffersPanel({
       <OfferFilterBar
         facets={filterFacets}
         selectedTags={selectedFilterTags}
+        selectedCollector={selectedCollector}
         total={total}
         active={activeFilters}
         pending={loading || !activeData}
         excludeInput={excludeInput}
+        activeExcludeQuery={offerExcludeQueryKey}
+        filterOpen={filterOpen}
+        maxPriceInput={maxPriceInput}
+        minPriceInput={minPriceInput}
+        activeMaxPrice={offerMaxPriceKey}
+        activeMinPrice={offerMinPriceKey}
         queryInput={queryInput}
-        searchOpen={searchOpen}
+        activeQuery={offerQueryKey}
         onClear={clearOfferFilters}
+        onCollectorChange={handleCollectorChange}
         onExcludeInputChange={setExcludeInput}
+        onFilterOpenChange={setFilterOpen}
+        onMaxPriceInputChange={setMaxPriceInput}
+        onMinPriceInputChange={setMinPriceInput}
         onSearchInputChange={setQueryInput}
-        onSearchOpen={() => setSearchOpen(true)}
         onSearchSubmit={handleSearchSubmit}
         onToggle={handleToggleFilterTag}
       />
@@ -413,6 +500,9 @@ async function fetchProductOfferPage(
   filterTags: OfferFilterTagId[] = [],
   query = "",
   excludeQuery = "",
+  collector: MerchantCollectorFilter = "all",
+  minPrice = "",
+  maxPrice = "",
   signal?: AbortSignal,
 ): Promise<ProductOffersResponse> {
   const params = new URLSearchParams({
@@ -422,6 +512,9 @@ async function fetchProductOfferPage(
   if (filterTags.length) params.set("tags", filterTags.join(","));
   if (query) params.set("q", query);
   if (excludeQuery) params.set("exclude", excludeQuery);
+  if (collector !== "all") params.set("collector", collector);
+  if (minPrice) params.set("min", minPrice);
+  if (maxPrice) params.set("max", maxPrice);
   const response = await fetch(`/api/products/${encodeURIComponent(productId)}/offers?${params.toString()}`, {
     signal,
   });
@@ -437,8 +530,11 @@ function productOffersCacheKey(
   filterTags: OfferFilterTagId[] = [],
   query = "",
   excludeQuery = "",
+  collector: MerchantCollectorFilter = "all",
+  minPrice = "",
+  maxPrice = "",
 ): string {
-  return `priceai:product-offers:v11-risk-feedback:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}`;
+  return `priceai:product-offers:v12-source-price:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice || "none"}:${maxPrice || "none"}`;
 }
 
 function productOfferFilterFacets(
@@ -487,7 +583,23 @@ function normalizeOfferSearchQuery(value: string, limit = 80): string {
   return value.trim().slice(0, limit);
 }
 
-function readOfferFiltersFromUrl(): { tags: string | null; query: string; excludeQuery: string } | null {
+function normalizeOfferPriceInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return "";
+  return String(parsed);
+}
+
+function readOfferFiltersFromUrl(): {
+  tags: string | null;
+  query: string;
+  excludeQuery: string;
+  collector: string | null;
+  minPrice: string;
+  maxPrice: string;
+} | null {
   if (typeof window === "undefined") return null;
 
   const params = new URL(window.location.href).searchParams;
@@ -495,10 +607,20 @@ function readOfferFiltersFromUrl(): { tags: string | null; query: string; exclud
     tags: params.get("tags"),
     query: params.get("q") || "",
     excludeQuery: params.get("exclude") || "",
+    collector: params.get("collector"),
+    minPrice: params.get("min") || "",
+    maxPrice: params.get("max") || "",
   };
 }
 
-function syncOfferFiltersToUrl(filterTags: OfferFilterTagId[], query: string, excludeQuery: string) {
+function syncOfferFiltersToUrl(
+  filterTags: OfferFilterTagId[],
+  query: string,
+  excludeQuery: string,
+  collector: MerchantCollectorFilter,
+  minPrice: string,
+  maxPrice: string,
+) {
   if (typeof window === "undefined") return;
 
   const url = new URL(window.location.href);
@@ -519,6 +641,23 @@ function syncOfferFiltersToUrl(filterTags: OfferFilterTagId[], query: string, ex
   } else {
     url.searchParams.delete("exclude");
   }
+  if (collector !== "all") {
+    url.searchParams.set("collector", collector);
+  } else {
+    url.searchParams.delete("collector");
+  }
+  const normalizedMinPrice = normalizeOfferPriceInput(minPrice);
+  if (normalizedMinPrice) {
+    url.searchParams.set("min", normalizedMinPrice);
+  } else {
+    url.searchParams.delete("min");
+  }
+  const normalizedMaxPrice = normalizeOfferPriceInput(maxPrice);
+  if (normalizedMaxPrice) {
+    url.searchParams.set("max", normalizedMaxPrice);
+  } else {
+    url.searchParams.delete("max");
+  }
 
   window.history.replaceState(window.history.state, "", url);
 }
@@ -526,120 +665,264 @@ function syncOfferFiltersToUrl(filterTags: OfferFilterTagId[], query: string, ex
 function OfferFilterBar({
   facets,
   selectedTags,
+  selectedCollector,
   total,
   active,
   pending,
   excludeInput,
+  activeExcludeQuery,
+  filterOpen,
+  maxPriceInput,
+  minPriceInput,
+  activeMaxPrice,
+  activeMinPrice,
   queryInput,
-  searchOpen,
+  activeQuery,
   onClear,
+  onCollectorChange,
   onExcludeInputChange,
+  onFilterOpenChange,
+  onMaxPriceInputChange,
+  onMinPriceInputChange,
   onSearchInputChange,
-  onSearchOpen,
   onSearchSubmit,
   onToggle,
 }: {
   facets: OfferFilterTagFacet[];
   selectedTags: OfferFilterTagId[];
+  selectedCollector: MerchantCollectorFilter;
   total: number;
   active: boolean;
   pending: boolean;
   excludeInput: string;
+  activeExcludeQuery: string;
+  filterOpen: boolean;
+  maxPriceInput: string;
+  minPriceInput: string;
+  activeMaxPrice: string;
+  activeMinPrice: string;
   queryInput: string;
-  searchOpen: boolean;
+  activeQuery: string;
   onClear: () => void;
+  onCollectorChange: (collector: MerchantCollectorFilter) => void;
   onExcludeInputChange: (value: string) => void;
+  onFilterOpenChange: (open: boolean) => void;
+  onMaxPriceInputChange: (value: string) => void;
+  onMinPriceInputChange: (value: string) => void;
   onSearchInputChange: (value: string) => void;
-  onSearchOpen: () => void;
   onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onToggle: (tagId: OfferFilterTagId) => void;
 }) {
   const facetById = new Map(facets.map((facet) => [facet.id, facet]));
   const visibleFacets = Array.from(OFFER_FILTER_TAG_BY_ID.values())
     .filter((definition) => facetById.has(definition.id));
+  const activeChips = buildOfferActiveFilterChips({
+    selectedTags,
+    selectedCollector,
+    queryInput: activeQuery,
+    excludeInput: activeExcludeQuery,
+    minPriceInput: activeMinPrice,
+    maxPriceInput: activeMaxPrice,
+  });
 
   return (
-    <section className="mt-5 flex flex-col gap-3 border-y border-[#e5eaea] py-3 md:flex-row md:items-center md:justify-between">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="shrink-0 text-xs font-semibold text-[#5a6061]">只看</span>
-        {visibleFacets.map((facet) => {
-          const selected = selectedTags.includes(facet.id);
-
-          return (
-            <button
-              key={facet.id}
-              type="button"
-              onClick={() => onToggle(facet.id)}
-              title={facet.description}
-              className={`inline-flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition ${
-                selected
-                  ? "bg-[#202829] text-white"
-                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-              }`}
-            >
-              {facet.label}
-            </button>
-          );
-        })}
-        {active ? (
-          <span className="text-xs text-[#7a8587]">{pending ? "正在加载" : `当前 ${total} 条`}</span>
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-        {searchOpen ? (
-          <form onSubmit={onSearchSubmit} className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(190px,240px)_minmax(190px,240px)_auto] sm:items-center">
-            <label className="relative min-w-0">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#7a8587]">
-                包含
-              </span>
-              <input
-                value={queryInput}
-                onChange={(event) => onSearchInputChange(event.target.value)}
-                placeholder="关键词、渠道、商品名"
-                className="h-9 w-full rounded-full bg-white pl-12 pr-3 text-sm text-[#202829] outline-none ring-1 ring-[#dbe2e3] transition placeholder:text-[#9aa3a5] focus:ring-2 focus:ring-[#adb3b4]/35"
-              />
-            </label>
-            <label className="relative min-w-0">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#9b3328]">
-                排除
-              </span>
-              <input
-                value={excludeInput}
-                onChange={(event) => onExcludeInputChange(event.target.value)}
-                placeholder="网页、无质保、日抛"
-                className="h-9 w-full rounded-full bg-white pl-12 pr-3 text-sm text-[#202829] outline-none ring-1 ring-[#dbe2e3] transition placeholder:text-[#9aa3a5] focus:ring-2 focus:ring-[#adb3b4]/35"
-              />
-            </label>
-            <button
-              type="submit"
-              className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-[#202829] px-3 text-sm font-semibold text-white transition hover:opacity-90"
-            >
-              应用
-            </button>
-          </form>
-        ) : (
+    <section className="mt-5 border-y border-[#e5eaea] py-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={onSearchOpen}
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#eef1f1] px-3 text-sm font-semibold text-[#4d5657] transition hover:bg-[#e3e9e9] hover:text-[#202829]"
+            onClick={() => onFilterOpenChange(!filterOpen)}
+            aria-expanded={filterOpen}
+            className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
+              filterOpen || active
+                ? "bg-[#202829] text-white"
+                : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+            }`}
           >
-            <Search size={14} />
-            搜索报价
+            <Filter size={15} />
+            筛选{activeChips.length ? ` ${activeChips.length}` : ""}
           </button>
-        )}
+          <span className="text-xs text-[#7a8587]">{pending ? "正在加载" : active ? `当前 ${total} 条` : `${total} 条报价`}</span>
+          {activeChips.map((chip) => (
+            <span key={chip} className="inline-flex h-7 max-w-[190px] items-center rounded-full bg-[#eef1f1] px-2.5 text-xs font-semibold text-[#4d5657]">
+              <span className="truncate">{chip}</span>
+            </span>
+          ))}
+        </div>
         {active ? (
           <button
             type="button"
             onClick={onClear}
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-transparent px-2 text-xs font-semibold text-[#6c7677] transition hover:bg-[#eef1f1] hover:text-[#202829]"
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-full bg-transparent px-2 text-xs font-semibold text-[#6c7677] transition hover:bg-[#eef1f1] hover:text-[#202829] lg:self-auto"
           >
             <X size={13} />
             清除
           </button>
         ) : null}
       </div>
+
+      {filterOpen ? (
+        <form onSubmit={onSearchSubmit} className="mt-3 rounded-lg bg-white p-3 ring-1 ring-[#adb3b4]/15">
+          <div className="grid gap-4 xl:grid-cols-[minmax(260px,1.2fr)_minmax(260px,0.9fr)_minmax(320px,1.1fr)_auto] xl:items-end">
+            <fieldset className="min-w-0">
+              <legend className="text-xs font-semibold text-[#5a6061]">渠道来源</legend>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {MERCHANT_COLLECTOR_FILTERS.map((collector) => {
+                  const selected = selectedCollector === collector;
+                  const collectorGroup = collector === "all" ? null : collector;
+                  return (
+                    <button
+                      key={collector}
+                      type="button"
+                      onClick={() => onCollectorChange(collector)}
+                      className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
+                        selected
+                          ? "bg-[#202829] text-white"
+                          : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+                      }`}
+                    >
+                      {collectorGroup ? <CollectorSourceLogo group={collectorGroup} size="compact" /> : null}
+                      {merchantCollectorLabel(collector)}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
+            <fieldset className="min-w-0">
+              <legend className="text-xs font-semibold text-[#5a6061]">价格区间</legend>
+              <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                <PriceFilterInput value={minPriceInput} onChange={onMinPriceInputChange} label="最低价" />
+                <span className="text-xs font-semibold text-[#7a8587]">至</span>
+                <PriceFilterInput value={maxPriceInput} onChange={onMaxPriceInputChange} label="最高价" />
+              </div>
+            </fieldset>
+
+            <fieldset className="min-w-0">
+              <legend className="text-xs font-semibold text-[#5a6061]">报价关键词</legend>
+              <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                <TextFilterInput label="包含" value={queryInput} onChange={onSearchInputChange} placeholder="关键词、渠道、商品名" />
+                <TextFilterInput label="排除" value={excludeInput} onChange={onExcludeInputChange} placeholder="网页、无质保、日抛" danger />
+              </div>
+            </fieldset>
+
+            <button
+              type="submit"
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-[#202829] px-4 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              应用筛选
+            </button>
+          </div>
+
+          {visibleFacets.length ? (
+            <fieldset className="mt-4 min-w-0 border-t border-[#edf0f1] pt-3">
+              <legend className="text-xs font-semibold text-[#5a6061]">商品特征</legend>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {visibleFacets.map((facet) => {
+                  const selected = selectedTags.includes(facet.id);
+
+                  return (
+                    <button
+                      key={facet.id}
+                      type="button"
+                      onClick={() => onToggle(facet.id)}
+                      title={facet.description}
+                      className={`inline-flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition ${
+                        selected
+                          ? "bg-[#202829] text-white"
+                          : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+                      }`}
+                    >
+                      {facet.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ) : null}
+        </form>
+      ) : null}
     </section>
   );
+}
+
+function PriceFilterInput({
+  value,
+  onChange,
+  label,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+}) {
+  return (
+    <label className="relative min-w-0">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#7a8587]">¥</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        inputMode="decimal"
+        aria-label={label}
+        placeholder={label}
+        className="h-9 w-full rounded-full bg-[#f9fbfb] pl-7 pr-3 text-sm text-[#202829] outline-none ring-1 ring-[#dbe2e3] transition placeholder:text-[#7d8789] focus:ring-2 focus:ring-[#adb3b4]/35"
+      />
+    </label>
+  );
+}
+
+function TextFilterInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  danger = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  danger?: boolean;
+}) {
+  return (
+    <label className="relative min-w-0">
+      <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold ${danger ? "text-[#9b3328]" : "text-[#7a8587]"}`}>
+        {label}
+      </span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-9 w-full rounded-full bg-[#f9fbfb] pl-12 pr-3 text-sm text-[#202829] outline-none ring-1 ring-[#dbe2e3] transition placeholder:text-[#7d8789] focus:ring-2 focus:ring-[#adb3b4]/35"
+      />
+    </label>
+  );
+}
+
+function buildOfferActiveFilterChips({
+  selectedTags,
+  selectedCollector,
+  queryInput,
+  excludeInput,
+  minPriceInput,
+  maxPriceInput,
+}: {
+  selectedTags: OfferFilterTagId[];
+  selectedCollector: MerchantCollectorFilter;
+  queryInput: string;
+  excludeInput: string;
+  minPriceInput: string;
+  maxPriceInput: string;
+}): string[] {
+  const chips: string[] = [];
+  if (selectedCollector !== "all") chips.push(merchantCollectorLabel(selectedCollector));
+  if (minPriceInput || maxPriceInput) chips.push(`¥${minPriceInput || "0"}-${maxPriceInput || "不限"}`);
+  if (queryInput) chips.push(`包含：${queryInput}`);
+  if (excludeInput) chips.push(`排除：${excludeInput}`);
+  for (const tagId of selectedTags) {
+    const tag = OFFER_FILTER_TAG_BY_ID.get(tagId);
+    if (tag) chips.push(tag.label);
+  }
+  return chips;
 }
 
 function OfferTableSkeleton({ count }: { count: number }) {
@@ -759,12 +1042,17 @@ function OfferTable({
                     <OfferStatusBadge available={available} />
                   </td>
                   <td className="max-w-[195px] px-4 py-4">
-                    <span className="block truncate font-semibold text-[#202829]">
-                      {sourceLabel(offer)}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <CollectorSourceLogo group={merchantCollectorGroup(offer.collectorKind)} size="compact" />
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-[#202829]">
+                          {sourceLabel(offer)}
+                        </span>
+                        {sourceSecondaryLabel(offer) ? (
+                          <span className="mt-1 block truncate text-xs text-[#5a6061]">{sourceSecondaryLabel(offer)}</span>
+                        ) : null}
+                      </span>
                     </span>
-                    {sourceSecondaryLabel(offer) ? (
-                      <span className="mt-1 block truncate text-xs text-[#5a6061]">{sourceSecondaryLabel(offer)}</span>
-                    ) : null}
                   </td>
                   <td className="px-5 py-4">
                     <OfferSourceTitle title={offer.sourceTitle} mode="table" sharedAccess={sharedAccess} />
@@ -815,9 +1103,12 @@ function OfferListItem({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-[#202829]">{sourceLabel(offer)}</p>
-          <OfferSourceTitle title={offer.sourceTitle} mode="card" sharedAccess={sharedAccess} />
+        <div className="flex min-w-0 items-start gap-2">
+          <CollectorSourceLogo group={merchantCollectorGroup(offer.collectorKind)} size="compact" />
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-[#202829]">{sourceLabel(offer)}</p>
+            <OfferSourceTitle title={offer.sourceTitle} mode="card" sharedAccess={sharedAccess} />
+          </div>
         </div>
         <OfferStatusBadge available={available} />
       </div>

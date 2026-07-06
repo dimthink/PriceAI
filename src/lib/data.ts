@@ -26,6 +26,7 @@ import {
 } from "./public-api-snapshots";
 import { getFallbackRiskReviewSettingsSummary, getRiskReviewSettingsSummary } from "./risk-review-settings";
 import { getFallbackSponsorSettingsSummary, getSponsorSettingsSummary } from "./sponsor-settings";
+import { merchantCollectorGroup, merchantCollectorLabel, parseMerchantCollectorFilter } from "./merchant-collectors";
 import {
   normalizePublicOfferLimit,
   normalizePublicOfferOffset,
@@ -52,7 +53,7 @@ import type {
   DashboardData,
   ExplorerData,
   ExplorerProductSummary,
-  MerchantCollectorGroup,
+  MerchantCollectorFilter,
   PublicMerchantSummary,
   PublicOfferSummary,
   PublicRiskFeedback,
@@ -346,6 +347,9 @@ type ProductOfferListFilters = {
   filterTags?: string[] | null;
   query?: string | string[] | null;
   excludeQuery?: string | string[] | null;
+  collector?: string | null;
+  minPrice?: number | null;
+  maxPrice?: number | null;
 };
 
 export function clearPublicDataCache(): void {
@@ -945,6 +949,9 @@ async function refreshPublicProductOfferSnapshots(
       filterProductId: product.id,
       query: "",
       excludeQuery: "",
+      collector: "all",
+      minPrice: null,
+      maxPrice: null,
       skipSnapshot: true,
     });
     const defaultKey = publicProductOffersSnapshotKey(product.id);
@@ -1972,13 +1979,19 @@ function publicProductOffersSnapshotKeyForRequest(
     filterTags: OfferFilterTagId[];
     query: string;
     excludeQuery: string;
+    collector: MerchantCollectorFilter;
+    minPrice: number | null;
+    maxPrice: number | null;
   },
 ): string | null {
   if (
     filters.limit !== PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT ||
     filters.offset !== PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET ||
     filters.query ||
-    filters.excludeQuery
+    filters.excludeQuery ||
+    filters.collector !== "all" ||
+    filters.minPrice !== null ||
+    filters.maxPrice !== null
   ) {
     return null;
   }
@@ -2840,7 +2853,10 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   const filterTags = parseOfferFilterTagsForProduct(filterProductId, filters.filterTags || []);
   const query = normalizeProductOfferQuery(filters.query);
   const excludeQuery = normalizeProductOfferQuery(filters.excludeQuery, 160);
-  const cacheKey = `${id}:${limit}:${offset}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:offer-filter-v5-risk-feedback`;
+  const collector = parseMerchantCollectorFilter(filters.collector);
+  const minPrice = normalizeProductOfferPriceFilter(filters.minPrice);
+  const maxPrice = normalizeProductOfferPriceFilter(filters.maxPrice);
+  const cacheKey = `${id}:${limit}:${offset}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice ?? "none"}:${maxPrice ?? "none"}:offer-filter-v6-source-price`;
   const now = Date.now();
   const cached = productOffersCache.get(cacheKey);
 
@@ -2849,7 +2865,7 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   }
 
   const staleValue = cached?.value || null;
-  const value = await loadPublicProductOffers(id, { limit, offset, filterTags, filterProductId, query, excludeQuery });
+  const value = await loadPublicProductOffers(id, { limit, offset, filterTags, filterProductId, query, excludeQuery, collector, minPrice, maxPrice });
   const nextValue = sanitizePublicProductOffersResultForProduct(filterProductId, preferStaleProductOffers(staleValue, value));
   if (!nextValue.degraded) {
     productOffersCache.set(cacheKey, {
@@ -2877,6 +2893,9 @@ async function loadPublicProductOffers(
     filterProductId: string;
     query: string;
     excludeQuery: string;
+    collector: MerchantCollectorFilter;
+    minPrice: number | null;
+    maxPrice: number | null;
     skipSnapshot?: boolean;
   },
 ) : Promise<PublicProductOffersResult> {
@@ -2907,7 +2926,7 @@ async function loadPublicProductOffers(
     return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, rpcData) : rpcData;
   }
 
-  const { limit, offset, filterTags, query, excludeQuery } = filters;
+  const { limit, offset, filterTags, query, excludeQuery, collector, minPrice, maxPrice } = filters;
   const excludeTerms = parseProductOfferKeywords(excludeQuery);
   const publicData = await readPublicOfferData();
   const products = publicData.products.length ? publicData.products : canonicalCatalog;
@@ -2936,7 +2955,9 @@ async function loadPublicProductOffers(
   const offers = offerPool
     .filter((offer) => offerMatchesFilterTags(offer, filterTags))
     .filter((offer) => offerMatchesProductOfferQuery(offer, query))
-    .filter((offer) => offerMatchesProductOfferExcludeQuery(offer, excludeTerms));
+    .filter((offer) => offerMatchesProductOfferExcludeQuery(offer, excludeTerms))
+    .filter((offer) => offerMatchesProductOfferCollector(offer, collector))
+    .filter((offer) => offerMatchesProductOfferPriceRange(offer, minPrice, maxPrice));
   const total = offers.length;
   const page = offers.slice(offset, offset + limit);
 
@@ -2970,6 +2991,9 @@ async function getPublicProductOffersFromDatabase(
     filterProductId: string;
     query: string;
     excludeQuery: string;
+    collector: MerchantCollectorFilter;
+    minPrice: number | null;
+    maxPrice: number | null;
   },
 ): Promise<PublicProductOffersResult | null> {
   if (!isPublicProductKeyVisible(id) || !isPublicProductKeyVisible(filters.filterProductId)) {
@@ -2989,7 +3013,13 @@ async function getPublicProductOffersFromDatabase(
   if (!supabase) return null;
 
   const filterFacetsPromise = getPublicProductOfferFilterFacetsFromDatabase(id, filters.filterProductId);
-  const hasServerFilters = filters.filterTags.length > 0 || filters.query.length > 0 || filters.excludeQuery.length > 0;
+  const hasServerFilters =
+    filters.filterTags.length > 0 ||
+    filters.query.length > 0 ||
+    filters.excludeQuery.length > 0 ||
+    filters.collector !== "all" ||
+    filters.minPrice !== null ||
+    filters.maxPrice !== null;
   const rpcName = hasServerFilters
     ? "list_public_product_offers_page_v2"
     : "list_public_product_offers_page";
@@ -2999,6 +3029,9 @@ async function getPublicProductOffersFromDatabase(
         p_filter_tags: filters.filterTags,
         p_query: filters.query || null,
         p_exclude_query: filters.excludeQuery || null,
+        p_collector: filters.collector === "all" ? null : filters.collector,
+        p_min_price: filters.minPrice,
+        p_max_price: filters.maxPrice,
         p_limit: filters.limit,
         p_offset: filters.offset,
       }
@@ -3129,6 +3162,11 @@ function normalizeProductOfferQuery(value: string | string[] | null | undefined,
   return String(input || "").trim().slice(0, limit);
 }
 
+function normalizeProductOfferPriceFilter(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return value;
+}
+
 function offerMatchesProductOfferQuery(offer: RawOffer, query: string): boolean {
   if (!query) return true;
 
@@ -3142,6 +3180,19 @@ function offerMatchesProductOfferExcludeQuery(offer: RawOffer, excludeTerms: str
 
   const haystack = buildProductOfferSearchHaystack(offer);
   return excludeTerms.every((term) => !haystack.includes(term.toLowerCase()));
+}
+
+function offerMatchesProductOfferCollector(offer: RawOffer, collector: MerchantCollectorFilter): boolean {
+  if (collector === "all") return true;
+  return merchantCollectorGroup(offer.collectorKind) === collector;
+}
+
+function offerMatchesProductOfferPriceRange(offer: RawOffer, minPrice: number | null, maxPrice: number | null): boolean {
+  if (minPrice === null && maxPrice === null) return true;
+  if (typeof offer.price !== "number" || !Number.isFinite(offer.price)) return false;
+  if (minPrice !== null && offer.price < minPrice) return false;
+  if (maxPrice !== null && offer.price > maxPrice) return false;
+  return true;
 }
 
 function parseProductOfferKeywords(value: string): string[] {
@@ -4501,20 +4552,6 @@ function sourceLabel(offer: RawOffer): string {
 function publicMerchantGroupKey(offer: RawOffer): string {
   if (offer.sourceId) return `source:${offer.sourceId}`;
   return `fallback:${offer.collectorKind || "unknown"}:${sourceLabel(offer)}:${offerHost(offer.url) || offer.sourceName}`;
-}
-
-function merchantCollectorGroup(kind: Source["collectorKind"]): MerchantCollectorGroup {
-  if (kind === "shopApi") return "shopApi";
-  if (kind === "dujiao") return "dujiao";
-  if (kind === "kami") return "kami";
-  return "other";
-}
-
-function merchantCollectorLabel(group: MerchantCollectorGroup): string {
-  if (group === "shopApi") return "链动小铺";
-  if (group === "dujiao") return "独角数卡";
-  if (group === "kami") return "Kami";
-  return "其他";
 }
 
 function comparePublicMerchants(a: PublicMerchantSummary, b: PublicMerchantSummary): number {

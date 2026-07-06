@@ -21,6 +21,9 @@ export async function GET(
       filterTags: request.nextUrl.searchParams.get("tags")?.split(/[,，\s]+/) ?? [],
       query: request.nextUrl.searchParams.get("q"),
       excludeQuery: request.nextUrl.searchParams.get("exclude"),
+      collector: request.nextUrl.searchParams.get("collector"),
+      minPrice: parseNumberParam(request.nextUrl.searchParams.get("min")),
+      maxPrice: parseNumberParam(request.nextUrl.searchParams.get("max")),
     });
 
     return NextResponse.json(result, {
@@ -29,4 +32,11 @@ export async function GET(
   } catch (error) {
     return publicPriceApiErrorResponse("public product offers API", error);
   }
+}
+
+function parseNumberParam(value: string | null): number | null {
+  if (!value) return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
