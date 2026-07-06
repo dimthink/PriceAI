@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.3",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^1.14.0",
     "next": "16.2.9",
     "next-mdx-remote": "^6.0.0",

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Download, FileJson } from "lucide-react";
+import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Download, FileJson, ImageDown, X } from "lucide-react";
 import type { DetectorReportCheck, DetectorReportMetric, DetectorReportTone } from "@/lib/transit-detector-report";
 
 export interface TransitDetectorReportImageData {
@@ -29,30 +30,51 @@ interface TransitDetectorReportDownloadButtonsProps {
   report: TransitDetectorReportImageData;
 }
 
-const CANVAS_WIDTH = 1600;
-const CANVAS_HEIGHT = 1000;
-const COLORS = {
-  ink: "#202829",
-  text: "#2d3435",
-  muted: "#5a6061",
-  faint: "#7a8284",
-  page: "#f9f9f9",
-  surface: "#ffffff",
-  panel: "#f2f4f4",
-  line: "#dfe4e5",
-  brand: "#45bf78",
-  successBg: "#e8f3ec",
-  successText: "#2f7a4b",
-  warningBg: "#fff7e8",
-  warningText: "#7a541b",
-  dangerBg: "#fbe9e7",
-  dangerText: "#9b3328",
-  mutedBg: "#eef1f1",
-} as const;
+const SHARE_CARD_WIDTH = 1600;
+const SHARE_CARD_HEIGHT = 1000;
+const previewImageAlt = "API 中转检测报告摘要图预览";
+const twoLineClamp: CSSProperties = {
+  display: "-webkit-box",
+  WebkitBoxOrient: "vertical",
+  WebkitLineClamp: 2,
+  overflow: "hidden",
+};
 
 export function TransitDetectorReportDownloadButtons({ report }: TransitDetectorReportDownloadButtonsProps) {
-  const [isRendering, setIsRendering] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const shareCardRef = useRef<HTMLDivElement>(null);
+  const closePreviewButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isPreviewOpen) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsPreviewOpen(false);
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    const originalOverflow = document.body.style.overflow;
+    const previouslyFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => closePreviewButtonRef.current?.focus(), 0);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = originalOverflow;
+      previouslyFocusedElement?.focus();
+    };
+  }, [isPreviewOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   function handleJsonDownload() {
     const json = JSON.stringify(report.raw, null, 2);
@@ -60,19 +82,35 @@ export function TransitDetectorReportDownloadButtons({ report }: TransitDetector
     downloadBlob(blob, `priceai-transit-report-${safeFilePart(report.id)}.json`);
   }
 
-  async function handleDownload() {
-    if (isRendering) return;
-    setIsRendering(true);
+  async function handleOpenPreview() {
+    if (isPreparing) return;
+    const shareCardNode = shareCardRef.current;
+    if (!shareCardNode) return;
+
+    setIsPreparing(true);
     setErrorMessage("");
 
     try {
-      const blob = await renderReportImage(report);
-      downloadBlob(blob, `priceai-transit-report-${safeFilePart(report.id)}.jpg`);
+      const blob = await renderReportImage(shareCardNode);
+      const nextUrl = URL.createObjectURL(blob);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewBlob(blob);
+      setPreviewUrl(nextUrl);
+      setIsPreviewOpen(true);
     } catch {
-      setErrorMessage("下载失败，请稍后再试。");
+      setErrorMessage("预览生成失败，请稍后再试。");
     } finally {
-      setIsRendering(false);
+      setIsPreparing(false);
     }
+  }
+
+  function handleClosePreview() {
+    setIsPreviewOpen(false);
+  }
+
+  function handleDownloadImage() {
+    if (!previewBlob) return;
+    downloadBlob(previewBlob, `priceai-transit-report-${safeFilePart(report.id)}.jpg`);
   }
 
   return (
@@ -88,17 +126,275 @@ export function TransitDetectorReportDownloadButtons({ report }: TransitDetector
         </button>
         <button
           type="button"
-          onClick={handleDownload}
-          disabled={isRendering}
+          onClick={handleOpenPreview}
+          disabled={isPreparing}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#202829] px-4 text-sm font-semibold text-white transition hover:bg-[#2d3435] disabled:cursor-wait disabled:bg-[#adb3b4]"
         >
-          <Download className="h-4 w-4" />
-          {isRendering ? "生成中" : "JPG"}
+          <ImageDown className="h-4 w-4" />
+          {isPreparing ? "生成中" : "预览图片"}
         </button>
       </div>
       {errorMessage ? <span className="text-xs font-semibold text-[#9b3328]">{errorMessage}</span> : null}
+
+      <div aria-hidden="true" className="pointer-events-none fixed top-0 left-[-20000px]">
+        <div
+          ref={shareCardRef}
+          data-testid="transit-report-share-card"
+          className="h-[1000px] overflow-hidden bg-[#f9f9f9] p-16 text-[#2d3435]"
+          style={{ width: SHARE_CARD_WIDTH, height: SHARE_CARD_HEIGHT }}
+        >
+          <TransitDetectorReportShareCard report={report} />
+        </div>
+      </div>
+
+      {isPreviewOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#202829]/60 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detector-report-image-preview-title"
+        >
+          <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-[0_30px_80px_rgba(45,52,53,0.22)] ring-1 ring-[#adb3b4]/25">
+            <div className="flex flex-col gap-3 border-b border-[#edf0f1] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 id="detector-report-image-preview-title" className="text-lg font-semibold text-[#202829]">
+                  图片预览
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-[#5a6061]">
+                  这张图由页面里的报告卡片生成。确认没问题后再下载；完整证据仍以页面报告为准。
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadImage}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#202829] px-4 text-sm font-semibold text-white transition hover:bg-[#2d3435] disabled:cursor-not-allowed disabled:bg-[#adb3b4]"
+                  disabled={!previewBlob}
+                >
+                  <Download className="h-4 w-4" />
+                  下载 JPG
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClosePreview}
+                  ref={closePreviewButtonRef}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5a6061] transition hover:bg-[#dfe4e5] hover:text-[#202829]"
+                  aria-label="关闭图片预览"
+                  title="关闭图片预览"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto bg-[#f2f4f4] p-4">
+              {previewUrl ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- Blob preview URLs cannot be optimized by next/image. */}
+                  <img
+                    src={previewUrl}
+                    alt={previewImageAlt}
+                    className="mx-auto h-auto max-h-[calc(92vh-132px)] w-auto max-w-full rounded-lg bg-white object-contain shadow-[0_10px_28px_rgba(45,52,53,0.10)]"
+                  />
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function TransitDetectorReportShareCard({ report }: { report: TransitDetectorReportImageData }) {
+  const tone = toneClasses(report.verdictTone);
+  const highlightedChecks = pickHighlightedChecks(report.checks, 3);
+
+  return (
+    <section className="flex h-full flex-col">
+      <header className="flex items-start justify-between gap-8">
+        <div className="flex items-center gap-4">
+          <PriceAiMark />
+          <div>
+            <p className="text-[42px] leading-none font-extrabold tracking-normal text-[#202829]">PriceAI</p>
+            <p className="mt-2 text-[15px] font-bold tracking-[0.18em] text-[#6b7374]">AI 比价雷达</p>
+          </div>
+        </div>
+        <span className="inline-flex h-11 items-center rounded-full bg-white px-9 text-lg font-extrabold text-[#5a6061] shadow-[0_10px_30px_rgba(45,52,53,0.04)] ring-1 ring-[#adb3b4]/18">
+          priceai.cc
+        </span>
+      </header>
+
+      <div className="mt-8">
+        <h1 className="font-serif text-[46px] leading-none font-semibold tracking-normal text-[#202829]">API 中转检测报告</h1>
+        <div className="mt-5 flex flex-wrap items-center gap-3 text-[17px] font-extrabold text-[#5a6061]">
+          {[report.title, report.timestampLabel, report.protocolLabel].map((item) => (
+            <span key={item} className="rounded-full bg-white px-4 py-2 shadow-[0_8px_18px_rgba(45,52,53,0.03)] ring-1 ring-[#adb3b4]/16">
+              {item}
+            </span>
+          ))}
+        </div>
+        <p className="mt-4 max-w-[1160px] text-[19px] leading-[1.55] font-semibold text-[#5a6061]" style={twoLineClamp}>
+          这张图是 PriceAI 报告页生成的摘要截图，用于快速分享结论。完整检测项、原始证据和异常明细请回到页面报告复核。
+        </p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-[500px_minmax(0,1fr)] gap-7">
+        <div className="flex h-[300px] flex-col rounded-lg bg-white p-7 shadow-[0_16px_48px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/16">
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <p className="text-[22px] font-extrabold text-[#5a6061]">综合结论</p>
+              <div className="mt-4 flex items-end gap-4">
+                <span className="text-[78px] leading-none font-extrabold tracking-normal text-[#202829]">{report.scoreLabel}</span>
+                <span className={`mb-2 inline-flex h-11 items-center rounded-full px-5 text-[18px] font-extrabold ring-1 ${tone.pill}`}>
+                  {report.verdictLabel}
+                </span>
+              </div>
+            </div>
+            <span className={`grid h-12 w-12 place-items-center rounded-full ${tone.iconBg}`}>
+              <span className={`h-5 w-5 rounded-full ${tone.dot}`} />
+            </span>
+          </div>
+          <p className="mt-3 truncate text-[18px] font-bold text-[#2d3435]">
+            {report.summary}
+          </p>
+          <div className="mt-auto grid grid-cols-3 gap-3 border-t border-[#edf0f1] pt-4">
+            <ShareCount label="通过" value={report.passCount} tone="success" />
+            <ShareCount label="需复核" value={report.issueCount} tone="warning" />
+            <ShareCount label="未启用" value={report.skippedCount} tone="muted" />
+          </div>
+        </div>
+
+        <div className="h-[300px] overflow-hidden rounded-lg bg-white shadow-[0_16px_48px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/16">
+          <div className="border-b border-[#edf0f1] px-7 py-4">
+            <h2 className="text-[24px] font-extrabold text-[#202829]">检测对象</h2>
+          </div>
+          <dl className="grid grid-cols-2">
+            <ShareInfoCell label="模型" value={report.model} />
+            <ShareInfoCell label="协议" value={report.protocolLabel} />
+            <ShareInfoCell label="检测强度" value={report.modeLabel} />
+            <ShareInfoCell label="接口地址" value={report.baseUrl} isCode />
+            <ShareInfoCell label="Key" value={report.apiKeyMasked} isCode />
+            <ShareInfoCell label="生成时间" value={report.timestampLabel} />
+          </dl>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)_500px] gap-7">
+        <section className="h-[230px] rounded-lg bg-white p-6 shadow-[0_16px_48px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/16">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-[26px] leading-none font-extrabold text-[#202829]">关键信号</h2>
+              <p className="mt-2 text-[16px] font-semibold text-[#5a6061]">优先展示异常项，再展示通过项。</p>
+            </div>
+            <span className="text-[16px] font-extrabold text-[#5a6061]">{report.checks.length} 个检测项</span>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {highlightedChecks.map((check) => (
+              <ShareSignalRow key={check.name} check={check} />
+            ))}
+            {!highlightedChecks.length ? (
+              <p className="rounded-lg bg-[#f7f8f8] px-4 py-5 text-[18px] font-semibold text-[#5a6061]">
+                本次报告没有可展示的检测项。请回到 PriceAI 页面查看原始报告是否完整返回。
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="grid h-[230px] grid-cols-2 gap-4">
+          {report.metrics.slice(0, 4).map((metric) => (
+            <ShareMetricTile key={metric.label} metric={metric} />
+          ))}
+        </section>
+      </div>
+
+      <footer className="mt-auto flex items-center justify-between border-t border-[#dfe4e5] pt-5 text-[17px] font-bold text-[#5a6061]">
+        <span>PriceAI API 中转模型检测摘要 · 完整证据以页面报告为准</span>
+        <span>{report.id} · {report.apiKeyMasked}</span>
+      </footer>
+    </section>
+  );
+}
+
+function PriceAiMark() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true" className="h-16 w-16 shrink-0 text-[#202829]">
+      <circle cx="28" cy="28" r="20" fill="#ffffff" stroke="currentColor" strokeWidth="5" />
+      <path d="M15 33L23 25L30 30L41 19" fill="none" stroke="#45bf78" strokeLinecap="round" strokeLinejoin="round" strokeWidth="5" />
+      <circle cx="41" cy="19" r="3.6" fill="#45bf78" />
+      <path d="M43 43L56 56" stroke="currentColor" strokeLinecap="round" strokeWidth="7" />
+    </svg>
+  );
+}
+
+function ShareCount({ label, value, tone }: { label: string; value: number; tone: DetectorReportTone }) {
+  const styles = toneClasses(tone);
+  return (
+    <div className={`rounded-lg px-4 py-2.5 ring-1 ${styles.soft}`}>
+      <p className="text-[14px] font-extrabold">{label}</p>
+      <p className="mt-1 text-[24px] leading-none font-extrabold text-[#202829]">{value}</p>
+    </div>
+  );
+}
+
+function ShareInfoCell({ label, value, isCode = false }: { label: string; value: string; isCode?: boolean }) {
+  return (
+    <div className="h-[77px] min-w-0 border-b border-[#edf0f1] px-7 py-3 odd:border-r odd:border-[#edf0f1]">
+      <dt className="text-[13px] font-extrabold text-[#5a6061]">{label}</dt>
+      <dd className={`mt-1 truncate text-[17px] leading-tight font-extrabold text-[#202829] ${isCode ? "font-mono" : ""}`}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function ShareSignalRow({ check }: { check: DetectorReportCheck }) {
+  const styles = toneClasses(check.tone);
+  return (
+    <article className="min-w-0 rounded-lg bg-[#f9f9f9] px-4 py-2.5 ring-1 ring-[#adb3b4]/12">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className={`h-3 w-3 shrink-0 rounded-full ${styles.dot}`} />
+        <h3 className="min-w-0 truncate text-[17px] font-extrabold text-[#202829]">{check.label}</h3>
+        <span className={`ml-auto inline-flex h-6 shrink-0 items-center rounded-full px-2.5 text-[13px] font-extrabold ring-1 ${styles.pill}`}>
+          {check.status}
+        </span>
+      </div>
+      <p className="mt-1 truncate text-[14px] font-bold text-[#5a6061]">
+        {check.scoreLabel} · {check.durationLabel} · {shortSignalSummary(check)}
+      </p>
+    </article>
+  );
+}
+
+function ShareMetricTile({ metric }: { metric: DetectorReportMetric }) {
+  const styles = toneClasses(metric.tone ?? "muted");
+  return (
+    <div className={`rounded-lg bg-white px-5 py-4 shadow-[0_16px_48px_rgba(45,52,53,0.045)] ring-1 ${metric.tone ? styles.softRing : "ring-[#adb3b4]/16"}`}>
+      <p className="text-[15px] font-extrabold text-[#5a6061]">{metric.label}</p>
+      <p className="mt-2 truncate text-[28px] leading-none font-extrabold text-[#202829]">{metric.value}</p>
+      <p className="mt-2 text-[13px] leading-[1.3] font-semibold text-[#5a6061]" style={twoLineClamp}>{metric.helper}</p>
+    </div>
+  );
+}
+
+async function renderReportImage(node: HTMLElement): Promise<Blob> {
+  if ("fonts" in document) await document.fonts.ready;
+
+  const { toBlob } = await import("html-to-image");
+  const blob = await toBlob(node, {
+    backgroundColor: "#f9f9f9",
+    cacheBust: true,
+    canvasHeight: SHARE_CARD_HEIGHT,
+    canvasWidth: SHARE_CARD_WIDTH,
+    height: SHARE_CARD_HEIGHT,
+    pixelRatio: 1,
+    quality: 0.95,
+    skipFonts: true,
+    type: "image/jpeg",
+    width: SHARE_CARD_WIDTH,
+  });
+
+  if (!blob) throw new Error("Image rendering failed");
+  return blob;
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -112,337 +408,57 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function renderReportImage(report: TransitDetectorReportImageData): Promise<Blob> {
-  const canvas = document.createElement("canvas");
-  canvas.width = CANVAS_WIDTH;
-  canvas.height = CANVAS_HEIGHT;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas unavailable");
-
-  drawReport(context, report);
-
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error("Image rendering failed"));
-          return;
-        }
-        resolve(blob);
-      },
-      "image/jpeg",
-      0.94,
-    );
-  });
-}
-
-function drawReport(ctx: CanvasRenderingContext2D, report: TransitDetectorReportImageData) {
-  ctx.fillStyle = COLORS.page;
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-  drawHeader(ctx);
-  drawTitleBlock(ctx, report);
-  drawSummaryCard(ctx, report);
-  drawTargetCard(ctx, report);
-  drawChecksCard(ctx, report);
-  drawMetricTiles(ctx, report.metrics);
-  drawFooter(ctx, report);
-}
-
-function drawHeader(ctx: CanvasRenderingContext2D) {
-  drawLogoMark(ctx, 96, 76);
-  drawText(ctx, "PriceAI", 142, 86, { size: 42, weight: 800, color: COLORS.ink });
-  drawText(ctx, "AI 比价雷达", 145, 117, { size: 15, weight: 700, color: COLORS.faint });
-  drawPill(ctx, "priceai.cc", 1340, 69, 160, 44, COLORS.surface, COLORS.muted);
-}
-
-function drawLogoMark(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  ctx.save();
-  ctx.strokeStyle = COLORS.ink;
-  ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.arc(x, y, 25, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x + 18, y + 18);
-  ctx.lineTo(x + 43, y + 43);
-  ctx.stroke();
-  ctx.strokeStyle = COLORS.brand;
-  ctx.lineWidth = 7;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  ctx.moveTo(x - 13, y + 5);
-  ctx.lineTo(x - 3, y - 5);
-  ctx.lineTo(x + 8, y + 5);
-  ctx.lineTo(x + 17, y - 10);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawTitleBlock(ctx: CanvasRenderingContext2D, report: TransitDetectorReportImageData) {
-  drawText(ctx, "API 中转检测报告", 96, 176, { size: 48, weight: 700, color: COLORS.ink, family: "serif" });
-  const chips = [report.title, report.timestampLabel, report.protocolLabel].filter(Boolean);
-  let x = 96;
-  for (const chip of chips) {
-    const width = Math.min(260, Math.max(106, measureText(ctx, chip, 17, 700) + 34));
-    drawPill(ctx, chip, x, 208, width, 36, COLORS.surface, COLORS.muted, 16);
-    x += width + 12;
+function toneClasses(tone: DetectorReportTone) {
+  if (tone === "success") {
+    return {
+      dot: "bg-[#45bf78]",
+      iconBg: "bg-[#e8f3ec]",
+      pill: "bg-[#e8f3ec] text-[#2f7a4b] ring-[#45bf78]/25",
+      soft: "bg-[#f4fbf7] text-[#2f7a4b] ring-[#45bf78]/20",
+      softRing: "ring-[#45bf78]/20",
+    };
   }
-  drawWrappedText(ctx, "报告由 PriceAI 检测服务生成，主站只展示证据链，不保存你的 API Key。结论用于辅助判断接口协议、模型能力和计费口径，不代表对商家做担保。", 96, 272, 940, {
-    size: 22,
-    lineHeight: 38,
-    weight: 500,
-    color: COLORS.muted,
-    maxLines: 2,
-  });
-}
-
-function drawSummaryCard(ctx: CanvasRenderingContext2D, report: TransitDetectorReportImageData) {
-  drawRoundRect(ctx, 96, 336, 520, 300, 8, COLORS.surface, COLORS.line);
-  drawText(ctx, "综合结论", 128, 384, { size: 21, weight: 800, color: COLORS.muted });
-  drawText(ctx, report.scoreLabel, 128, 482, { size: 92, weight: 800, color: COLORS.ink });
-  const tone = toneColors(report.verdictTone);
-  drawPill(ctx, report.verdictLabel, 352, 426, 118, 48, tone.bg, tone.text, 20);
-  drawWrappedText(ctx, report.summary, 128, 532, 440, {
-    size: 20,
-    lineHeight: 34,
-    weight: 500,
-    color: COLORS.text,
-    maxLines: 2,
-  });
-  drawCountBox(ctx, "通过", String(report.passCount), 128, 580, 136, "success");
-  drawCountBox(ctx, "需复核", String(report.issueCount), 280, 580, 136, "warning");
-  drawCountBox(ctx, "未启用", String(report.skippedCount), 432, 580, 136, "muted");
-}
-
-function drawTargetCard(ctx: CanvasRenderingContext2D, report: TransitDetectorReportImageData) {
-  drawRoundRect(ctx, 644, 336, 860, 300, 8, COLORS.surface, COLORS.line);
-  drawText(ctx, "检测对象", 676, 384, { size: 25, weight: 800, color: COLORS.ink });
-  drawInfoCell(ctx, "模型", report.model, 676, 420, 382);
-  drawInfoCell(ctx, "协议", report.protocolLabel, 1090, 420, 360);
-  drawInfoCell(ctx, "检测强度", report.modeLabel, 676, 514, 180);
-  drawInfoCell(ctx, "接口地址", report.baseUrl, 892, 514, 558, true);
-  drawInfoCell(ctx, "Key", report.apiKeyMasked, 676, 608, 248, true);
-  drawInfoCell(ctx, "生成时间", report.timestampLabel, 956, 608, 260);
-}
-
-function drawChecksCard(ctx: CanvasRenderingContext2D, report: TransitDetectorReportImageData) {
-  drawRoundRect(ctx, 96, 668, 872, 218, 8, COLORS.surface, COLORS.line);
-  drawText(ctx, "检测项证据", 128, 716, { size: 25, weight: 800, color: COLORS.ink });
-  drawText(ctx, `${report.checks.length} 个检测项`, 814, 716, { size: 18, weight: 800, color: COLORS.muted });
-
-  const checks = report.checks.slice(0, 5);
-  checks.forEach((check, index) => {
-    const y = 760 + index * 34;
-    const tone = toneColors(check.tone);
-    ctx.fillStyle = tone.text;
-    ctx.beginPath();
-    ctx.arc(134, y - 6, 7, 0, Math.PI * 2);
-    ctx.fill();
-    drawText(ctx, check.label, 154, y, { size: 19, weight: 800, color: COLORS.ink, maxWidth: 260 });
-    drawPill(ctx, check.status, 432, y - 25, 86, 28, tone.bg, tone.text, 14, 14);
-    drawText(ctx, `${check.scoreLabel} · ${check.durationLabel}`, 540, y, { size: 17, weight: 700, color: COLORS.muted, maxWidth: 160 });
-    drawText(ctx, check.summary, 710, y, { size: 17, weight: 500, color: COLORS.text, maxWidth: 210 });
-  });
-}
-
-function drawMetricTiles(ctx: CanvasRenderingContext2D, metrics: DetectorReportMetric[]) {
-  const visibleMetrics = metrics.slice(0, 6);
-  const startX = 996;
-  const startY = 668;
-  const tileWidth = 242;
-  const tileHeight = 98;
-  visibleMetrics.forEach((metric, index) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
-    const x = startX + col * (tileWidth + 24);
-    const y = startY + row * (tileHeight + 12);
-    const tone = metric.tone ? toneColors(metric.tone) : { bg: COLORS.surface, text: COLORS.ink };
-    drawRoundRect(ctx, x, y, tileWidth, tileHeight, 8, metric.tone ? lighten(tone.bg) : COLORS.surface, COLORS.line);
-    drawText(ctx, metric.label, x + 22, y + 32, { size: 17, weight: 800, color: COLORS.muted });
-    drawText(ctx, metric.value, x + 22, y + 70, { size: 29, weight: 850, color: COLORS.ink, maxWidth: tileWidth - 44 });
-  });
-}
-
-function drawFooter(ctx: CanvasRenderingContext2D, report: TransitDetectorReportImageData) {
-  ctx.strokeStyle = COLORS.line;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(96, 928);
-  ctx.lineTo(1504, 928);
-  ctx.stroke();
-  drawText(ctx, "PriceAI API 中转模型检测 · 仅作购买前技术参考", 96, 960, { size: 18, weight: 700, color: COLORS.muted });
-  drawText(ctx, `${report.id} · ${report.apiKeyMasked}`, 1240, 960, { size: 18, weight: 700, color: COLORS.muted, maxWidth: 260 });
-}
-
-function drawInfoCell(
-  ctx: CanvasRenderingContext2D,
-  label: string,
-  value: string,
-  x: number,
-  y: number,
-  width: number,
-  isCode = false,
-) {
-  drawText(ctx, label, x, y, { size: 17, weight: 800, color: COLORS.muted });
-  drawText(ctx, value, x, y + 36, {
-    size: 20,
-    weight: 800,
-    color: COLORS.ink,
-    maxWidth: width,
-    family: isCode ? "mono" : "sans",
-  });
-}
-
-function drawCountBox(ctx: CanvasRenderingContext2D, label: string, value: string, x: number, y: number, width: number, tone: DetectorReportTone) {
-  const colors = toneColors(tone);
-  drawRoundRect(ctx, x, y, width, 72, 8, lighten(colors.bg), colors.bg);
-  drawText(ctx, label, x + 18, y + 26, { size: 16, weight: 800, color: colors.text });
-  drawText(ctx, value, x + 18, y + 58, { size: 28, weight: 850, color: COLORS.ink });
-}
-
-function drawPill(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  background: string,
-  color: string,
-  radius = height / 2,
-  fontSize = 18,
-) {
-  drawRoundRect(ctx, x, y, width, height, radius, background, COLORS.line);
-  drawText(ctx, text, x + width / 2, y + height / 2 + fontSize * 0.36, {
-    size: fontSize,
-    weight: 800,
-    color,
-    align: "center",
-    maxWidth: width - 24,
-  });
-}
-
-function drawRoundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-  fill: string,
-  stroke?: string,
-) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(x, y, width, height, radius);
-  ctx.fillStyle = fill;
-  ctx.fill();
-  if (stroke) {
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+  if (tone === "danger") {
+    return {
+      dot: "bg-[#c64c3f]",
+      iconBg: "bg-[#fbe9e7]",
+      pill: "bg-[#fbe9e7] text-[#9b3328] ring-[#e6b8b1]",
+      soft: "bg-[#fff4f2] text-[#9b3328] ring-[#e6b8b1]",
+      softRing: "ring-[#e6b8b1]",
+    };
   }
-  ctx.restore();
-}
-
-function drawWrappedText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  width: number,
-  options: TextOptions & { lineHeight: number; maxLines: number },
-) {
-  const lines = wrapText(ctx, text, width, options.size, options.weight ?? 500, options.family ?? "sans", options.maxLines);
-  lines.forEach((line, index) => {
-    drawText(ctx, line, x, y + index * options.lineHeight, options);
-  });
-}
-
-interface TextOptions {
-  size: number;
-  weight?: number;
-  color: string;
-  align?: CanvasTextAlign;
-  maxWidth?: number;
-  family?: "sans" | "serif" | "mono";
-}
-
-function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, options: TextOptions) {
-  ctx.save();
-  ctx.font = font(options.size, options.weight ?? 500, options.family ?? "sans");
-  ctx.fillStyle = options.color;
-  ctx.textAlign = options.align ?? "left";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillText(text, x, y, options.maxWidth);
-  ctx.restore();
-}
-
-function measureText(ctx: CanvasRenderingContext2D, text: string, size: number, weight: number) {
-  ctx.save();
-  ctx.font = font(size, weight, "sans");
-  const width = ctx.measureText(text).width;
-  ctx.restore();
-  return width;
-}
-
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  size: number,
-  weight: number,
-  family: TextOptions["family"],
-  maxLines: number,
-) {
-  ctx.save();
-  ctx.font = font(size, weight, family ?? "sans");
-  const source = text.replace(/\s+/g, " ").trim();
-  const lines: string[] = [];
-  let line = "";
-
-  for (const char of Array.from(source)) {
-    const nextLine = `${line}${char}`;
-    if (ctx.measureText(nextLine).width <= maxWidth || !line) {
-      line = nextLine;
-      continue;
-    }
-    lines.push(line.trim());
-    line = char.trimStart();
-    if (lines.length === maxLines) break;
+  if (tone === "warning") {
+    return {
+      dot: "bg-[#e7a33e]",
+      iconBg: "bg-[#fff7e8]",
+      pill: "bg-[#fff7e8] text-[#7a541b] ring-[#e7b65d]/30",
+      soft: "bg-[#fffaf0] text-[#7a541b] ring-[#e7b65d]/30",
+      softRing: "ring-[#e7b65d]/30",
+    };
   }
-
-  if (line && lines.length < maxLines) lines.push(line.trim());
-  if (lines.length === maxLines && source.length > lines.join("").length) {
-    lines[maxLines - 1] = `${lines[maxLines - 1].replace(/[。；，、,.!?！？\s]+$/, "")}...`;
-  }
-
-  ctx.restore();
-  return lines;
-}
-
-function font(size: number, weight: number, family: TextOptions["family"]) {
-  if (family === "serif") return `${weight} ${size}px "Noto Serif SC", "Songti SC", "STSong", Georgia, serif`;
-  if (family === "mono") return `${weight} ${size}px "SFMono-Regular", Consolas, "Liberation Mono", monospace`;
-  return `${weight} ${size}px Manrope, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif`;
-}
-
-function toneColors(tone: DetectorReportTone) {
-  if (tone === "success") return { bg: COLORS.successBg, text: COLORS.successText };
-  if (tone === "danger") return { bg: COLORS.dangerBg, text: COLORS.dangerText };
-  if (tone === "warning") return { bg: COLORS.warningBg, text: COLORS.warningText };
-  return { bg: COLORS.mutedBg, text: COLORS.muted };
-}
-
-function lighten(color: string) {
-  if (color === COLORS.successBg) return "#f4fbf7";
-  if (color === COLORS.warningBg) return "#fffaf0";
-  if (color === COLORS.dangerBg) return "#fff4f2";
-  return "#f7f8f8";
+  return {
+    dot: "bg-[#adb3b4]",
+    iconBg: "bg-[#f2f4f4]",
+    pill: "bg-[#f2f4f4] text-[#5a6061] ring-[#dfe4e5]",
+    soft: "bg-[#f7f8f8] text-[#5a6061] ring-[#dfe4e5]",
+    softRing: "ring-[#dfe4e5]",
+  };
 }
 
 function safeFilePart(value: string) {
   return value.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "report";
+}
+
+function pickHighlightedChecks(checks: DetectorReportCheck[], limit: number) {
+  const issues = checks.filter((check) => check.tone === "danger" || check.tone === "warning");
+  const passes = checks.filter((check) => check.tone === "success");
+  const muted = checks.filter((check) => check.tone === "muted");
+  return [...issues, ...passes, ...muted].slice(0, limit);
+}
+
+function shortSignalSummary(check: DetectorReportCheck) {
+  if (check.tone === "success") return "该项未发现明显异常。";
+  if (check.tone === "warning") return "该项需要结合证据明细复核。";
+  if (check.tone === "danger") return "该项未通过，建议优先复核。";
+  return "本次检测未启用或无有效结果。";
 }
