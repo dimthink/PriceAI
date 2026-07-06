@@ -83,6 +83,7 @@ interface DetectionResult {
   submittedAt: string;
   costEstimateLabel: string;
   jobId?: string;
+  statusUrl?: string;
   resultUrl?: string;
   errorCode?: string;
   canForceSubmit?: boolean;
@@ -144,21 +145,13 @@ declare global {
 }
 
 const presetModels: PresetModel[] = [
-  { id: "gpt-5-5", label: "GPT 5.5", model: "gpt-5.5", protocol: "openai_chat", badge: "常用", standardModel: "GPT 5.5" },
-  { id: "gpt-5-4", label: "GPT 5.4", model: "gpt-5.4", protocol: "openai_chat", standardModel: "GPT 5.4" },
-  {
-    id: "gpt-5-codex",
-    label: "Codex",
-    model: "gpt-5.3-codex",
-    protocol: "openai_responses",
-    badge: "Responses",
-    standardModel: "GPT 5.4",
-    priceNote: "按 GPT 5.4 文本价估算",
-  },
+  { id: "gpt-5-5", label: "GPT 5.5", model: "gpt-5.5", protocol: "openai_responses", badge: "常用", standardModel: "GPT 5.5" },
+  { id: "gpt-5-4", label: "GPT 5.4", model: "gpt-5.4", protocol: "openai_responses", standardModel: "GPT 5.4" },
   { id: "claude-fable-5", label: "Fable 5", model: "claude-fable-5", protocol: "claude", badge: "新", standardModel: "Claude Fable 5" },
   { id: "claude-sonnet-5", label: "Sonnet 5", model: "claude-sonnet-5", protocol: "claude", badge: "新", standardModel: "Claude Sonnet 5" },
   { id: "claude-opus-4-8", label: "Opus 4.8", model: "claude-opus-4-8", protocol: "claude", standardModel: "Claude Opus 4.8" },
   { id: "claude-opus-4-7", label: "Opus 4.7", model: "claude-opus-4-7", protocol: "claude", standardModel: "Claude Opus 4.7" },
+  { id: "claude-opus-4-6", label: "Opus 4.6", model: "claude-opus-4-6", protocol: "claude", standardModel: "Claude Opus 4.6" },
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6", model: "claude-sonnet-4-6", protocol: "claude", standardModel: "Claude Sonnet 4.6" },
   { id: "gemini-3-1-pro", label: "Gemini 3.1 Pro", model: "gemini-3.1-pro", protocol: "gemini", standardModel: "Gemini 3.1 Pro" },
   { id: "custom", label: "自定义", model: "", protocol: "openai_chat" },
@@ -173,7 +166,7 @@ const protocolLabels: Record<DetectorProtocol, string> = {
 
 const protocolHints: Record<DetectorProtocol, string> = {
   openai_chat: "/v1/chat/completions，适合多数 OpenAI 兼容中转",
-  openai_responses: "/v1/responses，适合 Codex 等 Agent 工具链",
+  openai_responses: "/v1/responses，适合 OpenAI Responses 和 Agent 工具链",
   claude: "/v1/messages 或 Claude 兼容接口",
   gemini: "generateContent 或 Gemini 兼容接口",
 };
@@ -214,6 +207,8 @@ const upstreamOptions: Array<{ value: UpstreamType; label: string; detail: strin
 
 export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstileSiteKey = "" }: DetectorClientProps) {
   const runIdRef = useRef(0);
+  const activeLocalIdRef = useRef<string | null>(null);
+  const restoredPollingIdsRef = useRef<Set<string>>(new Set());
   const formRef = useRef<HTMLFormElement>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetIdRef = useRef<string | null>(null);
@@ -400,114 +395,15 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
     }
   }
 
-  function updateResult(localId: string, patch: Partial<DetectionResult>) {
+  const updateResult = useCallback((localId: string, patch: Partial<DetectionResult>) => {
     setResults((current) =>
-      current.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
+      persistDetectionResults(
+        current.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
+      ),
     );
-  }
+  }, []);
 
-  function handleForcePreflightRetry(item: DetectionResult) {
-    setForcePreflight(true);
-    if (turnstileEnabled && !turnstileToken) {
-      setTurnstileError("请重新完成人机校验后点击“跳过预探测检测”。");
-    }
-    formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    updateResult(item.localId, {
-      message: "已准备跳过模型预探测重试。请重新完成人机校验后提交。",
-    });
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (turnstileEnabled && !turnstileToken) {
-      setTurnstileError("请先完成人机校验。");
-      return;
-    }
-
-    const nextRunId = runIdRef.current + 1;
-    const localId = `${nextRunId}-${selectedModelId}`;
-    const submittedAt = new Date().toLocaleString("zh-CN", { hour12: false });
-    runIdRef.current = nextRunId;
-
-    const nextResult: DetectionResult = {
-      localId,
-      modelLabel: selectedPreset.id === "custom" ? "自定义模型" : selectedPreset.label,
-      model: model.trim(),
-      protocolLabel: protocolLabels[protocol],
-      modeLabel: activeCostProfile.label,
-      upstreamLabel: selectedUpstream.label,
-      status: "queued",
-      message: forcePreflight ? "正在提交检测任务，已跳过模型预探测。" : "正在提交检测任务。",
-      submittedAt,
-      costEstimateLabel: costEstimate.totalLabel,
-    };
-    setResults((current) => [nextResult, ...current].slice(0, 12));
-
-    if (!normalizedServiceUrl) {
-      setTaskStatus("error");
-      updateResult(localId, { status: "error", message: "检测服务未连接。" });
-      return;
-    }
-
-    setTaskStatus("queued");
-
-    try {
-      const payload = new FormData();
-      payload.set("base_url", baseUrl.trim());
-      payload.set("api_key", apiKey.trim());
-      payload.set("model", model.trim());
-      payload.set("mode", backendModeForIntensity(intensity));
-      if (forcePreflight) {
-        payload.set("force", "1");
-      }
-      if (turnstileEnabled) {
-        payload.set("turnstile_token", turnstileToken);
-      }
-      if (protocol !== "gemini") {
-        payload.set("include_long_context", effectiveIncludeLongContext ? "true" : "false");
-        payload.set("include_long_context_extreme", "false");
-      }
-
-      const detectorProtocol = detectorProtocolEndpoints[protocol];
-      const response = await fetch(`${normalizedServiceUrl}/api/detect/${detectorProtocol}`, {
-        method: "POST",
-        body: payload,
-      });
-      const data = (await response.json().catch(() => ({}))) as DetectorStatusPayload;
-      if (!response.ok) {
-        throw buildDetectorClientError(data, response.status);
-      }
-      if (!data.job_id || !data.status_url) {
-        throw new Error("检测服务没有返回任务编号。");
-      }
-      if (runIdRef.current !== nextRunId) return;
-
-      setTaskStatus("running");
-      updateResult(localId, {
-        jobId: data.job_id,
-        status: "running",
-        message: "检测运行中，通常需要 30 到 90 秒。",
-      });
-      await pollDetectorJob(data.status_url, nextRunId, localId);
-    } catch (error) {
-      if (runIdRef.current !== nextRunId) return;
-      const detectorError = normalizeDetectorError(error);
-      setTaskStatus("error");
-      updateResult(localId, {
-        status: "error",
-        message: detectorError.message,
-        errorCode: detectorError.code,
-        canForceSubmit: detectorError.canForceSubmit,
-      });
-    } finally {
-      resetTurnstile();
-      if (forcePreflight) {
-        setForcePreflight(false);
-      }
-    }
-  }
-
-  async function pollDetectorJob(statusUrl: string, runId: number, localId: string) {
+  const pollDetectorJob = useCallback(async (statusUrl: string, runId: number, localId: string) => {
     const statusEndpoint = statusUrl.startsWith("http") ? statusUrl : `${normalizedServiceUrl}${statusUrl}`;
 
     for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -547,7 +443,153 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
     }
 
     throw new Error("检测等待超时，稍后可用任务编号查询报告。");
+  }, [normalizedServiceUrl, updateResult]);
+
+  function handleForcePreflightRetry(item: DetectionResult) {
+    setForcePreflight(true);
+    if (turnstileEnabled && !turnstileToken) {
+      setTurnstileError("请重新完成人机校验后点击“跳过预探测检测”。");
+    }
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    updateResult(item.localId, {
+      message: "已准备跳过模型预探测重试。请重新完成人机校验后提交。",
+    });
   }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (turnstileEnabled && !turnstileToken) {
+      setTurnstileError("请先完成人机校验。");
+      return;
+    }
+
+    const nextRunId = runIdRef.current + 1;
+    const localId = `${nextRunId}-${selectedModelId}`;
+    const submittedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+    runIdRef.current = nextRunId;
+
+    const nextResult: DetectionResult = {
+      localId,
+      modelLabel: selectedPreset.id === "custom" ? "自定义模型" : selectedPreset.label,
+      model: model.trim(),
+      protocolLabel: protocolLabels[protocol],
+      modeLabel: activeCostProfile.label,
+      upstreamLabel: selectedUpstream.label,
+      status: "queued",
+      message: forcePreflight ? "正在提交检测任务，已跳过模型预探测。" : "正在提交检测任务。",
+      submittedAt,
+      costEstimateLabel: costEstimate.totalLabel,
+    };
+    activeLocalIdRef.current = localId;
+    setResults((current) => persistDetectionResults([nextResult, ...current].slice(0, DETECTOR_RESULTS_CACHE_LIMIT)));
+
+    if (!normalizedServiceUrl) {
+      setTaskStatus("error");
+      updateResult(localId, { status: "error", message: "检测服务未连接。" });
+      activeLocalIdRef.current = null;
+      return;
+    }
+
+    setTaskStatus("queued");
+
+    try {
+      const payload = new FormData();
+      payload.set("base_url", baseUrl.trim());
+      payload.set("api_key", apiKey.trim());
+      payload.set("model", model.trim());
+      payload.set("mode", backendModeForIntensity(intensity));
+      if (forcePreflight) {
+        payload.set("force", "1");
+      }
+      if (turnstileEnabled) {
+        payload.set("turnstile_token", turnstileToken);
+      }
+      if (protocol !== "gemini") {
+        payload.set("include_long_context", effectiveIncludeLongContext ? "true" : "false");
+        payload.set("include_long_context_extreme", "false");
+      }
+
+      const detectorProtocol = detectorProtocolEndpoints[protocol];
+      const response = await fetch(`${normalizedServiceUrl}/api/detect/${detectorProtocol}`, {
+        method: "POST",
+        body: payload,
+      });
+      const data = (await response.json().catch(() => ({}))) as DetectorStatusPayload;
+      if (!response.ok) {
+        throw buildDetectorClientError(data, response.status);
+      }
+      if (!data.job_id || !data.status_url) {
+        throw new Error("检测服务没有返回任务编号。");
+      }
+      if (runIdRef.current !== nextRunId) return;
+
+      setTaskStatus("running");
+      updateResult(localId, {
+        jobId: data.job_id,
+        statusUrl: data.status_url,
+        status: "running",
+        message: "检测运行中，通常需要 30 到 90 秒。",
+      });
+      await pollDetectorJob(data.status_url, nextRunId, localId);
+    } catch (error) {
+      if (runIdRef.current !== nextRunId) return;
+      const detectorError = normalizeDetectorError(error);
+      setTaskStatus("error");
+      updateResult(localId, {
+        status: "error",
+        message: detectorError.message,
+        errorCode: detectorError.code,
+        canForceSubmit: detectorError.canForceSubmit,
+      });
+    } finally {
+      resetTurnstile();
+      if (forcePreflight) {
+        setForcePreflight(false);
+      }
+      if (activeLocalIdRef.current === localId) {
+        activeLocalIdRef.current = null;
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!resultsCacheReady || !normalizedServiceUrl) return;
+
+    const resumableResult = results.find((item) =>
+      (item.status === "queued" || item.status === "running") &&
+      Boolean(item.statusUrl) &&
+      item.localId !== activeLocalIdRef.current &&
+      !restoredPollingIdsRef.current.has(item.localId)
+    );
+    if (!resumableResult?.statusUrl) return;
+
+    restoredPollingIdsRef.current.add(resumableResult.localId);
+    activeLocalIdRef.current = resumableResult.localId;
+    const restoredRunId = Math.max(runIdRef.current + 1, maxRunIdFromResults(results) + 1);
+    runIdRef.current = restoredRunId;
+    setTaskStatus(resumableResult.status);
+    updateResult(resumableResult.localId, {
+      message: "已从本机记录恢复，继续等待检测结果。",
+    });
+
+    void pollDetectorJob(resumableResult.statusUrl, restoredRunId, resumableResult.localId)
+      .catch((error) => {
+        if (runIdRef.current !== restoredRunId) return;
+        const detectorError = normalizeDetectorError(error);
+        setTaskStatus("error");
+        updateResult(resumableResult.localId, {
+          status: "error",
+          message: detectorError.message,
+          errorCode: detectorError.code,
+          canForceSubmit: detectorError.canForceSubmit,
+        });
+      })
+      .finally(() => {
+        if (activeLocalIdRef.current === resumableResult.localId) {
+          activeLocalIdRef.current = null;
+        }
+      });
+  }, [normalizedServiceUrl, pollDetectorJob, results, resultsCacheReady, updateResult]);
 
   return (
     <div className="space-y-5">
@@ -959,9 +1001,7 @@ function readCachedDetectionResults(): DetectionResult[] {
 }
 
 function writeCachedDetectionResults(results: DetectionResult[]) {
-  const cacheableResults = results
-    .filter((item) => item.status === "done" || item.status === "error")
-    .map(sanitizeDetectionResultForCache)
+  const cacheableResults = normalizeDetectionResultsForCache(results)
     .slice(0, DETECTOR_RESULTS_CACHE_LIMIT);
 
   writeSessionCache(DETECTOR_RESULTS_CACHE_KEY, cacheableResults);
@@ -987,6 +1027,9 @@ function parseCachedDetectionResult(value: unknown): DetectionResult | null {
     return null;
   }
 
+  const statusUrl = stringValue(value.statusUrl);
+  const hasRestorableJob = statusUrl || status === "done" || status === "error";
+
   return {
     localId,
     modelLabel,
@@ -994,18 +1037,25 @@ function parseCachedDetectionResult(value: unknown): DetectionResult | null {
     protocolLabel,
     modeLabel,
     upstreamLabel,
-    status,
-    message,
+    status: hasRestorableJob ? status : "error",
+    message: hasRestorableJob ? message : "刷新前还没有拿到任务编号，请重新提交检测。",
     submittedAt,
     costEstimateLabel,
     jobId: stringValue(value.jobId) || undefined,
+    statusUrl: statusUrl || undefined,
     resultUrl: stringValue(value.resultUrl) || undefined,
     errorCode: stringValue(value.errorCode) || undefined,
-    canForceSubmit: typeof value.canForceSubmit === "boolean" ? value.canForceSubmit : undefined,
+    canForceSubmit: hasRestorableJob && typeof value.canForceSubmit === "boolean" ? value.canForceSubmit : undefined,
   };
 }
 
+function normalizeDetectionResultsForCache(results: DetectionResult[]): DetectionResult[] {
+  return results.map(sanitizeDetectionResultForCache);
+}
+
 function sanitizeDetectionResultForCache(result: DetectionResult): DetectionResult {
+  const hasRestorableJob = Boolean(result.statusUrl) || result.status === "done" || result.status === "error";
+
   return {
     localId: result.localId,
     modelLabel: result.modelLabel,
@@ -1013,15 +1063,22 @@ function sanitizeDetectionResultForCache(result: DetectionResult): DetectionResu
     protocolLabel: result.protocolLabel,
     modeLabel: result.modeLabel,
     upstreamLabel: result.upstreamLabel,
-    status: result.status,
-    message: result.message,
+    status: hasRestorableJob ? result.status : "error",
+    message: hasRestorableJob ? result.message : "刷新前还没有拿到任务编号，请重新提交检测。",
     submittedAt: result.submittedAt,
     costEstimateLabel: result.costEstimateLabel,
     jobId: result.jobId,
+    statusUrl: result.statusUrl,
     resultUrl: result.resultUrl,
     errorCode: result.errorCode,
-    canForceSubmit: result.canForceSubmit,
+    canForceSubmit: hasRestorableJob ? result.canForceSubmit : undefined,
   };
+}
+
+function persistDetectionResults(results: DetectionResult[]): DetectionResult[] {
+  const nextResults = results.slice(0, DETECTOR_RESULTS_CACHE_LIMIT);
+  writeCachedDetectionResults(nextResults);
+  return nextResults;
 }
 
 function parseDetectionStatus(value: unknown): DetectionStatus | null {
@@ -1132,6 +1189,7 @@ function guessStandardModel(model: string, protocol: DetectorProtocol): TransitS
   if (value.includes("sonnet-5") || value.includes("sonnet_5") || value.includes("sonnet 5")) return "Claude Sonnet 5";
   if (value.includes("opus-4-8")) return "Claude Opus 4.8";
   if (value.includes("opus-4-7")) return "Claude Opus 4.7";
+  if (value.includes("opus-4-6")) return "Claude Opus 4.6";
   if (value.includes("opus")) return "Claude Opus 4.8";
   if (value.includes("sonnet")) return "Claude Sonnet 4.6";
   if (value.includes("gemini")) return "Gemini 3.1 Pro";
