@@ -10,7 +10,13 @@ export const PUBLIC_API_SNAPSHOT_SCHEMA_VERSION = 1;
 
 let snapshotClient: SupabaseClient | null = null;
 
-export type PublicApiSnapshotKind = "explorer" | "offers" | "product_offers" | "merchants" | "refresh_state";
+export type PublicApiSnapshotKind =
+  | "explorer"
+  | "offers"
+  | "product_offers"
+  | "merchants"
+  | "refresh_state"
+  | "api_transit";
 
 export type PublicApiSnapshotPayload<T> = {
   generatedAt: string;

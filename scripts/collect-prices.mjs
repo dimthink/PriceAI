@@ -1859,13 +1859,14 @@ function crawlLogPayloadsFor(target, offers, status, message, options = {}, deta
     return crawlLogPayloadFor(
       target,
       batch,
-      isLast ? "success" : "partial",
+      "success",
       `${message} 分批写入 ${index + 1}/${batches.length}。`,
       options,
       {
         ...details,
         batchIndex: index + 1,
         batchCount: batches.length,
+        batchStage: isLast ? "final" : "intermediate",
         originalOfferCount: offers.length,
         fullSnapshot: isLast && fullSnapshot,
         seenOfferIds: isLast && fullSnapshot ? seenOfferIds : undefined,

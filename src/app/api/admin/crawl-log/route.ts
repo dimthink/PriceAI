@@ -58,6 +58,9 @@ const COVERED_COLLECTION_JOB_LIMIT = 20;
 
 let lastCrawlLogIngestPrunedAt = 0;
 
+type CrawlLogPayload = z.infer<typeof crawlLogPayloadSchema>;
+type CrawlLogStatus = CrawlLogPayload["status"];
+
 type SaveCrawlLogRunResult = {
   sourceId: string;
   sourceName: string;
@@ -145,7 +148,7 @@ export async function POST(request: Request) {
 
 async function saveCrawlLogRun(
   supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
-  payload: z.infer<typeof crawlLogPayloadSchema>,
+  payload: CrawlLogPayload,
 ): Promise<SaveCrawlLogRunResult> {
   const receivedAt = new Date().toISOString();
   const collectedAt = dateFromDetails(payload.details, "collectedAt") || receivedAt;
@@ -178,7 +181,7 @@ async function saveCrawlLogRun(
     const savedAt = new Date().toISOString();
     const seenOfferIds = seenOfferIdsFromDetails(payload.details) || offers.map(rawOfferInputId);
     const fullSnapshot = fullSnapshotFromDetails(payload.details, payload.status, offers.length);
-    const collectionStatus = fullSnapshot && payload.status === "failed" && offers.length === 0 ? "success" : payload.status;
+    const collectionStatus = normalizeCrawlLogCollectionStatus(payload, fullSnapshot, offers.length);
     const changedByPayload = upsertResult.writtenCount > 0 || upsertResult.refreshedCount > 0;
     const affectedOfferIds = changedByPayload ? offers.map(rawOfferInputId) : [];
     const affectedProductIds = changedByPayload ? offers.map(productIdFromCrawlOffer) : [];
@@ -558,7 +561,7 @@ async function failCrawlLogIngest(
 }
 
 function duplicateCrawlLogResult(
-  payload: z.infer<typeof crawlLogPayloadSchema>,
+  payload: CrawlLogPayload,
   reason: "completed" | "processing",
 ): SaveCrawlLogRunResult {
   return {
@@ -577,6 +580,22 @@ function duplicateCrawlLogResult(
     duplicate: true,
     duplicateReason: reason,
   };
+}
+
+function normalizeCrawlLogCollectionStatus(
+  payload: CrawlLogPayload,
+  fullSnapshot: boolean,
+  offerCount: number,
+): CrawlLogStatus {
+  if (payload.status === "partial" && isIntermediateBatch(payload.details)) return "success";
+  if (fullSnapshot && payload.status === "failed" && offerCount === 0) return "success";
+  return payload.status;
+}
+
+function isIntermediateBatch(details: Record<string, unknown> | undefined): boolean {
+  const batchIndex = positiveIntegerFromDetails(details, "batchIndex");
+  const batchCount = positiveIntegerFromDetails(details, "batchCount");
+  return Boolean(batchIndex && batchCount && batchIndex < batchCount);
 }
 
 function isDuplicateKeyError(error: unknown): boolean {

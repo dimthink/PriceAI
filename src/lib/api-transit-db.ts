@@ -13,6 +13,7 @@ import {
 } from "@/data/api-transit/types";
 import { seedStations } from "@/data/api-transit/stations";
 import { withTransitCommercialOfferDisclosure } from "@/lib/api-transit";
+import { readPublicApiSnapshot, writePublicApiSnapshot } from "@/lib/public-api-snapshots";
 import { getSupabaseServerClient } from "@/lib/supabase";
 
 let cached: TransitStation[] | null = null;
@@ -23,6 +24,8 @@ let hasWarnedMissingHistoryTable = false;
 const CACHE_TTL_MS = 30_000;
 const PUBLIC_TRANSIT_READ_TIMEOUT_MS = 2_500;
 const PUBLIC_TRANSIT_BUILD_READ_TIMEOUT_MS = 15_000;
+const API_TRANSIT_SNAPSHOT_KEY = "default";
+const API_TRANSIT_SNAPSHOT_MAX_STALE_MS = 10 * 60 * 1000;
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 const TRANSIT_HISTORY_DAYS = 45;
 const TRANSIT_HISTORY_STATION_LIMIT = 320;
@@ -204,13 +207,70 @@ export async function getTransitStations(): Promise<TransitStation[]> {
   const now = Date.now();
   if (cached && now - cachedAt < CACHE_TTL_MS) return cached;
 
-  cached = await readStationsFromSupabase();
-  cachedAt = now;
+  const staleMemory = cached && cached.length ? cached : null;
+  const snapshot = await readTransitStationsSnapshot();
+  if (snapshot?.fresh) {
+    setTransitStationsCache(snapshot.stations, now);
+    return snapshot.stations;
+  }
+
+  try {
+    const stations = await readStationsFromSupabase();
+    if (!stations.length && snapshot?.stations.length) {
+      console.warn("Using stale API transit stations because Supabase returned an empty published set.");
+      setTransitStationsCache(snapshot.stations, now);
+      return snapshot.stations;
+    }
+    setTransitStationsCache(stations, now);
+    if (stations.length) await writeTransitStationsSnapshot(stations);
+    return stations;
+  } catch (error) {
+    const fallback = staleMemory || snapshot?.stations || null;
+    if (fallback?.length) {
+      console.warn("Using cached API transit stations because Supabase read failed:", error);
+      setTransitStationsCache(fallback, now);
+      return fallback;
+    }
+    console.warn("Falling back to static API transit stations because Supabase read failed:", error);
+    setTransitStationsCache(seedStations, now);
+    return seedStations;
+  }
+}
+
+function setTransitStationsCache(stations: TransitStation[], cachedAtValue = Date.now()): void {
+  cached = stations;
+  cachedAt = cachedAtValue;
   cachedBySlug.clear();
   for (const station of cached) {
     cachedBySlug.set(station.slug, { station, cachedAt });
   }
-  return cached;
+}
+
+async function readTransitStationsSnapshot(): Promise<{ stations: TransitStation[]; fresh: boolean } | null> {
+  const snapshot = await readPublicApiSnapshot<TransitStation[]>("api_transit", API_TRANSIT_SNAPSHOT_KEY);
+  if (!snapshot || !isTransitStationsSnapshot(snapshot.value)) return null;
+
+  const generatedAt = new Date(snapshot.generatedAt).getTime();
+  return {
+    stations: snapshot.value,
+    fresh: Number.isFinite(generatedAt) && Date.now() - generatedAt <= API_TRANSIT_SNAPSHOT_MAX_STALE_MS,
+  };
+}
+
+async function writeTransitStationsSnapshot(stations: TransitStation[]): Promise<void> {
+  await writePublicApiSnapshot({
+    kind: "api_transit",
+    key: API_TRANSIT_SNAPSHOT_KEY,
+    payload: stations,
+  });
+}
+
+function isTransitStationsSnapshot(value: unknown): value is TransitStation[] {
+  return Array.isArray(value) && value.every((station) => {
+    if (!station || typeof station !== "object") return false;
+    const record = station as Record<string, unknown>;
+    return typeof record.slug === "string" && typeof record.name === "string";
+  });
 }
 
 export async function getTransitStationBySlug(
@@ -273,8 +333,8 @@ async function readStationsFromSupabase(): Promise<TransitStation[]> {
       );
     });
   } catch (error) {
-    console.warn("Returning no API transit stations because Supabase read failed:", error);
-    return [];
+    console.warn("API transit Supabase read failed:", error);
+    throw error;
   }
 
   async function readStationEnhancementRows(): Promise<DbRow[]> {

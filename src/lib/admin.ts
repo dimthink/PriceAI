@@ -48,7 +48,7 @@ import { normalizeStatus, parseTags, slugify, stableId, stableOfferInputId } fro
 export const ADMIN_SOURCE_HIDE_REASON_PREFIX = "管理员手动下架渠道";
 export const ADMIN_OFFER_HIDE_REASON_PREFIX = "管理员手动下架报价";
 export const ADMIN_MANUAL_HIDE_REASON_PREFIX = "管理员手动下架";
-const RAW_OFFER_WRITE_CHUNK_SIZE = 5;
+const RAW_OFFER_WRITE_CHUNK_SIZE = 25;
 const RAW_OFFER_CONFIRMATION_WRITE_CHUNK_SIZE = 100;
 const MISSING_OFFER_HIDE_CHUNK_SIZE = 25;
 const MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION = 100;
