@@ -243,19 +243,19 @@ export default function TransitStationExplorer({ stations }: Props) {
   return (
     <div>
       <div className="mb-5 space-y-3">
-        <div className="grid gap-3 xl:grid-cols-[minmax(260px,460px)_minmax(0,1fr)] xl:items-center">
+        <div className="grid gap-3 xl:grid-cols-[minmax(260px,460px)_auto] xl:items-center xl:justify-start">
           <SearchField
             value={search}
             onChange={setSearch}
             placeholder="搜索站点名称、描述..."
             className="w-full"
           />
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-            <div className="min-w-0 rounded-full bg-[#edf0f1] p-1">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 xl:flex xl:w-auto xl:shrink-0">
+            <div className="min-w-0 rounded-full bg-[#edf0f1] p-1 xl:w-auto xl:shrink-0">
               <TransitViewTabs
                 active="stations"
-                className="w-full bg-transparent p-0"
-                itemClassName="flex-1 px-2 sm:px-4"
+                className="w-full bg-transparent p-0 xl:w-auto"
+                itemClassName="flex-1 px-2 sm:px-4 xl:flex-none"
               />
             </div>
             <div className="flex min-w-0 items-center gap-2">
