@@ -130,6 +130,15 @@ const merchantCollectorOptions = MERCHANT_COLLECTOR_FILTERS;
 const merchantSignalOptions = ["all", "lowest", "warranty", "platform_aftersales", "risk_clear"] as const;
 const visiblePlatformOptions = apiCdkPublicVisibleForClient() ? allPlatformOptions : platformOptions;
 
+function defaultViewModeForScope(scopeMode: ScopeMode): ViewMode {
+  return scopeMode === "merchants" ? "cards" : "table";
+}
+
+function normalizeViewModeForScope(scopeMode: ScopeMode, viewMode?: ViewMode): ViewMode {
+  if (scopeMode !== "merchants") return "table";
+  return viewMode ?? defaultViewModeForScope(scopeMode);
+}
+
 const EMPTY_EXPLORER_DATA: ExplorerData = {
   generatedAt: "",
   configured: true,
@@ -172,7 +181,7 @@ export function PriceExplorer({
   const [maxPrice, setMaxPrice] = useState(initialState.maxPrice ?? "");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const initialScopeMode = initialState.scopeMode ?? "products";
-  const initialViewMode = initialState.viewMode ?? (initialScopeMode === "merchants" ? "cards" : "table");
+  const initialViewMode = normalizeViewModeForScope(initialScopeMode, initialState.viewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scopeMode, setScopeMode] = useState<ScopeMode>(initialScopeMode);
   const [merchantCollector, setMerchantCollector] = useState<MerchantCollectorFilter>(initialState.merchantCollector ?? "all");
@@ -214,8 +223,9 @@ export function PriceExplorer({
       setStock(nextState.stock ?? "all");
       setMinPrice(nextState.minPrice ?? "");
       setMaxPrice(nextState.maxPrice ?? "");
-      setScopeMode(nextState.scopeMode ?? "products");
-      setViewMode(nextState.viewMode ?? (nextState.scopeMode === "merchants" ? "cards" : "table"));
+      const nextScopeMode = nextState.scopeMode ?? "products";
+      setScopeMode(nextScopeMode);
+      setViewMode(normalizeViewModeForScope(nextScopeMode, nextState.viewMode));
       setMerchantCollector(nextState.merchantCollector ?? "all");
       setMerchantSignal(nextState.merchantSignal ?? "all");
       readyFrameId = window.requestAnimationFrame(() => setUrlStateReady(true));
@@ -293,8 +303,7 @@ export function PriceExplorer({
   });
   const activeFilterCount = activeFilterChips.length;
   const renderMobileProductList = isDesktopViewport !== true;
-  const renderDesktopProductTable = viewMode === "table" && isDesktopViewport !== false;
-  const renderDesktopProductCards = viewMode === "cards" && isDesktopViewport !== false;
+  const renderDesktopProductTable = isDesktopViewport !== false;
   const explorerQueryString = useMemo(
     () =>
       buildExplorerSearchParams({
@@ -474,7 +483,7 @@ export function PriceExplorer({
 
   function changeScope(nextScope: ScopeMode) {
     setScopeMode(nextScope);
-    setViewMode(nextScope === "merchants" ? "cards" : "table");
+    setViewMode(defaultViewModeForScope(nextScope));
     trackAnalyticsEvent("scope_change", { scope: nextScope, platform });
   }
 
@@ -812,8 +821,8 @@ export function PriceExplorer({
                 onChange={changePlatform}
               />
             </div>
-            <div className="space-y-2">
-              <div className="-mx-1 overflow-x-auto px-1">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1 overflow-x-auto">
                 <div className="inline-flex h-11 min-w-max items-center rounded-full bg-[#e4e9ea] p-1">
                   <ViewToggleButton
                     active={scopeMode === "products"}
@@ -838,7 +847,7 @@ export function PriceExplorer({
               <button
                 type="button"
                 onClick={() => setFiltersOpen(true)}
-                className="inline-flex h-11 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
               >
                 <Filter size={16} className="shrink-0" />
                 筛选{activeFilterCount ? ` ${activeFilterCount}` : ""}
@@ -884,7 +893,7 @@ export function PriceExplorer({
                 onClick={() => changeScope("merchants")}
               />
             </div>
-            {scopeMode === "products" || scopeMode === "merchants" ? (
+            {scopeMode === "merchants" ? (
               <div className="h-11 shrink-0 items-center rounded-full bg-[#edf0f1] p-1 md:inline-flex">
                 <ViewToggleButton
                   active={viewMode === "cards"}
@@ -1097,20 +1106,13 @@ export function PriceExplorer({
             </>
           )
         ) : dataLoading ? (
-          <ProductTableSkeleton viewMode={viewMode} />
+          <ProductTableSkeleton />
         ) : products.length ? (
           <>
             {renderMobileProductList ? (
               <div className="grid grid-cols-1 gap-3 md:hidden">
                 {products.map((product) => (
                   <MobileProductCard key={product.id} product={product} returnQuery={explorerQueryString} />
-                ))}
-              </div>
-            ) : null}
-            {renderDesktopProductCards ? (
-              <div className="hidden gap-6 md:grid md:grid-cols-2 xl:grid-cols-3">
-                {products.map((product) => (
-                  <ProductCard key={product.id} product={product} returnQuery={explorerQueryString} />
                 ))}
               </div>
             ) : null}
@@ -1418,18 +1420,18 @@ function MerchantTable({ merchants }: { merchants: PublicMerchantSummary[] }) {
   return (
     <div className="hidden overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 md:block">
       <div className="overflow-x-auto">
-        <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1320px] w-full border-collapse text-left text-sm">
           <colgroup>
             <col className="w-[260px]" />
-            <col className="w-[120px]" />
+            <col className="w-[150px]" />
             <col className="w-[210px]" />
-            <col className="w-[170px]" />
-            <col className="w-[150px]" />
-            <col className="w-[150px]" />
-            <col className="w-[120px]" />
+            <col className="w-[160px]" />
+            <col className="w-[135px]" />
+            <col className="w-[135px]" />
+            <col className="w-[130px]" />
             <col className="w-[160px]" />
             <col className="w-[120px]" />
-            <col className="w-[90px]" />
+            <col className="w-[120px]" />
           </colgroup>
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
@@ -1457,7 +1459,7 @@ function MerchantTable({ merchants }: { merchants: PublicMerchantSummary[] }) {
                     </span>
                   </div>
                 </td>
-                <td className="px-5 py-4">
+                <td className="px-5 py-4 align-middle">
                   <CollectorBadge merchant={merchant} />
                 </td>
                 <td className="max-w-[210px] px-5 py-4">
@@ -1485,7 +1487,7 @@ function MerchantTable({ merchants }: { merchants: PublicMerchantSummary[] }) {
                 <td className="px-5 py-4 text-[#5a6061]">
                   <RelativeTime value={merchant.latestSeenAt} />
                 </td>
-                <td className="px-3 py-3 text-center">
+                <td className="px-5 py-4 text-center align-middle">
                   <MerchantSourceLink merchant={merchant} />
                 </td>
               </tr>
@@ -1544,7 +1546,11 @@ function MerchantCard({ merchant }: { merchant: PublicMerchantSummary }) {
 
 function CollectorBadge({ merchant }: { merchant: PublicMerchantSummary }) {
   const tone = merchant.collectorGroup === "shopApi" ? "info" : merchant.collectorGroup === "other" ? "muted" : "warn";
-  return <CountBadge tone={tone}>{merchant.collectorLabel}</CountBadge>;
+  return (
+    <span className="inline-flex min-w-[5rem] justify-center whitespace-nowrap">
+      <CountBadge tone={tone}>{merchant.collectorLabel}</CountBadge>
+    </span>
+  );
 }
 
 function merchantDescription(merchant: PublicMerchantSummary): string {
@@ -1695,7 +1701,7 @@ function MerchantSourceLink({ merchant }: { merchant: PublicMerchantSummary }) {
 
   if (!usableHref) {
     return (
-      <span className="inline-flex h-9 items-center justify-center rounded-full bg-[#e4e9ea] px-3 text-xs font-semibold text-[#5a6061]">
+      <span className="inline-flex h-9 min-w-[72px] items-center justify-center whitespace-nowrap rounded-full bg-[#e4e9ea] px-3 text-xs font-semibold text-[#5a6061]">
         待补入口
       </span>
     );
@@ -1706,7 +1712,7 @@ function MerchantSourceLink({ merchant }: { merchant: PublicMerchantSummary }) {
       href={usableHref}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
+      className="inline-flex h-9 min-w-[72px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
     >
       进店
       <ChevronRight size={14} />
@@ -1793,14 +1799,12 @@ function ExplorerMetrics({
   );
 }
 
-function ProductTableSkeleton({ viewMode }: { viewMode: ViewMode }) {
+function ProductTableSkeleton() {
   return (
     <>
       <div
         aria-busy="true"
-        className={`grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 ${
-          viewMode === "table" ? "md:hidden" : ""
-        }`}
+        className="grid grid-cols-1 gap-6 md:hidden"
       >
         {PRODUCT_SKELETON_ROWS.map((row) => (
           <div
@@ -1827,130 +1831,37 @@ function ProductTableSkeleton({ viewMode }: { viewMode: ViewMode }) {
           </div>
         ))}
       </div>
-      {viewMode === "table" ? (
-        <div className="hidden md:block" aria-busy="true">
-          <div className="overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
-            <div className="bg-[#f2f4f4] px-5 py-3 text-[0.68rem] font-semibold text-[#5a6061]">
-              正在同步商品报价
-            </div>
-            <div className="divide-y divide-[#edf0f1]">
-              {PRODUCT_SKELETON_ROWS.map((row) => (
-                <div key={row} className="grid min-h-[74px] grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] items-center gap-5 px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-[#edf0f1]" />
-                    <div className="space-y-2">
-                      <div className="h-3.5 w-52 rounded-full bg-[#edf0f1]" />
-                      <div className="h-3 w-32 rounded-full bg-[#edf0f1]" />
-                    </div>
+      <div className="hidden md:block" aria-busy="true">
+        <div className="overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
+          <div className="bg-[#f2f4f4] px-5 py-3 text-[0.68rem] font-semibold text-[#5a6061]">
+            正在同步商品报价
+          </div>
+          <div className="divide-y divide-[#edf0f1]">
+            {PRODUCT_SKELETON_ROWS.map((row) => (
+              <div key={row} className="grid min-h-[74px] grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] items-center gap-5 px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-[#edf0f1]" />
+                  <div className="space-y-2">
+                    <div className="h-3.5 w-52 rounded-full bg-[#edf0f1]" />
+                    <div className="h-3 w-32 rounded-full bg-[#edf0f1]" />
                   </div>
-                  <div className="h-3.5 rounded-full bg-[#edf0f1]" />
-                  <div className="h-3.5 rounded-full bg-[#edf0f1]" />
-                  <div className="h-3.5 rounded-full bg-[#edf0f1]" />
-                  <div className="h-3.5 rounded-full bg-[#edf0f1]" />
-                  <div className="h-9 rounded-full bg-[#edf0f1]" />
                 </div>
-              ))}
-            </div>
+                <div className="h-3.5 rounded-full bg-[#edf0f1]" />
+                <div className="h-3.5 rounded-full bg-[#edf0f1]" />
+                <div className="h-3.5 rounded-full bg-[#edf0f1]" />
+                <div className="h-3.5 rounded-full bg-[#edf0f1]" />
+                <div className="h-9 rounded-full bg-[#edf0f1]" />
+              </div>
+            ))}
           </div>
         </div>
-      ) : null}
+      </div>
     </>
   );
 }
 
 function RelativeTime({ value }: { value: string | null | undefined }) {
   return <span suppressHydrationWarning>{formatRelativeTime(value)}</span>;
-}
-
-function ProductCard({
-  product,
-  returnQuery,
-}: {
-  product: ExplorerProductSummary;
-  returnQuery: string;
-}) {
-  const previewOffer = product.lowestOffer;
-  const flags = previewOffer?.sourceTitle.includes("无质保") ? ["无质保"] : [];
-  const productHref = productDetailHref(product.slug, returnQuery);
-  const handleProductClick = listDetailClickHandler(productHref, returnQuery, () => trackProductDetailOpen(product));
-
-  return (
-      <article className="group relative flex min-h-[340px] flex-col overflow-hidden rounded-lg bg-white p-6 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 transition hover:-translate-y-0.5 hover:shadow-[0_24px_65px_rgba(45,52,53,0.07)]">
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5e5e5e]">
-            {productIcon(product)}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-[#202829]">{previewOffer?.sourceStoreName || previewOffer?.sourceName || product.platform}</p>
-            <p className="mt-0.5 text-[0.68rem] uppercase tracking-[0.14em] text-[#5a6061]">{product.platform}</p>
-          </div>
-        </div>
-        <StatusPill
-          label={product.lowestPriceLabel}
-          tone={product.lowestPriceTone}
-        />
-      </div>
-
-      <Link
-        href={productHref}
-        onClick={handleProductClick}
-        className="block"
-      >
-        <h2 className="font-serif text-2xl font-semibold leading-tight tracking-normal text-[#202829] transition group-hover:text-[#5e5e5e]">
-          {product.displayName}
-        </h2>
-      </Link>
-      <p className="mt-3 line-clamp-2 text-sm leading-6 text-[#5a6061]">{product.summary}</p>
-
-      <div className={`mt-7 rounded-lg px-4 py-3 ${pricePanelClass(product.lowestPriceTone)}`}>
-        <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em]">{product.lowestPriceLabel}</p>
-        <div className="mt-1 flex items-end gap-2">
-          <span className="text-4xl font-bold tracking-normal">
-            {formatCurrency(product.lowestPrice, previewOffer?.currency)}
-          </span>
-        </div>
-      </div>
-
-      <WarrantyLowestPrice
-        product={product}
-        returnQuery={returnQuery}
-        mode="card"
-      />
-
-      <div className="mt-5 flex flex-wrap gap-2 text-xs">
-        <CountBadge tone="good">有货 {product.inStockCount}</CountBadge>
-        <CountBadge tone="danger">缺货 {product.outOfStockCount}</CountBadge>
-        <CountBadge tone="muted">渠道 {product.offerCount}</CountBadge>
-      </div>
-
-      {previewOffer ? (
-        <div className="mt-5 min-h-[42px] text-xs leading-5 text-[#5a6061]">
-          <p className="line-clamp-2">{previewOffer.sourceTitle}</p>
-          {flags.length ? (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {flags.map((flag) => (
-                <span key={flag} className="rounded-full bg-[#fff7e8] px-2 py-1 font-medium text-[#7a541b]">
-                  {flag}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-auto pt-6">
-        <Link
-          href={productHref}
-          onClick={handleProductClick}
-          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-[#5e5e5e] to-[#525252] px-5 text-sm font-semibold text-[#f8f8f8] transition hover:opacity-90"
-        >
-          查看对比
-          <ChevronRight size={17} />
-        </Link>
-      </div>
-      </article>
-  );
 }
 
 function MobileProductCard({
@@ -2310,34 +2221,6 @@ function PriceInput({
   );
 }
 
-function StatusPill({
-  label,
-  tone,
-}: {
-  label: string;
-  tone?: ExplorerProductSummary["lowestPriceTone"];
-}) {
-  const toneClass = tone
-    ? {
-        good: "bg-[#e8f3ec] text-[#2f7a4b]",
-        warn: "bg-[#fff7e8] text-[#7a541b]",
-        info: "bg-[#eef3f8] text-[#47657a]",
-        muted: "bg-[#e4e9ea] text-[#5a6061]",
-        danger: "bg-[#fbe9e7] text-[#9b3328]",
-      }[tone]
-    : null;
-
-  return (
-    <span
-      className={`shrink-0 rounded-full px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.14em] ${
-        toneClass || "bg-[#eef3f8] text-[#47657a]"
-      }`}
-    >
-      {label}
-    </span>
-  );
-}
-
 function CountBadge({
   children,
   tone,
@@ -2354,16 +2237,6 @@ function CountBadge({
   }[tone];
 
   return <span className={`rounded-full px-2.5 py-1 font-medium ${className}`}>{children}</span>;
-}
-
-function pricePanelClass(tone: ExplorerProductSummary["lowestPriceTone"]): string {
-  return {
-    good: "bg-[#e8f3ec] text-[#244f36]",
-    warn: "bg-[#fff7e8] text-[#70511d]",
-    info: "bg-[#eef3f8] text-[#34566d]",
-    muted: "bg-[#f2f4f4] text-[#5a6061]",
-    danger: "bg-[#fbe9e7] text-[#8f2f24] ring-1 ring-[#e9b7b0]",
-  }[tone];
 }
 
 function tableStatusClass(isAvailable: boolean): string {
@@ -2502,8 +2375,8 @@ function buildExplorerSearchParams({
   if (stock !== "all") params.set("stock", stock);
   if (minPrice) params.set("min", minPrice);
   if (maxPrice) params.set("max", maxPrice);
-  if (viewMode !== "table") params.set("view", viewMode);
   if (scopeMode !== "products") params.set("scope", scopeMode);
+  if (scopeMode === "merchants" && viewMode !== defaultViewModeForScope(scopeMode)) params.set("view", viewMode);
   if (scopeMode === "merchants" && merchantCollector !== "all") params.set("collector", merchantCollector);
   if (scopeMode === "merchants" && merchantSignal !== "all") params.set("signal", merchantSignal);
 
@@ -2547,6 +2420,7 @@ function buildPublicListSearchParams({
 function parseExplorerInitialState(params: URLSearchParams): ExplorerInitialState {
   const scopeMode = pickParam(params.get("scope") || "", scopeOptions, "products");
   const defaultViewMode: ViewMode = scopeMode === "merchants" ? "cards" : "table";
+  const viewMode = pickParam(params.get("view") || "", viewOptions, defaultViewMode);
 
   return {
     query: params.get("q") || "",
@@ -2555,7 +2429,7 @@ function parseExplorerInitialState(params: URLSearchParams): ExplorerInitialStat
     stock: pickParam(params.get("stock") || "", stockOptions, "all"),
     minPrice: numericParam(params.get("min") || ""),
     maxPrice: numericParam(params.get("max") || ""),
-    viewMode: pickParam(params.get("view") || "", viewOptions, defaultViewMode),
+    viewMode: normalizeViewModeForScope(scopeMode, viewMode),
     scopeMode,
     merchantCollector: pickParam(params.get("collector") || "", merchantCollectorOptions, "all"),
     merchantSignal: pickParam(params.get("signal") || "", merchantSignalOptions, "all"),
