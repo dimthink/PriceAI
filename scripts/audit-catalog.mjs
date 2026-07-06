@@ -130,6 +130,15 @@ function buildSuspiciousChecks(items) {
         !/(月卡|月会员|年卡|充值|直充|卡密|激活码|订阅|会员|heavy|[1-9]\s*天|3天号|三天号|七天号|体验卡|独享成品号|super\s*grok)/i.test(offer.normalizedTitle),
     },
     {
+      key: "x_premium_maybe_super_grok_bundle",
+      label: "X Premium 中疑似 Super Grok 套餐/代开",
+      expected: "super-grok",
+      filter: (offer) =>
+        offer.nextProductId === "x-twitter-premium" &&
+        /(super\s*grok|supergrok|grok\s*super)/i.test(offer.normalizedTitle) &&
+        !/(heavy|非\s*super\s*grok|不是\s*super\s*grok|不含\s*super\s*grok|非supergrok|不是supergrok|不含supergrok)/i.test(offer.normalizedTitle),
+    },
+    {
       key: "plus_maybe_api_transit_or_credit",
       label: "Plus 中疑似中转/API/额度/号池",
       expected: "openai-api-cdk",

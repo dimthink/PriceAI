@@ -658,6 +658,10 @@ function classifyOfferByTitle(
     return getCanonicalProduct("super-grok-heavy");
   }
 
+  if (isSuperGrokBundleProduct(value)) {
+    return getCanonicalProduct("super-grok");
+  }
+
   if (isXTwitterPremiumProduct(value)) {
     return getCanonicalProduct("x-twitter-premium");
   }
@@ -2238,6 +2242,30 @@ function isGrokHeavyProduct(value: string): boolean {
   if (matches(value, ["非heavy", "非 heavy", "不是heavy", "不是 heavy", "不含heavy", "不含 heavy", "not heavy"])) return false;
 
   return matches(value, ["heavy", "grok heavy", "heavy grok", "grok super heavy", "super grok heavy", "supergrok heavy"]);
+}
+
+function isSuperGrokBundleProduct(value: string): boolean {
+  if (!isGrokProduct(value)) return false;
+  if (isGrokHeavyProduct(value)) return false;
+  if (matches(value, ["非 super grok", "非supergrok", "不是 super grok", "不是supergrok", "不含 super grok", "不含supergrok"])) return false;
+
+  return matches(value, [
+    "super grok",
+    "supergrok",
+    "grok super",
+    "自带super grok",
+    "自带 super grok",
+    "带supergrok",
+    "带 supergrok",
+    "带super grok",
+    "带 super grok",
+    "赠送super grok",
+    "赠送 super grok",
+    "x premium super grok",
+    "x premium supergrok",
+    "x premium+ super grok",
+    "x premium+ supergrok",
+  ]);
 }
 
 function isGrokFitForSuperInfrastructure(value: string): boolean {
