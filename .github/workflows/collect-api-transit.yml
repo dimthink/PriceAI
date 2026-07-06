@@ -2,8 +2,8 @@ name: Collect API Transit
 
 on:
   schedule:
-    # 公开倍率和站方公开监测只读取公开 JSON，直接由 GitHub Actions 半小时采集写库。
-    - cron: "7,37 * * * *"
+    # 主采集由 Huoshan2 systemd timer 每 10 分钟执行；GitHub 只保留低频兜底。
+    - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
       source:

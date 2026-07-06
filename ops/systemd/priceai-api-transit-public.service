@@ -1,0 +1,10 @@
+[Unit]
+Description=PriceAI API transit public pricing collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/priceai-nonshop
+ExecStart=/opt/priceai-nonshop/run-api-transit-public.sh
+TimeoutStartSec=240

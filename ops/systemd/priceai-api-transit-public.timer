@@ -1,0 +1,13 @@
+[Unit]
+Description=Run PriceAI API transit public collector every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+AccuracySec=20s
+RandomizedDelaySec=20s
+Persistent=false
+Unit=priceai-api-transit-public.service
+
+[Install]
+WantedBy=timers.target

@@ -62,6 +62,37 @@ npm run collect:api-transit
 
 涉及需要国内访问环境、登录状态、验证码、WAF 或人工确认的来源，不建议直接放在 GitHub-hosted runner 里高频运行。
 
+### API 中转公开采集
+
+API 中转公开倍率、公开模型价格和站方公开监测由 Huoshan2 的 systemd timer 承担主采集，每 10 分钟执行一次：
+
+```bash
+/opt/priceai-nonshop/run-api-transit-public.sh
+```
+
+脚本执行链路：
+
+```text
+公开来源 JSON / 公开页面 -> collect-api-transit.mjs --post -> Supabase
+-> /api/cron/api-transit-revalidate -> 前台 API 中转缓存刷新
+```
+
+对应单元：
+
+```text
+priceai-api-transit-public.service
+priceai-api-transit-public.timer
+```
+
+GitHub Actions 的 `.github/workflows/collect-api-transit.yml` 只保留每 6 小时兜底和手动触发，避免与 VPS 10 分钟主采集重复写库。
+
+排查公开来源样本不更新时，优先查看：
+
+```bash
+systemctl status priceai-api-transit-public.timer
+journalctl -u priceai-api-transit-public.service -n 120 --no-pager
+```
+
 ## 验证
 
 部署后至少验证：
