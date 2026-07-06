@@ -707,6 +707,7 @@ export function getStationPublishedAvailabilitySummary(station: TransitStation):
     .map((family) => getFamilyRateSummary(station, family))
     .filter((summary) => summary.priceCount > 0);
   const samples = summaries.reduce((total, summary) => total + summary.sevenDaySamples, 0);
+  const stationRecentSamples = station.availability.recentSamples || [];
 
   if (!samples) {
     return {
@@ -732,15 +733,16 @@ export function getStationPublishedAvailabilitySummary(station: TransitStation):
       .filter((value): value is string => Boolean(value))
       .sort()
       .at(-1) ?? null;
+  const summaryRecentSamples = mergeRecentAvailabilitySamples(summaries.map((summary) => summary.recentSamples));
 
   return {
     sevenDayRate: roundAvailabilityRate(weightedRate),
     sevenDaySamples: samples,
-    firstCheckedAt,
-    lastCheckedAt,
+    firstCheckedAt: earliestTransitTimestamp(firstCheckedAt, station.availability.firstCheckedAt),
+    lastCheckedAt: latestTransitTimestamp(lastCheckedAt, station.availability.lastCheckedAt),
     latestLatencyMs: latestLatencyFromSummaries(summaries),
     avgLatency7dMs: weightedAverageLatencyFromSummaries(summaries),
-    recentSamples: mergeRecentAvailabilitySamples(summaries.map((summary) => summary.recentSamples)),
+    recentSamples: summaryRecentSamples.length ? summaryRecentSamples : stationRecentSamples,
     note: `按当前公开模型分组汇总：${formatPercent(roundAvailabilityRate(weightedRate))} · 样本 ${samples}`,
     sourceType: source.sourceType,
     sourceLabel: source.sourceLabel,
@@ -757,6 +759,24 @@ function mergeRecentAvailabilitySamples(
     .sort((left, right) => new Date(right.checkedAt).getTime() - new Date(left.checkedAt).getTime())
     .slice(0, 60)
     .reverse();
+}
+
+function earliestTransitTimestamp(...values: Array<string | null | undefined>): string | null {
+  return pickTransitTimestamp(values, "earliest");
+}
+
+function latestTransitTimestamp(...values: Array<string | null | undefined>): string | null {
+  return pickTransitTimestamp(values, "latest");
+}
+
+function pickTransitTimestamp(
+  values: Array<string | null | undefined>,
+  mode: "earliest" | "latest"
+): string | null {
+  const sorted = values
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime());
+  return mode === "earliest" ? sorted.at(0) ?? null : sorted.at(-1) ?? null;
 }
 
 function getStationPublishedAvailabilitySourceMeta(station: TransitStation): Pick<

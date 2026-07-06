@@ -22,6 +22,7 @@ let cachedAt = 0;
 const cachedBySlug = new Map<string, { station: TransitStation; cachedAt: number }>();
 let hasWarnedMissingEnhancementColumns = false;
 let hasWarnedMissingHistoryTable = false;
+let hasWarnedSnapshotAvailabilitySamples = false;
 const CACHE_TTL_MS = 30_000;
 const PUBLIC_TRANSIT_READ_TIMEOUT_MS = 2_500;
 const PUBLIC_TRANSIT_BUILD_READ_TIMEOUT_MS = 15_000;
@@ -293,8 +294,9 @@ export async function getTransitStations(): Promise<TransitStation[]> {
   const staleMemory = cached && cached.length ? cached : null;
   const snapshot = await readTransitStationsSnapshot();
   if (snapshot?.fresh) {
-    setTransitStationsCache(snapshot.stations, now);
-    return snapshot.stations;
+    const stations = await attachSnapshotAvailabilitySamples(snapshot.stations);
+    setTransitStationsCache(stations, now);
+    return stations;
   }
 
   try {
@@ -350,6 +352,28 @@ async function writeTransitStationsSnapshot(
     payload: stations,
     generatedAt,
   });
+}
+
+async function attachSnapshotAvailabilitySamples(stations: TransitStation[]): Promise<TransitStation[]> {
+  if (!stations.length) return stations;
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return stations;
+
+  try {
+    const sampleRows = await readAvailabilitySampleRows(
+      supabase,
+      stations.map((station) => station.id),
+      availabilityCutoffIso(),
+      TRANSIT_AVAILABILITY_LIST_SAMPLE_LIMIT
+    );
+    return attachAvailabilitySamples(stations, sampleRows);
+  } catch (error) {
+    if (!hasWarnedSnapshotAvailabilitySamples) {
+      hasWarnedSnapshotAvailabilitySamples = true;
+      console.warn("Using API transit snapshot without live availability samples:", error);
+    }
+    return stations;
+  }
 }
 
 function isTransitStationsSnapshot(value: unknown): value is TransitStation[] {

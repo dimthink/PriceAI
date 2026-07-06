@@ -142,6 +142,37 @@ assertEqual(publishedAvailability.sevenDaySamples, 298);
 assertEqual(publishedAvailability.sevenDayRate, 0.916);
 assertEqual(getStationComparisonSummary(mixedAvailabilityStation).stabilityRate, 0.916);
 
+const stationLevelSamplesOnly = station({
+  id: "station-level-samples",
+  name: "Station Level Samples",
+  claudeRate: 0.8,
+  availabilityRate: 1,
+  availabilitySamples: 120,
+});
+stationLevelSamplesOnly.availability = {
+  ...stationLevelSamplesOnly.availability,
+  firstCheckedAt: "2026-07-02T06:00:00.000Z",
+  lastCheckedAt: "2026-07-02T08:00:00.000Z",
+  recentSamples: [
+    {
+      ok: true,
+      latencyMs: 1200,
+      pingLatencyMs: 180,
+      checkedAt: "2026-07-02T08:00:00.000Z",
+      sourceType: "priceai_probe",
+      sourceLabel: "PriceAI 实测",
+      sourceUrl: null,
+    },
+  ],
+};
+stationLevelSamplesOnly.prices[0]!.availability = {
+  ...stationLevelSamplesOnly.prices[0]!.availability,
+  recentSamples: [],
+};
+const stationLevelSampleSummary = getStationPublishedAvailabilitySummary(stationLevelSamplesOnly);
+assertEqual(stationLevelSampleSummary.recentSamples?.length, 1);
+assertEqual(stationLevelSampleSummary.lastCheckedAt, "2026-07-02T08:00:00.000Z");
+
 const mixedClaudeGroupStation = station({
   id: "mixed-claude-group",
   name: "Mixed Claude Group",

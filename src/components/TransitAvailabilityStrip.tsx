@@ -70,13 +70,13 @@ function sampleTone(sample: TransitAvailabilitySample): "good" | "warn" | "bad" 
 function availabilityAriaLabel(rate: number | null, samples: number, trendCount: number, hasTrend: boolean): string {
   if (rate === null || samples <= 0) return "稳定性样本不足，暂无可用性监测样本";
   const rateText = `7天可用性 ${(rate * 100).toFixed(1)}%，样本 ${samples}`;
-  if (!hasTrend) return `${rateText}，暂无逐次监测记录`;
+  if (!hasTrend) return `${rateText}，仅有汇总数据，暂无逐次明细`;
   return `${rateText}，展示最近 ${trendCount} 次逐次记录`;
 }
 
 function availabilityEmptyLabel(rate: number | null, samples: number): string {
   if (rate === null || samples <= 0) return "样本不足";
-  return "无逐次记录";
+  return "仅汇总";
 }
 
 function formatShortTime(value: string): string {
