@@ -35,6 +35,7 @@ import {
   getApiModelFamilyOptions,
   getApiModelSummaries,
   getApiProviderSummaries,
+  officialPlatformComparisons,
   type ApiCurrency,
   type ApiModelDataset,
   type ApiModelOfferWithRelations,
@@ -42,16 +43,17 @@ import {
   type ApiModelSummary,
   type ApiProviderSummary,
   type ApiProviderType,
+  type OfficialPlatformComparison,
 } from "@/lib/api-models";
 import type { SponsorSettingsSummary } from "@/lib/sponsor-settings-shared";
 import { formatDateDay } from "@/lib/utils";
 
 const typeFilters = ["all", "free", "official", "subscription"] as const;
-const apiScopeOptions = ["models", "offers", "providers"] as const;
+const apiScopeOptions = ["platforms", "models", "offers", "providers"] as const;
 const apiCurrencyOptions = ["CNY", "USD"] as const;
 const apiSortOptions = ["recommended", "price", "updated", "channels"] as const;
 type TypeFilter = (typeof typeFilters)[number];
-type ScopeMode = "models" | "offers" | "providers";
+type ScopeMode = "platforms" | "models" | "offers" | "providers";
 type FamilyFilter = "all" | string;
 type MobileSortMode = "recommended" | "price" | "updated" | "channels";
 
@@ -70,7 +72,7 @@ export function ApiModelsExplorer({
   sponsorSettings?: SponsorSettingsSummary | null;
 }) {
   const [family, setFamily] = useState<FamilyFilter>("all");
-  const [scopeMode, setScopeMode] = useState<ScopeMode>("models");
+  const [scopeMode, setScopeMode] = useState<ScopeMode>("platforms");
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [currency, setCurrency] = useState<ApiCurrency>("CNY");
@@ -105,6 +107,13 @@ export function ApiModelsExplorer({
   const allModelCount = useMemo(() => getApiModelSummaries("all", dataset).length, [dataset]);
   const debouncedQuery = useDebouncedValue(query, 250);
   const normalizedQuery = debouncedQuery.trim().toLowerCase();
+  const platformRows = useMemo(
+    () =>
+      officialPlatformComparisons
+        .filter((row) => family === "all" || row.familyIds.includes(family))
+        .filter((row) => matchesOfficialPlatform(row, normalizedQuery)),
+    [family, normalizedQuery],
+  );
   const modelSummaries = useMemo(
     () =>
       getApiModelSummaries(family, dataset)
@@ -128,12 +137,11 @@ export function ApiModelsExplorer({
     [dataset, family, mobileSort, normalizedQuery, typeFilter],
   );
 
-  const freeCount = useMemo(() => {
-    const freeProviderIds = new Set(dataset.providers.filter((provider) => provider.type === "free").map((provider) => provider.id));
-    return dataset.offers.filter((offer) => freeProviderIds.has(offer.providerId)).length;
-  }, [dataset.offers, dataset.providers]);
+  const subscriptionPlanCount = useMemo(() => dataset.plans.filter((plan) => plan.type === "subscription").length, [dataset.plans]);
   const resultCount =
-    scopeMode === "models"
+    scopeMode === "platforms"
+      ? platformRows.length
+      : scopeMode === "models"
       ? modelSummaries.length
       : scopeMode === "offers"
         ? offerRows.length
@@ -276,7 +284,7 @@ export function ApiModelsExplorer({
               </button>
             </div>
             <p className="mt-3 hidden max-w-[75ch] text-sm leading-7 text-[#5a6061] md:block">
-              按具体模型和正规公开渠道重新组织 API 信息。你可以先查某个模型有哪些官方 API、Token Plan 或免费入口，也可以反过来查某个渠道覆盖哪些模型。
+              先按平台看官方 API 基准价、官方订阅月费和额度口径，再切到标准模型、报价明细或来源渠道。这里重点回答：买会员、用官方 API、还是看 Token Plan，各自到底覆盖什么。
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[0.72rem] font-medium text-[#5a6061]">
               <span>{dataset.source === "supabase" ? "数据库同步" : "人工维护样本"}：{formatDatasetDate(dataset.generatedAt)}</span>
@@ -288,10 +296,10 @@ export function ApiModelsExplorer({
           </div>
 
           <div className="grid grid-cols-4 gap-2 xl:w-[420px]">
+            <Metric label="平台" value={`${officialPlatformComparisons.length}`} />
             <Metric label="模型" value={`${allModelCount}`} />
             <Metric label="报价" value={`${dataset.offers.length}`} />
-            <Metric label="渠道" value={`${dataset.providers.length}`} />
-            <Metric label="免费" value={`${freeCount}`} />
+            <Metric label="订阅" value={`${subscriptionPlanCount}`} />
           </div>
         </div>
 
@@ -314,6 +322,12 @@ export function ApiModelsExplorer({
             />
           </div>
           <div className="inline-flex h-11 max-w-full items-center overflow-x-auto rounded-full bg-[#e4e9ea] p-1">
+            <ViewToggleButton
+              active={scopeMode === "platforms"}
+              icon={<Layers3 size={16} />}
+              label="对照"
+              onClick={() => setScopeMode("platforms")}
+            />
             <ViewToggleButton
               active={scopeMode === "models"}
               icon={<PackageCheck size={16} />}
@@ -347,8 +361,6 @@ export function ApiModelsExplorer({
           </div>
         </div>
 
-        <SponsoredPlacementPreview kind="apiModels" settings={sponsorSettings} />
-
         <div className="hidden space-y-3 rounded-lg bg-[#f2f4f4] p-3 shadow-[0_18px_50px_rgba(45,52,53,0.04)] ring-1 ring-[#adb3b4]/10 md:block">
           <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
             <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full bg-white px-4 shadow-[0_16px_45px_rgba(45,52,53,0.05)] ring-1 ring-[#adb3b4]/15 md:min-w-[300px] md:max-w-[430px]">
@@ -362,6 +374,12 @@ export function ApiModelsExplorer({
             </label>
 
             <div className="inline-flex h-12 shrink-0 items-center rounded-full bg-[#e4e9ea] p-1">
+              <ViewToggleButton
+                active={scopeMode === "platforms"}
+                icon={<Layers3 size={16} />}
+                label="平台对照"
+                onClick={() => setScopeMode("platforms")}
+              />
               <ViewToggleButton
                 active={scopeMode === "models"}
                 icon={<PackageCheck size={16} />}
@@ -410,7 +428,7 @@ export function ApiModelsExplorer({
             </button>
           </div>
 
-          {scopeMode !== "models" ? (
+          {scopeMode !== "models" && scopeMode !== "platforms" ? (
             <div className="flex gap-2 overflow-x-auto border-t border-[#dfe4e5] pt-3">
               {typeFilters.map((item) => (
                 <button
@@ -555,7 +573,7 @@ export function ApiModelsExplorer({
         currency={currency}
         typeFilter={typeFilter}
         resultCount={resultCount}
-        showTypeFilter={scopeMode !== "models"}
+        showTypeFilter={scopeMode !== "models" && scopeMode !== "platforms"}
         onClose={() => setFiltersOpen(false)}
         onCurrencyChange={setCurrency}
         onTypeFilterChange={setTypeFilter}
@@ -565,7 +583,19 @@ export function ApiModelsExplorer({
         }}
       />
 
-      {scopeMode === "models" ? (
+      {scopeMode === "platforms" ? (
+        platformRows.length ? (
+          isDesktop === false ? (
+            <OfficialPlatformComparisonMobileList rows={platformRows} />
+          ) : (
+            <div className="hidden md:block">
+              <OfficialPlatformComparisonTable rows={platformRows} />
+            </div>
+          )
+        ) : (
+          <EmptyState text="没有符合条件的官方平台对照" />
+        )
+      ) : scopeMode === "models" ? (
         modelSummaries.length ? (
           isDesktop === false ? (
             <ApiModelSummaryMobileList summaries={modelSummaries} currency={currency} returnQuery={explorerQueryString} />
@@ -598,13 +628,17 @@ export function ApiModelsExplorer({
           </div>
         )
       ) : (
-        <EmptyState text="没有符合条件的渠道或 Token Plan" />
+        <EmptyState text="没有符合条件的渠道或订阅计划" />
       )}
 
+      <div className="mt-6">
+        <SponsoredPlacementPreview kind="apiModels" settings={sponsorSettings} />
+      </div>
+
       <section className="mt-6 rounded-lg bg-[#fff7e8] p-5 text-sm leading-7 text-[#7a541b] ring-1 ring-[#efdfbd]">
-        <p className="font-semibold text-[#7a541b]">Token Plan 折算提示</p>
+        <p className="font-semibold text-[#7a541b]">订阅额度折算提示</p>
         <p className="mt-1">
-          Token Plan 需要同时看月费、模型覆盖、请求窗口、额度刷新和用途限制。比如 OpenCode Go 有低月费和多模型覆盖，但仍然有 5 小时、每周、每月的额度窗口。
+          ChatGPT、Claude、Gemini 的官方月订阅多是产品内额度，不等同 API token 包；Token Plan 也要同时看月费、模型覆盖、请求窗口、额度刷新和用途限制。
         </p>
       </section>
 
@@ -613,6 +647,150 @@ export function ApiModelsExplorer({
       </p>
     </main>
     </>
+  );
+}
+
+function OfficialPlatformComparisonTable({ rows }: { rows: OfficialPlatformComparison[] }) {
+  return (
+    <section className="overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
+      <div className="overflow-x-auto">
+        <table className="min-w-[1180px] w-full table-fixed border-collapse text-left text-sm">
+          <colgroup>
+            <col className="w-[20%]" />
+            <col className="w-[27%]" />
+            <col className="w-[29%]" />
+            <col className="w-[16%]" />
+            <col className="w-[8%]" />
+          </colgroup>
+          <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
+            <tr>
+              <TableHead>官方平台</TableHead>
+              <TableHead>API 基准价</TableHead>
+              <TableHead>官方订阅与额度</TableHead>
+              <TableHead>边界/适合谁</TableHead>
+              <TableHead>来源</TableHead>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#edf0f1]">
+            {rows.map((row) => (
+              <tr key={row.id} className="align-top transition hover:bg-[#f7f9f9]">
+                <td className="px-5 py-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <PlatformLogo logoUrl={row.logoUrl} platform={row.platform} />
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-[#202829]">{row.platform}</p>
+                      <p className="mt-1 truncate text-xs text-[#5a6061]">{row.provider} · {row.family}</p>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {row.apiModels.slice(0, 4).map((model) => (
+                          <CountBadge key={model} tone="neutral">{model}</CountBadge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-5 py-4">
+                  <p className="text-sm font-semibold leading-6 text-[#202829]">{row.apiPriceSummary}</p>
+                  <p className="mt-2 text-xs leading-5 text-[#5a6061]">{row.quotaUnit}</p>
+                </td>
+                <td className="px-5 py-4">
+                  <p className="line-clamp-2 text-sm leading-6 text-[#5a6061]">{row.subscriptionSummary}</p>
+                  <div className="mt-3 grid gap-2">
+                    {row.subscriptionPlans.map((plan) => (
+                      <a
+                        key={`${row.id}-${plan.name}`}
+                        href={plan.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="grid grid-cols-[minmax(78px,0.8fr)_minmax(120px,1fr)_minmax(0,1.8fr)] items-center gap-2 rounded-lg bg-[#f7f9f9] px-3 py-2 text-xs ring-1 ring-[#adb3b4]/10 transition hover:bg-[#edf2f1]"
+                      >
+                        <span className="font-semibold text-[#202829]">{plan.name}</span>
+                        <span className="font-semibold text-[#2f7a4b]">{plan.priceLabel}</span>
+                        <span className="min-w-0 truncate text-[#5a6061]">{plan.quotaLabel}</span>
+                      </a>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-5 py-4">
+                  <p className="text-sm font-semibold leading-6 text-[#202829]">{row.useCase}</p>
+                  <p className="mt-2 line-clamp-4 text-xs leading-5 text-[#5a6061]">{row.apiBoundary}</p>
+                </td>
+                <td className="px-5 py-4">
+                  <div className="flex flex-col items-start gap-2">
+                    {row.sourceLinks.slice(0, 3).map((link) => (
+                      <SourceLinkPill key={link.href} href={link.href} label={link.label} />
+                    ))}
+                    <span className="text-xs text-[#5a6061]">{formatDatasetDate(row.updatedAt)}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function OfficialPlatformComparisonMobileList({ rows }: { rows: OfficialPlatformComparison[] }) {
+  return (
+    <section className="grid grid-cols-1 gap-3 md:hidden">
+      {rows.map((row) => (
+        <article key={row.id} className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
+          <div className="flex min-w-0 items-start gap-3">
+            <PlatformLogo logoUrl={row.logoUrl} platform={row.platform} />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-base font-bold leading-6 text-[#202829]">{row.platform}</p>
+                  <p className="mt-0.5 truncate text-sm text-[#5a6061]">{row.provider} · {row.family}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#e8f3ec] px-2.5 py-1 text-xs font-semibold text-[#2f7a4b]">官方</span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {row.apiModels.slice(0, 4).map((model) => (
+                  <CountBadge key={model} tone="neutral">{model}</CountBadge>
+                ))}
+              </div>
+
+              <section className="mt-4 rounded-lg bg-[#f7f9f9] px-3 py-3 ring-1 ring-[#adb3b4]/10">
+                <p className="text-[0.68rem] font-semibold text-[#5a6061]">API 基准价</p>
+                <p className="mt-1 text-sm font-semibold leading-6 text-[#202829]">{row.apiPriceSummary}</p>
+              </section>
+
+              <section className="mt-3">
+                <p className="text-[0.68rem] font-semibold text-[#5a6061]">官方订阅</p>
+                <p className="mt-1 text-sm leading-6 text-[#5a6061]">{row.subscriptionSummary}</p>
+                <div className="mt-2 grid gap-2">
+                  {row.subscriptionPlans.map((plan) => (
+                    <a
+                      key={`${row.id}-${plan.name}`}
+                      href={plan.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="grid grid-cols-[minmax(72px,0.8fr)_minmax(96px,1fr)] gap-2 rounded-lg bg-[#f7f9f9] px-3 py-2 text-xs ring-1 ring-[#adb3b4]/10"
+                    >
+                      <span className="font-semibold text-[#202829]">{plan.name}</span>
+                      <span className="font-semibold text-[#2f7a4b]">{plan.priceLabel}</span>
+                      <span className="col-span-2 text-[#5a6061]">{plan.quotaLabel}</span>
+                    </a>
+                  ))}
+                </div>
+              </section>
+
+              <p className="mt-3 text-sm font-semibold leading-6 text-[#202829]">{row.useCase}</p>
+              <p className="mt-1 text-xs leading-5 text-[#5a6061]">{row.apiBoundary}</p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {row.sourceLinks.slice(0, 3).map((link) => (
+                  <SourceLinkPill key={link.href} href={link.href} label={link.label} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </article>
+      ))}
+    </section>
   );
 }
 
@@ -846,7 +1024,7 @@ function ApiModelSummaryMobileList({
                   <CountBadge tone="neutral">渠道 {summary.providerCount}</CountBadge>
                   <CountBadge tone="good">官方 {summary.officialCount}</CountBadge>
                   <CountBadge tone="warn">免费 {summary.freeCount}</CountBadge>
-                  <CountBadge tone="neutral">Token Plan {summary.planCount}</CountBadge>
+                  <CountBadge tone="neutral">订阅 {summary.planCount}</CountBadge>
                 </div>
                 <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#5a6061]">
                   {primaryOffer ? formatApiDisplayText(primaryOffer.limitSummary) : "保留来源，等待补充报价。"}
@@ -879,7 +1057,7 @@ function ApiModelSummaryTable({
               <TableHead>标准模型</TableHead>
               <TableHead>官方/参考入口</TableHead>
               <TableHead>渠道覆盖</TableHead>
-              <TableHead>价格/Token Plan</TableHead>
+              <TableHead>价格/订阅</TableHead>
               <TableHead>限制</TableHead>
               <TableHead>最近更新</TableHead>
               <TableHead className="w-[120px] text-center">操作</TableHead>
@@ -917,7 +1095,7 @@ function ApiModelSummaryTable({
                       <CountBadge tone="neutral">渠道 {summary.providerCount}</CountBadge>
                       <CountBadge tone="good">官方 {summary.officialCount}</CountBadge>
                       <CountBadge tone="warn">免费 {summary.freeCount}</CountBadge>
-                      <CountBadge tone="neutral">Token Plan {summary.planCount}</CountBadge>
+                      <CountBadge tone="neutral">订阅 {summary.planCount}</CountBadge>
                     </div>
                   </td>
                   <td className="max-w-[240px] px-5 py-4">
@@ -963,10 +1141,10 @@ function ApiProviderSummaryTable({
         <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
-              <TableHead>渠道/Token Plan</TableHead>
+              <TableHead>渠道/订阅</TableHead>
               <TableHead>类型</TableHead>
               <TableHead>模型覆盖</TableHead>
-              <TableHead>价格/Token Plan</TableHead>
+              <TableHead>价格/订阅</TableHead>
               <TableHead>限制</TableHead>
               <TableHead>最近更新</TableHead>
               <TableHead className="w-[120px] text-center">操作</TableHead>
@@ -1071,7 +1249,7 @@ function ApiProviderSummaryMobileList({
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   <CountBadge tone="neutral">模型 {summary.modelCount || summary.offerCount}</CountBadge>
                   <CountBadge tone="neutral">报价 {summary.offerCount}</CountBadge>
-                  <CountBadge tone="warn">Token Plan {summary.planCount}</CountBadge>
+                  <CountBadge tone="warn">订阅 {summary.planCount}</CountBadge>
                 </div>
               </div>
               <ChevronRight size={17} className="mt-3 shrink-0 text-[#adb3b4]" />
@@ -1248,6 +1426,29 @@ function TypeChip({ type }: { type: ApiProviderType }) {
   );
 }
 
+function PlatformLogo({ logoUrl, platform }: { logoUrl?: string; platform: string }) {
+  if (logoUrl) {
+    return (
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
+        <Image
+          src={logoUrl}
+          alt=""
+          aria-hidden="true"
+          width={32}
+          height={32}
+          className="h-7 w-7 shrink-0 object-contain"
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-sm font-bold text-[#5a6061] ring-1 ring-[#adb3b4]/15">
+      {platform.slice(0, 1)}
+    </span>
+  );
+}
+
 function ApiProviderIcon({ provider, size = "md" }: { provider: { name: string; logoUrl?: string }; size?: "sm" | "md" }) {
   const shellClassName = size === "sm" ? "h-7 w-7" : "h-10 w-10";
   const imageClassName = size === "sm" ? "h-5 w-5" : "h-7 w-7";
@@ -1272,6 +1473,20 @@ function ApiProviderIcon({ provider, size = "md" }: { provider: { name: string; 
     <span className={`flex shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5a6061] ring-1 ring-[#adb3b4]/15 ${shellClassName}`}>
       <Database size={fallbackSize} />
     </span>
+  );
+}
+
+function SourceLinkPill({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-[#e4e9ea] px-3 py-2 text-xs font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
+    >
+      <span className="truncate">{label}</span>
+      <ExternalLink size={13} className="shrink-0" />
+    </a>
   );
 }
 
@@ -1300,6 +1515,10 @@ function TableHead({ children, className = "" }: { children: ReactNode; classNam
 
 function buildTitle(family: ApiModelScope, scopeMode: ScopeMode, familyOptions: { id: string; label: string }[]) {
   const label = family === "all" ? "全模型" : familyOptions.find((option) => option.id === family)?.label ?? family;
+  if (scopeMode === "platforms") {
+    return family === "all" ? "官方平台对照" : `${label} 官方成本对照`;
+  }
+
   const suffix = {
     models: "标准模型",
     offers: "全部报价",
@@ -1343,7 +1562,7 @@ function buildApiModelsSearchParams({
   const normalizedQuery = query.trim();
 
   if (family !== "all") params.set("family", family);
-  if (scopeMode !== "models") params.set("scope", scopeMode);
+  if (scopeMode !== "platforms") params.set("scope", scopeMode);
   if (normalizedQuery) params.set("q", normalizedQuery);
   if (typeFilter !== "all") params.set("type", typeFilter);
   if (currency !== "CNY") params.set("currency", currency);
@@ -1355,7 +1574,7 @@ function buildApiModelsSearchParams({
 function parseApiModelsInitialState(params: URLSearchParams, familyOptions: { id: string; label: string }[]) {
   return {
     family: pickApiFamily(params.get("family") || "", familyOptions),
-    scopeMode: pickParam(params.get("scope") || "", apiScopeOptions, "models"),
+    scopeMode: pickParam(params.get("scope") || "", apiScopeOptions, "platforms"),
     query: params.get("q") || "",
     typeFilter: pickParam(params.get("type") || "", typeFilters, "all"),
     currency: pickParam(params.get("currency") || "", apiCurrencyOptions, "CNY"),
@@ -1378,18 +1597,42 @@ function formatDatasetDate(value: string) {
 
 function scopeCountLabel(scopeMode: ScopeMode) {
   return {
+    platforms: "个平台对照",
     models: "个标准模型",
     offers: "条报价明细",
-    providers: "个渠道/Token Plan",
+    providers: "个渠道/订阅计划",
   }[scopeMode];
 }
 
 function searchPlaceholder(scopeMode: ScopeMode) {
   return {
-    models: "搜索 DeepSeek V4、GPT Image 2、Sora 2",
+    platforms: "搜索 ChatGPT、Claude、Gemini 或 Pro",
+    models: "搜索 GPT-5.4、Claude Sonnet、Gemini 3.1",
     offers: "搜索模型、渠道、Token Plan 或限制",
     providers: "搜索 OpenCode Go、Kimi Code、官方 API",
   }[scopeMode];
+}
+
+function matchesOfficialPlatform(row: OfficialPlatformComparison, query: string) {
+  if (!query) return true;
+
+  return [
+    row.platform,
+    row.provider,
+    row.family,
+    row.apiPriceSummary,
+    row.subscriptionSummary,
+    row.quotaUnit,
+    row.apiBoundary,
+    row.useCase,
+    ...row.apiModels,
+    ...row.subscriptionPlans.flatMap((plan) => [plan.name, plan.priceLabel, plan.quotaLabel]),
+    ...row.sourceLinks.map((link) => link.label),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
 }
 
 function matchesModelSummary(summary: ApiModelSummary, query: string) {

@@ -418,7 +418,7 @@ async function readApiModelDataset(): Promise<ApiModelDataset> {
       });
     }
 
-    return getPublicApiModelDataset({
+    return getPublicApiModelDataset(mergeStaticApiModelDataset({
       source: "supabase",
       generatedAt: latestDate([
         ...models.map((model) => model.updatedAt),
@@ -431,7 +431,7 @@ async function readApiModelDataset(): Promise<ApiModelDataset> {
       providers,
       plans,
       offers,
-    });
+    }));
   } catch (error) {
     console.warn("Falling back to static API model data because Supabase read failed:", error);
     return getPublicApiModelDataset({
@@ -439,6 +439,22 @@ async function readApiModelDataset(): Promise<ApiModelDataset> {
       source: "static",
     });
   }
+}
+
+function mergeStaticApiModelDataset(dataset: ApiModelDataset): ApiModelDataset {
+  return {
+    ...dataset,
+    generatedAt: latestDate([dataset.generatedAt, staticApiModelDataset.generatedAt]),
+    models: mergeById(dataset.models, staticApiModelDataset.models),
+    providers: mergeById(dataset.providers, staticApiModelDataset.providers),
+    plans: mergeById(dataset.plans, staticApiModelDataset.plans),
+    offers: mergeById(dataset.offers, staticApiModelDataset.offers),
+  };
+}
+
+function mergeById<T extends { id: string }>(primary: T[], fallback: T[]): T[] {
+  const seen = new Set(primary.map((item) => item.id));
+  return [...primary, ...fallback.filter((item) => !seen.has(item.id))];
 }
 
 function publicApiModelReadSignal(): AbortSignal {

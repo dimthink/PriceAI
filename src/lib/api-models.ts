@@ -151,6 +151,33 @@ export type ApiModelDataset = {
   offers: ApiModelOffer[];
 };
 
+export type OfficialPlatformPlanComparison = {
+  name: string;
+  priceLabel: string;
+  quotaLabel: string;
+  sourceUrl: string;
+};
+
+export type OfficialPlatformComparison = {
+  id: string;
+  platform: string;
+  provider: string;
+  family: string;
+  familyIds: string[];
+  logoUrl?: string;
+  apiProviderId: string;
+  subscriptionProviderId: string;
+  apiPriceSummary: string;
+  apiModels: string[];
+  subscriptionSummary: string;
+  subscriptionPlans: OfficialPlatformPlanComparison[];
+  quotaUnit: string;
+  apiBoundary: string;
+  useCase: string;
+  sourceLinks: Array<{ label: string; href: string }>;
+  updatedAt: string;
+};
+
 type ApiModelDatasetIndex = {
   modelById: Map<string, ApiModel>;
   providerById: Map<string, ApiProvider>;
@@ -166,8 +193,16 @@ type ApiModelDatasetIndex = {
 const apiModelDatasetIndexCache = new WeakMap<ApiModelDataset, ApiModelDatasetIndex>();
 
 const OPENCODE_GO_REFERRAL_URL = "https://opencode.ai/go?ref=22QZ8PAKGD";
-const openAiPricingUrl = "https://platform.openai.com/docs/pricing";
+const openAiPricingUrl = "https://developers.openai.com/api/docs/pricing";
+const chatGptPricingUrl = "https://chatgpt.com/pricing/";
 const openAiVideoGenerationUrl = "https://platform.openai.com/docs/guides/video-generation";
+const claudeApiPricingUrl = "https://platform.claude.com/docs/en/about-claude/pricing";
+const claudePricingUrl = "https://claude.com/pricing";
+const claudeApiSubscriptionSupportUrl =
+  "https://support.anthropic.com/en/articles/9876003-i-subscribe-to-a-paid-claude-ai-plan-why-do-i-have-to-pay-separately-for-api-usage-on-console";
+const geminiApiPricingUrl = "https://ai.google.dev/gemini-api/docs/pricing";
+const googleAiPlansUrl = "https://one.google.com/intl/en_us/about/google-ai-plans/";
+const geminiAppLimitsUrl = "https://support.google.com/gemini/answer/16275805?hl=en";
 const geminiImageGenerationUrl = "https://ai.google.dev/gemini-api/docs/image-generation";
 const geminiModelDocsUrl = "https://ai.google.dev/gemini-api/docs/models";
 const bytePlusSeedanceDocsUrl = "https://docs.byteplus.com/en/docs/ModelArk/1520757";
@@ -175,6 +210,7 @@ const klingVideoDocsUrl = "https://app.klingai.com/global/dev/document-api/apiRe
 
 export const apiModelUpdatedAt = "2026-06-07";
 export const apiMediaModelUpdatedAt = "2026-07-03";
+export const apiOfficialPlatformUpdatedAt = "2026-07-06";
 
 export const apiModelFxSummary: ApiModelFxSummary = {
   baseCurrency: "USD",
@@ -188,14 +224,14 @@ export const apiProviderTypeLabels: Record<ApiProviderType, string> = {
   official: "官方 API",
   router: "模型路由",
   free: "免费/测试",
-  subscription: "Token Plan",
+  subscription: "订阅/Token Plan",
 };
 
 export const apiProviderTypeDescriptions: Record<ApiProviderType, string> = {
   official: "厂商官方或云厂商公开 API，适合做价格基准。",
   router: "公开模型路由平台，重点看模型覆盖、价格变化和限流口径。",
   free: "免费或测试用途入口，必须同时关注限流、排队和可用性。",
-  subscription: "按月或周期购买 Token/请求额度的 API 套餐，需要看额度、短周期限制和使用边界。",
+  subscription: "按月或周期购买 Token/请求额度，或购买官方产品内使用额度，需要看额度、短周期限制和使用边界。",
 };
 
 export const hiddenPublicApiProviderIds = new Set([
@@ -353,6 +389,136 @@ export const apiProviderCandidates = [
 ] as const;
 
 export const apiModels: ApiModel[] = [
+  {
+    id: "gpt-5-5",
+    displayName: "GPT-5.5",
+    family: "OpenAI",
+    modelId: "gpt-5.5",
+    description: "OpenAI 当前旗舰文本与 Agent 模型，适合高失败成本的复杂推理、代码审查和长任务编排。",
+    contextWindow: "<272K 价格档",
+    sourceUrl: openAiPricingUrl,
+    sourceLabel: "OpenAI API Pricing",
+    capabilities: ["reasoning", "coding", "tool-calls", "json", "agent"],
+    suitableTools: ["Codex", "Cursor", "OpenCode", "自建应用"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "gpt-5-4",
+    displayName: "GPT-5.4",
+    family: "OpenAI",
+    modelId: "gpt-5.4",
+    description: "OpenAI 高能力通用模型，适合大多数 Coding Agent、检索增强和产品内 AI 功能。",
+    contextWindow: "<272K 价格档",
+    sourceUrl: openAiPricingUrl,
+    sourceLabel: "OpenAI API Pricing",
+    capabilities: ["reasoning", "coding", "tool-calls", "json", "agent"],
+    suitableTools: ["Codex", "Cursor", "OpenCode", "自建应用"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "gpt-5-4-mini",
+    displayName: "GPT-5.4 Mini",
+    family: "OpenAI",
+    modelId: "gpt-5.4-mini",
+    description: "OpenAI 成本更低的通用模型，适合批量抽取、轻量代码辅助、分类和日常自动化。",
+    contextWindow: "<272K 价格档",
+    sourceUrl: openAiPricingUrl,
+    sourceLabel: "OpenAI API Pricing",
+    capabilities: ["coding", "tool-calls", "json", "agent"],
+    suitableTools: ["Codex", "Cursor", "OpenCode", "自建应用"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "gpt-5-4-nano",
+    displayName: "GPT-5.4 Nano",
+    family: "OpenAI",
+    modelId: "gpt-5.4-nano",
+    description: "OpenAI 极低成本模型，适合高频分类、短文本处理、批量标签和非关键路径自动化。",
+    contextWindow: "<272K 价格档",
+    sourceUrl: openAiPricingUrl,
+    sourceLabel: "OpenAI API Pricing",
+    capabilities: ["json", "classification", "extraction"],
+    suitableTools: ["自建应用", "Open WebUI", "批量处理"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-opus-4-8",
+    displayName: "Claude Opus 4.8",
+    family: "Claude",
+    modelId: "claude-opus-4-8",
+    description: "Anthropic Claude 高能力模型，适合复杂代码库理解、深度推理和高价值 Agent 任务。",
+    contextWindow: "见官方模型页",
+    sourceUrl: claudeApiPricingUrl,
+    sourceLabel: "Claude API Pricing",
+    capabilities: ["reasoning", "coding", "tool-calls", "agent"],
+    suitableTools: ["Claude Code", "Codex", "Cursor", "自建应用"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-sonnet-5",
+    displayName: "Claude Sonnet 5",
+    family: "Claude",
+    modelId: "claude-sonnet-5",
+    description: "Anthropic Claude 均衡主力模型，适合日常开发、代码修改、长上下文阅读和 Agent 工作流。",
+    contextWindow: "见官方模型页",
+    sourceUrl: claudeApiPricingUrl,
+    sourceLabel: "Claude API Pricing",
+    capabilities: ["coding", "tool-calls", "agent", "long-context"],
+    suitableTools: ["Claude Code", "Codex", "Cursor", "OpenCode"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-haiku-4-5",
+    displayName: "Claude Haiku 4.5",
+    family: "Claude",
+    modelId: "claude-haiku-4-5",
+    description: "Anthropic Claude 低延迟低成本模型，适合轻量改写、抽取、分类和工具调用前置判断。",
+    contextWindow: "见官方模型页",
+    sourceUrl: claudeApiPricingUrl,
+    sourceLabel: "Claude API Pricing",
+    capabilities: ["json", "tool-calls", "classification"],
+    suitableTools: ["Claude Code", "OpenCode", "自建应用"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "gemini-3-1-pro-preview",
+    displayName: "Gemini 3.1 Pro Preview",
+    family: "Gemini",
+    modelId: "gemini-3.1-pro-preview",
+    description: "Google Gemini 高能力预览模型，适合多模态理解、长上下文和复杂推理任务。",
+    contextWindow: "按价格档",
+    sourceUrl: geminiApiPricingUrl,
+    sourceLabel: "Gemini API Pricing",
+    capabilities: ["multimodal", "reasoning", "coding", "long-context"],
+    suitableTools: ["自建应用", "Open WebUI", "NotebookLM 工作流"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "gemini-3-1-flash-lite",
+    displayName: "Gemini 3.1 Flash-Lite",
+    family: "Gemini",
+    modelId: "gemini-3.1-flash-lite",
+    description: "Google Gemini 低成本高速模型，适合批量文本、多模态轻任务和成本敏感调用。",
+    contextWindow: "见官方模型页",
+    sourceUrl: geminiApiPricingUrl,
+    sourceLabel: "Gemini API Pricing",
+    capabilities: ["multimodal", "json", "classification", "extraction"],
+    suitableTools: ["自建应用", "Open WebUI", "批量处理"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "gemini-3-flash-preview",
+    displayName: "Gemini 3 Flash Preview",
+    family: "Gemini",
+    modelId: "gemini-3-flash-preview",
+    description: "Google Gemini Flash 预览模型，适合速度优先的多模态和日常 Agent 场景，价格以官方预览页为准。",
+    contextWindow: "见官方模型页",
+    sourceUrl: geminiApiPricingUrl,
+    sourceLabel: "Gemini API Pricing",
+    capabilities: ["multimodal", "coding", "json", "agent"],
+    suitableTools: ["自建应用", "Open WebUI", "NotebookLM 工作流"],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
   {
     id: "deepseek-v4-flash",
     displayName: "DeepSeek V4 Flash",
@@ -960,11 +1126,25 @@ export const apiProviders: ApiProvider[] = [
     url: "https://platform.openai.com/",
     pricingUrl: openAiPricingUrl,
     logoUrl: "/brand-icons/chatgpt.svg",
-    description: "OpenAI 官方 API。当前在官方 API 模块中作为 GPT Image 2、Sora 等图片/视频生成模型的官方价格和文档基准。",
-    limitSummary: "图片和视频生成的速率、尺寸、时长与可用模型以 OpenAI 控制台和官方文档为准。",
-    limitations: "多媒体模型价格和可用性可能按模型、分辨率、时长、地区和账号权限变化，最终以 OpenAI 官方页面为准。",
+    description: "OpenAI 官方 API。用于 GPT 文本模型、GPT Image、Sora 等模型的官方按量价格和文档基准。",
+    limitSummary: "GPT 文本模型按输入、缓存输入和输出计费；图片/视频生成另按模型、尺寸和时长计费，以 OpenAI 官方页面为准。",
+    limitations: "ChatGPT Plus/Pro 等产品订阅不抵扣 API 费用；API 额度、速率和可用模型以 OpenAI Platform 控制台为准。",
     sourceLabel: "OpenAI API Pricing",
-    updatedAt: apiMediaModelUpdatedAt,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "anthropic-claude-api",
+    name: "Anthropic Claude API",
+    type: "official",
+    billingMode: "按量计费",
+    url: "https://console.anthropic.com/",
+    pricingUrl: claudeApiPricingUrl,
+    logoUrl: "/brand-icons/claude.svg",
+    description: "Anthropic 官方 Claude API。用于 Claude Opus、Sonnet、Haiku 等模型的官方价格和 Console 计费基准。",
+    limitSummary: "按输入和输出 tokens 计费；Prompt caching、batch、tool use 和速率限制以 Claude 文档与 Console 为准。",
+    limitations: "Claude Pro/Max 产品订阅与 Console API 账单分开，不能把月订阅当作 API token 包。",
+    sourceLabel: "Claude API Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
   },
   {
     id: "google-gemini-api",
@@ -972,13 +1152,55 @@ export const apiProviders: ApiProvider[] = [
     type: "official",
     billingMode: "按量计费",
     url: "https://ai.google.dev/gemini-api",
-    pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
+    pricingUrl: geminiApiPricingUrl,
     logoUrl: "/brand-icons/gemini.svg",
-    description: "Google Gemini 官方 API。当前在官方 API 模块中作为 Nano Banana、Veo、Gemini Omni 等图片/视频生成模型的官方来源基准。",
-    limitSummary: "免费额度、付费价格、速率限制和模型可用性以 Gemini API 文档、价格页和控制台为准。",
-    limitations: "多媒体模型价格口径可能按模型、地区、输入输出形态和预览状态变化，当前未结构化的条目只展示官方来源入口。",
+    description: "Google Gemini 官方 API。用于 Gemini 文本/多模态、Nano Banana、Veo 等模型的官方来源和价格基准。",
+    limitSummary: "免费层、付费层、批量价、速率限制和模型可用性以 Gemini API 文档、价格页和控制台为准。",
+    limitations: "Google AI Plus/Pro/Ultra 是 Gemini App 产品订阅，不等同于 Gemini API token 包。",
     sourceLabel: "Google Gemini API Docs",
-    updatedAt: apiMediaModelUpdatedAt,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "chatgpt-official-subscription",
+    name: "ChatGPT 官方订阅",
+    type: "subscription",
+    billingMode: "订阅套餐",
+    url: chatGptPricingUrl,
+    pricingUrl: chatGptPricingUrl,
+    logoUrl: "/brand-icons/chatgpt.svg",
+    description: "ChatGPT Free、Go、Plus、Pro 等官方产品订阅，额度按产品内消息、工具、模型和上下文窗口限制。",
+    limitSummary: "Plus/Pro 等订阅提升 ChatGPT 产品内使用量和模型权限，但不抵扣 OpenAI API 账单。",
+    limitations: "具体地区价格、可用计划、消息限制和工具额度以 ChatGPT Pricing 与产品内提示为准。",
+    sourceLabel: "ChatGPT Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-official-subscription",
+    name: "Claude 官方订阅",
+    type: "subscription",
+    billingMode: "订阅套餐",
+    url: claudePricingUrl,
+    pricingUrl: claudePricingUrl,
+    logoUrl: "/brand-icons/claude.svg",
+    description: "Claude Pro 与 Max 官方订阅，额度按产品内使用倍数、消息长度、附件和 5 小时窗口动态计算。",
+    limitSummary: "Pro/Max 提升 Claude 产品内使用量；Console API 仍需单独开通并按量付费。",
+    limitations: "产品订阅额度不是固定 token 包，实际可用量受模型、上下文、附件和系统负载影响。",
+    sourceLabel: "Claude Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "google-ai-official-subscription",
+    name: "Google AI 官方订阅",
+    type: "subscription",
+    billingMode: "订阅套餐",
+    url: googleAiPlansUrl,
+    pricingUrl: googleAiPlansUrl,
+    logoUrl: "/brand-icons/gemini.svg",
+    description: "Google AI Plus、Pro、Ultra 等 Gemini App 官方订阅，额度按产品内模型、工具和使用上限计算。",
+    limitSummary: "Google AI 订阅提升 Gemini App、AI 工具和部分 Google 产品中的使用额度，不等同于 Gemini API 账单。",
+    limitations: "地区价格、权益和使用限制会变化；具体额度以 Google AI Plans 与 Gemini App limits 页面为准。",
+    sourceLabel: "Google AI Plans",
+    updatedAt: apiOfficialPlatformUpdatedAt,
   },
   {
     id: "byteplus-modelark",
@@ -1123,6 +1345,182 @@ export const apiProviders: ApiProvider[] = [
 ];
 
 export const apiPlans: ApiPlan[] = [
+  {
+    id: "chatgpt-plus",
+    providerId: "chatgpt-official-subscription",
+    providerName: "ChatGPT 官方订阅",
+    name: "ChatGPT Plus",
+    type: "subscription",
+    priceLabel: "$20/月",
+    priceUsdMonthly: 20,
+    url: chatGptPricingUrl,
+    quotaSummary: "提升 ChatGPT 产品内消息、工具和模型使用额度；不是 OpenAI API token 包。",
+    resetSummary: "产品内额度按 ChatGPT 当前规则刷新，具体消息窗口和工具额度以产品内提示为准。",
+    limitSummary: "适合网页、App、Codex 和轻中度日常使用；OpenAI API 仍需单独按量付费。",
+    limitations: "地区价格、模型权益和使用上限会变化；不要把 Plus 当作可抵扣 API 账单的月费。",
+    modelIds: ["gpt-5-5", "gpt-5-4", "gpt-5-4-mini", "gpt-image-2", "sora-2"],
+    coverageLabel: "ChatGPT 产品内使用 GPT、图像、视频和工具能力，具体模型权限以官方 Pricing 和产品界面为准。",
+    compatibility: ["官方订阅", "ChatGPT", "Codex", "产品内额度"],
+    suitableTools: ["ChatGPT", "Codex"],
+    sourceLabel: "ChatGPT Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "chatgpt-pro",
+    providerId: "chatgpt-official-subscription",
+    providerName: "ChatGPT 官方订阅",
+    name: "ChatGPT Pro",
+    type: "subscription",
+    priceLabel: "from $100/月",
+    priceUsdMonthly: 100,
+    url: chatGptPricingUrl,
+    quotaSummary: "比 Plus 更高的 ChatGPT 产品内使用额度和模型/工具权限；不是 OpenAI API token 包。",
+    resetSummary: "产品内额度按 ChatGPT 当前规则刷新，具体窗口、工具和模型限制以官方页面和产品提示为准。",
+    limitSummary: "适合重度 ChatGPT/Codex 个人使用；自建应用、后端和批处理仍应看 OpenAI API 价格。",
+    limitations: "官方可能按地区和账号展示不同计划；Pro 订阅不抵扣 API 账单。",
+    modelIds: ["gpt-5-5", "gpt-5-4", "gpt-5-4-mini", "gpt-image-2", "sora-2-pro", "sora-2"],
+    coverageLabel: "ChatGPT 产品内更高使用额度，具体模型和工具权益以官方 Pricing 为准。",
+    compatibility: ["官方订阅", "ChatGPT", "Codex", "产品内额度"],
+    suitableTools: ["ChatGPT", "Codex"],
+    sourceLabel: "ChatGPT Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-pro",
+    providerId: "claude-official-subscription",
+    providerName: "Claude 官方订阅",
+    name: "Claude Pro",
+    type: "subscription",
+    priceLabel: "$20/月",
+    priceUsdMonthly: 20,
+    url: claudePricingUrl,
+    quotaSummary: "Claude 产品内较高使用额度；实际可用量受模型、上下文、附件和 5 小时窗口影响。",
+    resetSummary: "Claude 产品内使用额度按短周期窗口动态恢复，具体以 Claude 页面提示为准。",
+    limitSummary: "适合轻中度 Claude 网页/App 使用；Console API 需要单独计费。",
+    limitations: "Pro 不是固定 token 包，也不抵扣 Anthropic Console API 费用。",
+    modelIds: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
+    coverageLabel: "Claude 产品内模型使用额度，具体可用模型以 Claude Pricing 和产品界面为准。",
+    compatibility: ["官方订阅", "Claude", "产品内额度"],
+    suitableTools: ["Claude", "Claude Code"],
+    sourceLabel: "Claude Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-max-5x",
+    providerId: "claude-official-subscription",
+    providerName: "Claude 官方订阅",
+    name: "Claude Max 5x",
+    type: "subscription",
+    priceLabel: "$100/月",
+    priceUsdMonthly: 100,
+    url: claudePricingUrl,
+    quotaSummary: "官方 Max 档位，约为 Pro 5x 使用量口径；仍是 Claude 产品内额度。",
+    resetSummary: "按 Claude 产品内短周期窗口和账号规则恢复。",
+    limitSummary: "适合更高频 Claude / Claude Code 个人使用；Console API 单独计费。",
+    limitations: "5x 是产品内使用量口径，不等同固定 API token 或固定请求数。",
+    modelIds: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
+    coverageLabel: "Claude Max 产品内高额度，适合重度交互式使用。",
+    compatibility: ["官方订阅", "Claude", "Claude Code", "产品内额度"],
+    suitableTools: ["Claude", "Claude Code"],
+    sourceLabel: "Claude Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-max-20x",
+    providerId: "claude-official-subscription",
+    providerName: "Claude 官方订阅",
+    name: "Claude Max 20x",
+    type: "subscription",
+    priceLabel: "$200/月",
+    priceUsdMonthly: 200,
+    url: claudePricingUrl,
+    quotaSummary: "官方 Max 高档位，约为 Pro 20x 使用量口径；仍是 Claude 产品内额度。",
+    resetSummary: "按 Claude 产品内短周期窗口和账号规则恢复。",
+    limitSummary: "适合高频 Claude / Claude Code 个人使用；自建服务仍应走 Console API。",
+    limitations: "20x 是产品内使用量口径，不等同固定 API token 或固定请求数。",
+    modelIds: ["claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"],
+    coverageLabel: "Claude Max 产品内最高额度，适合非常重的交互式工作流。",
+    compatibility: ["官方订阅", "Claude", "Claude Code", "产品内额度"],
+    suitableTools: ["Claude", "Claude Code"],
+    sourceLabel: "Claude Pricing",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "google-ai-plus",
+    providerId: "google-ai-official-subscription",
+    providerName: "Google AI 官方订阅",
+    name: "Google AI Plus",
+    type: "subscription",
+    priceLabel: "官方页按地区展示",
+    url: googleAiPlansUrl,
+    quotaSummary: "官方页标注 Gemini 使用上限约为非 AI 订阅用户 2x，并包含 400GB 存储。",
+    resetSummary: "Gemini App、Flow、NotebookLM 等产品内额度按 Google 当前规则刷新。",
+    limitSummary: "适合轻量 Gemini App 和 Google 产品内 AI 使用；Gemini API 仍按 API 价格计费。",
+    limitations: "地区、语言、年龄和产品可用性有限制；不是固定 API token 包。",
+    modelIds: ["gemini-3-1-pro-preview", "gemini-3-1-flash-lite", "gemini-3-flash-preview"],
+    coverageLabel: "Google AI 产品内 Gemini、Flow、NotebookLM 等权益，具体以 Google AI Plans 为准。",
+    compatibility: ["官方订阅", "Gemini", "产品内额度"],
+    suitableTools: ["Gemini App", "NotebookLM", "Google Flow"],
+    sourceLabel: "Google AI Plans",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "google-ai-pro",
+    providerId: "google-ai-official-subscription",
+    providerName: "Google AI 官方订阅",
+    name: "Google AI Pro",
+    type: "subscription",
+    priceLabel: "官方页按地区展示",
+    url: googleAiPlansUrl,
+    quotaSummary: "官方页标注 Gemini 使用上限约为非 AI 订阅用户 4x，并包含 5TB 存储。",
+    resetSummary: "Gemini App、AI Studio、Flow、NotebookLM 等产品内额度按 Google 当前规则刷新。",
+    limitSummary: "适合更高频 Gemini App、AI Studio 原型和 Google 产品内 AI 使用；API 仍单独按量计费。",
+    limitations: "权益和可用区域会变化；AI Studio 使用也受 Google AI Studio 附加条款和限制约束。",
+    modelIds: ["gemini-3-1-pro-preview", "gemini-3-1-flash-lite", "gemini-3-flash-preview"],
+    coverageLabel: "Google AI Pro 产品内扩展额度，具体模型、工具和地区限制以官方页面为准。",
+    compatibility: ["官方订阅", "Gemini", "AI Studio", "产品内额度"],
+    suitableTools: ["Gemini App", "Google AI Studio", "NotebookLM", "Google Flow"],
+    sourceLabel: "Google AI Plans",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "google-ai-ultra-5x",
+    providerId: "google-ai-official-subscription",
+    providerName: "Google AI 官方订阅",
+    name: "Google AI Ultra 5x",
+    type: "subscription",
+    priceLabel: "官方页按地区展示",
+    url: googleAiPlansUrl,
+    quotaSummary: "官方页标注 Gemini 使用上限约为 Pro 计划 5x，并包含 20TB 存储。",
+    resetSummary: "Gemini App、AI Studio、Flow、NotebookLM 等产品内额度按 Google 当前规则刷新。",
+    limitSummary: "适合重度 Gemini 产品内使用；如果是后端/API 调用，仍应看 Gemini API 付费层价格。",
+    limitations: "Ultra 权益、地区和具体额度会变化；不是固定 API token 包。",
+    modelIds: ["gemini-3-1-pro-preview", "gemini-3-1-flash-lite", "gemini-3-flash-preview"],
+    coverageLabel: "Google AI Ultra 产品内高额度，具体以 Google AI Plans 为准。",
+    compatibility: ["官方订阅", "Gemini", "AI Studio", "产品内额度"],
+    suitableTools: ["Gemini App", "Google AI Studio", "NotebookLM", "Google Flow"],
+    sourceLabel: "Google AI Plans",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "google-ai-ultra-20x",
+    providerId: "google-ai-official-subscription",
+    providerName: "Google AI 官方订阅",
+    name: "Google AI Ultra 20x",
+    type: "subscription",
+    priceLabel: "官方页按地区展示",
+    url: googleAiPlansUrl,
+    quotaSummary: "官方页列出 Ultra 20x 档位，Gemini 使用上限约为 Pro 计划 20x，并包含 30TB 存储。",
+    resetSummary: "Gemini App、AI Studio、Flow、NotebookLM 等产品内额度按 Google 当前规则刷新。",
+    limitSummary: "适合最高频 Gemini 产品内使用；API 调用仍走 Gemini API 单独账单。",
+    limitations: "20x 档位价格和可用性以 Google AI Plans/结账页为准，不换算为固定 API token。",
+    modelIds: ["gemini-3-1-pro-preview", "gemini-3-1-flash-lite", "gemini-3-flash-preview"],
+    coverageLabel: "Google AI Ultra 20x 产品内最高额度，具体以官方页面为准。",
+    compatibility: ["官方订阅", "Gemini", "AI Studio", "产品内额度"],
+    suitableTools: ["Gemini App", "Google AI Studio", "NotebookLM", "Google Flow"],
+    sourceLabel: "Google AI Plans",
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
   {
     id: "opencode-go-plan",
     providerId: "opencode-go",
@@ -1681,6 +2079,136 @@ export const apiPlans: ApiPlan[] = [
 ];
 
 export const apiModelOffers: ApiModelOffer[] = [
+  offer("openai-gpt-5-5", "gpt-5-5", "openai-official", {
+    routeModelId: "gpt-5.5",
+    inputPrice: usd(5),
+    outputPrice: usd(30),
+    cacheReadPrice: usd(0.5),
+    freeOrPlan: "OpenAI 官方 API 标准按量计费，ChatGPT 订阅不抵扣 API 用量。",
+    limitations: "结构化价格取官方标准层 <272K context length 档；Priority、Flex、Batch、地区处理和长上下文可能有不同价格。",
+    limitSummary: "按输入、缓存输入和输出 tokens 分别计费；额度与速率以 OpenAI Platform 控制台为准。",
+    compatibility: ["OpenAI-compatible", "官方 API", "Coding Agent", "英文模型"],
+    sourceLabel: "OpenAI API Pricing",
+    pricingUrl: openAiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("openai-gpt-5-4", "gpt-5-4", "openai-official", {
+    routeModelId: "gpt-5.4",
+    inputPrice: usd(2.5),
+    outputPrice: usd(15),
+    cacheReadPrice: usd(0.25),
+    freeOrPlan: "OpenAI 官方 API 标准按量计费，适合作为 ChatGPT/Codex 之外的后端成本基准。",
+    limitations: "结构化价格取官方标准层 <272K context length 档；长上下文、Batch、Flex 和 Priority 需看官方价格页。",
+    limitSummary: "按输入、缓存输入和输出 tokens 分别计费；额度与速率以 OpenAI Platform 控制台为准。",
+    compatibility: ["OpenAI-compatible", "官方 API", "Coding Agent", "英文模型"],
+    sourceLabel: "OpenAI API Pricing",
+    pricingUrl: openAiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("openai-gpt-5-4-mini", "gpt-5-4-mini", "openai-official", {
+    routeModelId: "gpt-5.4-mini",
+    inputPrice: usd(0.75),
+    outputPrice: usd(4.5),
+    cacheReadPrice: usd(0.075),
+    freeOrPlan: "OpenAI 官方 API 标准按量计费，适合低成本 Agent 子任务和批量处理。",
+    limitations: "结构化价格取官方标准层 <272K context length 档；实际账单以 OpenAI Usage/控制台为准。",
+    limitSummary: "按输入、缓存输入和输出 tokens 分别计费；缓存输入价格低于普通输入。",
+    compatibility: ["OpenAI-compatible", "官方 API", "Coding Agent"],
+    sourceLabel: "OpenAI API Pricing",
+    pricingUrl: openAiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("openai-gpt-5-4-nano", "gpt-5-4-nano", "openai-official", {
+    routeModelId: "gpt-5.4-nano",
+    inputPrice: usd(0.2),
+    outputPrice: usd(1.25),
+    cacheReadPrice: usd(0.02),
+    freeOrPlan: "OpenAI 官方 API 标准按量计费，适合高频低风险自动化。",
+    limitations: "结构化价格取官方标准层 <272K context length 档；复杂推理和长输出任务不一定适合 Nano 档。",
+    limitSummary: "按输入、缓存输入和输出 tokens 分别计费；适合把成本敏感步骤拆出来。",
+    compatibility: ["OpenAI-compatible", "官方 API", "批量处理"],
+    sourceLabel: "OpenAI API Pricing",
+    pricingUrl: openAiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("anthropic-claude-opus-48", "claude-opus-4-8", "anthropic-claude-api", {
+    routeModelId: "claude-opus-4-8",
+    inputPrice: usd(5),
+    outputPrice: usd(25),
+    cacheReadPrice: textPrice("Prompt caching 价格以 Claude pricing 页为准"),
+    freeOrPlan: "Anthropic 官方 Console API 按量计费，与 Claude Pro/Max 订阅分开。",
+    limitations: "Prompt caching、Batch、tool use、速率限制和具体模型可用性以 Claude 官方文档与 Console 为准。",
+    limitSummary: "按输入和输出 tokens 计费；适合复杂推理、重代码任务和高价值 Agent。",
+    compatibility: ["Anthropic-compatible", "官方 API", "Coding Agent", "Claude Code"],
+    sourceLabel: "Claude API Pricing",
+    pricingUrl: claudeApiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("anthropic-claude-sonnet-5", "claude-sonnet-5", "anthropic-claude-api", {
+    routeModelId: "claude-sonnet-5",
+    inputPrice: usd(3),
+    outputPrice: usd(15),
+    cacheReadPrice: textPrice("Prompt caching 价格以 Claude pricing 页为准"),
+    freeOrPlan: "Anthropic 官方 Console API 按量计费；官方页标注 2026-08-31 前 Sonnet 5 有 $2/$10 限时价。",
+    limitations: "结构化主价使用常规价格；限时促销、缓存、Batch 和速率限制以 Claude 官方价格页为准。",
+    limitSummary: "按输入和输出 tokens 计费；适合 Claude Code、长上下文代码阅读和日常 Agent。",
+    compatibility: ["Anthropic-compatible", "官方 API", "Coding Agent", "Claude Code"],
+    sourceLabel: "Claude API Pricing",
+    pricingUrl: claudeApiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("anthropic-claude-haiku-45", "claude-haiku-4-5", "anthropic-claude-api", {
+    routeModelId: "claude-haiku-4-5",
+    inputPrice: usd(1),
+    outputPrice: usd(5),
+    cacheReadPrice: textPrice("Prompt caching 价格以 Claude pricing 页为准"),
+    freeOrPlan: "Anthropic 官方 Console API 按量计费，适合轻量任务和低延迟调用。",
+    limitations: "Haiku 价格、可用性和速率以 Claude 官方价格页和 Console 为准。",
+    limitSummary: "按输入和输出 tokens 计费；适合抽取、分类、改写和工具调用前置判断。",
+    compatibility: ["Anthropic-compatible", "官方 API", "Coding Agent"],
+    sourceLabel: "Claude API Pricing",
+    pricingUrl: claudeApiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("google-gemini-31-pro-preview", "gemini-3-1-pro-preview", "google-gemini-api", {
+    routeModelId: "gemini-3.1-pro-preview",
+    inputPrice: usd(2),
+    outputPrice: usd(12),
+    cacheReadPrice: textPrice("缓存和批量价以 Gemini API Pricing 为准"),
+    freeOrPlan: "Gemini API 付费层按量计费；Google AI 订阅不抵扣 API 账单。",
+    limitations: "结构化价格取官方 <=200K tokens 价格档；>200K tokens、Batch、缓存和预览状态以官方价格页为准。",
+    limitSummary: "适合长上下文、多模态和复杂推理；免费层/付费层速率限制以 Gemini API 控制台为准。",
+    compatibility: ["Gemini API", "官方 API", "多模态", "Coding Agent"],
+    sourceLabel: "Gemini API Pricing",
+    pricingUrl: geminiApiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("google-gemini-31-flash-lite", "gemini-3-1-flash-lite", "google-gemini-api", {
+    routeModelId: "gemini-3.1-flash-lite",
+    inputPrice: usd(0.25),
+    outputPrice: usd(1.5),
+    cacheReadPrice: textPrice("缓存和批量价以 Gemini API Pricing 为准"),
+    freeOrPlan: "Gemini API 付费层按量计费，适合成本敏感的多模态轻任务。",
+    limitations: "免费层、付费层、缓存、Batch 和速率限制以 Gemini API Pricing 和控制台为准。",
+    limitSummary: "低成本高速模型，适合批量抽取、分类、多模态轻处理和非关键路径 Agent。",
+    compatibility: ["Gemini API", "官方 API", "多模态"],
+    sourceLabel: "Gemini API Pricing",
+    pricingUrl: geminiApiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
+  offer("google-gemini-3-flash-preview", "gemini-3-flash-preview", "google-gemini-api", {
+    routeModelId: "gemini-3-flash-preview",
+    inputPrice: textPrice("见 Gemini API Pricing"),
+    outputPrice: textPrice("见 Gemini API Pricing"),
+    cacheReadPrice: textPrice("缓存和批量价以 Gemini API Pricing 为准"),
+    freeOrPlan: "Gemini API 预览模型，价格和可用性以官方价格页为准。",
+    limitations: "预览模型的价格、限速和可用区域可能快速变化，当前不硬填不可稳定核验的等效单价。",
+    limitSummary: "适合速度优先的多模态和日常 Agent 场景；生产前需要再次核验价格页。",
+    compatibility: ["Gemini API", "官方 API", "多模态", "预览模型"],
+    sourceLabel: "Gemini API Pricing",
+    pricingUrl: geminiApiPricingUrl,
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  }),
   offer("deepseek-official-flash", "deepseek-v4-flash", "deepseek-official", {
     routeModelId: "deepseek-v4-flash",
     inputPrice: usd(0.14),
@@ -1887,13 +2415,135 @@ export const apiModelOffers: ApiModelOffer[] = [
 
 export const staticApiModelDataset: ApiModelDataset = {
   source: "static",
-  generatedAt: apiMediaModelUpdatedAt,
+  generatedAt: apiOfficialPlatformUpdatedAt,
   fxSummary: apiModelFxSummary,
   models: apiModels,
   providers: apiProviders,
   plans: apiPlans,
   offers: apiModelOffers,
 };
+
+export const officialPlatformComparisons: OfficialPlatformComparison[] = [
+  {
+    id: "openai-chatgpt",
+    platform: "ChatGPT / OpenAI",
+    provider: "OpenAI",
+    family: "OpenAI",
+    familyIds: ["openai"],
+    logoUrl: "/brand-icons/chatgpt.svg",
+    apiProviderId: "openai-official",
+    subscriptionProviderId: "chatgpt-official-subscription",
+    apiPriceSummary: "GPT-5.5：$5 / $0.50 / $30；GPT-5.4：$2.50 / $0.25 / $15（输入 / 缓存输入 / 输出，1M tokens）。",
+    apiModels: ["GPT-5.5", "GPT-5.4", "GPT-5.4 Mini", "GPT-5.4 Nano"],
+    subscriptionSummary: "ChatGPT Plus / Pro 是产品内使用额度，按消息、工具、模型权限和上下文共同限制，不抵扣 API 账单。",
+    subscriptionPlans: [
+      {
+        name: "Plus",
+        priceLabel: "$20/月",
+        quotaLabel: "日常 ChatGPT/Codex 使用，产品内额度",
+        sourceUrl: chatGptPricingUrl,
+      },
+      {
+        name: "Pro",
+        priceLabel: "from $100/月",
+        quotaLabel: "更高产品内使用量和模型/工具权限",
+        sourceUrl: chatGptPricingUrl,
+      },
+    ],
+    quotaUnit: "产品内消息/工具/模型额度，不是 API token 包",
+    apiBoundary: "自建应用、后端、批处理和 API key 调用走 OpenAI API；ChatGPT 订阅只覆盖 ChatGPT 产品内使用。",
+    useCase: "想买会员用 ChatGPT/Codex 看订阅；想接入业务或跑脚本看 API 单价。",
+    sourceLinks: [
+      { label: "API Pricing", href: openAiPricingUrl },
+      { label: "ChatGPT Pricing", href: chatGptPricingUrl },
+    ],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "anthropic-claude",
+    platform: "Claude",
+    provider: "Anthropic",
+    family: "Claude",
+    familyIds: ["claude"],
+    logoUrl: "/brand-icons/claude.svg",
+    apiProviderId: "anthropic-claude-api",
+    subscriptionProviderId: "claude-official-subscription",
+    apiPriceSummary: "Opus 4.8：$5 / $25；Sonnet 5：$3 / $15；Haiku 4.5：$1 / $5（输入 / 输出，1M tokens）。",
+    apiModels: ["Claude Opus 4.8", "Claude Sonnet 5", "Claude Haiku 4.5"],
+    subscriptionSummary: "Claude Pro / Max 是产品内使用额度，按使用倍数、消息长度、附件和 5 小时窗口动态变化。",
+    subscriptionPlans: [
+      {
+        name: "Pro",
+        priceLabel: "$20/月",
+        quotaLabel: "轻中度 Claude 产品内使用",
+        sourceUrl: claudePricingUrl,
+      },
+      {
+        name: "Max 5x",
+        priceLabel: "$100/月",
+        quotaLabel: "约 Pro 5x 产品内使用量",
+        sourceUrl: claudePricingUrl,
+      },
+      {
+        name: "Max 20x",
+        priceLabel: "$200/月",
+        quotaLabel: "约 Pro 20x 产品内使用量",
+        sourceUrl: claudePricingUrl,
+      },
+    ],
+    quotaUnit: "产品内使用倍数和短周期窗口，不是固定 token 包",
+    apiBoundary: "Claude 产品订阅和 Anthropic Console API 分开计费；API key 调用需要单独付费。",
+    useCase: "交互式 Claude/Claude Code 用订阅；服务端调用、自动化和批处理看 Console API。",
+    sourceLinks: [
+      { label: "API Pricing", href: claudeApiPricingUrl },
+      { label: "Claude Pricing", href: claudePricingUrl },
+      { label: "订阅与 API 分开", href: claudeApiSubscriptionSupportUrl },
+    ],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "google-gemini",
+    platform: "Gemini / Google AI",
+    provider: "Google",
+    family: "Gemini",
+    familyIds: ["gemini"],
+    logoUrl: "/brand-icons/gemini.svg",
+    apiProviderId: "google-gemini-api",
+    subscriptionProviderId: "google-ai-official-subscription",
+    apiPriceSummary: "Gemini 3.1 Pro Preview：$2 / $12（<=200K）；Gemini 3.1 Flash-Lite：$0.25 / $1.50（输入 / 输出，1M tokens）。",
+    apiModels: ["Gemini 3.1 Pro Preview", "Gemini 3.1 Flash-Lite", "Gemini 3 Flash Preview"],
+    subscriptionSummary: "Google AI Plus / Pro / Ultra 是 Gemini App 与 Google 产品内额度，价格按地区展示，API 仍单独计费。",
+    subscriptionPlans: [
+      {
+        name: "Plus",
+        priceLabel: "官方页按地区展示",
+        quotaLabel: "约非 AI 订阅用户 2x 使用上限",
+        sourceUrl: googleAiPlansUrl,
+      },
+      {
+        name: "Pro",
+        priceLabel: "官方页按地区展示",
+        quotaLabel: "约非 AI 订阅用户 4x 使用上限",
+        sourceUrl: googleAiPlansUrl,
+      },
+      {
+        name: "Ultra",
+        priceLabel: "官方页按地区展示",
+        quotaLabel: "官方页列出 5x / 20x Pro 使用上限档",
+        sourceUrl: googleAiPlansUrl,
+      },
+    ],
+    quotaUnit: "Gemini App/AI Studio/Google 产品内 usage limits，不是 API token 包",
+    apiBoundary: "Gemini API 走 Google AI Studio / API key 按量计费；Google AI 订阅主要覆盖产品内权益。",
+    useCase: "个人使用 Gemini App 看 Google AI Plans；开发接入、服务端和批处理看 Gemini API Pricing。",
+    sourceLinks: [
+      { label: "API Pricing", href: geminiApiPricingUrl },
+      { label: "Google AI Plans", href: googleAiPlansUrl },
+      { label: "Gemini App limits", href: geminiAppLimitsUrl },
+    ],
+    updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+];
 
 export function formatApiPrice(
   price: ApiPriceValue,
@@ -1951,7 +2601,7 @@ export function getPlanMonthlyPriceCny(plan: ApiPlan) {
 }
 
 export function formatApiBillingMode(value: ApiBillingMode) {
-  if (value === "订阅套餐") return "Token Plan";
+  if (value === "订阅套餐") return "订阅/Token Plan";
   return value;
 }
 
@@ -1985,7 +2635,7 @@ export function formatApiDisplayText(value: string) {
   return value
     .replaceAll("订阅型 API 套餐", "Token Plan")
     .replaceAll("月订阅套餐", "月费 Token Plan")
-    .replaceAll("订阅套餐", "Token Plan");
+    .replaceAll("订阅套餐", "订阅/Token Plan");
 }
 
 export function getApiModelFamilyOptions(dataset: ApiModelDataset = staticApiModelDataset): ApiModelFamilyOption[] {
@@ -2871,9 +3521,19 @@ function uniqueById<T extends { id: string }>(values: T[]) {
   });
 }
 
-const familyOrder = ["DeepSeek", "Qwen", "Kimi", "GLM", "MiniMax", "MiMo", "StepFun", "图片生成", "视频生成"];
+const familyOrder = ["OpenAI", "Claude", "Gemini", "DeepSeek", "Qwen", "Kimi", "GLM", "MiniMax", "MiMo", "StepFun", "图片生成", "视频生成"];
 
 const modelOrder = [
+  "gpt-5-5",
+  "gpt-5-4",
+  "gpt-5-4-mini",
+  "gpt-5-4-nano",
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+  "claude-haiku-4-5",
+  "gemini-3-1-pro-preview",
+  "gemini-3-1-flash-lite",
+  "gemini-3-flash-preview",
   "deepseek-v4-flash",
   "deepseek-v4-pro",
   "qwen3-7-max",
@@ -2906,6 +3566,9 @@ const modelOrder = [
 ];
 
 const apiModelFamilySlugByName: Record<string, string> = {
+  OpenAI: "openai",
+  Claude: "claude",
+  Gemini: "gemini",
   DeepSeek: "deepseek",
   Qwen: "qwen",
   Kimi: "kimi",

@@ -3,6 +3,9 @@ import Image from "next/image";
 import { ModelBrandIcon, modelBrandIconForModel } from "@/components/ModelBrandIcon";
 
 const iconByFamily: Record<string, string> = {
+  OpenAI: "/brand-icons/chatgpt.svg",
+  Claude: "/brand-icons/claude.svg",
+  Gemini: "/brand-icons/gemini.svg",
   DeepSeek: "/brand-icons/deepseek.png",
   Qwen: "/brand-icons/qwen.png",
   Kimi: "/brand-icons/kimi.png",
