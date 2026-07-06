@@ -43,9 +43,13 @@ const accessModeOptions: Array<{
 export function TransitSubmissionActions({
   className = "flex flex-wrap gap-2.5",
   buttonClassName = "",
+  buttonSizeClassName = "h-10 gap-2 px-4 text-sm",
+  compactLabels = false,
 }: {
   className?: string;
   buttonClassName?: string;
+  buttonSizeClassName?: string;
+  compactLabels?: boolean;
 }) {
   const [mode, setMode] = useState<DialogMode | null>(null);
 
@@ -55,17 +59,31 @@ export function TransitSubmissionActions({
         <button
           type="button"
           onClick={() => setMode("submit")}
-          className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#dde4e5] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#cfd8d9] ${buttonClassName}`}
+          className={`inline-flex items-center justify-center rounded-full bg-[#dde4e5] font-semibold text-[#2d3435] transition hover:bg-[#cfd8d9] ${buttonSizeClassName} ${buttonClassName}`}
         >
           <Send className="h-4 w-4" />
-          提交渠道
+          {compactLabels ? (
+            <>
+              <span className="sm:hidden">提交</span>
+              <span className="hidden sm:inline">提交渠道</span>
+            </>
+          ) : (
+            "提交渠道"
+          )}
         </button>
         <button
           type="button"
           onClick={() => setMode("merchant")}
-          className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526] ${buttonClassName}`}
+          className={`inline-flex items-center justify-center rounded-full bg-[#2d3435] font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526] ${buttonSizeClassName} ${buttonClassName}`}
         >
-          商家入驻
+          {compactLabels ? (
+            <>
+              <span className="sm:hidden">入驻</span>
+              <span className="hidden sm:inline">商家入驻</span>
+            </>
+          ) : (
+            "商家入驻"
+          )}
         </button>
       </div>
       {mode ? <TransitSubmissionModal mode={mode} onClose={() => setMode(null)} /> : null}
