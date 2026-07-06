@@ -242,44 +242,53 @@ export default function TransitStationExplorer({ stations }: Props) {
 
   return (
     <div>
-      <div className="mb-5 space-y-2">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+      <div className="mb-5 space-y-3">
+        <div className="grid gap-3 xl:grid-cols-[minmax(260px,460px)_minmax(0,1fr)] xl:items-center">
           <SearchField
             value={search}
             onChange={setSearch}
             placeholder="搜索站点名称、描述..."
-            className="flex-1 xl:max-w-[460px]"
+            className="w-full"
           />
-          <TransitViewTabs active="stations" className="shrink-0" />
-          <div className="flex min-w-0 items-center gap-2 overflow-x-auto scrollbar-none">
-            <label className="relative inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]">
-              <ArrowUpDown className="h-4 w-4 shrink-0" />
-              <span className="pointer-events-none min-w-[5.25em]">{sortLabel(sortBy)}</span>
-              <select
-                aria-label="排序"
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value as TransitSortKey)}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="min-w-0 rounded-full bg-[#edf0f1] p-1">
+              <TransitViewTabs
+                active="stations"
+                className="w-full bg-transparent p-0"
+                itemClassName="flex-1 px-2"
+              />
+            </div>
+            <div className="grid min-w-0 grid-cols-2 gap-1 rounded-full bg-[#edf0f1] p-1 sm:flex sm:items-center sm:gap-2">
+              <label className="relative inline-flex h-9 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm font-semibold text-[#2d3435] transition hover:bg-white/70">
+                <ArrowUpDown className="h-4 w-4 shrink-0" />
+                <span className="pointer-events-none hidden min-w-[5.25em] sm:inline">{sortLabel(sortBy)}</span>
+                <span className="pointer-events-none sm:hidden">排序</span>
+                <select
+                  aria-label="排序"
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value as TransitSortKey)}
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                >
+                  {SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowFilters((value) => !value)}
+                className={`inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition-colors ${
+                  showFilters || activeFilterCount > 0
+                    ? "bg-[#2d3435] text-[#f8f8f8]"
+                    : "bg-white text-[#5a6061] shadow-[0_8px_24px_rgba(45,52,53,0.08)] hover:text-[#202829]"
+                }`}
               >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => setShowFilters((value) => !value)}
-              className={`inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-sm font-semibold transition-colors ${
-                showFilters || activeFilterCount > 0
-                  ? "bg-[#2d3435] text-[#f8f8f8]"
-                  : "bg-white text-[#5a6061] ring-1 ring-[#adb3b4]/15 hover:bg-[#fbfcfc]"
-              }`}
-            >
-              <Filter className="h-3.5 w-3.5" />
-              筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
-            </button>
+                <Filter className="h-3.5 w-3.5" />
+                筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
+              </button>
+            </div>
           </div>
         </div>
         {showFilters ? (

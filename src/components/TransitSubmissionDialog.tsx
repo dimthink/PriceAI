@@ -40,16 +40,22 @@ const accessModeOptions: Array<{
   },
 ];
 
-export function TransitSubmissionActions({ className = "" }: { className?: string }) {
+export function TransitSubmissionActions({
+  className = "flex flex-wrap gap-2.5",
+  buttonClassName = "",
+}: {
+  className?: string;
+  buttonClassName?: string;
+}) {
   const [mode, setMode] = useState<DialogMode | null>(null);
 
   return (
     <>
-      <div className={`flex flex-wrap gap-2.5 ${className}`}>
+      <div className={className}>
         <button
           type="button"
           onClick={() => setMode("submit")}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#dde4e5] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#cfd8d9]"
+          className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#dde4e5] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#cfd8d9] ${buttonClassName}`}
         >
           <Send className="h-4 w-4" />
           提交渠道
@@ -57,7 +63,7 @@ export function TransitSubmissionActions({ className = "" }: { className?: strin
         <button
           type="button"
           onClick={() => setMode("merchant")}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
+          className={`inline-flex h-10 items-center justify-center gap-2 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526] ${buttonClassName}`}
         >
           商家入驻
         </button>

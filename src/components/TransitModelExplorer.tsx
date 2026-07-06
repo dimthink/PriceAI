@@ -86,15 +86,19 @@ export default function TransitModelExplorer({ stations }: Props) {
 
   return (
     <div>
-      <div className="mb-5 space-y-2">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+      <div className="mb-5 space-y-3">
+        <div className="grid gap-3 xl:grid-cols-[minmax(260px,460px)_auto] xl:items-center">
           <SearchField
             value={query}
             onChange={setQuery}
             placeholder="搜索标准模型名..."
-            className="flex-1 xl:max-w-[460px]"
+            className="w-full"
           />
-          <TransitViewTabs active="models" className="shrink-0" />
+          <TransitViewTabs
+            active="models"
+            className="w-full bg-[#edf0f1] xl:w-auto"
+            itemClassName="flex-1 xl:flex-none"
+          />
         </div>
       </div>
 
