@@ -107,6 +107,11 @@ assert(!/recordOfferCollectionFailure/.test(adminText), "src/lib/admin.ts: singl
 assert(!/async function clearOfferCollectionFailure\s*\(/.test(adminText), "src/lib/admin.ts: successful collections must not bulk-clear all source offer failure markers.");
 assert(/clearOfferCollectionFailureForSeenOffers/.test(adminText), "src/lib/admin.ts: successful collections should clear failure markers only for offers seen in the current result.");
 
+const migrationText = listMigrationFiles().map((file) => read(file)).join("\n");
+assert(/create index if not exists raw_offers_public_dedupe_key_idx/.test(migrationText), "supabase/migrations: raw_offers duplicate-hide trigger must have a public dedupe-key index.");
+assert(/priceai_public_offer_dedupe_key\(\s*canonical_product_id,\s*url,\s*source_title,\s*price\s*\)/.test(migrationText), "supabase/migrations: raw_offers public dedupe index must match the trigger key expression.");
+assert(/raw_offers_public_dedupe_key_idx[\s\S]{0,300}where hidden = false/.test(migrationText), "supabase/migrations: raw_offers public dedupe index must stay scoped to visible offers.");
+
 const snapshotRefreshWorkflowText = read(".github/workflows/refresh-public-api-snapshots.yml");
 assert(snapshotRefreshWorkflowText.includes('cron: "*/30 * * * *"'), ".github/workflows/refresh-public-api-snapshots.yml: GitHub scheduled snapshot refresh must remain a low-frequency fallback.");
 assert(/\/api\/admin\/public-api-snapshots/.test(snapshotRefreshWorkflowText), ".github/workflows/refresh-public-api-snapshots.yml: scheduled refresh must call the protected snapshot endpoint.");
