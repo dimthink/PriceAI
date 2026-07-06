@@ -1101,6 +1101,7 @@ function OfferListItem({
 }) {
   const available = isOfferAvailable(offer);
   const sharedAccess = isSharedAccessOffer(offer);
+  const hasRisk = Boolean(offer.riskFeedback?.count);
 
   return (
     <article
@@ -1115,6 +1116,11 @@ function OfferListItem({
             <p className="truncate font-semibold text-[#202829]">{sourceLabel(offer)}</p>
             <OfferSourceTitle title={offer.sourceTitle} mode="card" sharedAccess={sharedAccess} />
             <OfferMerchantTimeSummary offer={offer} />
+            {hasRisk ? (
+              <div className="mt-2">
+                <OfferRiskButton offer={offer} compact />
+              </div>
+            ) : null}
           </div>
         </div>
         <OfferStatusBadge available={available} />
@@ -1129,7 +1135,6 @@ function OfferListItem({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <OfferRiskButton offer={offer} compact />
           <OfferActions offer={offer} available={available} onFeedback={onFeedback} onRequestPurchase={onRequestPurchase} />
         </div>
       </div>
@@ -1201,7 +1206,7 @@ function OfferRiskButton({ offer, compact = false }: { offer: RawOffer; compact?
         title="查看风险详情"
         aria-label={`查看${label}详情`}
         className={`inline-flex shrink-0 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-semibold ring-1 transition ${
-          compact ? "h-9" : "h-8"
+          compact ? "h-7" : "h-8"
         } ${
           sourceOnly
             ? "bg-[#fff7df] text-[#8a5a10] ring-[#efd38a] hover:bg-[#fff1c7]"
