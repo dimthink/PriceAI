@@ -2602,9 +2602,11 @@ async function postRows(rows, options) {
   const refreshedOfferKeys = collectRefreshedOfferKeys(rows.offers, refreshStationIds);
   const stations = rows.stations.map((station) => mergeStationForRefresh(station, existingStations.get(station.id), options));
   const existingOffers = await readExistingOffers(supabase, rows.offers);
-  const offers = rows.offers.map((offer) =>
-    mergeOfferForRefresh(offer, existingOffers.get(offerKey(offer)), refreshStationIds.has(offer.station_id)),
-  );
+  const offers = rows.offers
+    .map((offer) =>
+      mergeOfferForRefresh(offer, existingOffers.get(offerKey(offer)), refreshStationIds.has(offer.station_id)),
+    )
+    .map(normalizeApiTransitOfferForWrite);
   const staleOfferIds = findStaleRefreshedOfferIds(existingOffers, refreshedOfferKeys);
 
   await upsertRows(supabase, "api_transit_stations", stations, { onConflict: "id" });
@@ -2738,6 +2740,13 @@ async function upsertOfferRows(supabase, offers) {
   }
 
   throw lastMissingColumnError;
+}
+
+function normalizeApiTransitOfferForWrite(offer) {
+  return {
+    ...offer,
+    cache_hit_sample_tokens: Math.max(0, integerValue(offer.cache_hit_sample_tokens) || 0),
+  };
 }
 
 function postRowsMessage(options, refreshedOfferKeys, autoPublishStationIds) {

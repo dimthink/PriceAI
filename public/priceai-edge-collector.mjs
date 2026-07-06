@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 const VERSION = "0.1.1";
 const DEFAULT_ENDPOINT = "https://priceai.cc";
@@ -18,6 +20,7 @@ const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
 const DEFAULT_UPLOAD_TIMEOUT_MS = 90_000;
 const DEFAULT_DIRECT_TIMEOUT_MS = 15_000;
 const DEFAULT_DIRECT_RETRY_COOLDOWN_MS = 300_000;
+const DEFAULT_SPOOL_REPLAY_LIMIT = 20;
 const MAX_DISCOVERED_TOKENS = 3;
 const MAX_CATEGORY_PAGES = 10;
 
@@ -62,6 +65,8 @@ const config = {
   uploadTimeoutMs: integerInRange(args.uploadTimeoutMs || args["upload-timeout-ms"] || process.env.PRICEAI_AGENT_UPLOAD_TIMEOUT_MS, 15_000, 180_000, DEFAULT_UPLOAD_TIMEOUT_MS),
   directTimeoutMs: integerInRange(args.directTimeoutMs || args["direct-timeout-ms"] || process.env.PRICEAI_AGENT_DIRECT_TIMEOUT_MS, 5_000, 60_000, DEFAULT_DIRECT_TIMEOUT_MS),
   directRetryCooldownMs: integerInRange(args.directRetryCooldownMs || args["direct-retry-cooldown-ms"] || process.env.PRICEAI_AGENT_DIRECT_RETRY_COOLDOWN_MS, 0, 3_600_000, DEFAULT_DIRECT_RETRY_COOLDOWN_MS),
+  spoolDir: String(args.spoolDir || args["spool-dir"] || process.env.PRICEAI_AGENT_CRAWL_LOG_SPOOL_DIR || path.join(os.tmpdir(), "priceai-edge-crawl-log-spool")),
+  spoolReplayLimit: integerInRange(args.spoolReplayLimit || args["spool-replay-limit"] || process.env.PRICEAI_AGENT_SPOOL_REPLAY_LIMIT, 1, 500, DEFAULT_SPOOL_REPLAY_LIMIT),
   fullSnapshotOfferLimit: integerInRange(args.fullSnapshotOfferLimit || args["full-snapshot-offer-limit"] || process.env.PRICEAI_AGENT_FULL_SNAPSHOT_OFFER_LIMIT, 0, 2000, DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT),
   loop: truthy(args.loop) || truthy(process.env.PRICEAI_AGENT_LOOP),
   maxCycles: explicitMaxCycles ? integerInRange(explicitMaxCycles, 1, 1000000, 1) : null,
@@ -102,6 +107,10 @@ async function main() {
       details: { cycle },
     }).catch((error) => {
       console.error(`[priceai-edge] heartbeat start failed: ${errorMessage(error)}`);
+    });
+
+    await replaySpooledCrawlRuns().catch((error) => {
+      console.error(`[priceai-edge] replay spool failed: ${errorMessage(error)}`);
     });
 
     await runCycle(startedAt)
@@ -157,7 +166,17 @@ async function runCycle(startedAt = new Date().toISOString()) {
   const staleBefore = config.round ? new Date().toISOString() : null;
 
   do {
-    const tasks = await fetchTasks({ staleBefore, excludeSourceIds: Array.from(processedSourceIds) });
+    let tasks = [];
+    try {
+      tasks = await fetchTasks({ staleBefore, excludeSourceIds: Array.from(processedSourceIds) });
+    } catch (error) {
+      if (processed > 0) {
+        failed += 1;
+        console.error(`[priceai-edge] task request failed after partial progress; ending round: ${errorMessage(error)}`);
+        break;
+      }
+      throw error;
+    }
     if (!tasks.length) {
       console.log(processed ? "[priceai-edge] no more tasks in this round" : "[priceai-edge] no tasks");
       break;
@@ -198,6 +217,12 @@ async function runCycle(startedAt = new Date().toISOString()) {
           windControl,
           failurePhase: "collect",
         }).catch((postError) => {
+          if (Array.isArray(postError?.payloads) && postError.payloads.length) {
+            spoolCrawlRunPayloads(postError.payloads, {
+              reason: "failure-log-upload-failed",
+              error: errorMessage(postError),
+            });
+          }
           console.error(`Failed to upload failure log: ${errorMessage(postError)}`);
         });
 
@@ -213,7 +238,7 @@ async function runCycle(startedAt = new Date().toISOString()) {
 
       try {
         const collectedAt = new Date().toISOString();
-        await postCrawlRun(target, status, message, collectedOffers, {
+        const payloads = crawlRunPayloads(target, status, message, collectedOffers, {
           collectionStartedAt,
           collectedAt,
           durationMs: Date.now() - startedAt,
@@ -224,10 +249,17 @@ async function runCycle(startedAt = new Date().toISOString()) {
           collectionJobRequestedBy: target.collectionJobRequestedBy || null,
           collectionJobCreatedAt: target.collectionJobCreatedAt || null,
         });
+        await postCrawlRunPayloads(payloads);
       } catch (error) {
         failed += 1;
         uploadFailed += 1;
         consecutiveWindControl = 0;
+        if (Array.isArray(error?.payloads) && error.payloads.length) {
+          spoolCrawlRunPayloads(error.payloads, {
+            reason: "upload-failed",
+            error: errorMessage(error),
+          });
+        }
         console.error(
           `Upload failed after ${status} collection for ${target.sourceName}; source health was not overwritten: ${errorMessage(error)}`,
         );
@@ -432,10 +464,21 @@ async function postCrawlRun(target, status, message, offers, extraDetails = {}) 
   }
 
   const payloads = crawlRunPayloads(target, status, message, offers, extraDetails);
+  return postCrawlRunPayloads(payloads);
+}
+
+async function postCrawlRunPayloads(payloads, options = {}) {
   const totals = { successCount: 0, writtenCount: 0, refreshedCount: 0, unchangedCount: 0, runCount: 0 };
 
   for (const payload of payloads) {
-    const body = await uploadCrawlRunPayload(payload);
+    let body;
+    try {
+      body = await uploadCrawlRunPayload(payload);
+    } catch (error) {
+      const uploadError = error instanceof Error ? error : new Error(String(error));
+      uploadError.payloads = options.remainingPayloads || payloads.slice(totals.runCount);
+      throw uploadError;
+    }
     totals.successCount += Number(body.successCount || 0);
     totals.writtenCount += Number(body.writtenCount || 0);
     totals.refreshedCount += Number(body.refreshedCount || 0);
@@ -444,7 +487,7 @@ async function postCrawlRun(target, status, message, offers, extraDetails = {}) 
   }
 
   console.log(
-    `Uploaded ${status}: runCount=${totals.runCount} successCount=${totals.successCount} written=${totals.writtenCount} refreshed=${totals.refreshedCount}`,
+    `Uploaded crawl run(s): runCount=${totals.runCount} successCount=${totals.successCount} written=${totals.writtenCount} refreshed=${totals.refreshedCount}`,
   );
   return totals;
 }
@@ -534,6 +577,110 @@ async function uploadCrawlRunPayload(payload) {
   }, "crawl-log upload", config.uploadTimeoutMs);
   if (!body.ok) throw new Error(body.message || "Upload failed.");
   return body;
+}
+
+async function replaySpooledCrawlRuns() {
+  if (config.dryRun) return;
+  const files = listSpoolFiles().slice(0, config.spoolReplayLimit);
+  if (!files.length) return;
+
+  let replayed = 0;
+  for (const file of files) {
+    const item = readSpoolFile(file);
+    if (!item?.payloads?.length) {
+      removeSpoolFile(file);
+      continue;
+    }
+
+    try {
+      await postCrawlRunPayloads(item.payloads);
+      removeSpoolFile(file);
+      replayed += item.payloads.length;
+    } catch (error) {
+      if (Array.isArray(error?.payloads) && error.payloads.length < item.payloads.length) {
+        replaceSpoolFilePayloads(file, item, error.payloads, {
+          replayError: errorMessage(error),
+        });
+      }
+      console.error(`[priceai-edge] failed to replay spooled crawl log ${path.basename(file)}: ${errorMessage(error)}`);
+      break;
+    }
+  }
+
+  if (replayed) console.log(`[priceai-edge] replayed ${replayed} spooled crawl log run(s)`);
+}
+
+function spoolCrawlRunPayloads(payloads, meta = {}) {
+  if (config.dryRun || !payloads?.length) return;
+  try {
+    fs.mkdirSync(config.spoolDir, { recursive: true });
+    const now = new Date().toISOString();
+    const id = stableId(now, meta.reason, payloads.map((payload) => payload.sourceId || payload.sourceName).join(","));
+    const target = path.join(config.spoolDir, `${Date.now()}-${id}.json`);
+    const tmp = `${target}.tmp`;
+    fs.writeFileSync(
+      tmp,
+      `${JSON.stringify({ createdAt: now, meta, payloads })}\n`,
+      "utf8",
+    );
+    fs.renameSync(tmp, target);
+    console.error(`[priceai-edge] spooled ${payloads.length} crawl log run(s) to ${target}`);
+  } catch (error) {
+    console.error(`[priceai-edge] failed to spool crawl log run(s): ${errorMessage(error)}`);
+  }
+}
+
+function listSpoolFiles() {
+  try {
+    if (!fs.existsSync(config.spoolDir)) return [];
+    return fs.readdirSync(config.spoolDir)
+      .filter((file) => file.endsWith(".json"))
+      .map((file) => path.join(config.spoolDir, file))
+      .sort();
+  } catch (error) {
+    console.error(`[priceai-edge] failed to list crawl log spool: ${errorMessage(error)}`);
+    return [];
+  }
+}
+
+function readSpoolFile(file) {
+  try {
+    const item = JSON.parse(fs.readFileSync(file, "utf8"));
+    return item && typeof item === "object" ? item : null;
+  } catch (error) {
+    console.error(`[priceai-edge] failed to read crawl log spool ${path.basename(file)}: ${errorMessage(error)}`);
+    return null;
+  }
+}
+
+function replaceSpoolFilePayloads(file, item, payloads, meta = {}) {
+  try {
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(
+      tmp,
+      `${JSON.stringify({
+        ...item,
+        updatedAt: new Date().toISOString(),
+        meta: compactObject({
+          ...(item.meta || {}),
+          ...meta,
+        }),
+        payloads,
+      })}\n`,
+      "utf8",
+    );
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    console.error(`[priceai-edge] failed to rewrite crawl log spool ${path.basename(file)}: ${errorMessage(error)}`);
+  }
+}
+
+function removeSpoolFile(file) {
+  try {
+    fs.unlinkSync(file);
+  } catch (error) {
+    console.error(`[priceai-edge] failed to remove crawl log spool ${path.basename(file)}: ${errorMessage(error)}`);
+  }
 }
 
 async function postCollectorHeartbeat(status, input = {}) {
