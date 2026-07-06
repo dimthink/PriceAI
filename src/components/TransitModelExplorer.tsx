@@ -87,7 +87,7 @@ export default function TransitModelExplorer({ stations }: Props) {
   return (
     <div>
       <div className="mb-5 space-y-3">
-        <div className="grid gap-3 xl:grid-cols-[minmax(260px,460px)_auto] xl:items-center">
+        <div className="grid gap-3 xl:grid-cols-[minmax(260px,460px)_auto] xl:items-center xl:justify-start">
           <SearchField
             value={query}
             onChange={setQuery}
@@ -96,7 +96,7 @@ export default function TransitModelExplorer({ stations }: Props) {
           />
           <TransitViewTabs
             active="models"
-            className="w-full bg-[#edf0f1] xl:w-auto"
+            className="w-full bg-[#edf0f1] xl:w-fit xl:justify-self-start"
             itemClassName="flex-1 xl:flex-none"
           />
         </div>
