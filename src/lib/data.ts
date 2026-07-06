@@ -2287,6 +2287,9 @@ function buildCollectorHealthSummary(input: {
   const staleSources = enabledHealthSources.filter((source) => source.status === "stale").length;
   const criticalSources = enabledHealthSources.filter((source) => source.status === "critical" || source.status === "never").length;
   const failedSources = enabledHealthSources.filter((source) => Number(source.consecutiveFailures || 0) > 0 || source.lastError).length;
+  const writebackFailures = nodeSummaries.filter((node) => node.failureKind === "writeback").length;
+  const taskFetchFailures = nodeSummaries.filter((node) => node.failureKind === "task_fetch").length;
+  const nodeFailures = nodeSummaries.filter((node) => node.failureKind === "node").length;
   const recentlyCheckedSources = enabledHealthSources.filter((source) => !source.isAttemptStale).length;
   const staleCheckSources = enabledHealthSources.filter((source) => source.isAttemptStale).length;
   const downNodes = nodeSummaries.filter((node) => node.health === "down").length;
@@ -2312,6 +2315,9 @@ function buildCollectorHealthSummary(input: {
       staleSources,
       criticalSources,
       failedSources,
+      writebackFailures,
+      taskFetchFailures,
+      nodeFailures,
       recentlyCheckedSources,
       staleCheckSources,
       latestSuccessAt,
@@ -2346,6 +2352,9 @@ function emptyCollectorHealthSummary(generatedAt: string): CollectorHealthSummar
       staleSources: 0,
       criticalSources: 0,
       failedSources: 0,
+      writebackFailures: 0,
+      taskFetchFailures: 0,
+      nodeFailures: 0,
       recentlyCheckedSources: 0,
       staleCheckSources: 0,
       latestSuccessAt: null,
@@ -2467,6 +2476,7 @@ function buildCollectorNodeSummaries(
       skippedCount: heartbeat.skippedCount,
       offerCount: heartbeat.offerCount,
       message: heartbeat.message || null,
+      failureKind: collectorFailureKind(heartbeat.message, heartbeat.details),
     });
   }
 
@@ -2489,6 +2499,7 @@ function buildCollectorNodeSummaries(
       skippedCount: 0,
       offerCount: run.successCount,
       message: run.message || null,
+      failureKind: collectorFailureKind(run.message, null),
     });
   }
 
@@ -2498,6 +2509,29 @@ function buildCollectorNodeSummaries(
     if (riskDiff) return riskDiff;
     return (b.ageMinutes ?? 999999) - (a.ageMinutes ?? 999999);
   });
+}
+
+function collectorFailureKind(
+  message: string | null | undefined,
+  details: Record<string, unknown> | null | undefined,
+): CollectorHealthNodeSummary["failureKind"] {
+  const text = `${message || ""} ${stringFromRecord(details, "phase") || ""}`.toLowerCase();
+  if (!text.trim()) return "unknown";
+  if (
+    text.includes("记录采集结果失败") ||
+    text.includes("crawl-log") ||
+    text.includes("upload failed") ||
+    text.includes("final-flush")
+  ) {
+    return "writeback";
+  }
+  if (text.includes("task request failed") || text.includes("etimedout") || text.includes("fetch failed")) {
+    return "task_fetch";
+  }
+  if (text.includes("edge collector found no offers") || text.includes("http 403") || text.includes("http 500") || text.includes("风控")) {
+    return "source";
+  }
+  return "node";
 }
 
 function isPrimaryCollectorNode(nodeId: string): boolean {

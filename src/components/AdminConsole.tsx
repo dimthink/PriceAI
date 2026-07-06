@@ -755,6 +755,9 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     const health = collectorStatus.collectorHealth;
     return (
       Number(health.overall.failedSources || 0) +
+      Number(health.overall.writebackFailures || 0) +
+      Number(health.overall.taskFetchFailures || 0) +
+      Number(health.overall.nodeFailures || 0) +
       Number(health.overall.downNodes || 0) +
       Number(health.overall.staleNodes || 0)
     );
@@ -7794,6 +7797,11 @@ function CollectorHealthPanel({ health }: { health: CollectorHealthData }) {
           <HealthMetric label="成功过期 / 未成功" value={`${health.overall.staleSources}/${health.overall.criticalSources}`} tone={health.overall.criticalSources || health.overall.staleSources ? "warn" : "success"} />
           <HealthMetric label="最近尝试" value={`${health.overall.recentlyCheckedSources}/${health.overall.enabledSources}`} tone={health.overall.staleCheckSources ? "info" : "success"} />
           <HealthMetric label="真实失败" value={String(health.overall.failedSources)} tone={health.overall.failedSources ? "danger" : "success"} />
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <HealthMetric label="写回失败" value={String(health.overall.writebackFailures || 0)} tone={health.overall.writebackFailures ? "danger" : "success"} />
+          <HealthMetric label="领任务失败" value={String(health.overall.taskFetchFailures || 0)} tone={health.overall.taskFetchFailures ? "warn" : "success"} />
+          <HealthMetric label="节点异常" value={String(health.overall.nodeFailures || 0)} tone={health.overall.nodeFailures ? "warn" : "success"} />
         </div>
       </Panel>
 

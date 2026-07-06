@@ -165,6 +165,8 @@ async function claimQueuedSourceTasks(input: {
   const supabase = getSupabaseServerClient();
   if (!supabase) return [];
 
+  await reapExpiredCollectionJobs(input.worker);
+
   const { data: jobs, error: jobsError } = await supabase
     .from("collection_jobs")
     .select("id,source_id,source_name,status,requested_by,created_at,priority,attempts,max_attempts,locked_until")
@@ -236,6 +238,17 @@ async function claimQueuedSourceTasks(input: {
 
   await markSourcesDispatched(tasks.map((task) => task.sourceId), new Date().toISOString());
   return tasks;
+}
+
+async function reapExpiredCollectionJobs(worker: string): Promise<void> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return;
+
+  const { error } = await supabase.rpc("reap_expired_collection_jobs", {
+    p_worker: worker,
+    p_limit: 50,
+  });
+  if (error && !isMissingReapRpcError(error)) throw error;
 }
 
 async function markSourcesDispatched(sourceIds: string[], checkedAt: string): Promise<void> {
@@ -336,6 +349,21 @@ function isMissingClaimByIdRpcError(error: unknown): boolean {
     .join(" ");
 
   return /claim_collection_job_by_id|function/i.test(text) && /PGRST202|not find|not found|missing|does not exist/i.test(text);
+}
+
+function isMissingReapRpcError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const text = [
+    candidate.code,
+    candidate.message,
+    candidate.details,
+    candidate.hint,
+  ]
+    .map((value) => String(value || ""))
+    .join(" ");
+
+  return /reap_expired_collection_jobs|function/i.test(text) && /PGRST202|not find|not found|missing|does not exist/i.test(text);
 }
 
 function sourceWithinCooldown(value: unknown, nowIso: string): boolean {

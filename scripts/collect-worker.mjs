@@ -52,6 +52,7 @@ if (!supabase) {
 }
 
 let processed = 0;
+await reapExpiredJobs();
 
 for (let index = 0; index < maxJobs; index += 1) {
   const job = await claimJob();
@@ -73,6 +74,15 @@ async function claimJob() {
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;
   return row || null;
+}
+
+async function reapExpiredJobs() {
+  const { error } = await supabase.rpc("reap_expired_collection_jobs", {
+    p_worker: workerId,
+    p_limit: 50,
+  });
+
+  if (error && !isMissingRpcError(error, "reap_expired_collection_jobs")) throw error;
 }
 
 async function runJob(job) {
@@ -475,4 +485,18 @@ function unquote(value) {
 function errorMessage(error) {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function isMissingRpcError(error, functionName) {
+  if (!error || typeof error !== "object") return false;
+  const text = [
+    error.code,
+    error.message,
+    error.details,
+    error.hint,
+  ]
+    .map((value) => String(value || ""))
+    .join(" ");
+
+  return text.includes(functionName) && /PGRST202|not find|not found|missing|does not exist/i.test(text);
 }

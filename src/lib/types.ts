@@ -394,6 +394,7 @@ export type CollectorHealthNodeSummary = {
   skippedCount: number;
   offerCount: number;
   message?: string | null;
+  failureKind?: "source" | "writeback" | "task_fetch" | "node" | "unknown";
 };
 
 export type CollectorHealthRunSummary = {
@@ -423,6 +424,9 @@ export type CollectorHealthSummary = {
     staleSources: number;
     criticalSources: number;
     failedSources: number;
+    writebackFailures: number;
+    taskFetchFailures: number;
+    nodeFailures: number;
     recentlyCheckedSources: number;
     staleCheckSources: number;
     latestSuccessAt?: string | null;

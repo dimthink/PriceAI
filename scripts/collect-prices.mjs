@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -26,6 +28,7 @@ const MIN_POST_BATCH_SIZE = 10;
 const MAX_POST_BATCH_SIZE = 500;
 const DEFAULT_FLUSH_SOURCE_COUNT = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 120_000;
+const DEFAULT_SPOOL_REPLAY_LIMIT = 40;
 const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
 const STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT = 600;
 const STRUCTURED_FULL_SNAPSHOT_COLLECTORS = new Set(["kami", "shopApi"]);
@@ -78,6 +81,12 @@ export async function runPriceCollection(options = {}) {
   const concurrency = concurrencyFor(options);
   let summary;
   try {
+    if (writeQueue) {
+      await writeQueue.replaySpool("startup").catch((error) => {
+        logger?.error(`Failed to replay crawl log spool: ${errorMessage(error)}`);
+      });
+    }
+
     if (options.post) {
       await postCollectorHeartbeat("running", options, {
         startedAt,
@@ -130,7 +139,7 @@ export async function runPriceCollection(options = {}) {
   } finally {
     if (writeQueue) {
       try {
-        await writeQueue.flush("final");
+        await writeQueue.flush("final", { persistOnFailure: true });
       } catch (error) {
         if (options.post) {
           await postCollectorHeartbeat("failed", options, {
@@ -2055,6 +2064,7 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
   const flushIntervalMs = flushIntervalMsFor(options);
   const maxRunsPerRequest = postRunBatchSizeFor(options);
   const maxOffersPerRequest = postRequestOfferLimitFor(options);
+  const spool = createCrawlLogSpool(options, logger);
   let pendingRuns = [];
   let pendingSourceCount = 0;
   let firstQueuedAt = 0;
@@ -2079,7 +2089,7 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
     timer.unref?.();
   };
 
-  const flushNow = async (reason = "manual") => {
+  const flushNow = async (reason = "manual", flushOptions = {}) => {
     clearTimer();
     if (!pendingRuns.length) return { ok: true, runCount: 0, successCount: 0, writtenCount: 0, unchangedCount: 0, refreshedCount: 0 };
 
@@ -2112,10 +2122,19 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
         refreshedCount += Number(posted.refreshedCount || 0);
       }
     } catch (error) {
-      pendingRuns = [...runs, ...pendingRuns];
-      pendingSourceCount += sourceCount;
-      firstQueuedAt = firstQueuedAt || queuedAt || Date.now();
-      scheduleTimer();
+      if (flushOptions.persistOnFailure) {
+        spool.write(runs, {
+          reason,
+          sourceCount,
+          queuedAt: queuedAt || Date.now(),
+          error: errorMessage(error),
+        });
+      } else {
+        pendingRuns = [...runs, ...pendingRuns];
+        pendingSourceCount += sourceCount;
+        firstQueuedAt = firstQueuedAt || queuedAt || Date.now();
+        scheduleTimer();
+      }
       throw error;
     }
 
@@ -2126,8 +2145,8 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
     return { ok: true, runCount: runs.length, successCount, writtenCount, unchangedCount, refreshedCount };
   };
 
-  const flush = (reason = "manual") => {
-    const operation = flushChain.then(() => flushNow(reason));
+  const flush = (reason = "manual", flushOptions = {}) => {
+    const operation = flushChain.then(() => flushNow(reason, flushOptions));
     flushChain = operation.catch(() => {});
     return operation;
   };
@@ -2154,8 +2173,87 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
       }
     },
     flush,
+    replaySpool(reason = "startup") {
+      const operation = flushChain.then(() =>
+        spool.replay(async (runs, meta) => {
+          for (const batch of crawlLogRequestBatches(runs, maxRunsPerRequest, maxOffersPerRequest)) {
+            await postCrawlLogPayloadBatch(batch, options, {
+              reason: `${reason}-spool`,
+              sourceCount: meta.sourceCount || 0,
+              runCount: runs.length,
+              spooledAt: meta.createdAt || null,
+              spoolReason: meta.reason || null,
+            });
+          }
+        }),
+      );
+      flushChain = operation.catch(() => {});
+      return operation;
+    },
     throwIfFailed() {
       if (lastError) throw lastError;
+    },
+  };
+}
+
+function createCrawlLogSpool(options = {}, logger = null) {
+  const directory = crawlLogSpoolDirectory(options);
+  const replayLimit = spoolReplayLimitFor(options);
+
+  const ensureDirectory = () => {
+    mkdirSync(directory, { recursive: true });
+  };
+
+  return {
+    write(runs, meta = {}) {
+      const items = Array.isArray(runs) ? runs.filter(Boolean) : [];
+      if (!items.length) return null;
+
+      ensureDirectory();
+      const createdAt = new Date().toISOString();
+      const id = crypto
+        .createHash("sha1")
+        .update(`${createdAt}:${JSON.stringify(items).slice(0, 5000)}`)
+        .digest("hex")
+        .slice(0, 16);
+      const file = join(directory, `${createdAt.replace(/[:.]/g, "-")}-${id}.json`);
+      const tempFile = `${file}.tmp`;
+      writeFileSync(tempFile, JSON.stringify({
+        createdAt,
+        ...meta,
+        runs: items,
+      }));
+      renameSync(tempFile, file);
+      logger?.error(`Saved ${items.length} crawl log run(s) for retry: ${file}`);
+      return file;
+    },
+    async replay(post) {
+      if (!existsSync(directory)) return { ok: true, fileCount: 0, runCount: 0 };
+
+      const files = readdirSync(directory)
+        .filter((file) => file.endsWith(".json"))
+        .sort()
+        .slice(0, replayLimit);
+      let runCount = 0;
+
+      for (const file of files) {
+        const path = join(directory, file);
+        const raw = JSON.parse(readFileSync(path, "utf8"));
+        const runs = Array.isArray(raw.runs) ? raw.runs : [];
+        if (!runs.length) {
+          rmSync(path, { force: true });
+          continue;
+        }
+
+        await post(runs, raw);
+        runCount += runs.length;
+        rmSync(path, { force: true });
+      }
+
+      if (files.length) {
+        logger?.log(`Replayed ${runCount} spooled crawl log run(s) from ${files.length} file(s).`);
+      }
+      return { ok: true, fileCount: files.length, runCount };
     },
   };
 }
@@ -2266,6 +2364,27 @@ function flushIntervalMsFor(options = {}) {
   );
   if (!Number.isFinite(value)) return DEFAULT_FLUSH_INTERVAL_MS;
   return Math.max(5_000, Math.min(Math.trunc(value), 10 * 60_000));
+}
+
+function crawlLogSpoolDirectory(options = {}) {
+  const value =
+    options.crawlLogSpoolDir ||
+    options["crawl-log-spool-dir"] ||
+    process.env.PRICEAI_CRAWL_LOG_SPOOL_DIR ||
+    env.PRICEAI_CRAWL_LOG_SPOOL_DIR;
+  return value ? String(value) : join(tmpdir(), "priceai-crawl-log-spool");
+}
+
+function spoolReplayLimitFor(options = {}) {
+  const value = Number(
+    options.spoolReplayLimit ||
+      options["spool-replay-limit"] ||
+      process.env.PRICEAI_CRAWL_LOG_SPOOL_REPLAY_LIMIT ||
+      env.PRICEAI_CRAWL_LOG_SPOOL_REPLAY_LIMIT ||
+      DEFAULT_SPOOL_REPLAY_LIMIT,
+  );
+  if (!Number.isFinite(value)) return DEFAULT_SPOOL_REPLAY_LIMIT;
+  return Math.max(0, Math.min(Math.trunc(value), 500));
 }
 
 function collectorNodeDetails(options = {}) {
