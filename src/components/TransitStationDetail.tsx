@@ -49,9 +49,11 @@ import {
   formatAvailability,
   formatCacheHitRate,
   formatPercent,
+  formatTransitLatencyMs,
   formatTransitModelMultiplier,
   getAvailabilitySourceMeta,
   formatRate,
+  getCacheHitRateBadgeClass,
   getCombinedRateForPrice,
   getFamilyAvailabilitySourceMeta,
   getFamilyPrices,
@@ -101,6 +103,8 @@ type TransitPriceGroup = {
   sevenDaySamples: number;
   firstCheckedAt: string | null;
   lastCheckedAt: string | null;
+  latestLatencyMs: number | null;
+  avgLatency7dMs: number | null;
   latestVerifiedAt: string;
   priceSource: string;
   availabilitySourceLabel: string;
@@ -1390,7 +1394,11 @@ function PriceGroupMobileCard({
       <div className="mt-3 grid grid-cols-2 gap-2">
         <MobilePriceFact label="充值倍率" value={formatRate(group.rechargeCoefficient)} />
         <MobilePriceFact label="模型倍率" value={group.modelMultiplierLabel} />
-        <MobilePriceFact label="缓存命中率" value={formatCacheHitRate(group.cacheUsage)} />
+        <MobilePriceFact
+          label="缓存命中率"
+          value={formatCacheHitRate(group.cacheUsage)}
+          valueClassName={getCacheHitRateTextClass(group.cacheUsage)}
+        />
         <MobilePriceFact label="覆盖" value={`${group.prices.length} 个模型`} />
         <MobilePriceFact label="可用率" value={formatPercent(group.sevenDayRate)} />
       </div>
@@ -1437,23 +1445,27 @@ function PriceGroupMobileCard({
   );
 }
 
-function MobilePriceFact({ label, value }: { label: string; value: string }) {
+function MobilePriceFact({
+  label,
+  value,
+  valueClassName = "text-[#202829]",
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
   return (
     <div className="min-w-0 rounded-md bg-[#f7f9f9] px-2.5 py-2 ring-1 ring-[#adb3b4]/15">
       <div className="truncate text-[10px] font-bold text-[#7a8182]">{label}</div>
-      <div className="mt-0.5 break-words text-xs font-extrabold tabular-nums text-[#202829]">{value}</div>
+      <div className={`mt-0.5 break-words text-xs font-extrabold tabular-nums ${valueClassName}`}>{value}</div>
     </div>
   );
 }
 
 function CacheHitCell({ cacheUsage }: { cacheUsage: TransitModelPrice["cacheUsage"] }) {
-  const hasSamples = Boolean(cacheUsage && cacheUsage.sampleTokens > 0 && cacheUsage.hitRate !== null);
-
   return (
     <div
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold tabular-nums ${
-        hasSamples ? "bg-[#eef3f8] text-[#47657a]" : "bg-[#f2f4f4] text-[#7f8889]"
-      }`}
+      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold tabular-nums ${getCacheHitRateBadgeClass(cacheUsage)}`}
       title="缓存命中率来自站点公开分组累计用量，会影响实际成本，但不计入默认综合倍率。"
     >
       {formatCacheHitRate(cacheUsage)}
@@ -1471,6 +1483,7 @@ function PriceGroupRow({
   const primaryPrice = group.primaryPrice;
   const channelLabels = uniqueStrings(group.prices.map((price) => TRANSIT_CHANNEL_TYPE_LABELS[price.channelType]));
   const poolLabels = uniqueStrings(group.prices.map((price) => TRANSIT_ACCOUNT_POOL_LABELS[price.accountPool]));
+  const latencySummary = formatLatencySummary(group);
 
   return (
     <tr className="border-b border-[#dfe4e5] align-top transition hover:bg-[#f7f9f9]">
@@ -1538,6 +1551,9 @@ function PriceGroupRow({
           />
         </div>
         <div className="mt-2 break-words text-xs font-semibold text-[#2d3435]">{group.priceSource || "未公开"}</div>
+        {latencySummary ? (
+          <div className="mt-1 break-words text-[11px] font-semibold leading-5 text-[#5a6061]">{latencySummary}</div>
+        ) : null}
         <div className="mt-1 whitespace-nowrap text-[11px] text-[#5a6061]">
           监测确认 {formatDateShortMinute(group.lastCheckedAt || group.latestVerifiedAt)}
         </div>
@@ -1615,6 +1631,8 @@ function buildPriceGroup(
     sevenDaySamples: availabilitySamples,
     firstCheckedAt,
     lastCheckedAt,
+    latestLatencyMs: latestLatencyFromPrices(prices),
+    avgLatency7dMs: weightedAverageLatencyFromPrices(prices),
     latestVerifiedAt,
     priceSource: primaryPrice.priceSource,
     availabilitySourceLabel: sourceMeta.label,
@@ -1688,6 +1706,8 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
       sevenDaySamples: stationAvailability.sevenDaySamples,
       firstCheckedAt: stationAvailability.firstCheckedAt,
       lastCheckedAt: stationAvailability.lastCheckedAt,
+      latestLatencyMs: stationAvailability.latestLatencyMs ?? null,
+      avgLatency7dMs: stationAvailability.avgLatency7dMs ?? null,
       monitorModel: families.length
         ? families.map((family) => TRANSIT_MODEL_FAMILY_LABELS[family]).join(" + ")
         : "代表模型",
@@ -1702,6 +1722,8 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
         sevenDaySamples: summary.sevenDaySamples,
         firstCheckedAt: summary.firstCheckedAt,
         lastCheckedAt: summary.lastCheckedAt,
+        latestLatencyMs: summary.latestLatencyMs,
+        avgLatency7dMs: summary.avgLatency7dMs,
         monitorModel: getFamilyMonitorModelLabel(station, family),
         note: formatAvailability({ sevenDayRate: summary.sevenDayRate, sevenDaySamples: summary.sevenDaySamples }),
         source: getFamilyAvailabilitySourceMeta(station, family),
@@ -1726,12 +1748,13 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
         </div>
       ) : (
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] table-fixed border-collapse">
+        <table className="w-full min-w-[1080px] table-fixed border-collapse">
           <colgroup>
             <col className="w-[100px]" />
             <col className="w-[170px]" />
             <col className="w-[82px]" />
             <col className="w-[180px]" />
+            <col className="w-[150px]" />
             <col className="w-[220px]" />
             <col className="w-[118px]" />
             <col />
@@ -1742,6 +1765,7 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
               <DataTableHead explanation="近 7 日样本成功率，绿色条表示成功样本，灰色表示窗口内未检测。">可用状态</DataTableHead>
               <DataTableHead className="whitespace-nowrap text-right" explanation="PriceAI 在当前滚动窗口内记录的结构化可用性样本数。">样本数</DataTableHead>
               <DataTableHead explanation="同一范围内第一条与最新一条可用性样本的时间；只有一条样本时显示单次检查。">监测区间</DataTableHead>
+              <DataTableHead explanation="公开监测返回的最近请求延迟和 7 日平均延迟；没有字段时显示未记录。">延迟</DataTableHead>
               <DataTableHead explanation="该范围实际使用的代表模型，不等同于站点支持的全部模型。">监测模型</DataTableHead>
               <DataTableHead explanation="说明稳定性样本来自 PriceAI 实测、公开监测页、公开模型页、站长接口或商家提交。">来源</DataTableHead>
               <DataTableHead>说明</DataTableHead>
@@ -1761,6 +1785,7 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-[#2d3435]">{row.sevenDaySamples}</td>
                   <td className="px-4 py-3 text-xs text-[#5a6061]">{formatMonitoringWindow(row)}</td>
+                  <td className="px-4 py-3 text-xs font-semibold text-[#5a6061]">{formatLatencySummary(row) || "未记录"}</td>
                   <td className="px-4 py-3 text-xs text-[#5a6061]">{row.monitorModel}</td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <ProbePolicyTag label={row.source.label} title={row.source.title} href={row.source.url} />
@@ -1792,6 +1817,8 @@ type AvailabilityRow = {
   sevenDaySamples: number;
   firstCheckedAt?: string | null;
   lastCheckedAt: string | null;
+  latestLatencyMs: number | null;
+  avgLatency7dMs: number | null;
   monitorModel: string;
   note: string;
   source: ReturnType<typeof getAvailabilitySourceMeta>;
@@ -1814,6 +1841,7 @@ function AvailabilityMobileCard({ row }: { row: AvailabilityRow }) {
       </div>
       <div className="mt-3 grid gap-2">
         <MobileTextBlock label="监测区间" value={formatMonitoringWindow(row)} />
+        <MobileTextBlock label="延迟" value={formatLatencySummary(row) || "未记录"} />
         <MobileTextBlock label="监测模型" value={row.monitorModel} />
         <MobileTextBlock label="来源" value={row.source.label} />
         <MobileTextBlock label="说明" value={row.note} />
@@ -1872,6 +1900,45 @@ function formatMonitoringWindow(input: { firstCheckedAt?: string | null; lastChe
     return `单次检查 ${formatDateShortMinute(input.lastCheckedAt)}`;
   }
   return `${formatDateShortMinute(start)} - ${formatDateShortMinute(input.lastCheckedAt)}`;
+}
+
+function formatLatencySummary(input: { latestLatencyMs?: number | null; avgLatency7dMs?: number | null }): string | null {
+  const latest = input.latestLatencyMs ?? null;
+  const average = input.avgLatency7dMs ?? null;
+  if (latest === null && average === null) return null;
+  if (latest !== null && average !== null) {
+    return `最近 ${formatTransitLatencyMs(latest)} · 7日均 ${formatTransitLatencyMs(average)}`;
+  }
+  if (latest !== null) return `最近 ${formatTransitLatencyMs(latest)}`;
+  return `7日均 ${formatTransitLatencyMs(average)}`;
+}
+
+function latestLatencyFromPrices(prices: TransitModelPrice[]): number | null {
+  return prices
+    .filter((price) => price.availability.latestLatencyMs !== null && price.availability.latestLatencyMs !== undefined)
+    .sort((left, right) => {
+      const leftTime = new Date(left.availability.lastCheckedAt || left.lastVerifiedAt).getTime();
+      const rightTime = new Date(right.availability.lastCheckedAt || right.lastVerifiedAt).getTime();
+      return rightTime - leftTime;
+    })[0]?.availability.latestLatencyMs ?? null;
+}
+
+function weightedAverageLatencyFromPrices(prices: TransitModelPrice[]): number | null {
+  let total = 0;
+  let samples = 0;
+  for (const price of prices) {
+    const latency = price.availability.avgLatency7dMs;
+    if (latency === null || latency === undefined || !Number.isFinite(latency)) continue;
+    const weight = Math.max(1, price.availability.sevenDaySamples || 0);
+    total += latency * weight;
+    samples += weight;
+  }
+  return samples > 0 ? total / samples : null;
+}
+
+function getCacheHitRateTextClass(cacheUsage: TransitModelPrice["cacheUsage"]): string {
+  const badgeClass = getCacheHitRateBadgeClass(cacheUsage);
+  return badgeClass.split(" ").find((className) => className.startsWith("text-")) || "text-[#202829]";
 }
 
 function formatAvailabilityBasis(

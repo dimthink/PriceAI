@@ -2037,6 +2037,8 @@ create table if not exists api_transit_stations (
   availability_seven_day_samples integer not null default 0,
   availability_first_checked_at timestamptz,
   availability_last_checked_at timestamptz,
+  availability_latest_latency_ms integer,
+  availability_avg_latency_7d_ms integer,
   availability_note text,
   feedback_pending_count integer not null default 0,
   feedback_verified_risk_count integer not null default 0,
@@ -2086,6 +2088,8 @@ create table if not exists api_transit_offers (
   availability_seven_day_samples integer not null default 0,
   availability_first_checked_at timestamptz,
   availability_last_checked_at timestamptz,
+  availability_latest_latency_ms integer,
+  availability_avg_latency_7d_ms integer,
   availability_note text,
   last_verified_at timestamptz,
   status text not null default 'needs_review' check (status in ('active', 'needs_review', 'inactive')),
@@ -2160,6 +2164,8 @@ create table if not exists api_transit_availability_samples (
   standard_model text,
   group_name text,
   ok boolean not null,
+  latency_ms integer,
+  ping_latency_ms integer,
   checked_at timestamptz not null,
   created_at timestamptz not null default now()
 );

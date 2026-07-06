@@ -57,6 +57,8 @@ const STATION_CORE_BASE_COLUMNS = [
   "availability_seven_day_samples",
   "availability_first_checked_at",
   "availability_last_checked_at",
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms",
   "availability_note",
   "availability_source_type",
   "availability_source_label",
@@ -75,6 +77,11 @@ const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED = withoutColumns(
   STATION_CORE_BASE_COLUMNS,
   "availability_first_checked_at"
 );
+const STATION_CORE_COLUMNS_WITHOUT_LATENCY = withoutColumns(
+  STATION_CORE_BASE_COLUMNS,
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms"
+);
 const STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE = withoutColumns(
   STATION_CORE_BASE_COLUMNS,
   "availability_source_type",
@@ -84,6 +91,14 @@ const STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE = withoutColumns(
 const STATION_CORE_COLUMNS_WITHOUT_FIRST_CHECKED_OR_AVAILABILITY_SOURCE = withoutColumns(
   STATION_CORE_BASE_COLUMNS,
   "availability_first_checked_at",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+const STATION_CORE_COLUMNS_WITHOUT_LATENCY_OR_AVAILABILITY_SOURCE = withoutColumns(
+  STATION_CORE_BASE_COLUMNS,
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms",
   "availability_source_type",
   "availability_source_label",
   "availability_source_url"
@@ -141,6 +156,8 @@ const OFFER_BASE_COLUMNS = [
   "availability_seven_day_samples",
   "availability_first_checked_at",
   "availability_last_checked_at",
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms",
   "availability_note",
   "availability_source_type",
   "availability_source_label",
@@ -148,6 +165,26 @@ const OFFER_BASE_COLUMNS = [
 ];
 const OFFER_COLUMNS = OFFER_BASE_COLUMNS.join(",");
 const OFFER_COLUMNS_WITHOUT_CACHE_HIT = withoutColumns(OFFER_BASE_COLUMNS, "cache_hit_rate", "cache_hit_sample_tokens");
+const OFFER_COLUMNS_WITHOUT_LATENCY = withoutColumns(
+  OFFER_BASE_COLUMNS,
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms"
+);
+const OFFER_COLUMNS_WITHOUT_LATENCY_OR_CACHE_HIT = withoutColumns(
+  OFFER_BASE_COLUMNS,
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms",
+  "cache_hit_rate",
+  "cache_hit_sample_tokens"
+);
+const OFFER_COLUMNS_WITHOUT_LATENCY_OR_AVAILABILITY_SOURCE = withoutColumns(
+  OFFER_BASE_COLUMNS,
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
 const OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT = withoutColumns(OFFER_BASE_COLUMNS, "image_output_price");
 const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED = withoutColumns(OFFER_BASE_COLUMNS, "availability_first_checked_at");
 const OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_OR_IMAGE_OUTPUT = withoutColumns(
@@ -163,6 +200,16 @@ const OFFER_COLUMNS_WITHOUT_AVAILABILITY_SOURCE = withoutColumns(
 );
 const OFFER_COLUMNS_WITHOUT_CACHE_HIT_OR_AVAILABILITY_SOURCE = withoutColumns(
   OFFER_BASE_COLUMNS,
+  "cache_hit_rate",
+  "cache_hit_sample_tokens",
+  "availability_source_type",
+  "availability_source_label",
+  "availability_source_url"
+);
+const OFFER_COLUMNS_WITHOUT_LATENCY_CACHE_HIT_OR_AVAILABILITY_SOURCE = withoutColumns(
+  OFFER_BASE_COLUMNS,
+  "availability_latest_latency_ms",
+  "availability_avg_latency_7d_ms",
   "cache_hit_rate",
   "cache_hit_sample_tokens",
   "availability_source_type",
@@ -409,36 +456,34 @@ async function readPublicOfferRows(
   signal: AbortSignal,
   stationId?: string
 ): Promise<DbRow[]> {
-  try {
-    return await queryPublicOfferRows(client, signal, OFFER_COLUMNS, stationId);
-  } catch (error) {
-    if (isMissingColumnError(error)) {
-      try {
-        return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_CACHE_HIT, stationId);
-      } catch (withoutCacheHitError) {
-        if (!isMissingColumnError(withoutCacheHitError)) throw withoutCacheHitError;
-        try {
-          return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, stationId);
-        } catch (withoutSourceError) {
-          if (!isMissingColumnError(withoutSourceError)) throw withoutSourceError;
-          try {
-            return await queryPublicOfferRows(client, publicTransitReadSignal(), OFFER_COLUMNS_WITHOUT_CACHE_HIT_OR_AVAILABILITY_SOURCE, stationId);
-          } catch (withoutCacheHitOrSourceError) {
-            if (!isMissingColumnError(withoutCacheHitOrSourceError)) throw withoutCacheHitOrSourceError;
-            return readPublicOfferRowsWithoutNewOptionalColumns(client, stationId);
-          }
-        }
-      }
+  const attempts = [
+    OFFER_COLUMNS,
+    OFFER_COLUMNS_WITHOUT_LATENCY,
+    OFFER_COLUMNS_WITHOUT_CACHE_HIT,
+    OFFER_COLUMNS_WITHOUT_LATENCY_OR_CACHE_HIT,
+    OFFER_COLUMNS_WITHOUT_AVAILABILITY_SOURCE,
+    OFFER_COLUMNS_WITHOUT_LATENCY_OR_AVAILABILITY_SOURCE,
+    OFFER_COLUMNS_WITHOUT_CACHE_HIT_OR_AVAILABILITY_SOURCE,
+    OFFER_COLUMNS_WITHOUT_LATENCY_CACHE_HIT_OR_AVAILABILITY_SOURCE,
+  ];
+  let lastError: unknown = null;
+  for (const columns of attempts) {
+    try {
+      return await queryPublicOfferRows(client, columns === OFFER_COLUMNS ? signal : publicTransitReadSignal(), columns, stationId);
+    } catch (error) {
+      if (!isMissingColumnError(error)) throw error;
+      lastError = error;
     }
-    throw error;
   }
+  return readPublicOfferRowsWithoutNewOptionalColumns(client, stationId, lastError);
 }
 
 async function readPublicOfferRowsWithoutNewOptionalColumns(
   client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
-  stationId?: string
+  stationId?: string,
+  previousError: unknown = null
 ): Promise<DbRow[]> {
-  const attempts = [
+  const baseAttempts = [
     OFFER_COLUMNS_WITHOUT_FIRST_CHECKED,
     withoutColumnsFromSelect(OFFER_COLUMNS_WITHOUT_FIRST_CHECKED, "cache_hit_rate", "cache_hit_sample_tokens"),
     OFFER_COLUMNS_WITHOUT_IMAGE_OUTPUT,
@@ -452,7 +497,11 @@ async function readPublicOfferRowsWithoutNewOptionalColumns(
     OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_IMAGE_OUTPUT_OR_AVAILABILITY_SOURCE,
     withoutColumnsFromSelect(OFFER_COLUMNS_WITHOUT_FIRST_CHECKED_IMAGE_OUTPUT_OR_AVAILABILITY_SOURCE, "cache_hit_rate", "cache_hit_sample_tokens"),
   ];
-  let lastError: unknown = null;
+  const attempts = Array.from(new Set(baseAttempts.flatMap((columns) => [
+    columns,
+    withoutColumnsFromSelect(columns, "availability_latest_latency_ms", "availability_avg_latency_7d_ms"),
+  ])));
+  let lastError: unknown = previousError;
   for (const columns of attempts) {
     try {
       return await queryPublicOfferRows(client, publicTransitReadSignal(), columns, stationId);
@@ -471,10 +520,15 @@ async function queryPublishedStationRows(
 ): Promise<DbRow[]> {
   const attempts = Array.from(new Set([
     STATION_CORE_COLUMNS,
+    STATION_CORE_COLUMNS_WITHOUT_LATENCY,
     withoutColumnsFromSelect(STATION_CORE_COLUMNS, ...STATION_OPERATOR_COLUMNS),
+    withoutColumnsFromSelect(STATION_CORE_COLUMNS_WITHOUT_LATENCY, ...STATION_OPERATOR_COLUMNS),
     withoutColumn(STATION_CORE_COLUMNS, "station_system"),
+    withoutColumn(STATION_CORE_COLUMNS_WITHOUT_LATENCY, "station_system"),
     withoutColumnsFromSelect(withoutColumn(STATION_CORE_COLUMNS, "station_system"), ...STATION_OPERATOR_COLUMNS),
+    withoutColumnsFromSelect(withoutColumn(STATION_CORE_COLUMNS_WITHOUT_LATENCY, "station_system"), ...STATION_OPERATOR_COLUMNS),
     STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE,
+    STATION_CORE_COLUMNS_WITHOUT_LATENCY_OR_AVAILABILITY_SOURCE,
     withoutColumnsFromSelect(STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, ...STATION_OPERATOR_COLUMNS),
     withoutColumn(STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, "station_system"),
     withoutColumnsFromSelect(withoutColumn(STATION_CORE_COLUMNS_WITHOUT_AVAILABILITY_SOURCE, "station_system"), ...STATION_OPERATOR_COLUMNS),
@@ -769,6 +823,8 @@ function mapStationRow(
       sevenDaySamples: integerValue(row.availability_seven_day_samples) || 0,
       firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
+      latestLatencyMs: integerValue(row.availability_latest_latency_ms),
+      avgLatency7dMs: integerValue(row.availability_avg_latency_7d_ms),
       note: nullableString(row.availability_note) || undefined,
       sourceType: source.type,
       sourceLabel: source.label,
@@ -820,6 +876,8 @@ function mapOfferRow(
       sevenDaySamples: integerValue(row.availability_seven_day_samples) || 0,
       firstCheckedAt: nullableTimestamp(row.availability_first_checked_at),
       lastCheckedAt: nullableTimestamp(row.availability_last_checked_at),
+      latestLatencyMs: integerValue(row.availability_latest_latency_ms),
+      avgLatency7dMs: integerValue(row.availability_avg_latency_7d_ms),
       note: nullableString(row.availability_note) || undefined,
       sourceType: source.type,
       sourceLabel: source.label,

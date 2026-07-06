@@ -662,6 +662,7 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
 
   const deduped = dedupeBestOffers(offers);
   const availabilitySamples = aiTransitAvailabilitySamples(source, payload, collectedAt);
+  applyAiTransitTimelineAvailability(deduped, availabilitySamples);
   const collectionError = deduped.length ? null : "ai-transit 快照未返回可识别的 PriceAI 标准模型。";
   const warnings = Array.isArray(payload?.completeness?.warnings)
     ? payload.completeness.warnings.map(stringOrNull).filter(Boolean)
@@ -746,6 +747,8 @@ function buildAiTransitSnapshotOfferRow({
     availability_seven_day_samples: availabilitySource.samples,
     availability_first_checked_at: availabilitySource.firstCheckedAt,
     availability_last_checked_at: availabilitySource.lastCheckedAt,
+    availability_latest_latency_ms: availabilitySource.latestLatencyMs ?? null,
+    availability_avg_latency_7d_ms: availabilitySource.avgLatency7dMs ?? null,
     availability_note: availabilitySource.note,
     availability_source_type: availabilitySource.availability_source_type || "public_model_catalog",
     availability_source_label: availabilitySource.availability_source_label || "公开模型页",
@@ -898,11 +901,19 @@ function aiTransitAvailabilityFromMonitoringItem(item, standard, generatedAt, so
   const rateValue = numberValue(item?.availability_7d);
   const rate = rateValue === null ? null : percentValueToRate(rateValue);
   const lastCheckedAt = stringOrNull(item?.last_checked_at) || generatedAt;
+  const timeline = Array.isArray(item?.timeline) ? item.timeline : [];
+  const sampleCount = explicitAvailabilitySampleCount(item) ?? timeline.length;
+  const firstCheckedAt = earliestTimestampFromValues([
+    ...timeline.map((point) => stringOrNull(point?.checked_at)),
+    lastCheckedAt,
+  ]);
   return {
     rate,
-    samples: rate === null ? 0 : 1,
-    firstCheckedAt: lastCheckedAt,
+    samples: rate === null ? 0 : Math.max(0, sampleCount),
+    firstCheckedAt,
     lastCheckedAt,
+    latestLatencyMs: integerValue(item?.latest_latency_ms),
+    avgLatency7dMs: integerValue(item?.avg_latency_7d_ms),
     note: `${source.name} ai-transit 公开监测：${standard || "模型"} 最新状态 ${stringOrNull(item?.latest_status || item?.primary_status) || "unknown"}，7 日可用率 ${formatPercentValue(rateValue)}，最近延迟 ${formatLatencyMs(item?.latest_latency_ms)}；非 PriceAI API Key 实测。`,
     ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
   };
@@ -915,26 +926,68 @@ function aiTransitAvailabilitySamples(source, payload, collectedAt) {
     const standard = standardizeModelName(item?.primary_model || groupName || "");
     const timeline = Array.isArray(item?.timeline) ? item.timeline : [];
     timeline.forEach((point, index) => {
-      samples.push(buildAvailabilitySampleRow({
+      const sampleInput = {
         stationId: source.id,
-        scope: "station",
         standardModel: standard,
         groupName,
         ok: String(point?.status || "").toLowerCase() === "operational",
         checkedAt: stringOrNull(point?.checked_at) || collectedAt,
+        latencyMs: integerValue(point?.latency_ms),
+        pingLatencyMs: integerValue(point?.ping_latency_ms),
         index,
         source,
         availabilitySource: AVAILABILITY_SOURCES.publicStatus,
+      };
+      samples.push(buildAvailabilitySampleRow({
+        ...sampleInput,
+        scope: "station",
       }));
+      if (standard && groupName) {
+        samples.push(buildAvailabilitySampleRow({
+          ...sampleInput,
+          scope: "offer",
+        }));
+      }
     });
   }
   return samples;
 }
 
+function applyAiTransitTimelineAvailability(offers, availabilitySamples) {
+  const samplesByOffer = new Map();
+  for (const sample of availabilitySamples || []) {
+    if (sample.scope !== "offer") continue;
+    const key = offerKey({
+      station_id: sample.station_id,
+      standard_model: sample.standard_model,
+      group_name: sample.group_name,
+    });
+    samplesByOffer.set(key, [...(samplesByOffer.get(key) || []), sample]);
+  }
+
+  for (const offer of offers || []) {
+    const samples = samplesByOffer.get(offerKey(offer));
+    if (!samples?.length) continue;
+    const times = samples.map((sample) => stringOrNull(sample.checked_at)).filter(Boolean).sort();
+    const okSamples = samples.filter((sample) => sample.ok).length;
+    offer.availability_seven_day_samples = samples.length;
+    offer.availability_first_checked_at = times[0] || offer.availability_first_checked_at;
+    offer.availability_last_checked_at = times.at(-1) || offer.availability_last_checked_at;
+    offer.availability_latest_latency_ms = offer.availability_latest_latency_ms ?? latestLatencyFromSamples(samples);
+    offer.availability_avg_latency_7d_ms = offer.availability_avg_latency_7d_ms ?? averageLatencyFromSamples(samples);
+    if (offer.availability_seven_day_rate === null || offer.availability_seven_day_rate === undefined) {
+      offer.availability_seven_day_rate = round(okSamples / samples.length, 6);
+    }
+    offer.last_verified_at = offer.availability_last_checked_at || offer.last_verified_at;
+  }
+}
+
 function summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilitySamples, generatedAt, source) {
   const availabilityValues = Array.from(availabilityByKey.values()).filter((item) => item.rate !== null);
-  const sampleTimes = (availabilitySamples || []).map((sample) => stringOrNull(sample.checked_at)).filter(Boolean).sort();
-  if (!availabilityValues.length && !availabilitySamples?.length) {
+  const stationSamples = (availabilitySamples || []).filter((sample) => sample.scope !== "offer");
+  const summarySamples = stationSamples.length ? stationSamples : (availabilitySamples || []);
+  const sampleTimes = summarySamples.map((sample) => stringOrNull(sample.checked_at)).filter(Boolean).sort();
+  if (!availabilityValues.length && !summarySamples.length) {
     return {
       rate: null,
       samples: 0,
@@ -945,16 +998,61 @@ function summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilityS
     };
   }
 
-  const okSamples = (availabilitySamples || []).filter((sample) => sample.ok).length;
-  const sampleRate = availabilitySamples?.length ? okSamples / availabilitySamples.length : null;
+  const okSamples = summarySamples.filter((sample) => sample.ok).length;
+  const sampleRate = summarySamples.length ? okSamples / summarySamples.length : null;
+  const valueRate = weightedAvailabilityValueRate(availabilityValues);
   return {
-    rate: sampleRate ?? round(availabilityValues.reduce((sum, item) => sum + item.rate, 0) / availabilityValues.length, 6),
-    samples: availabilitySamples?.length || availabilityValues.length,
+    rate: valueRate ?? sampleRate,
+    samples: summarySamples.length || availabilityValues.length,
     firstCheckedAt: sampleTimes[0] || availabilityValues.map((item) => item.firstCheckedAt).filter(Boolean).sort().at(0) || null,
     lastCheckedAt: sampleTimes.at(-1) || availabilityValues.map((item) => item.lastCheckedAt).filter(Boolean).sort().at(-1) || generatedAt,
+    latestLatencyMs:
+      latestLatencyFromAvailabilityValues(availabilityValues) ??
+      latestLatencyFromSamples(summarySamples) ??
+      availabilityValues.map((item) => item.latestLatencyMs).filter((value) => value !== null && value !== undefined).at(0) ??
+      null,
+    avgLatency7dMs: averageValue(availabilityValues.map((item) => item.avgLatency7dMs)) ?? averageLatencyFromSamples(summarySamples),
     note: "ai-transit 公开快照监测汇总；该口径来自站点公开监测，不等同 PriceAI API Key 实测。",
     ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
   };
+}
+
+function weightedAvailabilityValueRate(availabilityValues) {
+  const values = (availabilityValues || []).filter((item) => item.rate !== null && item.rate !== undefined);
+  if (!values.length) return null;
+  const totalSamples = values.reduce((total, item) => total + Math.max(1, item.samples || 0), 0);
+  if (totalSamples <= 0) return round(values.reduce((sum, item) => sum + item.rate, 0) / values.length, 6);
+  return round(values.reduce((sum, item) => sum + item.rate * Math.max(1, item.samples || 0), 0) / totalSamples, 6);
+}
+
+function explicitAvailabilitySampleCount(item) {
+  return integerValue(item?.sample_count_7d ?? item?.samples_7d ?? item?.check_count_7d ?? item?.checks_7d);
+}
+
+function latestLatencyFromAvailabilityValues(values) {
+  return (values || [])
+    .filter((item) => item.latestLatencyMs !== null && item.latestLatencyMs !== undefined && item.lastCheckedAt)
+    .sort((left, right) => new Date(right.lastCheckedAt).getTime() - new Date(left.lastCheckedAt).getTime())[0]?.latestLatencyMs ?? null;
+}
+
+function latestLatencyFromSamples(samples) {
+  return (samples || [])
+    .filter((sample) => sample.latency_ms !== null && sample.latency_ms !== undefined && sample.checked_at)
+    .sort((left, right) => new Date(right.checked_at).getTime() - new Date(left.checked_at).getTime())[0]?.latency_ms ?? null;
+}
+
+function averageLatencyFromSamples(samples) {
+  return averageValue((samples || []).map((sample) => sample.latency_ms));
+}
+
+function averageValue(values) {
+  const numbers = (values || []).map(numberValue).filter((value) => value !== null && Number.isFinite(value));
+  if (!numbers.length) return null;
+  return Math.round(numbers.reduce((total, value) => total + value, 0) / numbers.length);
+}
+
+function earliestTimestampFromValues(values) {
+  return values.filter(Boolean).sort().at(0) || null;
 }
 
 function aiTransitAvailabilityKey(groupName, standard) {
@@ -1357,6 +1455,8 @@ function applyAvailabilityToOffer(offer, availability) {
   offer.availability_first_checked_at = availability.firstCheckedAt;
   offer.availability_last_checked_at = availability.lastCheckedAt;
   offer.availability_note = availability.note;
+  offer.availability_latest_latency_ms = availability.latestLatencyMs ?? null;
+  offer.availability_avg_latency_7d_ms = availability.avgLatency7dMs ?? null;
   offer.availability_source_type = availability.availability_source_type || offer.availability_source_type || "unknown";
   offer.availability_source_label = availability.availability_source_label ?? offer.availability_source_label ?? null;
   offer.availability_source_url = availability.availability_source_url ?? offer.availability_source_url ?? null;
@@ -1378,6 +1478,7 @@ function buildAvailabilitySampleRow(input) {
       standardModel || "station",
       groupName || "default",
       String(input.index || 0),
+      checkedAt,
     ),
     run_id: null,
     station_id: stationId,
@@ -1385,6 +1486,8 @@ function buildAvailabilitySampleRow(input) {
     standard_model: standardModel,
     group_name: groupName,
     ok: Boolean(input.ok),
+    latency_ms: integerValue(input.latencyMs),
+    ping_latency_ms: integerValue(input.pingLatencyMs),
     checked_at: checkedAt,
     source_type: input.availabilitySource?.type || "unknown",
     source_label: input.availabilitySource?.label || null,
@@ -2101,6 +2204,8 @@ function buildStationRow(source, collectedAt, collection = {}) {
     availability_seven_day_samples: availability.samples ?? 0,
     availability_first_checked_at: availability.firstCheckedAt ?? null,
     availability_last_checked_at: availability.lastCheckedAt ?? null,
+    availability_latest_latency_ms: availability.latestLatencyMs ?? null,
+    availability_avg_latency_7d_ms: availability.avgLatency7dMs ?? null,
     availability_note: availability.note || "已抓取公开价格，尚未接入 API Key 可用性检测。",
     ...availabilitySourceFields(source, availability),
     feedback_pending_count: 0,
@@ -2574,6 +2679,10 @@ async function upsertOfferRows(supabase, offers) {
   const attempts = [
     { rows: offers, compatibility: null },
     {
+      rows: removeLatencyFields(offers),
+      compatibility: "api_transit_offers latency columns missing; wrote offers without latency summary.",
+    },
+    {
       rows: removeFieldsFromRows(offers, ["cache_hit_rate", "cache_hit_sample_tokens"]),
       compatibility: "api_transit_offers cache hit columns missing; wrote offers without cumulative cache hit usage.",
     },
@@ -2586,23 +2695,23 @@ async function upsertOfferRows(supabase, offers) {
       compatibility: "api_transit_offers.image_output_price column missing; wrote offers without image output split.",
     },
     {
-      rows: removeFieldsFromRows(offers, ["availability_first_checked_at", "image_output_price"]),
+      rows: removeFieldsFromRows(removeLatencyFields(offers), ["availability_first_checked_at", "image_output_price"]),
       compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window and image output split.",
     },
     {
-      rows: removeFieldsFromRows(offers, ["availability_first_checked_at", "image_output_price", "cache_hit_rate", "cache_hit_sample_tokens"]),
+      rows: removeFieldsFromRows(removeLatencyFields(offers), ["availability_first_checked_at", "image_output_price", "cache_hit_rate", "cache_hit_sample_tokens"]),
       compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window, image output split, and cache hit usage.",
     },
     {
-      rows: removeAvailabilitySourceFields(offers),
+      rows: removeAvailabilitySourceFields(removeLatencyFields(offers)),
       compatibility: "api_transit_offers availability source columns missing; wrote offers without source labels.",
     },
     {
-      rows: removeFieldsFromRows(removeAvailabilitySourceFields(offers), ["availability_first_checked_at", "image_output_price"]),
+      rows: removeFieldsFromRows(removeAvailabilitySourceFields(removeLatencyFields(offers)), ["availability_first_checked_at", "image_output_price"]),
       compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window, image output split, or source labels.",
     },
     {
-      rows: removeFieldsFromRows(removeAvailabilitySourceFields(offers), ["availability_first_checked_at", "image_output_price", "cache_hit_rate", "cache_hit_sample_tokens"]),
+      rows: removeFieldsFromRows(removeAvailabilitySourceFields(removeLatencyFields(offers)), ["availability_first_checked_at", "image_output_price", "cache_hit_rate", "cache_hit_sample_tokens"]),
       compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window, image output split, source labels, or cache hit usage.",
     },
   ];
@@ -2618,6 +2727,8 @@ async function upsertOfferRows(supabase, offers) {
         !isMissingColumnError(error, "image_output_price") &&
         !isMissingColumnError(error, "cache_hit_rate") &&
         !isMissingColumnError(error, "cache_hit_sample_tokens") &&
+        !isMissingColumnError(error, "availability_latest_latency_ms") &&
+        !isMissingColumnError(error, "availability_avg_latency_7d_ms") &&
         !isAvailabilitySourceColumnError(error)
       ) {
         throw error;
@@ -2637,6 +2748,51 @@ function postRowsMessage(options, refreshedOfferKeys, autoPublishStationIds) {
 }
 
 async function readExistingOffers(supabase, offers) {
+  const stationIds = uniqueText(offers.map((offer) => offer.station_id)).filter(Boolean);
+  const byId = new Map();
+  for (const chunk of chunks(stationIds, 100)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from("api_transit_offers")
+      .select(
+        [
+          "id",
+          "station_id",
+          "standard_model",
+          "group_name",
+          "status",
+          "created_at",
+          "availability_seven_day_rate",
+          "availability_seven_day_samples",
+          "availability_first_checked_at",
+          "availability_last_checked_at",
+          "availability_latest_latency_ms",
+          "availability_avg_latency_7d_ms",
+          "availability_note",
+          "availability_source_type",
+          "availability_source_label",
+          "availability_source_url",
+        ].join(","),
+      )
+      .in("station_id", chunk);
+    if (error) {
+      if (isMissingColumnError(error, "availability_first_checked_at")) {
+        return readExistingOffersWithoutFirstCheckedAt(supabase, offers);
+      }
+      if (
+        isMissingColumnError(error, "availability_latest_latency_ms") ||
+        isMissingColumnError(error, "availability_avg_latency_7d_ms")
+      ) {
+        return readExistingOffersWithoutLatency(supabase, offers);
+      }
+      throw error;
+    }
+    for (const row of data || []) byId.set(offerKey(row), row);
+  }
+  return byId;
+}
+
+async function readExistingOffersWithoutLatency(supabase, offers) {
   const stationIds = uniqueText(offers.map((offer) => offer.station_id)).filter(Boolean);
   const byId = new Map();
   for (const chunk of chunks(stationIds, 100)) {
@@ -2730,6 +2886,8 @@ async function readExistingStations(supabase, stationIds) {
     "availability_seven_day_samples",
     "availability_first_checked_at",
     "availability_last_checked_at",
+    "availability_latest_latency_ms",
+    "availability_avg_latency_7d_ms",
     "availability_note",
     "availability_source_type",
     "availability_source_label",
@@ -2795,6 +2953,8 @@ function mergeStationForRefresh(station, existing, options) {
     commercial_offers: existing.commercial_offers ?? station.commercial_offers,
     verification_events: existing.verification_events ?? station.verification_events,
     availability_first_checked_at: existing.availability_first_checked_at || station.availability_first_checked_at,
+    availability_latest_latency_ms: station.availability_latest_latency_ms ?? existing.availability_latest_latency_ms,
+    availability_avg_latency_7d_ms: station.availability_avg_latency_7d_ms ?? existing.availability_avg_latency_7d_ms,
     published: shouldPublish ? true : Boolean(existing.published),
     admin_note: shouldPublish && row.collection_status === "success" ? row.admin_note : existing.admin_note || station.admin_note,
     created_at: existing.created_at || station.created_at,
@@ -2810,6 +2970,8 @@ function mergeExistingAvailability(row, existing) {
     availability_seven_day_samples: existing.availability_seven_day_samples ?? row.availability_seven_day_samples,
     availability_first_checked_at: existing.availability_first_checked_at || row.availability_first_checked_at,
     availability_last_checked_at: existing.availability_last_checked_at || row.availability_last_checked_at,
+    availability_latest_latency_ms: existing.availability_latest_latency_ms ?? row.availability_latest_latency_ms,
+    availability_avg_latency_7d_ms: existing.availability_avg_latency_7d_ms ?? row.availability_avg_latency_7d_ms,
     availability_note: existing.availability_note || row.availability_note,
     availability_source_type: existing.availability_source_type,
     availability_source_label: existing.availability_source_label ?? row.availability_source_label ?? null,
@@ -2858,6 +3020,8 @@ async function upsertRows(supabase, table, rows, options = {}) {
       table === "api_transit_stations" &&
       (
         isMissingColumnError(error, "availability_first_checked_at") ||
+        isMissingColumnError(error, "availability_latest_latency_ms") ||
+        isMissingColumnError(error, "availability_avg_latency_7d_ms") ||
         isMissingColumnError(error, "station_system") ||
         isMissingColumnError(error, "operator_type") ||
         isMissingColumnError(error, "invoice_support")
@@ -2870,14 +3034,14 @@ async function upsertRows(supabase, table, rows, options = {}) {
       throw fallbackError;
     }
     if (error && table === "api_transit_stations" && isAvailabilitySourceColumnError(error)) {
-      const compatibleChunk = removeAvailabilitySourceFields(chunk);
+      const compatibleChunk = removeAvailabilitySourceFields(removeLatencyFields(chunk));
       const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
       if (!fallbackError) continue;
       fallbackError.table = table;
       throw fallbackError;
     }
-    if (error && table === "api_transit_availability_samples" && isSampleSourceColumnError(error)) {
-      const compatibleChunk = removeSampleSourceFields(chunk);
+    if (error && table === "api_transit_availability_samples" && isSampleOptionalColumnError(error)) {
+      const compatibleChunk = removeSampleOptionalFields(chunk, error);
       const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
       if (!fallbackError) continue;
       fallbackError.table = table;
@@ -2914,6 +3078,8 @@ function compatibleExistingStationColumnsToRemove(column) {
 function compatibleStationUpsertFieldsToRemove() {
   return [
     "availability_first_checked_at",
+    "availability_latest_latency_ms",
+    "availability_avg_latency_7d_ms",
     "station_system",
     "operator_type",
     "invoice_support",
@@ -2931,8 +3097,26 @@ function removeAvailabilitySourceFields(rows) {
   ]);
 }
 
+function removeLatencyFields(rows) {
+  return removeFieldsFromRows(rows, [
+    "availability_latest_latency_ms",
+    "availability_avg_latency_7d_ms",
+  ]);
+}
+
 function removeSampleSourceFields(rows) {
   return removeFieldsFromRows(rows, ["source_type", "source_label", "source_url"]);
+}
+
+function removeSampleLatencyFields(rows) {
+  return removeFieldsFromRows(rows, ["latency_ms", "ping_latency_ms"]);
+}
+
+function removeSampleOptionalFields(rows, error) {
+  let next = rows;
+  if (isSampleSourceColumnError(error)) next = removeSampleSourceFields(next);
+  if (isSampleLatencyColumnError(error)) next = removeSampleLatencyFields(next);
+  return next;
 }
 
 function loadSources() {
@@ -3015,6 +3199,17 @@ function isSampleSourceColumnError(error) {
     isMissingColumnError(error, "source_label") ||
     isMissingColumnError(error, "source_url")
   );
+}
+
+function isSampleLatencyColumnError(error) {
+  return (
+    isMissingColumnError(error, "latency_ms") ||
+    isMissingColumnError(error, "ping_latency_ms")
+  );
+}
+
+function isSampleOptionalColumnError(error) {
+  return isSampleSourceColumnError(error) || isSampleLatencyColumnError(error);
 }
 
 function compactSnapshot(payload) {
@@ -3127,6 +3322,11 @@ function numberValue(value) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function integerValue(value) {
+  const parsed = numberValue(value);
+  return parsed === null ? null : Math.round(parsed);
 }
 
 function stringOrNull(value) {

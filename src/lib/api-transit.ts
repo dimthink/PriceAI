@@ -512,11 +512,21 @@ export type TransitFamilyRateSummary = {
   sevenDaySamples: number;
   firstCheckedAt: string | null;
   lastCheckedAt: string | null;
+  latestLatencyMs: number | null;
+  avgLatency7dMs: number | null;
 };
 
 export type TransitAvailabilityRollup = Pick<
   TransitAvailability,
-  "sevenDayRate" | "sevenDaySamples" | "firstCheckedAt" | "lastCheckedAt" | "sourceType" | "sourceLabel" | "sourceUrl"
+  | "sevenDayRate"
+  | "sevenDaySamples"
+  | "firstCheckedAt"
+  | "lastCheckedAt"
+  | "latestLatencyMs"
+  | "avgLatency7dMs"
+  | "sourceType"
+  | "sourceLabel"
+  | "sourceUrl"
 > & {
   note?: string;
 };
@@ -557,6 +567,8 @@ function summarizeRateScope(
       .filter((value): value is string => Boolean(value))
       .sort()
       .at(0) ?? null;
+  const latestLatencyMs = latestLatencyFromPrices(prices);
+  const avgLatency7dMs = weightedAverageLatency(prices);
 
   return {
     family,
@@ -570,6 +582,8 @@ function summarizeRateScope(
     sevenDaySamples: availabilitySamples,
     firstCheckedAt,
     lastCheckedAt,
+    latestLatencyMs,
+    avgLatency7dMs,
   };
 }
 
@@ -719,6 +733,8 @@ export function getStationPublishedAvailabilitySummary(station: TransitStation):
     sevenDaySamples: samples,
     firstCheckedAt,
     lastCheckedAt,
+    latestLatencyMs: latestLatencyFromSummaries(summaries),
+    avgLatency7dMs: weightedAverageLatencyFromSummaries(summaries),
     note: `按当前公开模型分组汇总：${formatPercent(roundAvailabilityRate(weightedRate))} · 样本 ${samples}`,
     sourceType: source.sourceType,
     sourceLabel: source.sourceLabel,
@@ -1307,6 +1323,22 @@ export function formatCacheHitRate(cacheUsage: TransitModelPrice["cacheUsage"] |
   return formatPercent(cacheUsage.hitRate);
 }
 
+export function getCacheHitRateBadgeClass(cacheUsage: TransitModelPrice["cacheUsage"] | null | undefined): string {
+  if (!cacheUsage || cacheUsage.sampleTokens <= 0 || cacheUsage.hitRate === null) {
+    return "bg-[#f2f4f4] text-[#7f8889]";
+  }
+  if (cacheUsage.hitRate >= 0.9) return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (cacheUsage.hitRate >= 0.8) return "bg-[#eef3f8] text-[#47657a]";
+  if (cacheUsage.hitRate >= 0.5) return "bg-[#fff7e8] text-[#7a541b]";
+  return "bg-[#fbe9e7] text-[#9b3328]";
+}
+
+export function formatTransitLatencyMs(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "未记录";
+  if (value >= 1000) return `${formatCompactNumber(value / 1000)}s`;
+  return `${Math.round(value)}ms`;
+}
+
 export function getRepresentativeCacheUsage(
   prices: TransitModelPrice[]
 ): TransitModelPrice["cacheUsage"] | undefined {
@@ -1319,6 +1351,58 @@ export function getRepresentativeCacheUsage(
       if (leftHasSamples !== rightHasSamples) return leftHasSamples ? -1 : 1;
       return right.sampleTokens - left.sampleTokens;
     })[0];
+}
+
+function latestLatencyFromPrices(prices: TransitModelPrice[]): number | null {
+  return prices
+    .filter((price) => price.availability.latestLatencyMs !== null && price.availability.latestLatencyMs !== undefined)
+    .sort((left, right) => {
+      const leftTime = new Date(left.availability.lastCheckedAt || left.lastVerifiedAt).getTime();
+      const rightTime = new Date(right.availability.lastCheckedAt || right.lastVerifiedAt).getTime();
+      return rightTime - leftTime;
+    })[0]?.availability.latestLatencyMs ?? null;
+}
+
+function weightedAverageLatency(prices: TransitModelPrice[]): number | null {
+  let total = 0;
+  let samples = 0;
+  for (const price of prices) {
+    const latency = price.availability.avgLatency7dMs;
+    if (latency === null || latency === undefined || !Number.isFinite(latency)) continue;
+    const weight = Math.max(1, price.availability.sevenDaySamples || 0);
+    total += latency * weight;
+    samples += weight;
+  }
+  return samples > 0 ? total / samples : null;
+}
+
+function latestLatencyFromSummaries(summaries: TransitFamilyRateSummary[]): number | null {
+  return summaries
+    .filter((summary) => summary.latestLatencyMs !== null && summary.latestLatencyMs !== undefined)
+    .sort((left, right) => {
+      const leftTime = new Date(left.lastCheckedAt || left.firstCheckedAt || 0).getTime();
+      const rightTime = new Date(right.lastCheckedAt || right.firstCheckedAt || 0).getTime();
+      return rightTime - leftTime;
+    })[0]?.latestLatencyMs ?? null;
+}
+
+function weightedAverageLatencyFromSummaries(summaries: TransitFamilyRateSummary[]): number | null {
+  let total = 0;
+  let samples = 0;
+  for (const summary of summaries) {
+    if (summary.avgLatency7dMs === null || summary.avgLatency7dMs === undefined || !Number.isFinite(summary.avgLatency7dMs)) {
+      continue;
+    }
+    const weight = Math.max(1, summary.sevenDaySamples || 0);
+    total += summary.avgLatency7dMs * weight;
+    samples += weight;
+  }
+  return samples > 0 ? total / samples : null;
+}
+
+function formatCompactNumber(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
 }
 
 export function formatAvailability(

@@ -502,12 +502,18 @@ assert.equal(aiTransitGpt.cache_read_price, 0.1);
 assert.equal(aiTransitGpt.cache_hit_rate, 0.88);
 assert.equal(aiTransitGpt.cache_hit_sample_tokens, 10000);
 assert.equal(aiTransitGpt.availability_seven_day_rate, 0.965);
+assert.equal(aiTransitGpt.availability_seven_day_samples, 2);
+assert.equal(aiTransitGpt.availability_latest_latency_ms, 1985);
+assert.equal(aiTransitGpt.availability_avg_latency_7d_ms, 1005);
 assert.equal(aiTransitGpt.availability_source_type, "public_status");
 const aiTransitImage = aiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT Image 2");
 assert.equal(aiTransitImage.family, "image");
 assert.equal(aiTransitImage.image_output_price, 0.000001);
-assert.equal(aiTransitSnapshot.availabilitySamples.length, 2);
-assert.equal(aiTransitSnapshot.station.availability_seven_day_rate, 0.5);
+assert.equal(aiTransitSnapshot.availabilitySamples.length, 4);
+assert.equal(aiTransitSnapshot.station.availability_seven_day_rate, 0.965);
+assert.equal(aiTransitSnapshot.station.availability_seven_day_samples, 2);
+assert.equal(aiTransitSnapshot.station.availability_latest_latency_ms, 1985);
+assert.equal(aiTransitSnapshot.station.availability_avg_latency_7d_ms, 1005);
 
 const onehopSource = {
   id: "onehop-ai",

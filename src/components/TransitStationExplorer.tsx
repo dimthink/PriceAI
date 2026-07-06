@@ -44,6 +44,7 @@ import {
   getRechargeCoefficientFromRatio,
   formatMultiplierRange,
   formatRate,
+  getCacheHitRateBadgeClass,
   getRateBadgeClass,
   getEffectiveTransitChannelTypes,
   getAvailabilitySourceMeta,
@@ -517,11 +518,7 @@ function PriceBreakdownCell({
       </div>
       <div className="flex items-center gap-1.5 text-[11px] font-semibold">
         <span className="shrink-0 text-[10px] font-extrabold text-[#7f8889]">缓存命中率</span>
-        <span className={`rounded-full px-2 py-0.5 tabular-nums ${
-          cacheUsage && cacheUsage.sampleTokens > 0 && cacheUsage.hitRate !== null
-            ? "bg-[#eef3f8] text-[#47657a]"
-            : "bg-[#f2f4f4] text-[#7f8889]"
-        }`}>
+        <span className={`rounded-full px-2 py-0.5 tabular-nums ${getCacheHitRateBadgeClass(cacheUsage)}`}>
           {formatCacheHitRate(cacheUsage)}
         </span>
       </div>
