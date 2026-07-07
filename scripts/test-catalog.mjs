@@ -452,11 +452,68 @@ const deliveryNegativeCases = [
   ["【推荐】GPT Plus充值CDK - pix 自动充值渠道非成品需自备账号", "delivery_account"],
   ["Claude code MAX20 CDK 代充到自己账号 质保订阅30天", "delivery_account"],
   ["GPT Team Business 母号 自动拉", "delivery_recharge"],
+  ["GPT PLUS自助开通（*仅免费试用资格新号） 新号都可以", "delivery_account"],
+  ["GPT Plus 一个月会员 -卡密自助 欧洲渠道【仅支持新号或老号有试用】", "delivery_account"],
+  ["GPTPLUS镜像站【周卡】", "delivery_account"],
+  ["chatgptplus多人体验号无质保", "delivery_account"],
 ];
 
 for (const [title, unexpectedTag] of deliveryNegativeCases) {
   const tags = deriveOfferFilterTags({ sourceTitle: title });
   assert.ok(!tags.includes(unexpectedTag), `${title} should not include ${unexpectedTag}. actual=${tags.join(",")}`);
+}
+
+const deliveryPollutionCases = [
+  [
+    {
+      sourceTitle: "GPT PLUS自助开通（*仅免费试用资格新号） 新号都可以",
+      tags: ["GPT成品号", "卡密", "自动发货"],
+    },
+    ["delivery_recharge"],
+    ["delivery_account"],
+  ],
+  [
+    {
+      sourceTitle: "GPTPLUS镜像站【周卡】",
+      tags: ["GPT-plus半成品号", "卡密", "自动发货"],
+    },
+    ["domestic_mirror_site"],
+    ["delivery_account"],
+  ],
+  [
+    {
+      sourceTitle: "chatgptplus多人体验号无质保",
+      tags: ["GPT成品号", "卡密", "自动发货"],
+    },
+    ["shared_access"],
+    ["delivery_account"],
+  ],
+  [
+    {
+      sourceTitle: "GPT Plus 成品号 未接码（欧洲渠道）",
+      tags: ["卡密", "自动发货"],
+    },
+    ["delivery_account"],
+    [],
+  ],
+  [
+    {
+      sourceTitle: "GPT PLUS自助开通（*仅免费试用资格新号） 新号都可以",
+      tags: ["自助开通", "卡密", "自动发货"],
+    },
+    ["delivery_recharge"],
+    ["delivery_account"],
+  ],
+];
+
+for (const [offer, expectedTags, unexpectedTags] of deliveryPollutionCases) {
+  const tags = deriveOfferFilterTags(offer);
+  for (const expectedTag of expectedTags) {
+    assert.ok(tags.includes(expectedTag), `${offer.sourceTitle} should include ${expectedTag}. actual=${tags.join(",")}`);
+  }
+  for (const unexpectedTag of unexpectedTags) {
+    assert.ok(!tags.includes(unexpectedTag), `${offer.sourceTitle} should not include ${unexpectedTag}. actual=${tags.join(",")}`);
+  }
 }
 
 const productFacetCases = buildOfferFilterFacets([

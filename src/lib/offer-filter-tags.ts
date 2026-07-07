@@ -318,6 +318,8 @@ export function deriveOfferFilterTags(input: {
   sourceTitle: string;
   tags?: string[] | null;
 }): OfferFilterTagId[] {
+  const titleText = normalizeOfferFilterText(input.sourceTitle || "");
+  const sourceTagsText = normalizeOfferFilterText((input.tags || []).join(" "));
   const text = normalizeOfferFilterText(`${input.sourceTitle || ""} ${(input.tags || []).join(" ")}`);
   const output = new Set<OfferFilterTagId>();
 
@@ -333,10 +335,14 @@ export function deriveOfferFilterTags(input: {
     output.add("domestic_mirror_site");
   }
 
-  if (hasSelfServiceDeliverySignal(text)) {
+  if (hasSelfServiceDeliverySignal(titleText) || hasSpecificDeliveryTagSignal(sourceTagsText)) {
     output.add("delivery_recharge");
   }
-  if (!hasAccountDeliveryNegativeSignal(text) && hasAccountDeliverySignal(text)) {
+  if (
+    !hasAccountDeliveryNegativeSignal(text) &&
+    !hasAccountDeliveryExclusionSignal(titleText) &&
+    hasAccountDeliverySignal(titleText)
+  ) {
     output.add("delivery_account");
   }
 
@@ -467,8 +473,16 @@ function hasSelfServiceDeliverySignal(text: string): boolean {
   return /自助充值|自助开通|自助卡密|卡密自助|自助激活|自动充值|自动开通|自动激活|全自动激活|全自动开通|直充|代充|卡充|充值|续费|代开|内购|激活码|兑换码|cdk|卡密|提链|提取链接|支付二维码|扫码对接|upi扫码|pix渠道|ideal渠道|i deal渠道/.test(text);
 }
 
+function hasSpecificDeliveryTagSignal(text: string): boolean {
+  return /自助充值|自助开通|自助卡密|卡密自助|自助激活|自动充值|自动开通|自动激活|全自动激活|全自动开通|直充|代充|卡充|充值|续费|代开|内购|激活码|兑换码|cdk|提链|提取链接|支付二维码|扫码对接|upi扫码|pix渠道|ideal渠道|i deal渠道/.test(text);
+}
+
 function hasAccountDeliveryNegativeSignal(text: string): boolean {
   return /非成品|不是成品|非账号|不是账号|非账户|不是账户|不交付账号|不发账号|不提供账号|不含账号|无需账号|自备账号|自备号|自己账号|自己的账号|到自己账号|冲自己号|充值自己号|给自己号/.test(text);
+}
+
+function hasAccountDeliveryExclusionSignal(text: string): boolean {
+  return /自助充值|自助开通|自助领取|自助激活|自动充值|自动开通|自动激活|全自动激活|全自动开通|免费试用资格|试用资格|资格新号|仅支持新号|老号有试用|新号都可以|充值渠道非成品|非成品|自备账号|国内镜像站|国内镜像|网页镜像|镜像站|镜像|mirror|拼车|团购|拼团|车位|多人共享|多人共用|多人体验号/.test(text);
 }
 
 function hasAccountDeliverySignal(text: string): boolean {
