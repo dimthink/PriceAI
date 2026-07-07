@@ -32,6 +32,10 @@ assert.equal(configuredCallaiSource.stationSystem, "sub_to_api");
 assert.equal(configuredCallaiSource.rechargeRatio, "1:1");
 assert.equal(configuredCallaiSource.autoPublish, true);
 assert.equal("partnerTokenEnv" in configuredCallaiSource, false);
+assert.deepEqual(configuredCallaiSource.groupAliases, {
+  "claude-kiro": "kiro",
+  gpt: "gpt-pro号池",
+});
 
 const scheduledPublishedRtocSources = __test.selectSources(
   __test.filterSourcesByPublishedStationIds(transitSourceConfig, new Set(["ai-rtoc-cc"])),
@@ -175,6 +179,68 @@ const preservedTrustedAvailabilityOffer = __test.mergeOfferForRefresh(
 assert.equal(preservedTrustedAvailabilityOffer.availability_source_type, "priceai_probe");
 assert.equal(preservedTrustedAvailabilityOffer.availability_seven_day_rate, 0.98);
 assert.equal(preservedTrustedAvailabilityOffer.availability_seven_day_samples, 50);
+
+const preservedRicherAvailabilityOffer = __test.mergeOfferForRefresh(
+  {
+    id: "new",
+    auto_publish: true,
+    status: "active",
+    created_at: "new",
+    cache_hit_rate: 0,
+    cache_hit_sample_tokens: 0,
+    availability_source_type: "public_model_catalog",
+    availability_seven_day_rate: null,
+    availability_seven_day_samples: 0,
+    availability_note: "ai-transit 公开快照已返回价格；该模型暂无公开监测样本，非 PriceAI API Key 实测。",
+  },
+  {
+    id: "old",
+    status: "active",
+    created_at: "old",
+    cache_hit_rate: 0.42,
+    cache_hit_sample_tokens: 2000,
+    availability_source_type: "public_status",
+    availability_source_label: "公开监测页",
+    availability_seven_day_rate: 0.75,
+    availability_seven_day_samples: 8,
+    availability_first_checked_at: "2026-07-01T00:00:00.000Z",
+    availability_last_checked_at: "2026-07-03T00:00:00.000Z",
+    availability_note: "旧公开监测样本。",
+  },
+  true,
+);
+assert.equal(preservedRicherAvailabilityOffer.availability_source_type, "public_status");
+assert.equal(preservedRicherAvailabilityOffer.availability_seven_day_rate, 0.75);
+assert.equal(preservedRicherAvailabilityOffer.cache_hit_rate, 0.42);
+assert.equal(preservedRicherAvailabilityOffer.cache_hit_sample_tokens, 2000);
+
+const incomingPublicStatusBeatsEmptyProbeOffer = __test.mergeOfferForRefresh(
+  {
+    id: "new",
+    auto_publish: true,
+    status: "active",
+    created_at: "new",
+    availability_source_type: "public_status",
+    availability_source_label: "公开监测页",
+    availability_seven_day_rate: 1,
+    availability_seven_day_samples: 1,
+    availability_last_checked_at: "2026-07-07T09:38:10.000Z",
+    availability_note: "ai-transit 公开监测样本。",
+  },
+  {
+    id: "old",
+    status: "active",
+    created_at: "old",
+    availability_source_type: "priceai_probe",
+    availability_source_label: "PriceAI 实测",
+    availability_seven_day_rate: null,
+    availability_seven_day_samples: 0,
+    availability_note: "暂无 PriceAI API Key 可用性探测样本。",
+  },
+  true,
+);
+assert.equal(incomingPublicStatusBeatsEmptyProbeOffer.availability_source_type, "public_status");
+assert.equal(incomingPublicStatusBeatsEmptyProbeOffer.availability_seven_day_samples, 1);
 
 const sources = [
   { id: "published-new-api" },
@@ -533,6 +599,57 @@ assert.equal(aiTransitSnapshot.station.availability_seven_day_samples, 2);
 assert.equal(aiTransitSnapshot.station.availability_latest_latency_ms, 1985);
 assert.equal(aiTransitSnapshot.station.availability_avg_latency_7d_ms, 1005);
 
+const callaiAiTransitSnapshot = __test.parsePricingPayload(
+  configuredCallaiSource,
+  {
+    schema_version: "ai-transit.v1",
+    system: "sub2api",
+    generated_at: "2026-07-07T09:20:00.000Z",
+    billing: {
+      recharge_ratio: "1 USD balance per 1 CNY",
+      recharge_multiplier: 1,
+    },
+    groups: [
+      {
+        name: "claude-kiro",
+        platform: "anthropic",
+        rate_multiplier: 0.3,
+        models: [
+          {
+            standard_model: "claude-opus-4-8",
+            raw_model: "claude-opus-4-8",
+            price: {
+              input_usd_per_token: 0.000005,
+              output_usd_per_token: 0.000025,
+              cache_read_usd_per_token: 0.0000005,
+              cache_write_usd_per_token: 0.00000625,
+            },
+          },
+        ],
+      },
+      {
+        name: "gpt",
+        platform: "openai",
+        rate_multiplier: 0.1,
+        models: [
+          {
+            standard_model: "gpt-5.5",
+            raw_model: "gpt-5.5",
+            price: {
+              input_usd_per_token: 0.000005,
+              output_usd_per_token: 0.00003,
+              cache_read_usd_per_token: 0.0000005,
+            },
+          },
+        ],
+      },
+    ],
+  },
+  "2026-07-07T09:20:00.000Z",
+);
+assert.equal(callaiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "Claude Opus 4.8").group_name, "kiro");
+assert.equal(callaiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5").group_name, "gpt-pro号池");
+
 const onehopSource = {
   id: "onehop-ai",
   name: "OneHop",
@@ -598,6 +715,28 @@ const stationRefreshFromUnknown = __test.mergeStationForRefresh(
 assert.equal(stationRefreshFromUnknown.station_system, "sub_to_api");
 assert.equal(stationRefreshFromUnknown.operator_type, "individual");
 assert.equal(stationRefreshFromUnknown.invoice_support, "supported");
+
+const stationRefreshPreservesProbeEvidence = __test.mergeStationForRefresh(
+  {
+    id: "sub-callai-one",
+    availability_source_type: "public_status",
+    availability_seven_day_rate: 0,
+    availability_seven_day_samples: 3,
+    availability_note: "ai-transit 公开快照监测汇总。",
+  },
+  {
+    id: "sub-callai-one",
+    availability_source_type: "priceai_probe",
+    availability_source_label: "PriceAI 实测",
+    availability_seven_day_rate: 0.992,
+    availability_seven_day_samples: 250,
+    availability_note: "PriceAI API Key 探测：近 7 日 站点 248/250 个样本成功。",
+    published: true,
+  },
+  {},
+);
+assert.equal(stationRefreshPreservesProbeEvidence.availability_source_type, "priceai_probe");
+assert.equal(stationRefreshPreservesProbeEvidence.availability_seven_day_samples, 250);
 
 const zivvParsed = __test.parseZivvModelHubPayload(
   {

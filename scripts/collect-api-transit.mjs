@@ -635,7 +635,8 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
   const offers = [];
 
   for (const group of groups) {
-    const groupName = stringOrNull(group?.name) || "default";
+    const rawGroupName = stringOrNull(group?.name) || "default";
+    const groupName = normalizeSourceGroupName(source, rawGroupName);
     const models = Array.isArray(group?.models) ? group.models : [];
 
     for (const model of models) {
@@ -651,8 +652,11 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
         rechargeRatio,
         generatedAt,
         collectedAt,
+        rawGroupName,
+        groupName,
         availability:
           availabilityByKey.get(aiTransitAvailabilityKey(groupName, standard)) ||
+          availabilityByKey.get(aiTransitAvailabilityKey(rawGroupName, standard)) ||
           availabilityByKey.get(aiTransitAvailabilityKey(null, standard)) ||
           null,
       });
@@ -692,6 +696,8 @@ function buildAiTransitSnapshotOfferRow({
   rechargeRatio,
   generatedAt,
   collectedAt,
+  rawGroupName,
+  groupName,
   availability,
 }) {
   const family = familyForStandardModel(standard);
@@ -700,9 +706,11 @@ function buildAiTransitSnapshotOfferRow({
   const splitMultipliers = getAiTransitSnapshotSplitMultipliers(unitPricesUsd, official, group?.rate_multiplier);
   if (!splitMultipliers || splitMultipliers.model === null || splitMultipliers.model <= 0) return null;
 
-  const groupName = stringOrNull(group?.name) || "default";
+  groupName = stringOrNull(groupName) || normalizeSourceGroupName(source, stringOrNull(group?.name) || "default");
+  rawGroupName = stringOrNull(rawGroupName) || stringOrNull(group?.name) || groupName;
   const sourceText = [
     groupName,
+    rawGroupName,
     group?.platform,
     group?.subscription_type,
     payload?.disclosure?.upstream_type,
@@ -762,6 +770,7 @@ function buildAiTransitSnapshotOfferRow({
       snapshot_generated_at: generatedAt,
       system: stringOrNull(payload?.system),
       group: compactAiTransitGroupPayload(group),
+      raw_group_name: rawGroupName,
       model,
       billing: payload?.billing || null,
       disclosure: payload?.disclosure || null,
@@ -878,12 +887,19 @@ function aiTransitAvailabilityByKey(payload, generatedAt, source) {
   const byKey = new Map();
   for (const item of Array.isArray(payload?.monitoring) ? payload.monitoring : []) {
     const standard = standardizeModelName([item?.primary_model, item?.name].filter(Boolean).join(" "));
-    const groupName = stringOrNull(item?.name);
+    const rawGroupName = stringOrNull(item?.name);
+    const groupName = rawGroupName ? normalizeSourceGroupName(source, rawGroupName) : null;
     if (standard) {
       byKey.set(
         aiTransitAvailabilityKey(groupName, standard),
         aiTransitAvailabilityFromMonitoringItem(item, standard, generatedAt, source),
       );
+      if (rawGroupName && rawGroupName !== groupName) {
+        byKey.set(
+          aiTransitAvailabilityKey(rawGroupName, standard),
+          aiTransitAvailabilityFromMonitoringItem(item, standard, generatedAt, source),
+        );
+      }
     }
 
     for (const model of Array.isArray(item?.models) ? item.models : []) {
@@ -922,7 +938,8 @@ function aiTransitAvailabilityFromMonitoringItem(item, standard, generatedAt, so
 function aiTransitAvailabilitySamples(source, payload, collectedAt) {
   const samples = [];
   for (const item of Array.isArray(payload?.monitoring) ? payload.monitoring : []) {
-    const groupName = stringOrNull(item?.name);
+    const rawGroupName = stringOrNull(item?.name);
+    const groupName = rawGroupName ? normalizeSourceGroupName(source, rawGroupName) : null;
     const standard = standardizeModelName(item?.primary_model || groupName || "");
     const timeline = Array.isArray(item?.timeline) ? item.timeline : [];
     timeline.forEach((point, index) => {
@@ -2771,6 +2788,59 @@ async function readExistingOffers(supabase, offers) {
           "group_name",
           "status",
           "created_at",
+          "cache_hit_rate",
+          "cache_hit_sample_tokens",
+          "availability_seven_day_rate",
+          "availability_seven_day_samples",
+          "availability_first_checked_at",
+          "availability_last_checked_at",
+          "availability_latest_latency_ms",
+          "availability_avg_latency_7d_ms",
+          "availability_note",
+          "availability_source_type",
+          "availability_source_label",
+          "availability_source_url",
+        ].join(","),
+      )
+      .in("station_id", chunk);
+    if (error) {
+      if (
+        isMissingColumnError(error, "cache_hit_rate") ||
+        isMissingColumnError(error, "cache_hit_sample_tokens")
+      ) {
+        return readExistingOffersWithoutCacheHit(supabase, offers);
+      }
+      if (isMissingColumnError(error, "availability_first_checked_at")) {
+        return readExistingOffersWithoutFirstCheckedAt(supabase, offers);
+      }
+      if (
+        isMissingColumnError(error, "availability_latest_latency_ms") ||
+        isMissingColumnError(error, "availability_avg_latency_7d_ms")
+      ) {
+        return readExistingOffersWithoutLatency(supabase, offers);
+      }
+      throw error;
+    }
+    for (const row of data || []) byId.set(offerKey(row), row);
+  }
+  return byId;
+}
+
+async function readExistingOffersWithoutCacheHit(supabase, offers) {
+  const stationIds = uniqueText(offers.map((offer) => offer.station_id)).filter(Boolean);
+  const byId = new Map();
+  for (const chunk of chunks(stationIds, 100)) {
+    if (!chunk.length) continue;
+    const { data, error } = await supabase
+      .from("api_transit_offers")
+      .select(
+        [
+          "id",
+          "station_id",
+          "standard_model",
+          "group_name",
+          "status",
+          "created_at",
           "availability_seven_day_rate",
           "availability_seven_day_samples",
           "availability_first_checked_at",
@@ -2856,12 +2926,12 @@ async function readExistingOffersWithoutFirstCheckedAt(supabase, offers) {
 function mergeOfferForRefresh(offer, existing, shouldActivate) {
   const row = { ...offer };
   delete row.auto_publish;
-  const merged = mergeExistingAvailability({
+  const merged = mergeExistingCacheHit(mergeExistingAvailability({
     ...row,
     id: existing?.id || offer.id,
     status: shouldActivate ? "active" : existing?.status || offer.status,
     created_at: existing?.created_at || offer.created_at,
-  }, existing);
+  }, existing), existing);
   return normalizeUnknownAvailability(merged, "价格已抓取，尚未运行 API 可用性检测。");
 }
 
@@ -2971,8 +3041,16 @@ function mergeStationForRefresh(station, existing, options) {
 }
 
 function mergeExistingAvailability(row, existing) {
-  if (!existing || (row.availability_source_type || "unknown") !== "unknown") return row;
-  if (!isTrustedAvailabilitySource(existing.availability_source_type)) return row;
+  if (!existing) return row;
+  const incomingSamples = Math.max(0, integerValue(row.availability_seven_day_samples) || 0);
+  const existingSamples = Math.max(0, integerValue(existing.availability_seven_day_samples) || 0);
+  if (existingSamples <= 0) return row;
+  const incomingPriority = availabilitySourcePriority(row.availability_source_type);
+  const existingPriority = availabilitySourcePriority(existing.availability_source_type);
+  const keepIncoming =
+    !isTrustedAvailabilitySource(existing.availability_source_type) ||
+    (incomingSamples > 0 && incomingPriority >= existingPriority);
+  if (keepIncoming) return row;
   return {
     ...row,
     availability_seven_day_rate: existing.availability_seven_day_rate ?? row.availability_seven_day_rate,
@@ -2990,6 +3068,27 @@ function mergeExistingAvailability(row, existing) {
 
 function isTrustedAvailabilitySource(sourceType) {
   return sourceType && sourceType !== "unknown";
+}
+
+function availabilitySourcePriority(sourceType) {
+  if (sourceType === "priceai_probe") return 50;
+  if (sourceType === "public_status") return 40;
+  if (sourceType === "partner_api") return 30;
+  if (sourceType === "merchant_reported") return 20;
+  if (sourceType === "public_model_catalog" || sourceType === "manual_snapshot") return 10;
+  return 0;
+}
+
+function mergeExistingCacheHit(row, existing) {
+  if (!existing) return row;
+  const incomingTokens = Math.max(0, integerValue(row.cache_hit_sample_tokens) || 0);
+  const existingTokens = Math.max(0, integerValue(existing.cache_hit_sample_tokens) || 0);
+  if (incomingTokens > 0 || existingTokens <= 0) return row;
+  return {
+    ...row,
+    cache_hit_rate: existing.cache_hit_rate ?? row.cache_hit_rate ?? null,
+    cache_hit_sample_tokens: existingTokens,
+  };
 }
 
 function normalizeUnknownAvailability(row, fallbackNote) {

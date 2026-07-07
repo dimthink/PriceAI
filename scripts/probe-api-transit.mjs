@@ -713,7 +713,7 @@ async function refreshAvailabilityRollup(supabase, stationId) {
     const scope = stringValue(row.scope);
 
     if (scope === "station") {
-      if (!availabilitySampleMatchesActiveOfferScope(row, activeOfferScope)) continue;
+      if (!availabilitySampleMatchesActiveOfferScope(row, activeOfferScope, { allowModelFallbackWithGroup: true })) continue;
       stationSamples.push(sample);
       extendSampleWindow(stationWindow, checkedAt);
       continue;
@@ -738,22 +738,24 @@ async function refreshAvailabilityRollup(supabase, stationId) {
   }
 
   const stationAvailability = summarizeSamples(stationSamples);
-  const stationUpdate = {
-    availability_seven_day_rate: stationAvailability.rate,
-    availability_seven_day_samples: stationAvailability.samples,
-    availability_first_checked_at: stationAvailability.samples ? stationFirstCheckedAt || stationWindow.first : null,
-    availability_last_checked_at: stationAvailability.samples ? stationWindow.last : null,
-    availability_note: availabilityNote("站点", stationAvailability),
-    availability_source_type: PRICEAI_PROBE_AVAILABILITY_SOURCE.type,
-    availability_source_label: PRICEAI_PROBE_AVAILABILITY_SOURCE.label,
-    availability_source_url: null,
-    last_updated_at: new Date().toISOString(),
-  };
-  const { error: stationError } = await updateAvailabilityRollup(
-    supabase.from("api_transit_stations").update(stationUpdate).eq("id", stationId),
-    supabase.from("api_transit_stations").update(removeOptionalAvailabilityFields(stationUpdate)).eq("id", stationId),
-  );
-  if (stationError) throw stationError;
+  if (stationAvailability.samples) {
+    const stationUpdate = {
+      availability_seven_day_rate: stationAvailability.rate,
+      availability_seven_day_samples: stationAvailability.samples,
+      availability_first_checked_at: stationFirstCheckedAt || stationWindow.first,
+      availability_last_checked_at: stationWindow.last,
+      availability_note: availabilityNote("站点", stationAvailability),
+      availability_source_type: PRICEAI_PROBE_AVAILABILITY_SOURCE.type,
+      availability_source_label: PRICEAI_PROBE_AVAILABILITY_SOURCE.label,
+      availability_source_url: null,
+      last_updated_at: new Date().toISOString(),
+    };
+    const { error: stationError } = await updateAvailabilityRollup(
+      supabase.from("api_transit_stations").update(stationUpdate).eq("id", stationId),
+      supabase.from("api_transit_stations").update(removeOptionalAvailabilityFields(stationUpdate)).eq("id", stationId),
+    );
+    if (stationError) throw stationError;
+  }
 
   const offerRollups = [];
   for (const offer of offerRows) {
@@ -767,13 +769,17 @@ async function refreshAvailabilityRollup(supabase, stationId) {
       legacySamplesForOffer(legacySamplesByModel, offerGroupsByModel, standardModel) ||
       [];
     const availability = summarizeSamples(samples);
+    if (!availability.samples) {
+      offerRollups.push({ standardModel, groupName: groupName || null, ...availability, skippedUpdate: true });
+      continue;
+    }
     const offerWindow = sampleWindow(samples);
     const existingOfferFirstCheckedAt = stringValue(offer.availability_first_checked_at);
     const offerUpdate = {
       availability_seven_day_rate: availability.rate,
       availability_seven_day_samples: availability.samples,
-      availability_first_checked_at: availability.samples ? existingOfferFirstCheckedAt || offerWindow.first : null,
-      availability_last_checked_at: availability.samples ? offerWindow.last : null,
+      availability_first_checked_at: existingOfferFirstCheckedAt || offerWindow.first,
+      availability_last_checked_at: offerWindow.last,
       availability_note: availabilityNote(targetGroupLabel(standardModel, groupName), availability),
       availability_source_type: PRICEAI_PROBE_AVAILABILITY_SOURCE.type,
       availability_source_label: PRICEAI_PROBE_AVAILABILITY_SOURCE.label,
@@ -1041,12 +1047,15 @@ function buildActiveOfferScope(offerRows) {
   return { offerKeys, modelTokens };
 }
 
-function availabilitySampleMatchesActiveOfferScope(row, activeOfferScope) {
+function availabilitySampleMatchesActiveOfferScope(row, activeOfferScope, options = {}) {
   const standardModel = stringValue(row.standard_model);
   if (isHighCostAvailabilityProbeModel(standardModel)) return false;
   if (!standardModel) return activeOfferScope.offerKeys.size === 0;
   const groupName = stringValue(row.group_name);
-  if (groupName) return activeOfferScope.offerKeys.has(offerAvailabilityKey(standardModel, groupName));
+  if (groupName) {
+    if (activeOfferScope.offerKeys.has(offerAvailabilityKey(standardModel, groupName))) return true;
+    if (!options.allowModelFallbackWithGroup) return false;
+  }
   return activeOfferScope.modelTokens.has(normalizeLooseToken(standardModel));
 }
 
@@ -1704,6 +1713,7 @@ export const __test = {
   completionBody,
   availabilitySampleMatchesActiveOfferScope,
   availabilitySamplesFromProbe,
+  summarizeSamples,
   filterProfilesByRunnableStationIds,
   isAvailabilitySample,
   isCredentialDiagnosticFailure,

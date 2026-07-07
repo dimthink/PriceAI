@@ -171,6 +171,10 @@
     "stationSystem": "sub_to_api",
     "rechargeRatio": "1:1",
     "autoPublish": true,
+    "groupAliases": {
+      "claude-kiro": "kiro",
+      "gpt": "gpt-pro号池"
+    },
     "channelTypes": ["mixed", "first_party_pool", "undisclosed"],
     "accountPools": ["kiro", "max", "pro"],
     "riskLabels": ["mixed_pool", "insufficient_samples", "pending_feedback"],

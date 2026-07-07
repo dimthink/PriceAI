@@ -213,6 +213,43 @@ assert.deepEqual(
     .map((model) => model.standardModel),
   ["Claude Fable 5", "Claude Opus 4.6", "Claude Opus 4.7", "Claude Opus 4.8", "Claude Sonnet 5"],
 );
+
+assert.equal(__test.summarizeSamples([]).samples, 0);
+assert.equal(__test.summarizeSamples([]).rate, null);
+assert.equal(
+  __test.availabilitySampleMatchesActiveOfferScope(
+    { standard_model: "Claude Opus 4.8", group_name: "kiro" },
+    {
+      offerKeys: new Set(["claude-opus-4.8|kiro"]),
+      modelTokens: new Set(["claude-opus-4.8"]),
+    },
+  ),
+  true,
+  "Probe rollups should keep matching CallAI's normalized Kiro group after ai-transit snapshot ingestion.",
+);
+assert.equal(
+  __test.availabilitySampleMatchesActiveOfferScope(
+    { standard_model: "GPT 5.5", group_name: "gpt" },
+    {
+      offerKeys: new Set(["gpt-5.5|gpt-pro号池"]),
+      modelTokens: new Set(["gpt-5.5"]),
+    },
+  ),
+  false,
+  "Offer rollups should not mix samples across renamed groups.",
+);
+assert.equal(
+  __test.availabilitySampleMatchesActiveOfferScope(
+    { standard_model: "GPT 5.5", group_name: "gpt" },
+    {
+      offerKeys: new Set(["gpt-5.5|gpt-pro号池"]),
+      modelTokens: new Set(["gpt-5.5"]),
+    },
+    { allowModelFallbackWithGroup: true },
+  ),
+  true,
+  "Station rollups should keep historical samples when a source renames the active group.",
+);
 const duplicateSub2ApiOffers = sub2ApiTest.buildOfferRows(
   { id: "neko", dashboardUrl: "https://example.test/dashboard" },
   [{ id: 6, name: "CC MAX官转", platform: "anthropic", multiplier: 1.5 }],
