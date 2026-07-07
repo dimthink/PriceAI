@@ -704,9 +704,18 @@ export function getStationPublishedAvailabilitySummary(station: TransitStation):
   const samples = summaries.reduce((total, summary) => total + summary.sevenDaySamples, 0);
 
   if (!samples) {
+    const source = getStationPublishedAvailabilitySourceMeta(station);
     return {
-      ...station.availability,
+      sevenDayRate: null,
+      sevenDaySamples: 0,
+      firstCheckedAt: null,
+      lastCheckedAt: null,
+      latestLatencyMs: null,
+      avgLatency7dMs: null,
       note: "当前公开模型暂无可用性样本。",
+      sourceType: source.sourceType,
+      sourceLabel: source.sourceLabel,
+      sourceUrl: source.sourceUrl,
     };
   }
 

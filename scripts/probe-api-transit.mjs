@@ -351,12 +351,17 @@ async function probeModelList(profile, baseUrl, options) {
       message: null,
     };
   } catch (error) {
+    const status = error.status || null;
+    const message = errorMessage(error);
+    const credentialDiagnosticFailure = isCredentialDiagnosticFailure({ status, message });
     return {
       ok: false,
-      status: error.status || null,
+      status,
       latencyMs: Date.now() - started,
       models: [],
-      message: errorMessage(error),
+      message,
+      countsTowardAvailability: !credentialDiagnosticFailure,
+      diagnosticOnly: credentialDiagnosticFailure,
     };
   }
 }
@@ -420,6 +425,7 @@ async function probeCompletion(profile, baseUrl, target, options) {
   const status = firstError.status || null;
   const message = firstError.message || "探测请求失败。";
   const parameterCompatibilityFailure = isParameterCompatibilityFailure(attempts);
+  const credentialDiagnosticFailure = isCredentialDiagnosticFailure({ status, message });
   return {
     family: target.family,
     standardModel: target.standardModel,
@@ -432,8 +438,8 @@ async function probeCompletion(profile, baseUrl, target, options) {
     status,
     errorType: classifyProbeError({ status, message }),
     message,
-    countsTowardAvailability: !parameterCompatibilityFailure,
-    diagnosticOnly: parameterCompatibilityFailure,
+    countsTowardAvailability: !parameterCompatibilityFailure && !credentialDiagnosticFailure,
+    diagnosticOnly: parameterCompatibilityFailure || credentialDiagnosticFailure,
     latencyMs: attempts.reduce((total, item) => total + Number(item.latencyMs || 0), 0),
     checkedAt,
     attempts,
@@ -949,7 +955,7 @@ function availabilitySamplesFromProbe({ runId, stationId, modelList, targetResul
     return samples;
   }
 
-  if (!hasTargetResults && modelList && typeof modelList.ok === "boolean") {
+  if (!hasTargetResults && modelList && typeof modelList.ok === "boolean" && modelList.countsTowardAvailability !== false) {
     samples.push(availabilitySampleRow({
       runId,
       stationId,
@@ -1038,7 +1044,7 @@ function buildActiveOfferScope(offerRows) {
 function availabilitySampleMatchesActiveOfferScope(row, activeOfferScope) {
   const standardModel = stringValue(row.standard_model);
   if (isHighCostAvailabilityProbeModel(standardModel)) return false;
-  if (!standardModel) return true;
+  if (!standardModel) return activeOfferScope.offerKeys.size === 0;
   const groupName = stringValue(row.group_name);
   if (groupName) return activeOfferScope.offerKeys.has(offerAvailabilityKey(standardModel, groupName));
   return activeOfferScope.modelTokens.has(normalizeLooseToken(standardModel));
@@ -1456,6 +1462,13 @@ function classifyProbeError(error) {
   return "request_failed";
 }
 
+function isCredentialDiagnosticFailure(error) {
+  const status = Number(error?.status);
+  const message = errorMessage(error);
+  if (status === 401 || status === 403) return true;
+  return /insufficient.*balance|balance.*insufficient|insufficient.*credit|余额不足|额度不足|余额不够|余额为0|欠费|充值|billing|payment required|quota exceeded|exceeded.*quota|invalid api key|invalid key|api key.*invalid|unauthorized|forbidden|apikey|api key|密钥|令牌|token.*invalid|invalid token|分组.*停用|group.*disabled/i.test(message);
+}
+
 function isParameterRetryable(message) {
   return /max_tokens|max_completion_tokens|max_output_tokens|temperature|unsupported|not support|不支持/i.test(String(message || ""));
 }
@@ -1689,9 +1702,11 @@ function errorMessage(error) {
 export const __test = {
   completionAttempts,
   completionBody,
+  availabilitySampleMatchesActiveOfferScope,
   availabilitySamplesFromProbe,
   filterProfilesByRunnableStationIds,
   isAvailabilitySample,
+  isCredentialDiagnosticFailure,
   isExplicitParameterMessage,
   isParameterCompatibilityFailure,
   keywordsForStandardModel,

@@ -512,4 +512,59 @@ assert.equal(
   "Diagnostic-only probe failures must not create availability samples.",
 );
 
+assert.equal(__test.isCredentialDiagnosticFailure({ status: 402, message: "Insufficient account balance" }), true);
+assert.equal(__test.isCredentialDiagnosticFailure({ status: 400, message: "API Key 所属分组已停用" }), true);
+assert.equal(__test.isCredentialDiagnosticFailure({ status: 500, message: "HTTP 502" }), false);
+
+const credentialOnlyProbeSamples = __test.availabilitySamplesFromProbe({
+  runId: "run-empty-balance",
+  stationId: "station-1",
+  checkedAt: "2026-07-07T08:00:00.000Z",
+  modelList: {
+    ok: false,
+    message: "Insufficient account balance",
+    countsTowardAvailability: false,
+    diagnosticOnly: true,
+  },
+  targetResults: [],
+});
+assert.equal(
+  credentialOnlyProbeSamples.length,
+  0,
+  "Credential or billing preflight failures must not create public availability samples.",
+);
+
+const upstreamModelListSamples = __test.availabilitySamplesFromProbe({
+  runId: "run-model-list-upstream",
+  stationId: "station-1",
+  checkedAt: "2026-07-07T08:00:00.000Z",
+  modelList: {
+    ok: false,
+    message: "HTTP 502",
+  },
+  targetResults: [],
+});
+assert.equal(
+  upstreamModelListSamples.length,
+  1,
+  "Non-credential model-list failures can still create station availability samples.",
+);
+
+assert.equal(
+  __test.availabilitySampleMatchesActiveOfferScope(
+    { scope: "station", standard_model: null, group_name: null },
+    { offerKeys: new Set(["gpt 5.5|pro"]), modelTokens: new Set(["gpt 5.5"]) },
+  ),
+  false,
+  "Generic station-only samples must not roll up into stations with active public offers.",
+);
+assert.equal(
+  __test.availabilitySampleMatchesActiveOfferScope(
+    { scope: "station", standard_model: null, group_name: null },
+    { offerKeys: new Set(), modelTokens: new Set() },
+  ),
+  true,
+  "Generic station-only samples can still apply before active public offers exist.",
+);
+
 console.log("api transit probe target test passed");

@@ -142,6 +142,26 @@ assertEqual(publishedAvailability.sevenDaySamples, 298);
 assertEqual(publishedAvailability.sevenDayRate, 0.916);
 assertEqual(getStationComparisonSummary(mixedAvailabilityStation).stabilityRate, 0.916);
 
+const stationOnlyProbeAvailability = station({
+  id: "station-only-probe",
+  name: "Station Only Probe",
+  claudeRate: 0.8,
+  availabilityRate: 0,
+  availabilitySamples: 1000,
+});
+stationOnlyProbeAvailability.prices[0]!.availability = {
+  ...stationOnlyProbeAvailability.prices[0]!.availability,
+  sevenDayRate: null,
+  sevenDaySamples: 0,
+  firstCheckedAt: null,
+  lastCheckedAt: null,
+};
+const stationOnlyPublishedAvailability = getStationPublishedAvailabilitySummary(stationOnlyProbeAvailability);
+assertEqual(stationOnlyPublishedAvailability.sevenDaySamples, 0);
+assertEqual(stationOnlyPublishedAvailability.sevenDayRate, null);
+assertEqual(stationOnlyPublishedAvailability.firstCheckedAt, null);
+assertEqual(stationOnlyPublishedAvailability.lastCheckedAt, null);
+
 const mixedClaudeGroupStation = station({
   id: "mixed-claude-group",
   name: "Mixed Claude Group",
