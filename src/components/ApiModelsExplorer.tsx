@@ -302,8 +302,6 @@ export function ApiModelsExplorer({
           </div>
         </div>
 
-        <SponsoredPlacementPreview kind="apiModels" settings={sponsorSettings} />
-
         <div className="space-y-3 md:hidden">
           <label className="flex h-11 min-w-0 items-center gap-2 rounded-full bg-white px-4 shadow-[0_16px_45px_rgba(45,52,53,0.05)] ring-1 ring-[#adb3b4]/15">
             <Search size={16} className="shrink-0 text-[#5a6061]" />
