@@ -28,6 +28,7 @@ import {
   OFFER_HIGH_RISK_PRICE_THRESHOLD,
   feedbackRequiresContact,
   feedbackRequiresEvidence,
+  feedbackRequiresImageEvidence,
   getOfferRiskHints,
   isHighRiskOutboundOffer,
   isShopApiOffer,
@@ -1732,6 +1733,7 @@ export function OfferFeedbackDialog({
     extractEvidenceUrls(evidenceText).length > 0 ||
     evidenceText.trim().length >= 8;
   const requiresEvidence = needsHighRiskEvidence(reason, userExpectedAction);
+  const requiresImageEvidence = needsHighRiskImageEvidence(reason, userExpectedAction);
   const requiresContact = feedbackRequiresContact(reason);
 
   useEffect(() => {
@@ -1817,8 +1819,13 @@ export function OfferFeedbackDialog({
     setLoading(true);
     setMessage(null);
 
+    if (requiresImageEvidence && uploadedEvidence.length === 0) {
+      setMessage({ type: "error", text: "这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。" });
+      setLoading(false);
+      return;
+    }
     if (requiresEvidence && !hasEvidence) {
-      setMessage({ type: "error", text: "这类反馈需要补充图片、链接或较完整说明，方便后台判断是否下架。" });
+      setMessage({ type: "error", text: "这类反馈需要补充证据，方便后台判断是否处理。" });
       setLoading(false);
       return;
     }
@@ -1941,15 +1948,18 @@ export function OfferFeedbackDialog({
               onPaste={handleEvidencePaste}
               rows={3}
               maxLength={1000}
-              placeholder="可粘贴截图、截图链接、订单页、聊天记录链接，或说明你看到的证据。"
+              placeholder={requiresImageEvidence ? "图片是必填；这里可补充订单页、聊天记录链接，或说明你看到的证据。" : "可粘贴截图、截图链接、订单页、聊天记录链接，或说明你看到的证据。"}
               className="w-full resize-y rounded-lg border border-[#adb3b4]/40 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#2d3435]"
             />
           </label>
           <div className="rounded-lg border border-[#adb3b4]/25 bg-[#f7f9f9] px-3 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-xs font-semibold text-[#2d3435]">图片证据</p>
-                <p className="mt-1 text-xs leading-5 text-[#5a6061]">支持 PNG、JPG、WebP，单张 4MB 内；电脑端也可以直接粘贴截图。</p>
+                <p className="text-xs font-semibold text-[#2d3435]">图片证据{requiresImageEvidence ? "（必填）" : ""}</p>
+                <p className="mt-1 text-xs leading-5 text-[#5a6061]">
+                  {requiresImageEvidence ? "高风险反馈至少上传 1 张图片；" : ""}
+                  支持 PNG、JPG、WebP，单张 4MB 内；电脑端也可以直接粘贴截图。
+                </p>
               </div>
               <button
                 type="button"
@@ -2056,6 +2066,10 @@ function extractEvidenceUrls(value: string): string[] {
 
 function needsHighRiskEvidence(reason: string, userExpectedAction: string): boolean {
   return feedbackRequiresEvidence(reason, userExpectedAction);
+}
+
+function needsHighRiskImageEvidence(reason: string, userExpectedAction: string): boolean {
+  return feedbackRequiresImageEvidence(reason, userExpectedAction);
 }
 
 function formatFileSize(size: number): string {

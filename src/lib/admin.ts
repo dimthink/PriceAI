@@ -15,6 +15,8 @@ import {
   buildInitialFeedbackVerificationResult,
   feedbackRequiresContact,
   feedbackRequiresEvidence,
+  feedbackRequiresImageEvidence,
+  hasFeedbackImageEvidenceReference,
   inferSuggestedActionForFeedback,
 } from "./trust-risk";
 import {
@@ -2461,6 +2463,10 @@ export async function createOfferFeedback(input: {
   const evidenceText = input.evidenceText?.trim() || null;
   const evidenceUrls = sanitizeFeedbackEvidenceUrls(input.evidenceUrls || []);
   const hasEvidence = Boolean(evidenceText || evidenceUrls.length);
+  const needsImageEvidence = feedbackRequiresImageEvidence(input.reason, userExpectedAction);
+  if (needsImageEvidence && !hasFeedbackImageEvidenceReference(evidenceUrls)) {
+    throw new Error("这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。");
+  }
   if (feedbackRequiresEvidence(input.reason, userExpectedAction) && !hasEvidence) {
     throw new Error("这类反馈需要提交图片、链接或较完整说明作为证据。");
   }

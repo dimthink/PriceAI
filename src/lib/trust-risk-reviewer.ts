@@ -6,7 +6,10 @@ import {
   AFTERSALES_FEEDBACK_REASON,
   HIGH_RISK_FEEDBACK_REASONS,
   RISK_PRECHECK_PUBLIC_TTL_HOURS,
+  countFeedbackImageEvidenceReferences,
+  feedbackRequiresImageEvidence,
   getPublicRiskPrecheck,
+  isFeedbackImageEvidenceReference,
   type RiskPrecheckCategory,
   type RiskPrecheckScope,
 } from "@/lib/trust-risk";
@@ -85,9 +88,12 @@ const RISK_REVIEW_PROVIDER = "opencode";
 const MAX_MULTIMODAL_EVIDENCE_IMAGES = 4;
 const MAX_MULTIMODAL_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
-export function shouldRunRiskPrecheck(input: Pick<RiskFeedbackReviewInput, "reason" | "evidenceText" | "evidenceUrls">): boolean {
+export function shouldRunRiskPrecheck(input: Pick<RiskFeedbackReviewInput, "reason" | "userExpectedAction" | "evidenceUrls">): boolean {
   if (!HIGH_RISK_FEEDBACK_REASONS.has(input.reason)) return false;
-  return Boolean(input.evidenceText?.trim() || input.evidenceUrls?.length);
+  if (feedbackRequiresImageEvidence(input.reason, input.userExpectedAction)) {
+    return countFeedbackImageEvidenceReferences(input.evidenceUrls) > 0;
+  }
+  return true;
 }
 
 export function buildSkippedRiskPrecheck(
@@ -109,7 +115,9 @@ export function buildSkippedRiskPrecheck(
     abuseRisk: "medium",
     evidenceQuality: evidenceQualityFromInput(input),
     publicSummary: "",
-    privateReason: reason,
+    privateReason: feedbackRequiresImageEvidence(input.reason, input.userExpectedAction) && countFeedbackImageEvidenceReferences(input.evidenceUrls) === 0
+      ? "高风险反馈缺少站内图片证据，不进入前台临时风险预警。"
+      : reason,
     expiresAt: null,
   };
 }
@@ -187,6 +195,7 @@ function normalizeModelRiskReview(
   const confidence = clampNumber(parsed.confidence, 0, 1, 0);
   const abuseRisk = normalizeEnum(parsed.abuse_risk, ["low", "medium", "high"] as const, "medium");
   const evidenceImageUsedCount = evidenceImages.filter((image) => Boolean(image.dataUrl)).length;
+  const requiresImageEvidence = feedbackRequiresImageEvidence(input.reason, input.userExpectedAction);
   const evidenceQuality = normalizeEnum(parsed.evidence_quality, ["none", "low", "medium", "high"] as const, evidenceQualityFromInput(input, evidenceImageUsedCount));
   const inferredOfferSummary = inferProductSummary(input);
   const offerSummary = sanitizeProductSummary(parsed.offer_alert?.product_summary || parsed.product_summary, inferredOfferSummary);
@@ -196,6 +205,7 @@ function normalizeModelRiskReview(
     confidence >= 0.55 &&
     abuseRisk !== "high" &&
     evidenceQuality !== "none" &&
+    (!requiresImageEvidence || evidenceImageUsedCount > 0) &&
     Boolean(offerPublicSummary);
   const sourceCanShowPublicly = canShowPublicly &&
     Boolean(parsed.merchant_alert?.can_show_publicly) &&
@@ -220,7 +230,7 @@ function normalizeModelRiskReview(
     offerPublicSummary,
     sourceCanShowPublicly,
     sourcePublicSummary: sourcePublicSummary || (sourceCanShowPublicly ? offerPublicSummary : ""),
-    imageEvidenceCount: input.evidenceUrls?.length || 0,
+    imageEvidenceCount: countFeedbackImageEvidenceReferences(input.evidenceUrls),
     imageEvidenceUsedCount: evidenceImageUsedCount,
     privateReason: sanitizePrivateReason(parsed.private_reason),
     expiresAt: canShowPublicly ? new Date(new Date(reviewedAt).getTime() + expiresInHours * 60 * 60 * 1000).toISOString() : null,
@@ -337,7 +347,7 @@ function buildRiskReviewUserContent(
 }
 
 async function loadRiskReviewEvidenceImages(urls: string[]): Promise<RiskReviewEvidenceImage[]> {
-  const refs = urls.slice(0, MAX_MULTIMODAL_EVIDENCE_IMAGES);
+  const refs = urls.filter(isFeedbackImageEvidenceReference).slice(0, MAX_MULTIMODAL_EVIDENCE_IMAGES);
   const images = await Promise.all(refs.map((url) => loadRiskReviewEvidenceImage(url)));
   return images;
 }
@@ -416,7 +426,7 @@ function inferFallbackRiskScope(input: Pick<RiskFeedbackReviewInput, "reason" | 
 
 function evidenceQualityFromInput(
   input: Pick<RiskFeedbackReviewInput, "evidenceText" | "evidenceUrls">,
-  usedImageCount = input.evidenceUrls?.length || 0,
+  usedImageCount = countFeedbackImageEvidenceReferences(input.evidenceUrls),
 ): "none" | "low" | "medium" | "high" {
   if (usedImageCount) return "medium";
   const textLength = input.evidenceText?.trim().length || 0;

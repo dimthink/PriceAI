@@ -68,6 +68,35 @@ export function feedbackRequiresEvidence(
     FEEDBACK_EVIDENCE_REQUIRED_ACTIONS.has(userExpectedAction as OfferFeedbackUserExpectedAction);
 }
 
+export function feedbackRequiresImageEvidence(
+  reason: OfferFeedbackReason | string,
+  userExpectedAction?: OfferFeedbackUserExpectedAction | string | null,
+): boolean {
+  return feedbackRequiresEvidence(reason, userExpectedAction);
+}
+
+export function hasFeedbackImageEvidenceReference(values: readonly string[] | null | undefined): boolean {
+  return countFeedbackImageEvidenceReferences(values) > 0;
+}
+
+export function countFeedbackImageEvidenceReferences(values: readonly string[] | null | undefined): number {
+  if (!values?.length) return 0;
+  return values.filter(isFeedbackImageEvidenceReference).length;
+}
+
+export function isFeedbackImageEvidenceReference(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("r2://feedback-evidence/")) return false;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "r2:" || parsed.hostname !== "feedback-evidence") return false;
+    return /^\/feedback\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function feedbackRequiresContact(reason: OfferFeedbackReason | string): boolean {
   return HIGH_RISK_FEEDBACK_REASONS.has(reason as OfferFeedbackReason);
 }

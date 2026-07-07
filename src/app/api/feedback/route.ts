@@ -66,7 +66,7 @@ function getErrorStatus(error: unknown, message: string): number {
   if (error instanceof z.ZodError) return 400;
   if (message.includes("刚刚被反馈过")) return 409;
   if (message.includes("反馈过于频繁")) return 429;
-  if (message.includes("需要提交")) return 400;
+  if (message.includes("需要提交") || message.includes("需要至少上传")) return 400;
   if (message.includes("需要留下")) return 400;
   return 500;
 }
