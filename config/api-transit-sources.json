@@ -252,6 +252,42 @@
     ]
   },
   {
+    "id": "api-999555999-com",
+    "name": "猫肥Neko API",
+    "websiteUrl": "https://api.999555999.com/",
+    "apiBaseUrl": "https://api.999555999.com/v1",
+    "pricingUrl": "https://api.999555999.com/public/transit",
+    "pricingEndpointUrl": "https://api.999555999.com/api/public/transit/v1/snapshot",
+    "monitorUrl": "https://api.999555999.com/public/transit?view=monitoring",
+    "collectorKind": "ai_transit_snapshot",
+    "stationSystem": "sub_to_api",
+    "rechargeRatio": "1:1",
+    "autoPublish": true,
+    "channelTypes": ["first_party_pool", "mixed", "undisclosed"],
+    "accountPools": ["max", "pro", "mixed", "undisclosed"],
+    "supportChannels": ["QQ：839371702"],
+    "riskLabels": ["mixed_pool", "insufficient_samples", "pending_feedback"],
+    "summary": "猫肥Neko API 使用 Sub2API 系统，公开 ai-transit.v1 快照可读取 CC MAX 官转、Pro 号池、生图和低倍率分组的模型价格、缓存命中率与公开监测时间线；可用率来自站点公开监测，不等同 PriceAI API Key 实测。",
+    "strengths": [
+      "公开 /.well-known/ai-transit.json 可发现结构化快照，/api/public/transit/v1/snapshot 返回分组倍率、模型价格、缓存命中率和监控时间线。",
+      "快照无需登录即可读取，包含 Claude、GPT、图像等分组，适合 PriceAI 定时自动刷新。"
+    ],
+    "cautions": [
+      "公开监测样本来自猫肥Neko API 页面，不等同 PriceAI 使用测试 Key 的真实扣费和可用性检测。",
+      "分组包含低倍率和混合上游口径，首次使用仍建议小额测试。"
+    ],
+    "verificationEvents": [
+      {
+        "id": "api-999555999-ai-transit-v1-2026-07-07",
+        "source": "priceai",
+        "status": "success",
+        "title": "ai-transit.v1 公开快照可读取",
+        "description": "2026-07-07 检查 https://api.999555999.com/.well-known/ai-transit.json 可发现 snapshot_url，/api/public/transit/v1/snapshot 返回分组、模型价格、缓存命中率和公开监控时间线。",
+        "happenedAt": "2026-07-07T14:12:57.000Z"
+      }
+    ]
+  },
+  {
     "id": "sudocode-chat",
     "name": "SudoCode",
     "websiteUrl": "https://sudocode.chat/",

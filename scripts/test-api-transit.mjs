@@ -48,6 +48,15 @@ assert.deepEqual(configuredAliuapiSource.groupAliases, {
   Plus: "T0 - GPT Plus",
   Pro: "T1 - GPT Pro",
 });
+const configuredMaofeiSource = transitSourceConfig.find((source) => source.id === "api-999555999-com");
+assert.ok(configuredMaofeiSource, "猫肥Neko API must stay in API transit public collection sources.");
+assert.equal(configuredMaofeiSource.collectorKind, "ai_transit_snapshot");
+assert.equal(configuredMaofeiSource.pricingUrl, "https://api.999555999.com/public/transit");
+assert.equal(configuredMaofeiSource.pricingEndpointUrl, "https://api.999555999.com/api/public/transit/v1/snapshot");
+assert.equal(configuredMaofeiSource.monitorUrl, "https://api.999555999.com/public/transit?view=monitoring");
+assert.equal(configuredMaofeiSource.stationSystem, "sub_to_api");
+assert.equal(configuredMaofeiSource.rechargeRatio, "1:1");
+assert.equal(configuredMaofeiSource.autoPublish, true);
 
 const scheduledPublishedRtocSources = __test.selectSources(
   __test.filterSourcesByPublishedStationIds(transitSourceConfig, new Set(["ai-rtoc-cc"])),
