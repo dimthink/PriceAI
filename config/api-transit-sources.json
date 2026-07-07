@@ -199,6 +199,59 @@
     ]
   },
   {
+    "id": "aliuapi-top",
+    "name": "A6-API",
+    "websiteUrl": "https://aliuapi.top/",
+    "apiBaseUrl": "https://aliuapi.top/v1",
+    "pricingUrl": "https://aliuapi.top/public/transit",
+    "pricingEndpointUrl": "https://aliuapi.top/api/public/transit/v1/snapshot",
+    "monitorUrl": "https://aliuapi.top/public/transit?view=monitoring",
+    "collectorKind": "ai_transit_snapshot",
+    "stationSystem": "sub_to_api",
+    "rechargeRatio": "1:1",
+    "autoPublish": true,
+    "groupAliases": {
+      "Plus": "T0 - GPT Plus",
+      "Pro": "T1 - GPT Pro"
+    },
+    "channelTypes": ["first_party_pool", "undisclosed"],
+    "accountPools": ["plus", "pro"],
+    "supportChannels": ["Telegram @FreedomSurprise"],
+    "riskLabels": ["insufficient_samples", "pending_feedback"],
+    "summary": "A6-API 使用 Sub2API 系统，公开 ai-transit.v1 快照可读取 GPT Plus / GPT Pro 分组倍率、模型价格、缓存命中率和公开监测时间线；可用率来自站点公开监测，不等同 PriceAI API Key 实测。",
+    "strengths": [
+      "公开 /.well-known/ai-transit.json 可发现结构化快照，/api/public/transit/v1/snapshot 返回 GPT Plus / GPT Pro 分组、模型价格、缓存命中率和监控时间线。",
+      "快照无需登录或 Turnstile 即可读取，可替代原先需要后台登录态的分组采集路径。"
+    ],
+    "cautions": [
+      "公开监测样本来自 A6-API 页面，不等同 PriceAI 使用测试 Key 的真实扣费和可用性检测。",
+      "当前公开快照主要覆盖 GPT 文本和图像模型，首次使用仍建议小额测试。"
+    ],
+    "commercialOffers": [
+      {
+        "id": "aliuapi-top-purchase-link",
+        "type": "merchant_purchase_link",
+        "title": "购买兑换码",
+        "listLabel": "兑换码",
+        "description": "站点公开配置提供兑换码购买入口；充值和退款规则请以原站说明为准。",
+        "url": "https://pay.ldxp.cn/shop/ITG5M4RZ",
+        "validUntil": null,
+        "disclosure": "该链接来自站点公开配置；PriceAI 仅整理公开资料，不参与交易担保。",
+        "enabled": true
+      }
+    ],
+    "verificationEvents": [
+      {
+        "id": "aliuapi-ai-transit-v1-2026-07-07",
+        "source": "priceai",
+        "status": "success",
+        "title": "ai-transit.v1 公开快照可读取",
+        "description": "2026-07-07 检查 https://aliuapi.top/.well-known/ai-transit.json 可发现 snapshot_url，/api/public/transit/v1/snapshot 返回分组、模型价格、缓存命中率和公开监控时间线。",
+        "happenedAt": "2026-07-07T12:11:25.000Z"
+      }
+    ]
+  },
+  {
     "id": "sudocode-chat",
     "name": "SudoCode",
     "websiteUrl": "https://sudocode.chat/",

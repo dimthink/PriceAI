@@ -36,6 +36,18 @@ assert.deepEqual(configuredCallaiSource.groupAliases, {
   "claude-kiro": "kiro",
   gpt: "gpt-pro号池",
 });
+const configuredAliuapiSource = transitSourceConfig.find((source) => source.id === "aliuapi-top");
+assert.ok(configuredAliuapiSource, "A6-API must stay in API transit public collection sources.");
+assert.equal(configuredAliuapiSource.collectorKind, "ai_transit_snapshot");
+assert.equal(configuredAliuapiSource.pricingUrl, "https://aliuapi.top/public/transit");
+assert.equal(configuredAliuapiSource.pricingEndpointUrl, "https://aliuapi.top/api/public/transit/v1/snapshot");
+assert.equal(configuredAliuapiSource.monitorUrl, "https://aliuapi.top/public/transit?view=monitoring");
+assert.equal(configuredAliuapiSource.stationSystem, "sub_to_api");
+assert.equal(configuredAliuapiSource.autoPublish, true);
+assert.deepEqual(configuredAliuapiSource.groupAliases, {
+  Plus: "T0 - GPT Plus",
+  Pro: "T1 - GPT Pro",
+});
 
 const scheduledPublishedRtocSources = __test.selectSources(
   __test.filterSourcesByPublishedStationIds(transitSourceConfig, new Set(["ai-rtoc-cc"])),
@@ -241,6 +253,47 @@ const incomingPublicStatusBeatsEmptyProbeOffer = __test.mergeOfferForRefresh(
 );
 assert.equal(incomingPublicStatusBeatsEmptyProbeOffer.availability_source_type, "public_status");
 assert.equal(incomingPublicStatusBeatsEmptyProbeOffer.availability_seven_day_samples, 1);
+
+const refreshedAiTransitStation = __test.mergeStationForRefresh(
+  {
+    id: "aliuapi-top",
+    name: "A6-API",
+    auto_publish: true,
+    published: true,
+    collection_status: "success",
+    collector_kind: "ai_transit_snapshot",
+    summary: "A6-API 使用 Sub2API 系统，公开 ai-transit.v1 快照可读取模型价格和缓存命中率。",
+    created_at: "new",
+  },
+  {
+    id: "aliuapi-top",
+    published: false,
+    summary: "登录和分组接口启用 Turnstile，需要人工通过校验后才能采集分组倍率。",
+    created_at: "old",
+  },
+  {},
+);
+assert.match(refreshedAiTransitStation.summary, /公开 ai-transit\.v1 快照/);
+
+const preservedManualStationSummary = __test.mergeStationForRefresh(
+  {
+    id: "manual-summary",
+    auto_publish: true,
+    published: true,
+    collection_status: "success",
+    collector_kind: "ai_transit_snapshot",
+    summary: "公开快照简介。",
+    created_at: "new",
+  },
+  {
+    id: "manual-summary",
+    published: true,
+    summary: "站长已补充人工说明，保留该说明。",
+    created_at: "old",
+  },
+  {},
+);
+assert.equal(preservedManualStationSummary.summary, "站长已补充人工说明，保留该说明。");
 
 const sources = [
   { id: "published-new-api" },
@@ -649,6 +702,124 @@ const callaiAiTransitSnapshot = __test.parsePricingPayload(
 );
 assert.equal(callaiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "Claude Opus 4.8").group_name, "kiro");
 assert.equal(callaiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5").group_name, "gpt-pro号池");
+
+const aliuapiAiTransitSnapshot = __test.parsePricingPayload(
+  configuredAliuapiSource,
+  {
+    schema_version: "ai-transit.v1",
+    system: "sub2api",
+    generated_at: "2026-07-07T12:11:25.000Z",
+    station: {
+      name: "A6-API",
+      homepage_url: "https://aliuapi.top/home",
+      price_url: "https://aliuapi.top/public/transit",
+      monitor_url: "https://aliuapi.top/public/transit?view=monitoring",
+      system_type: "sub2api",
+    },
+    billing: {
+      recharge_ratio: "1 CNY = 1 USD balance",
+      recharge_multiplier: 1,
+      minimum_top_up: 1,
+    },
+    groups: [
+      {
+        name: "T0 - GPT Plus",
+        platform: "openai",
+        rate_multiplier: 0.05,
+        cache_usage: {
+          total: {
+            input_tokens: 25_816_238,
+            cache_creation_tokens: 0,
+            cache_read_tokens: 242_969_088,
+            cache_hit_rate: 90.39522045931928,
+          },
+        },
+        models: [
+          {
+            standard_model: "gpt-5.4",
+            raw_model: "gpt-5.4",
+            price: {
+              input_usd_per_token: 0.0000025,
+              output_usd_per_token: 0.000015,
+              cache_read_usd_per_token: 0.00000025,
+            },
+          },
+          {
+            standard_model: "gpt-5.5",
+            raw_model: "gpt-5.5",
+            price: {
+              input_usd_per_token: 0.000005,
+              output_usd_per_token: 0.00003,
+              cache_read_usd_per_token: 0.0000005,
+            },
+          },
+        ],
+      },
+      {
+        name: "T1 - GPT Pro",
+        platform: "openai",
+        rate_multiplier: 0.12,
+        cache_usage: {
+          total: {
+            input_tokens: 3_455_029,
+            cache_creation_tokens: 0,
+            cache_read_tokens: 38_039_424,
+            cache_hit_rate: 91.67351597573777,
+          },
+        },
+        models: [
+          {
+            standard_model: "gpt-5.5",
+            raw_model: "gpt-5.5",
+            price: {
+              input_usd_per_token: 0.000005,
+              output_usd_per_token: 0.00003,
+              cache_read_usd_per_token: 0.0000005,
+            },
+          },
+        ],
+      },
+    ],
+    monitoring: [
+      {
+        name: "Plus",
+        primary_model: "gpt-5.4",
+        primary_status: "operational",
+        availability_7d: 96.44970414201184,
+        latest_latency_ms: 1320,
+        last_checked_at: "2026-07-07T12:11:18.000Z",
+        timeline: [
+          { status: "operational", latency_ms: 1320, checked_at: "2026-07-07T12:11:18.000Z" },
+        ],
+      },
+      {
+        name: "Pro",
+        primary_model: "gpt-5.4-mini",
+        primary_status: "operational",
+        availability_7d: 100,
+        latest_latency_ms: 988,
+        last_checked_at: "2026-07-07T12:11:18.000Z",
+        timeline: [
+          { status: "operational", latency_ms: 988, checked_at: "2026-07-07T12:11:18.000Z" },
+        ],
+      },
+    ],
+  },
+  "2026-07-07T12:11:25.000Z",
+);
+assert.equal(aliuapiAiTransitSnapshot.station.published, true);
+assert.equal(aliuapiAiTransitSnapshot.station.availability_source_type, "public_status");
+assert.equal(aliuapiAiTransitSnapshot.station.minimum_top_up, 1);
+const aliuapiPlusGpt54 = aliuapiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "T0 - GPT Plus");
+assert.equal(aliuapiPlusGpt54.model_multiplier, 0.05);
+assert.equal(aliuapiPlusGpt54.cache_hit_rate, 0.903952);
+assert.equal(aliuapiPlusGpt54.cache_hit_sample_tokens, 268785326);
+assert.equal(aliuapiPlusGpt54.availability_seven_day_samples, 1);
+assert.equal(aliuapiPlusGpt54.availability_source_type, "public_status");
+const aliuapiProGpt55 = aliuapiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "T1 - GPT Pro");
+assert.equal(aliuapiProGpt55.model_multiplier, 0.12);
+assert.equal(aliuapiProGpt55.cache_hit_rate, 0.916735);
+assert.equal(aliuapiProGpt55.cache_hit_sample_tokens, 41494453);
 
 const onehopSource = {
   id: "onehop-ai",

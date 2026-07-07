@@ -680,6 +680,7 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
       offerCount: deduped.length,
       meta: { generated_at: generatedAt },
       collectionError,
+      minimumTopUp: numberValue(payload?.billing?.minimum_top_up),
       availability: summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilitySamples, generatedAt, source),
     }),
     offers: deduped,
@@ -2210,7 +2211,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
     channel_types: source.channelTypes || ["undisclosed"],
     account_pools: source.accountPools || ["undisclosed"],
     payment_methods: source.paymentMethods || [],
-    minimum_top_up: source.minimumTopUp || null,
+    minimum_top_up: collection.minimumTopUp ?? source.minimumTopUp ?? null,
     balance_expiry: source.balanceExpiry || null,
     support_channels: source.supportChannels || [],
     refund_policy: source.refundPolicy || null,
@@ -3021,7 +3022,7 @@ function mergeStationForRefresh(station, existing, options) {
     station_system: keepConfiguredValue(existing.station_system, station.station_system),
     operator_type: keepConfiguredValue(existing.operator_type, station.operator_type),
     invoice_support: keepConfiguredValue(existing.invoice_support, station.invoice_support),
-    summary: existing.summary || station.summary,
+    summary: shouldReplaceStaleStationSummary(existing.summary, station) ? station.summary : existing.summary || station.summary,
     payment_methods: Array.isArray(existing.payment_methods) ? existing.payment_methods : station.payment_methods,
     minimum_top_up: existing.minimum_top_up ?? station.minimum_top_up,
     balance_expiry: existing.balance_expiry ?? station.balance_expiry,
@@ -3117,6 +3118,16 @@ function keepConfiguredValue(existingValue, incomingValue) {
 
 function normalizeConfiguredValue(value, fallback) {
   return value && value !== "unknown" ? value : fallback;
+}
+
+function shouldReplaceStaleStationSummary(existingSummary, station) {
+  const existing = stringOrNull(existingSummary);
+  const incoming = stringOrNull(station?.summary);
+  if (!existing || !incoming) return false;
+  if (station?.collection_status !== "success") return false;
+  if (station?.auto_publish !== true && station?.published !== true) return false;
+  if (!AI_TRANSIT_SNAPSHOT_COLLECTORS.has(station?.collectorKind || station?.collector_kind)) return false;
+  return /Turnstile|登录|后台|待人工|待采集|未授权|401|403|pending|manual_review/i.test(existing);
 }
 
 async function upsertRows(supabase, table, rows, options = {}) {
