@@ -124,10 +124,10 @@
     "name": "APINode",
     "websiteUrl": "https://apinode.ltd/",
     "apiBaseUrl": "https://apinode.ltd/v1",
-    "pricingUrl": "https://apinode.ltd/api/v1/public/site-info",
-    "pricingEndpointUrl": "https://apinode.ltd/api/v1/public/site-info",
-    "monitorUrl": "https://apinode.ltd/api/v1/public/site-info",
-    "collectorKind": "sub2api_public_site_info",
+    "pricingUrl": "https://apinode.ltd/public/transit",
+    "pricingEndpointUrl": "https://apinode.ltd/api/public/transit/v1/snapshot",
+    "monitorUrl": "https://apinode.ltd/public/transit?view=monitoring",
+    "collectorKind": "ai_transit_snapshot",
     "stationSystem": "sub_to_api",
     "commercialRelation": "partner",
     "rechargeRatio": "1:1",
@@ -135,13 +135,13 @@
     "channelTypes": ["first_party_pool", "mixed", "undisclosed"],
     "accountPools": ["plus", "team", "pro"],
     "riskLabels": ["insufficient_samples", "pending_feedback"],
-    "summary": "APINode 使用 Sub2API 系统，公开 site-info 接口可读取 OpenAI 分组倍率、充值倍率和 GPT 5.4/GPT 5.5 公开可用率；可用率来自站点公开监测，不等同 PriceAI API Key 实测。",
+    "summary": "APINode 使用 Sub2API 系统，公开 ai-transit.v1 快照可读取分组倍率、模型价格、缓存价格、缓存命中率和公开监测时间线；可用率来自站点公开监测，不等同 PriceAI API Key 实测。",
     "strengths": [
-      "Sub2API 公开接口返回 Plus/Team/Pro 分组倍率、充值倍率和模型可用率窗口，适合纳入定时补充采集。",
-      "接口无需登录即可读取，能作为 APINode 公开价格与公开监测快照的稳定来源。"
+      "公开 /.well-known/ai-transit.json 可发现结构化快照，/api/public/transit/v1/snapshot 返回 Plus/Team/Pro 分组、模型价格和监控时间线。",
+      "快照无需登录即可读取，能作为 APINode 公开价格、缓存命中率和公开监测样本的稳定来源。"
     ],
     "cautions": [
-      "公开可用率未返回样本明细，PriceAI 会单独保留 API Key 实测链路。",
+      "公开监测样本来自 APINode 页面，不等同 PriceAI 使用测试 Key 的真实扣费和可用性检测。",
       "image2 渠道按图像生成报价处理，不作为 GPT 文本最低价。"
     ],
     "commercialOffers": [

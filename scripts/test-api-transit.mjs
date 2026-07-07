@@ -14,6 +14,14 @@ const configuredAiTransitSnapshotSource = transitSourceConfig.find((source) => s
 assert.ok(configuredAiTransitSnapshotSource, "Sub2API ai-transit snapshot test station must stay in collection sources.");
 assert.equal(configuredAiTransitSnapshotSource.collectorKind, "ai_transit_snapshot");
 assert.equal(configuredAiTransitSnapshotSource.autoPublish, true);
+const configuredApinodeSource = transitSourceConfig.find((source) => source.id === "apinode-ltd");
+assert.ok(configuredApinodeSource, "APINode must stay in API transit public collection sources.");
+assert.equal(configuredApinodeSource.collectorKind, "ai_transit_snapshot");
+assert.equal(configuredApinodeSource.pricingUrl, "https://apinode.ltd/public/transit");
+assert.equal(configuredApinodeSource.pricingEndpointUrl, "https://apinode.ltd/api/public/transit/v1/snapshot");
+assert.equal(configuredApinodeSource.monitorUrl, "https://apinode.ltd/public/transit?view=monitoring");
+assert.equal(configuredApinodeSource.stationSystem, "sub_to_api");
+assert.equal(configuredApinodeSource.autoPublish, true);
 
 const scheduledPublishedRtocSources = __test.selectSources(
   __test.filterSourcesByPublishedStationIds(transitSourceConfig, new Set(["ai-rtoc-cc"])),
