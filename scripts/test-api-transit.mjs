@@ -787,6 +787,30 @@ const callaiAiTransitSnapshot = __test.parsePricingPayload(
         ],
       },
     ],
+    monitoring: [
+      {
+        name: "claude-kiro",
+        primary_model: "claude-opus-4-8",
+        primary_status: "operational",
+        availability_7d: 81.18615491421204,
+        latest_latency_ms: 1414,
+        last_checked_at: "2026-07-07T09:19:11.000Z",
+        timeline: [
+          { status: "operational", latency_ms: 1414, checked_at: "2026-07-07T09:19:11.000Z" },
+        ],
+      },
+      {
+        name: "gpt",
+        primary_model: "gpt-5.5",
+        primary_status: "operational",
+        availability_7d: 98.78012496280869,
+        latest_latency_ms: 1311,
+        last_checked_at: "2026-07-07T09:19:11.000Z",
+        timeline: [
+          { status: "operational", latency_ms: 1311, checked_at: "2026-07-07T09:19:11.000Z" },
+        ],
+      },
+    ],
   },
   "2026-07-07T09:20:00.000Z",
 );
@@ -794,10 +818,18 @@ const callaiClaudeOffer = callaiAiTransitSnapshot.offers.find((offer) => offer.s
 assert.equal(callaiClaudeOffer.group_name, "kiro");
 assert.equal(callaiClaudeOffer.cache_hit_rate, 0.804429);
 assert.equal(callaiClaudeOffer.cache_hit_sample_tokens, 3_164_297_639);
+assert.equal(callaiClaudeOffer.availability_seven_day_rate, 0.811862);
+assert.equal(callaiClaudeOffer.availability_seven_day_samples, 1);
+assert.equal(callaiClaudeOffer.availability_latest_latency_ms, 1414);
 const callaiGptOffer = callaiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5");
 assert.equal(callaiGptOffer.group_name, "gpt-pro号池");
 assert.equal(callaiGptOffer.cache_hit_rate, 0.903728);
 assert.equal(callaiGptOffer.cache_hit_sample_tokens, 25_358_042_481);
+assert.equal(callaiGptOffer.availability_seven_day_rate, 0.987801);
+assert.equal(callaiGptOffer.availability_seven_day_samples, 1);
+assert.equal(callaiGptOffer.availability_latest_latency_ms, 1311);
+assert.equal(callaiAiTransitSnapshot.station.availability_seven_day_rate, 0.899832);
+assert.equal(callaiAiTransitSnapshot.station.availability_seven_day_samples, 2);
 
 const aliuapiAiTransitSnapshot = __test.parsePricingPayload(
   configuredAliuapiSource,
