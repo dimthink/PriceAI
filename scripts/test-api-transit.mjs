@@ -58,6 +58,22 @@ assert.equal(configuredMfttaiSource.monitorUrl, "https://mfttai.com/public/trans
 assert.equal(configuredMfttaiSource.stationSystem, "sub_to_api");
 assert.equal(configuredMfttaiSource.rechargeRatio, "1:1");
 assert.equal(configuredMfttaiSource.autoPublish, true);
+const configuredWawazzSource = transitSourceConfig.find((source) => source.id === "wawazz-xyz");
+assert.ok(configuredWawazzSource, "WAWA ZZ API must stay in API transit public collection sources.");
+assert.equal(configuredWawazzSource.collectorKind, "ai_transit_snapshot");
+assert.equal(configuredWawazzSource.pricingUrl, "https://wawazz.xyz/public/transit");
+assert.equal(configuredWawazzSource.pricingEndpointUrl, "https://wawazz.xyz/api/public/transit/v1/snapshot");
+assert.equal(configuredWawazzSource.monitorUrl, "https://wawazz.xyz/public/transit?view=monitoring");
+assert.equal(configuredWawazzSource.stationSystem, "sub_to_api");
+assert.equal(configuredWawazzSource.rechargeRatio, "1:1");
+assert.equal(configuredWawazzSource.autoPublish, true);
+assert.equal(configuredWawazzSource.disableGlobalModelAvailabilityFallback, true);
+assert.deepEqual(configuredWawazzSource.groupAliases, {
+  "cc-max分组": "claude-max-号池-不限制客户端",
+  "gpt-plus分组": "gpt-plus",
+  "gpt-pro分组": "gpt-pro",
+});
+assert.deepEqual(configuredWawazzSource.aiTransitGroupModels["gpt-plus"], ["GPT 5.4", "GPT 5.5"]);
 const configuredMaofeiSource = transitSourceConfig.find((source) => source.id === "999555999-com");
 assert.ok(configuredMaofeiSource, "猫肥NekoAPI public snapshot must stay attached to the existing station source.");
 assert.ok(
@@ -354,6 +370,35 @@ const preservedManualStationSummary = __test.mergeStationForRefresh(
   {},
 );
 assert.equal(preservedManualStationSummary.summary, "站长已补充人工说明，保留该说明。");
+
+const failedRefreshPreservesPublishedStationState = __test.mergeStationForRefresh(
+  {
+    id: "wawazz-xyz",
+    status: "unknown",
+    auto_publish: false,
+    published: false,
+    collection_status: "failed",
+    collection_error: "HTTP 502",
+    data_status: "pending_review",
+    admin_note: "自动抓取未识别到 MVP 模型，待人工确认。",
+    created_at: "new",
+  },
+  {
+    id: "wawazz-xyz",
+    status: "active",
+    published: true,
+    data_status: "verified",
+    admin_note: "上一轮成功采集。",
+    created_at: "old",
+  },
+  {},
+);
+assert.equal(failedRefreshPreservesPublishedStationState.status, "active");
+assert.equal(failedRefreshPreservesPublishedStationState.published, true);
+assert.equal(failedRefreshPreservesPublishedStationState.data_status, "verified");
+assert.equal(failedRefreshPreservesPublishedStationState.collection_status, "failed");
+assert.equal(failedRefreshPreservesPublishedStationState.collection_error, "HTTP 502");
+assert.equal(failedRefreshPreservesPublishedStationState.admin_note, "上一轮成功采集。");
 
 const sources = [
   { id: "published-new-api" },
@@ -1089,6 +1134,156 @@ assert.equal(mfttaiGpt55.cache_hit_sample_tokens, 39_770_987_676);
 assert.equal(mfttaiGpt55.availability_seven_day_rate, 0.999014);
 assert.equal(mfttaiGpt55.availability_seven_day_samples, 1);
 assert.equal(mfttaiGpt55.availability_latest_latency_ms, 2106);
+
+const wawazzAiTransitSnapshot = __test.parsePricingPayload(
+  configuredWawazzSource,
+  {
+    schema_version: "ai-transit.v1",
+    system: "sub2api",
+    generated_at: "2026-07-08T06:40:41.000Z",
+    station: {
+      name: "WAWA ZZ API",
+      homepage_url: "https://wawazz.xyz/home",
+      price_url: "https://wawazz.xyz/public/transit",
+      monitor_url: "https://wawazz.xyz/public/transit?view=monitoring",
+      support_url: "qq群：1073408363",
+      system_type: "sub2api",
+    },
+    billing: {
+      recharge_ratio: "1 CNY = 1 USD balance",
+      recharge_multiplier: 1,
+      minimum_top_up: 1,
+    },
+    groups: [
+      {
+        name: "claude-krio",
+        platform: "anthropic",
+        rate_multiplier: 0.3,
+        cache_usage: {
+          last_7d: {
+            input_tokens: 6_440_345,
+            cache_creation_tokens: 892_460,
+            cache_read_tokens: 56_418_415,
+            cache_hit_rate: 88.49778090521248,
+          },
+        },
+        models: [],
+      },
+      {
+        name: "claude-max-号池-不限制客户端",
+        platform: "anthropic",
+        rate_multiplier: 1.3,
+        cache_usage: {
+          last_7d: {
+            input_tokens: 1_234_567,
+            cache_creation_tokens: 2_345_678,
+            cache_read_tokens: 6_364_371,
+            cache_hit_rate: 86.0591822772783,
+          },
+        },
+        models: [],
+      },
+      {
+        name: "gpt-plus",
+        platform: "openai",
+        rate_multiplier: 0.07,
+        cache_usage: {
+          last_7d: {
+            input_tokens: 1_226_680_734,
+            cache_creation_tokens: 0,
+            cache_read_tokens: 10_000_000_000,
+            cache_hit_rate: 90.07147044251201,
+          },
+        },
+        models: [],
+      },
+      {
+        name: "gpt-pro",
+        platform: "openai",
+        rate_multiplier: 0.16,
+        cache_usage: {
+          last_7d: {
+            input_tokens: 847_267_933,
+            cache_creation_tokens: 0,
+            cache_read_tokens: 6_495_000_000,
+            cache_hit_rate: 88.46070447535655,
+          },
+        },
+        models: [],
+      },
+    ],
+    monitoring: [
+      {
+        name: "gpt-plus分组",
+        primary_model: "gpt-5.5",
+        primary_status: "operational",
+        availability_7d: 88.08622675662333,
+        latest_latency_ms: 1909,
+        last_checked_at: "2026-07-08T06:40:12.000Z",
+        models: [
+          {
+            model: "gpt-5.5",
+            latest_status: "operational",
+            availability_7d: 88.08622675662333,
+            latest_latency_ms: 1909,
+          },
+        ],
+        timeline: [
+          { status: "operational", latency_ms: 1909, checked_at: "2026-07-08T06:40:12.000Z" },
+        ],
+      },
+      {
+        name: "cc-max分组",
+        primary_model: "claude-sonnet-4-6",
+        primary_status: "operational",
+        availability_7d: 98.16362223085892,
+        latest_latency_ms: 1547,
+        last_checked_at: "2026-07-08T06:40:12.000Z",
+        models: [
+          {
+            model: "claude-sonnet-4-6",
+            latest_status: "operational",
+            availability_7d: 98.16362223085892,
+            latest_latency_ms: 1547,
+          },
+        ],
+        timeline: [
+          { status: "operational", latency_ms: 1547, checked_at: "2026-07-08T06:40:12.000Z" },
+        ],
+      },
+    ],
+    completeness: {
+      warnings: ["no public model pricing found"],
+    },
+  },
+  "2026-07-08T06:40:41.000Z",
+);
+assert.equal(wawazzAiTransitSnapshot.modelCount, 5);
+assert.equal(wawazzAiTransitSnapshot.offers.length, 5);
+assert.equal(wawazzAiTransitSnapshot.station.collection_status, "success");
+assert.equal(wawazzAiTransitSnapshot.station.published, true);
+const wawazzPlusGpt55 = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "gpt-plus");
+assert.equal(wawazzPlusGpt55.model_multiplier, 0.07);
+assert.equal(wawazzPlusGpt55.input_price, 0.07);
+assert.equal(wawazzPlusGpt55.cache_hit_rate, 0.900715);
+assert.equal(wawazzPlusGpt55.cache_hit_sample_tokens, 11_226_680_734);
+assert.equal(wawazzPlusGpt55.availability_seven_day_rate, 0.880862);
+assert.equal(wawazzPlusGpt55.availability_latest_latency_ms, 1909);
+const wawazzPlusGpt54 = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "gpt-plus");
+assert.equal(wawazzPlusGpt54.model_multiplier, 0.07);
+assert.equal(wawazzPlusGpt54.cache_hit_rate, 0.900715);
+const wawazzProGpt55 = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "gpt-pro");
+assert.equal(wawazzProGpt55.model_multiplier, 0.16);
+assert.equal(wawazzProGpt55.cache_hit_rate, 0.884607);
+assert.equal(wawazzProGpt55.availability_seven_day_rate, null);
+assert.equal(wawazzProGpt55.availability_seven_day_samples, 0);
+const wawazzKrioClaude = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "Claude Opus 4.8" && offer.group_name === "claude-krio");
+assert.equal(wawazzKrioClaude.model_multiplier, 0.3);
+assert.equal(wawazzKrioClaude.cache_hit_rate, 0.884978);
+assert.equal(wawazzKrioClaude.cache_hit_sample_tokens, 63_751_220);
+const wawazzMaxClaude = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "Claude Opus 4.8" && offer.group_name === "claude-max-号池-不限制客户端");
+assert.equal(wawazzMaxClaude.model_multiplier, 1.3);
+assert.equal(wawazzMaxClaude.cache_hit_rate, 0.860592);
 
 const onehopSource = {
   id: "onehop-ai",

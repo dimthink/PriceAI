@@ -640,11 +640,19 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
     DEFAULT_RECHARGE_RATIO;
   const availabilityByKey = aiTransitAvailabilityByKey(payload, generatedAt, source);
   const offers = [];
+  let usedConfiguredGroupModels = false;
+  let modelCount = 0;
 
   for (const group of groups) {
     const rawGroupName = stringOrNull(group?.name) || "default";
     const groupName = normalizeSourceGroupName(source, rawGroupName);
-    const models = Array.isArray(group?.models) ? group.models : [];
+    const groupModels = Array.isArray(group?.models) ? group.models : [];
+    const configuredModels = groupModels.length
+      ? []
+      : configuredAiTransitGroupModels(source, rawGroupName, groupName);
+    if (configuredModels.length) usedConfiguredGroupModels = true;
+    const models = groupModels.length ? groupModels : configuredModels;
+    modelCount += models.length;
 
     for (const model of models) {
       const standard = standardizeModelName([model?.standard_model, model?.raw_model].filter(Boolean).join(" "));
@@ -664,7 +672,11 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
         availability:
           availabilityByKey.get(aiTransitAvailabilityKey(groupName, standard)) ||
           availabilityByKey.get(aiTransitAvailabilityKey(rawGroupName, standard)) ||
-          availabilityByKey.get(aiTransitAvailabilityKey(null, standard)) ||
+          (
+            source.disableGlobalModelAvailabilityFallback
+              ? null
+              : availabilityByKey.get(aiTransitAvailabilityKey(null, standard))
+          ) ||
           null,
       });
       if (offer) offers.push(offer);
@@ -678,12 +690,15 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
   const warnings = Array.isArray(payload?.completeness?.warnings)
     ? payload.completeness.warnings.map(stringOrNull).filter(Boolean)
     : [];
+  const blockingWarnings = usedConfiguredGroupModels
+    ? warnings.filter((warning) => !/no public model pricing found/i.test(warning))
+    : warnings;
 
   return {
-    modelCount: groups.reduce((total, group) => total + (Array.isArray(group?.models) ? group.models.length : 0), 0),
+    modelCount,
     collectionError,
     station: buildStationRow(source, collectedAt, {
-      status: deduped.length ? (warnings.length ? "partial" : "success") : "partial",
+      status: deduped.length ? (blockingWarnings.length ? "partial" : "success") : "partial",
       offerCount: deduped.length,
       meta: { generated_at: generatedAt },
       collectionError,
@@ -692,6 +707,46 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
     }),
     offers: deduped,
     availabilitySamples,
+  };
+}
+
+function configuredAiTransitGroupModels(source, rawGroupName, groupName) {
+  const configured = source?.aiTransitGroupModels;
+  if (!configured || typeof configured !== "object") return [];
+
+  const specs = configured[rawGroupName] || configured[groupName];
+  if (!Array.isArray(specs)) return [];
+
+  return specs
+    .map((spec) => configuredAiTransitGroupModel(spec))
+    .filter(Boolean);
+}
+
+function configuredAiTransitGroupModel(spec) {
+  const standard = typeof spec === "string"
+    ? spec
+    : stringOrNull(spec?.standardModel || spec?.standard_model || spec?.model);
+  if (!standard || !officialTransitPrices[standard]) return null;
+
+  return {
+    standard_model: standard,
+    raw_model: typeof spec === "object" ? stringOrNull(spec.rawModel || spec.raw_model) || standard : standard,
+    price: aiTransitOfficialPricePayload(officialTransitPrices[standard]),
+    source: {
+      upstream_type: "configured_mapping",
+      account_pool_type: "configured_mapping",
+      disclosure: "PriceAI mapped this public group multiplier to a known standard model because the station snapshot omitted per-model pricing.",
+    },
+  };
+}
+
+function aiTransitOfficialPricePayload(official) {
+  return {
+    input_usd_per_token: official.input === null ? null : official.input / 1_000_000,
+    output_usd_per_token: official.output === null ? null : official.output / 1_000_000,
+    cache_read_usd_per_token: official.cacheRead === null ? null : official.cacheRead / 1_000_000,
+    cache_write_usd_per_token: official.cacheWrite === null ? null : official.cacheWrite / 1_000_000,
+    image_output_usd_per_token: official.imageOutput ?? null,
   };
 }
 
@@ -3038,6 +3093,7 @@ async function readExistingStationsWithColumns(supabase, stationIds, columns) {
 function mergeStationForRefresh(station, existing, options) {
   const { auto_publish: autoPublish, ...row } = station;
   const shouldPublish = options.publish || autoPublish;
+  const refreshFailed = row.collection_status === "failed";
   if (!existing) {
     return normalizeUnknownAvailability({
       ...row,
@@ -3049,6 +3105,7 @@ function mergeStationForRefresh(station, existing, options) {
 
   return normalizeUnknownAvailability(mergeExistingAvailability({
     ...row,
+    status: refreshFailed ? existing.status || station.status : row.status,
     source_type: existing.source_type || station.source_type,
     commercial_relation: existing.commercial_relation || station.commercial_relation,
     station_system: keepConfiguredValue(existing.station_system, station.station_system),
@@ -3060,14 +3117,14 @@ function mergeStationForRefresh(station, existing, options) {
     balance_expiry: existing.balance_expiry ?? station.balance_expiry,
     support_channels: Array.isArray(existing.support_channels) ? existing.support_channels : station.support_channels,
     refund_policy: existing.refund_policy ?? station.refund_policy,
-    data_status: shouldPublish ? "verified" : existing.data_status || station.data_status,
+    data_status: refreshFailed ? existing.data_status || station.data_status : shouldPublish ? "verified" : existing.data_status || station.data_status,
     monitor_url: existing.monitor_url ?? station.monitor_url,
     commercial_offers: existing.commercial_offers ?? station.commercial_offers,
     verification_events: existing.verification_events ?? station.verification_events,
     availability_first_checked_at: existing.availability_first_checked_at || station.availability_first_checked_at,
     availability_latest_latency_ms: station.availability_latest_latency_ms ?? existing.availability_latest_latency_ms,
     availability_avg_latency_7d_ms: station.availability_avg_latency_7d_ms ?? existing.availability_avg_latency_7d_ms,
-    published: shouldPublish ? true : Boolean(existing.published),
+    published: refreshFailed ? Boolean(existing.published) : shouldPublish ? true : Boolean(existing.published),
     admin_note: shouldPublish && row.collection_status === "success" ? row.admin_note : existing.admin_note || station.admin_note,
     created_at: existing.created_at || station.created_at,
   }, existing), "已抓取公开价格，尚未接入 API Key 可用性检测。");
