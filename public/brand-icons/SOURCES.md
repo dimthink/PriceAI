@@ -13,6 +13,8 @@ These assets are cached locally for stable rendering and performance. They are s
 | `google.png` | `https://www.google.com/favicon.ico` | Converted from official Google favicon to PNG. |
 | `google-workspace.png` | `https://workspace.google.com/favicon.ico` | Converted from official Google Workspace favicon to PNG for Google Workspace-specific rows if needed. |
 | `paypal.png` | `https://www.paypalobjects.com/webstatic/icon/pp258.png` | Official PayPal public icon cached as PNG. |
+| `afdian.png` | `https://static.afdiancdn.com/static/img/logo/logo.png` | Official Afdian public logo cached as PNG for support entry cards. |
+| `kofi.png` | `https://cdn.prod.website-files.com/5c14e387dab576fe667689cf/670f930b7593bf76f888e447_logo2.png` | Official Ko-fi brand asset page image cached as PNG for support entry cards. |
 | `visa.png` | `https://www.visa.com/favicon.ico` | Converted from official Visa favicon to PNG for virtual card rows. |
 | `cursor.png` | `https://cursor.com/favicon.ico` | Converted from official Cursor favicon to PNG. |
 | `kiro.png` | `https://kiro.dev/favicon.ico` | Converted from official Kiro favicon to PNG. |

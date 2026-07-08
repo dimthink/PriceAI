@@ -17,6 +17,7 @@ import { HomeUrlCleaner } from "@/components/HomeUrlCleaner";
 import { JsonLd } from "@/components/JsonLd";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SponsoredPlacementPreview } from "@/components/SponsoredPlacementPreview";
+import { supportPagePath } from "@/lib/support";
 import { getSponsorSettingsSummary } from "@/lib/sponsor-settings";
 
 export const revalidate = 3600;
@@ -423,15 +424,18 @@ export default async function Home() {
             <Link href="/guides" className="font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-primary-hover)]">
               指南
             </Link>
+            <Link href={supportPagePath} className="font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-primary-hover)]">
+              支持 PriceAI
+            </Link>
             <a
               href="https://t.me/dimthink"
               target="_blank"
               rel="nofollow noopener noreferrer"
               className="font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-primary-hover)]"
-              aria-label="通过 Telegram 联系合作与赞助"
+              aria-label="通过 Telegram 联系商务合作"
               title="Telegram @dimthink"
             >
-              合作与赞助
+              商务合作
             </a>
           </div>
           <p className="max-w-[72ch]">PriceAI 不参与交易。购买前请回到原平台核验价格、库存、交付方式和售后规则。</p>

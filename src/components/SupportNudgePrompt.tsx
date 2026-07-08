@@ -1,9 +1,9 @@
 "use client";
 
-import { Coffee, ExternalLink, Star, X } from "lucide-react";
+import { ExternalLink, HeartHandshake, Star, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { githubStarUrl, supportPagePath } from "@/lib/support";
 
@@ -34,6 +34,7 @@ export function SupportNudgePrompt() {
   const pathname = usePathname();
   const titleId = useId();
   const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
   const dismissPrompt = useCallback(() => {
@@ -59,6 +60,20 @@ export function SupportNudgePrompt() {
     setOpen(false);
     trackAnalyticsEvent("support_nudge_click", {
       action,
+      pathname,
+      visit_days: state.visitDays.length,
+    });
+  }, [pathname]);
+
+  const openSupportPage = useCallback(() => {
+    const state = readState();
+    writeState({
+      ...state,
+      dismissedUntil: addDays(new Date(), DISMISS_DAYS).toISOString(),
+    });
+    setOpen(false);
+    trackAnalyticsEvent("support_nudge_click", {
+      action: "support_page",
       pathname,
       visit_days: state.visitDays.length,
     });
@@ -101,18 +116,66 @@ export function SupportNudgePrompt() {
     if (!open) return;
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") dismissPrompt();
+      if (event.key === "Escape") {
+        dismissPrompt();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+
+      const focusableElements = getFocusableElements(dialog);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+      const isDialogFocused = activeElement === dialog;
+
+      if (!event.shiftKey && isDialogFocused) {
+        event.preventDefault();
+        firstElement.focus();
+        return;
+      }
+
+      if (event.shiftKey && (isDialogFocused || !activeElement || activeElement === firstElement || !dialog.contains(activeElement))) {
+        event.preventDefault();
+        lastElement.focus();
+        return;
+      }
+
+      if (!event.shiftKey && activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [dismissPrompt, open]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus({ preventScroll: true }));
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      previousActiveElement?.focus();
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[85] flex items-end justify-center bg-[var(--color-overlay)] px-3 py-4 backdrop-blur-[2px] sm:items-center sm:px-5"
+      className="fixed inset-0 z-[85] flex items-end justify-center bg-[var(--color-overlay)] px-3 py-4 backdrop-blur-[1px] sm:items-center sm:px-5"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -121,67 +184,77 @@ export function SupportNudgePrompt() {
         if (event.target === event.currentTarget) dismissPrompt();
       }}
     >
-      <div className="w-full max-w-[560px] overflow-hidden rounded-lg bg-[var(--color-panel)] shadow-[var(--shadow-floating)] ring-1 ring-[var(--color-border-soft)]">
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border-subtle)] px-5 py-5 sm:px-6">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-[500px] rounded-lg bg-[var(--color-panel)] p-5 shadow-[var(--shadow-control)] ring-1 ring-[var(--color-border-soft)] focus:outline-none sm:p-6"
+      >
+        <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-surface)] text-[var(--color-text-primary)] ring-1 ring-[var(--color-border-soft)]">
-              <Coffee size={18} aria-hidden="true" />
+            <div className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--color-surface)] text-[var(--color-text-primary)] ring-1 ring-[var(--color-border-soft)]">
+              <HeartHandshake size={19} aria-hidden="true" />
             </div>
             <h2 id={titleId} className="mt-4 text-lg font-semibold leading-7 text-[var(--color-text-primary)]">
-              PriceAI 对你有帮上忙吗？
+              PriceAI 帮到你了吗？
             </h2>
-            <p id={descriptionId} className="mt-2 text-sm leading-7 text-[var(--color-text-muted)]">
-              看起来你已经连续几天在用。点一个 GitHub Star，或者买杯咖啡支持后续数据维护，都能帮这个项目继续把价格和风险信息整理清楚。
+            <p id={descriptionId} className="mt-2 max-w-[46ch] text-sm leading-7 text-[var(--color-text-muted)]">
+              给项目点个 GitHub Star，让更多人看见；或者<span className="whitespace-nowrap">给作者买杯咖啡</span>，支持持续维护。
             </p>
           </div>
           <button
             type="button"
             onClick={dismissPrompt}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
             aria-label="关闭支持提示，30 天内不再提示"
           >
             <X size={17} />
           </button>
         </div>
 
-        <div className="px-5 py-4 sm:px-6">
-          <div className="rounded-lg bg-[var(--color-surface)] px-4 py-3 text-sm leading-6 text-[var(--color-text-muted)] ring-1 ring-[var(--color-border-soft)]">
-            支持不会影响 PriceAI 的排序、最低价、风险提示或渠道展示规则。
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 border-t border-[var(--color-border-subtle)] px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6">
-          <button
-            type="button"
-            onClick={dismissPrompt}
-            className="inline-flex min-h-11 items-center justify-center rounded-full px-4 text-sm font-semibold text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
-          >
-            30 天内不再提示
-          </button>
-          <Link
-            href={supportPagePath}
-            onClick={() => completePrompt("support_page")}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--color-panel)] px-4 text-sm font-semibold text-[var(--color-text-primary)] ring-1 ring-[var(--color-border-soft)] transition hover:bg-[var(--color-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
-          >
-            支持维护
-            <Coffee size={15} />
-          </Link>
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
           <a
             href={githubStarUrl}
             target="_blank"
             rel="noreferrer"
             onClick={() => completePrompt("github_star")}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-text-on-primary)] transition hover:bg-[var(--color-primary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-text-on-primary)] transition hover:bg-[var(--color-primary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
           >
-            GitHub 点 Star
+            去 GitHub 点 Star
             <Star size={15} />
             <ExternalLink size={14} />
           </a>
+          <Link
+            href={supportPagePath}
+            onClick={openSupportPage}
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-[var(--color-panel)] px-4 text-sm font-semibold text-[var(--color-text-primary)] ring-1 ring-[var(--color-border-soft)] transition hover:bg-[var(--color-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
+          >
+            买杯咖啡
+            <HeartHandshake size={15} />
+          </Link>
+        </div>
+
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={dismissPrompt}
+            className="inline-flex min-h-11 items-center justify-center rounded-full px-3 text-xs font-semibold text-[var(--color-text-soft)] transition hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)]"
+            aria-label="30 天内不再提醒"
+          >
+            30 天内不再提醒
+          </button>
         </div>
       </div>
     </div>
   );
 
+}
+
+function getFocusableElements(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.hasAttribute("disabled") && !element.getAttribute("aria-hidden"));
 }
 
 function shouldShowPrompt(state: SupportNudgeState) {

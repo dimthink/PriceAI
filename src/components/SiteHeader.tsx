@@ -7,7 +7,7 @@ import { ExternalLink, HeartHandshake, Info, Menu, MessageCircle, X } from "luci
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
-import { FeedbackDialog, FeedbackLink, GitHubLink, QQGroupDialog, QQGroupLink, SupportLink, TelegramLink } from "@/components/FeedbackLink";
+import { FeedbackDialog, FeedbackLink, GitHubLink, QQGroupDialog, QQGroupLink, TelegramLink } from "@/components/FeedbackLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { qqGroupNumber, telegramUrl } from "@/lib/community";
 import { supportPagePath } from "@/lib/support";
@@ -93,7 +93,6 @@ export function SiteHeader({
           <FeedbackLink compact labelFrom={compactActionLabelFrom} />
           <QQGroupLink compact labelFrom={compactActionLabelFrom} />
           <TelegramLink compact labelFrom={compactActionLabelFrom} />
-          <SupportLink compact labelFrom={compactActionLabelFrom} />
           <GitHubLink compact labelFrom={compactActionLabelFrom} />
         </div>
       </div>
