@@ -59,6 +59,9 @@ export const metadata: Metadata = {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     shortcut: ["/icon.svg"],
   },
+  other: {
+    "impact-site-verification": "5194cee0-23c8-4dc2-94e8-1a968cb8f93e",
+  },
 };
 
 export default function RootLayout({
