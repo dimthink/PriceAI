@@ -1,4 +1,4 @@
-import { Store } from "lucide-react";
+import { Cloud, Store } from "lucide-react";
 import Image from "next/image";
 import type { MerchantSourcePlatformId } from "@/lib/merchant-collectors";
 import type { MerchantCollectorGroup } from "@/lib/types";
@@ -30,7 +30,7 @@ export function CollectorSourceLogo({
 
   return (
     <span aria-hidden="true" className={`${frameClassName} ${collectorGenericFrameClassName(group, platformId)}`}>
-      <Store size={size === "compact" ? 14 : size === "table" ? 18 : 19} />
+      <CollectorSourceGlyph platformId={platformId} size={size} />
     </span>
   );
 }
@@ -59,4 +59,24 @@ function collectorGenericFrameClassName(
   if (platformId === "qxvx") return "bg-[#edf7f1] text-[#2f7a4b] ring-[#b9dfc8]";
   if (group === "shopApi") return "bg-[#f2f4f4] text-[#5a6061] ring-[#adb3b4]/15";
   return "bg-[#f2f4f4] text-[#5a6061] ring-[#adb3b4]/15";
+}
+
+function CollectorSourceGlyph({
+  platformId,
+  size,
+}: {
+  platformId?: MerchantSourcePlatformId | null;
+  size: "card" | "table" | "compact";
+}) {
+  if (platformId === "yunmaoConsignment") {
+    return <Cloud size={size === "compact" ? 14 : size === "table" ? 18 : 19} strokeWidth={2.2} />;
+  }
+  if (platformId === "qxvx") {
+    return (
+      <span className={`font-black leading-none ${size === "compact" ? "text-[0.62rem]" : "text-[0.7rem]"}`}>
+        QX
+      </span>
+    );
+  }
+  return <Store size={size === "compact" ? 14 : size === "table" ? 18 : 19} />;
 }

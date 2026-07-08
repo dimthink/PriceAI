@@ -33,7 +33,12 @@ import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset, newestUsableGeneratedDataset } from "@/lib/client-refresh";
-import { MERCHANT_COLLECTOR_FILTERS, merchantCollectorLabel, merchantSourcePlatform } from "@/lib/merchant-collectors";
+import {
+  MERCHANT_COLLECTOR_FILTERS,
+  merchantCollectorLabel,
+  merchantSourcePlatform,
+  parseMerchantCollectorFilter,
+} from "@/lib/merchant-collectors";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
@@ -2464,7 +2469,7 @@ function parseExplorerInitialState(params: URLSearchParams): ExplorerInitialStat
     maxPrice: numericParam(params.get("max") || ""),
     viewMode: normalizeViewModeForScope(scopeMode, viewMode),
     scopeMode,
-    merchantCollector: pickParam(params.get("collector") || "", merchantCollectorOptions, "all"),
+    merchantCollector: parseMerchantCollectorFilter(params.get("collector")),
     merchantSignal: pickParam(params.get("signal") || "", merchantSignalOptions, "all"),
   };
 }

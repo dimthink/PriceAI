@@ -26,7 +26,14 @@ import {
 } from "./public-api-snapshots";
 import { getFallbackRiskReviewSettingsSummary, getRiskReviewSettingsSummary } from "./risk-review-settings";
 import { getFallbackSponsorSettingsSummary, getSponsorSettingsSummary } from "./sponsor-settings";
-import { merchantCollectorGroup, merchantCollectorLabel, merchantSourcePlatform, parseMerchantCollectorFilter } from "./merchant-collectors";
+import {
+  isMerchantCollectorPlatformFilter,
+  merchantCollectorFilterMatchesSource,
+  merchantCollectorGroup,
+  merchantCollectorLabel,
+  merchantSourcePlatform,
+  parseMerchantCollectorFilter,
+} from "./merchant-collectors";
 import {
   normalizePublicOfferLimit,
   normalizePublicOfferOffset,
@@ -93,7 +100,6 @@ const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION = "v3-live-filter-tags";
 const PUBLIC_LIST_SNAPSHOT_STOCKS = ["available"] as const;
 const PUBLIC_LIST_SNAPSHOT_SORTS = ["updated"] as const;
-const PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS = ["shopApi", "dujiao", "kami", "other"] as const;
 const PUBLIC_MERCHANT_SNAPSHOT_SIGNALS = ["lowest", "warranty", "platform_aftersales", "risk_clear"] as const;
 const PUBLIC_HOT_OFFER_PRODUCT_TYPES_BY_PLATFORM: Record<string, string[]> = {
   ChatGPT: ["订阅/会员"],
@@ -2139,11 +2145,8 @@ function normalizePublicSnapshotSort(value: string | null | undefined): string |
 }
 
 function normalizePublicSnapshotMerchantCollector(value: string | null | undefined): string | null {
-  const normalized = normalizePublicSnapshotText(value);
-  if (!normalized || normalized === "all") return null;
-  return PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS.includes(normalized as typeof PUBLIC_MERCHANT_SNAPSHOT_COLLECTORS[number])
-    ? normalized
-    : null;
+  const normalized = parseMerchantCollectorFilter(normalizePublicSnapshotText(value));
+  return normalized === "all" ? null : normalized;
 }
 
 function normalizePublicSnapshotMerchantSignal(value: string | null | undefined): string | null {
@@ -3060,6 +3063,7 @@ async function getPublicProductOffersFromDatabase(
 
   const supabase = getSupabaseServerClient();
   if (!supabase) return null;
+  if (isMerchantCollectorPlatformFilter(filters.collector)) return null;
 
   const filterFacetsPromise = getPublicProductOfferFilterFacetsFromDatabase(id, filters.filterProductId);
   const hasServerFilters =
@@ -3232,8 +3236,13 @@ function offerMatchesProductOfferExcludeQuery(offer: RawOffer, excludeTerms: str
 }
 
 function offerMatchesProductOfferCollector(offer: RawOffer, collector: MerchantCollectorFilter): boolean {
-  if (collector === "all") return true;
-  return merchantCollectorGroup(offer.collectorKind) === collector;
+  return merchantCollectorFilterMatchesSource(collector, {
+    collectorKind: offer.collectorKind,
+    sourceId: offer.sourceId,
+    sourceName: offer.sourceName,
+    sourceStoreName: offer.sourceStoreName,
+    url: offer.url,
+  });
 }
 
 function offerMatchesProductOfferPriceRange(offer: RawOffer, minPrice: number | null, maxPrice: number | null): boolean {
@@ -3530,7 +3539,19 @@ function filterAndSortPublicMerchants(
       if (filters.productType && filters.productType !== "全部" && !merchant.productTypes.includes(filters.productType)) return false;
       if (filters.stock === "available" && merchant.inStockCount === 0) return false;
       if (filters.stock === "out_of_stock" && merchant.outOfStockCount === 0) return false;
-      if (filters.collector && filters.collector !== "all" && merchant.collectorGroup !== filters.collector) return false;
+      if (
+        filters.collector &&
+        !merchantCollectorFilterMatchesSource(parseMerchantCollectorFilter(filters.collector), {
+          collectorKind: merchant.collectorKind,
+          collectorGroup: merchant.collectorGroup,
+          sourceId: merchant.sourceId,
+          sourceName: merchant.sourceName,
+          sourceStoreName: merchant.storeName,
+          url: merchant.entryUrl,
+          entryUrl: merchant.shopUrl || merchant.entryUrl,
+          host: merchant.host,
+        })
+      ) return false;
       if (filters.signal === "lowest" && merchant.lowestHitCount === 0) return false;
       if (filters.signal === "warranty" && merchant.warrantyLowestHitCount === 0) return false;
       if (filters.signal === "platform_aftersales" && !merchant.hasPlatformAftersalesMechanism) return false;

@@ -157,7 +157,8 @@ export type ExplorerProductSummary = Omit<ProductGroup, "offers" | "lowestOffer"
 };
 
 export type MerchantCollectorGroup = "shopApi" | "dujiao" | "kami" | "other";
-export type MerchantCollectorFilter = "all" | MerchantCollectorGroup;
+export type MerchantCollectorPlatformFilter = "liandongShop" | "yunmaoConsignment" | "qxvx";
+export type MerchantCollectorFilter = "all" | MerchantCollectorGroup | MerchantCollectorPlatformFilter;
 
 export type PublicMerchantSummary = {
   id: string;

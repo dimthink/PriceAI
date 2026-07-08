@@ -11,6 +11,7 @@ import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestUsableGeneratedDataset } from "@/lib/client-refresh";
 import {
   MERCHANT_COLLECTOR_FILTERS,
+  merchantCollectorFilterLogo,
   merchantCollectorGroup,
   merchantCollectorLabel,
   merchantSourcePlatform,
@@ -52,7 +53,7 @@ type ProductOffersResponse = {
 
 const OFFER_PAGE_SIZE = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PRODUCT_OFFERS_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
-const PRODUCT_OFFERS_REFRESH_TIMEOUT_MS = 10_000;
+const PRODUCT_OFFERS_REFRESH_TIMEOUT_MS = 20_000;
 const PRODUCT_OFFERS_MEMORY_CACHE_LIMIT = 40;
 const FEEDBACK_EVIDENCE_MAX_IMAGES = 5;
 const productOffersMemoryCache = new Map<string, ProductOffersResponse>();
@@ -801,7 +802,7 @@ function OfferFilterBar({
               <div className="mt-2 flex flex-wrap gap-2">
                 {MERCHANT_COLLECTOR_FILTERS.map((collector) => {
                   const selected = selectedCollector === collector;
-                  const collectorGroup = collector === "all" ? null : collector;
+                  const logo = merchantCollectorFilterLogo(collector);
                   return (
                     <button
                       key={collector}
@@ -813,7 +814,7 @@ function OfferFilterBar({
                           : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
                       }`}
                     >
-                      {collectorGroup ? <CollectorSourceLogo group={collectorGroup} size="compact" /> : null}
+                      {logo ? <CollectorSourceLogo group={logo.group} platformId={logo.platformId} size="compact" /> : null}
                       {merchantCollectorLabel(collector)}
                     </button>
                   );
@@ -1405,10 +1406,10 @@ function OfferExitNoticeDialog({ offer, onClose }: { offer: RawOffer; onClose: (
   const hostedShopPlatform = sourcePlatform.hasPlatformAftersalesMechanism || isShopApiOffer(offer);
   const hostedShopLabel = sourcePlatform.hasPlatformAftersalesMechanism
     ? sourcePlatform.label
-    : "托管发卡平台";
+    : "ShopApi";
   const hostedShopExitLabel = sourcePlatform.hasPlatformAftersalesMechanism
     ? sourcePlatform.exitLabel
-    : "托管发卡平台";
+    : "ShopApi";
   const highRisk = isHighRiskOutboundOffer(offer);
   const highPrice = typeof offer.price === "number" && offer.price >= OFFER_HIGH_RISK_PRICE_THRESHOLD;
   const risks = getOfferRiskHints(offer);
@@ -1479,7 +1480,7 @@ function OfferExitNoticeDialog({ offer, onClose }: { offer: RawOffer; onClose: (
             </p>
           ) : (
             <p className="rounded-lg bg-[#fff7e8] px-3 py-2 text-[#7a541b]">
-              该渠道不属于托管发卡平台来源。请先联系商家，确认店铺可信度、发货方式、售后路径和退款边界，再决定是否购买，不建议直接付款。
+              该渠道暂未识别为链动小铺、云猫寄售或 QXVX 这类平台来源。请先联系商家，确认店铺可信度、发货方式、售后路径和退款边界，再决定是否购买，不建议直接付款。
             </p>
           )}
           {highPrice ? (

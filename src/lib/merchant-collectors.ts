@@ -1,7 +1,22 @@
-import type { MerchantCollectorFilter, MerchantCollectorGroup, Source } from "@/lib/types";
+import type { MerchantCollectorFilter, MerchantCollectorGroup, MerchantCollectorPlatformFilter, Source } from "@/lib/types";
 
 export const MERCHANT_COLLECTOR_GROUPS: MerchantCollectorGroup[] = ["shopApi", "dujiao", "kami", "other"];
-export const MERCHANT_COLLECTOR_FILTERS: MerchantCollectorFilter[] = ["all", ...MERCHANT_COLLECTOR_GROUPS];
+export const MERCHANT_COLLECTOR_PLATFORM_FILTERS: MerchantCollectorPlatformFilter[] = [
+  "liandongShop",
+  "yunmaoConsignment",
+  "qxvx",
+];
+export const MERCHANT_COLLECTOR_FILTERS: MerchantCollectorFilter[] = [
+  "all",
+  ...MERCHANT_COLLECTOR_PLATFORM_FILTERS,
+  "dujiao",
+  "kami",
+  "other",
+];
+const MERCHANT_COLLECTOR_ACCEPTED_FILTERS: MerchantCollectorFilter[] = [
+  ...MERCHANT_COLLECTOR_FILTERS,
+  "shopApi",
+];
 
 export type MerchantSourcePlatformId =
   | "liandongShop"
@@ -29,7 +44,10 @@ export function merchantCollectorGroup(kind: Source["collectorKind"] | null | un
 
 export function merchantCollectorLabel(group: MerchantCollectorFilter): string {
   if (group === "all") return "全部来源";
-  if (group === "shopApi") return "托管发卡平台";
+  if (group === "liandongShop") return "链动小铺";
+  if (group === "yunmaoConsignment") return "云猫寄售";
+  if (group === "qxvx") return "QXVX";
+  if (group === "shopApi") return "ShopApi";
   if (group === "dujiao") return "独角数卡";
   if (group === "kami") return "异次元";
   return "自研";
@@ -116,18 +134,53 @@ export function merchantSourcePlatform(input: {
 
   return {
     id: "shopApiHosted",
-    label: "托管发卡平台",
-    shortLabel: "托管发卡",
-    exitLabel: "托管发卡平台",
+    label: "ShopApi",
+    shortLabel: "ShopApi",
+    exitLabel: "ShopApi",
     hasPlatformAftersalesMechanism: true,
   };
 }
 
 export function parseMerchantCollectorFilter(value: string | null | undefined): MerchantCollectorFilter {
   const normalized = String(value || "").trim();
-  return MERCHANT_COLLECTOR_FILTERS.includes(normalized as MerchantCollectorFilter)
+  return MERCHANT_COLLECTOR_ACCEPTED_FILTERS.includes(normalized as MerchantCollectorFilter)
     ? normalized as MerchantCollectorFilter
     : "all";
+}
+
+export function merchantCollectorFilterLogo(
+  filter: MerchantCollectorFilter,
+): { group: MerchantCollectorGroup; platformId?: MerchantSourcePlatformId | null } | null {
+  if (filter === "all") return null;
+  if (isMerchantCollectorPlatformFilter(filter)) return { group: "shopApi", platformId: filter };
+  return { group: filter };
+}
+
+export function isMerchantCollectorPlatformFilter(
+  filter: MerchantCollectorFilter,
+): filter is MerchantCollectorPlatformFilter {
+  return MERCHANT_COLLECTOR_PLATFORM_FILTERS.includes(filter as MerchantCollectorPlatformFilter);
+}
+
+export function merchantCollectorFilterMatchesSource(
+  filter: MerchantCollectorFilter,
+  input: {
+    collectorKind?: Source["collectorKind"] | null;
+    collectorGroup?: MerchantCollectorGroup | null;
+    sourceId?: string | null;
+    sourceName?: string | null;
+    sourceStoreName?: string | null;
+    url?: string | null;
+    entryUrl?: string | null;
+    host?: string | null;
+  },
+): boolean {
+  if (filter === "all") return true;
+  if (isMerchantCollectorPlatformFilter(filter)) {
+    return merchantSourcePlatform(input).id === filter;
+  }
+  const group = input.collectorGroup || merchantCollectorGroup(input.collectorKind);
+  return group === filter;
 }
 
 function platformForCollectorGroup(group: MerchantCollectorGroup): MerchantSourcePlatform {
