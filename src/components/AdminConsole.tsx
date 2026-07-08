@@ -733,8 +733,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     () =>
       activeSourceGroup
         ? filterAndSortSources(activeSourceGroup.sources, sourceFilters, sourceStatsById, offerCountBySource)
-        : [],
-    [activeSourceGroup, offerCountBySource, sourceFilters, sourceStatsById],
+        : filterAndSortSources(sources, sourceFilters, sourceStatsById, offerCountBySource),
+    [activeSourceGroup, offerCountBySource, sourceFilters, sourceStatsById, sources],
   );
   useEffect(() => {
     if (!activeSourceGroupKey) return;
@@ -2544,7 +2544,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   };
 
   const toggleAllSources = () => {
-    const selectableSources = activeSourceGroup ? filteredSourceRows : [];
+    const selectableSources = filteredSourceRows;
     const selectableIds = selectableSources.map((source) => source.id);
     if (!selectableIds.length) {
       setSelectedSourceIds(new Set());
@@ -3349,7 +3349,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={toggleAllSources}
-                      disabled={!activeSourceGroup || !filteredSourceRows.length}
+                      disabled={!filteredSourceRows.length}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
                     >
                       <Check size={14} />
@@ -3358,7 +3358,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={batchCollectSelectedSources}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size || loadingAction === "batch-collect-sources"}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-collect-sources"}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#2d3435] px-3 text-xs font-medium text-white transition-colors hover:bg-[#202829] disabled:opacity-50"
                     >
                       {loadingAction === "batch-collect-sources" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCcw size={14} />}
@@ -3367,7 +3367,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={copySelectedBrowserCommands}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size}
+                      disabled={!selectedSourceIds.size}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
                     >
                       <TerminalSquare size={14} />
@@ -3376,7 +3376,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={copySelectedCollectorContexts}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size}
+                      disabled={!selectedSourceIds.size}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
                     >
                       <Copy size={14} />
@@ -3385,7 +3385,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={() => batchToggleSelectedSources(false)}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size || loadingAction === "batch-disable-sources"}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-disable-sources"}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
                     >
                       停用
@@ -3393,7 +3393,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={() => batchToggleSelectedSources(true)}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size || loadingAction === "batch-enable-sources"}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-enable-sources"}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
                     >
                       启用
@@ -3401,7 +3401,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={() => batchToggleSelectedSourceOffers(true)}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size || loadingAction === "batch-hide-source-offers"}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-hide-source-offers"}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
                     >
                       下架报价
@@ -3409,7 +3409,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={() => batchToggleSelectedSourceOffers(false)}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size || loadingAction === "batch-restore-source-offers"}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-restore-source-offers"}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2f7a4b]/20 bg-white px-3 text-xs font-medium text-[#2f7a4b] transition-colors hover:bg-[#e8f3ec] disabled:opacity-50"
                     >
                       恢复报价
@@ -3417,7 +3417,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     <button
                       type="button"
                       onClick={batchDeleteSelectedSources}
-                      disabled={!activeSourceGroup || !selectedSourceIds.size || loadingAction === "batch-delete-sources"}
+                      disabled={!selectedSourceIds.size || loadingAction === "batch-delete-sources"}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
                     >
                       <Trash2 size={14} />
@@ -3430,6 +3430,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   <SourceTable
                     overviewGroups={sourceOverviewGroups}
                     activeGroup={activeSourceGroup}
+                    activeGroupKey={activeSourceGroupKey}
                     filteredSources={filteredSourceRows}
                     filters={sourceFilters}
                     offerCountBySource={offerCountBySource}
@@ -3439,10 +3440,6 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     selectedIds={selectedSourceIds}
                     onSelectGroup={(groupKey) => {
                       setActiveSourceGroupKey(groupKey);
-                      setSelectedSourceIds(new Set());
-                    }}
-                    onBackToGroups={() => {
-                      setActiveSourceGroupKey(null);
                       setSelectedSourceIds(new Set());
                     }}
                     onFiltersChange={setSourceFilters}
@@ -6020,6 +6017,7 @@ function UrlLine({ label, href, tone = "muted" }: { label: string; href: string;
 function SourceTable({
   overviewGroups,
   activeGroup,
+  activeGroupKey,
   filteredSources,
   filters,
   offerCountBySource,
@@ -6028,7 +6026,6 @@ function SourceTable({
   feedback,
   selectedIds,
   onSelectGroup,
-  onBackToGroups,
   onFiltersChange,
   onToggleSelect,
   onRetry,
@@ -6040,6 +6037,7 @@ function SourceTable({
 }: {
   overviewGroups: SourceGroupOverview[];
   activeGroup: SourceGroupOverview | null;
+  activeGroupKey: string | null;
   filteredSources: Source[];
   filters: SourceFilters;
   offerCountBySource: Map<string, number>;
@@ -6047,8 +6045,7 @@ function SourceTable({
   loadingAction: string | null;
   feedback: RowFeedback | null;
   selectedIds: Set<string>;
-  onSelectGroup: (groupKey: string) => void;
-  onBackToGroups: () => void;
+  onSelectGroup: (groupKey: string | null) => void;
   onFiltersChange: Dispatch<SetStateAction<SourceFilters>>;
   onToggleSelect: (id: string) => void;
   onRetry: (source: Source) => void;
@@ -6058,92 +6055,69 @@ function SourceTable({
   onToggleOffersVisibility: (source: Source, hidden: boolean, mode?: AdminOfferHideMode) => void;
   onDeleteSource: (source: Source) => void;
 }) {
-  if (!activeGroup) {
-    return (
-      <div className="overflow-hidden rounded-lg border border-[#adb3b4]/20">
-        <div className="hidden grid-cols-[1fr_110px_130px_190px_160px_90px] gap-3 border-b border-[#adb3b4]/20 bg-[#f2f4f4] px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#5a6061] md:grid">
-          <span>分组</span>
-          <span>渠道</span>
-          <span>报价</span>
-          <span>健康</span>
-          <span>风险</span>
-          <span>操作</span>
-        </div>
-        <div className="divide-y divide-[#adb3b4]/15">
-          {overviewGroups.map((group) => (
-            <button
-              key={group.key}
-              type="button"
-              onClick={() => onSelectGroup(group.key)}
-              className="grid w-full gap-2 bg-white px-3 py-3 text-left transition-colors hover:bg-[#f7f9f9] md:grid-cols-[1fr_110px_130px_190px_160px_90px] md:items-center"
-            >
-              <span className="min-w-0">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Store size={15} className="shrink-0 text-[#5a6061]" />
-                  <span className="truncate text-sm font-semibold text-[#202829]">{group.label}</span>
-                  {group.key === SOURCE_OTHER_GROUP_KEY ? (
-                    <span className="shrink-0 rounded-full bg-[#eef3f8] px-2 py-0.5 text-xs font-medium text-[#47657a]">零散采集</span>
-                  ) : null}
-                </span>
-                <span className="mt-1 block text-xs text-[#adb3b4]">
-                  {group.key === SOURCE_OTHER_GROUP_KEY ? "少量采集器合并展示，进入后保留原采集器标签。" : "点击进入该采集器分组。"}
-                </span>
-              </span>
-              <span className="text-sm font-semibold text-[#2d3435]">{group.sources.length}</span>
-              <span className="text-sm font-semibold text-[#2d3435]">
-                {group.totalVisibleOffers}
-                {group.totalManuallyHiddenOffers ? (
-                  <span className="ml-2 text-xs font-medium text-[#9b3328]">下架 {group.totalManuallyHiddenOffers}</span>
-                ) : null}
-                {group.totalCollectorFailureOffers ? (
-                  <span className="ml-2 text-xs font-medium text-[#7a541b]">采集失败 {group.totalCollectorFailureOffers}</span>
-                ) : null}
-              </span>
-              <span className="flex flex-wrap gap-1.5 text-xs font-semibold">
-                <span className="rounded-full bg-[#e8f3ec] px-2 py-0.5 text-[#2f7a4b]">正常 {group.normalCount}</span>
-                {group.abnormalCount > 0 ? <span className="rounded-full bg-[#fbe9e7] px-2 py-0.5 text-[#9b3328]">异常 {group.abnormalCount}</span> : null}
-                {group.disabledCount > 0 ? <span className="rounded-full bg-[#f2f4f4] px-2 py-0.5 text-[#5a6061]">停用 {group.disabledCount}</span> : null}
-              </span>
-              <span className="text-xs font-medium text-[#5a6061]">
-                {group.riskCount ? `疑似 ${group.riskCount}` : "暂无明显风险"}
-              </span>
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#2d3435]">
-                查看
-                <ChevronDown size={14} className="-rotate-90" />
-              </span>
-            </button>
-          ))}
-          {!overviewGroups.length && (
-            <div className="px-3 py-10 text-center text-sm text-[#adb3b4]">暂无渠道源。</div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const totalStats = overviewGroups.reduce(
+    (acc, group) => ({
+      sourceCount: acc.sourceCount + group.sources.length,
+      visibleOfferCount: acc.visibleOfferCount + group.totalVisibleOffers,
+      riskCount: acc.riskCount + group.riskCount,
+    }),
+    { sourceCount: 0, visibleOfferCount: 0, riskCount: 0 },
+  );
+  const currentGroupLabel = activeGroup?.label || "全部渠道";
+  const currentSourceCount = activeGroup?.sources.length ?? totalStats.sourceCount;
+  const currentVisibleOfferCount = activeGroup?.totalVisibleOffers ?? totalStats.visibleOfferCount;
+  const currentRiskCount = activeGroup?.riskCount ?? totalStats.riskCount;
 
   return (
     <div className="overflow-hidden rounded-lg border border-[#adb3b4]/20">
       <div className="border-b border-[#adb3b4]/20 bg-white px-3 py-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <button
-              type="button"
-              onClick={onBackToGroups}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4]"
-            >
-              <ChevronDown size={14} className="rotate-90" />
-              返回分组
-            </button>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-[#202829]">{activeGroup.label}</h3>
-              <span className="rounded-full bg-[#f2f4f4] px-2.5 py-1 text-xs font-medium text-[#5a6061]">{activeGroup.sources.length} 个渠道</span>
-              <span className="rounded-full bg-[#e4e9ea] px-2.5 py-1 text-xs font-medium text-[#2d3435]">报价 {activeGroup.totalVisibleOffers}</span>
-              {activeGroup.riskCount ? <span className="rounded-full bg-[#fff7e8] px-2.5 py-1 text-xs font-medium text-[#7a541b]">疑似低质量 {activeGroup.riskCount}</span> : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-[#202829]">{currentGroupLabel}</h3>
+              <span className="rounded-full bg-[#f2f4f4] px-2.5 py-1 text-xs font-medium text-[#5a6061]">{currentSourceCount} 个渠道</span>
+              <span className="rounded-full bg-[#e4e9ea] px-2.5 py-1 text-xs font-medium text-[#2d3435]">报价 {currentVisibleOfferCount}</span>
+              {currentRiskCount ? <span className="rounded-full bg-[#fff7e8] px-2.5 py-1 text-xs font-medium text-[#7a541b]">疑似低质量 {currentRiskCount}</span> : null}
             </div>
           </div>
           <div className="text-xs text-[#adb3b4]">
             当前筛选 {filteredSources.length} 个，批量操作只作用于当前列表中已选渠道。
           </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-pressed={!activeGroupKey}
+            onClick={() => onSelectGroup(null)}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${
+              !activeGroupKey
+                ? "bg-[#2d3435] text-white"
+                : "bg-[#f2f4f4] text-[#5a6061] hover:bg-[#e4e9ea]"
+            }`}
+          >
+            全部
+            <span className={!activeGroupKey ? "text-white/70" : "text-[#adb3b4]"}>{totalStats.sourceCount}</span>
+          </button>
+          {overviewGroups.map((group) => (
+            <button
+              key={group.key}
+              type="button"
+              aria-pressed={activeGroupKey === group.key}
+              onClick={() => onSelectGroup(group.key)}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${
+                activeGroupKey === group.key
+                  ? "bg-[#2d3435] text-white"
+                  : "bg-[#f2f4f4] text-[#5a6061] hover:bg-[#e4e9ea]"
+              }`}
+            >
+              {group.label}
+              <span className={activeGroupKey === group.key ? "text-white/70" : "text-[#adb3b4]"}>{group.sources.length}</span>
+              {group.key === SOURCE_OTHER_GROUP_KEY ? (
+                <span className={activeGroupKey === group.key ? "text-white/60" : "text-[#47657a]"}>零散</span>
+              ) : null}
+            </button>
+          ))}
         </div>
 
         <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(220px,1fr)_150px_150px_170px_auto_auto] lg:items-center">
