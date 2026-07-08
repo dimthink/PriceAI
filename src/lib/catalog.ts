@@ -1979,6 +1979,7 @@ function isPureEmail(value: string): boolean {
     ".edu",
   ]);
   if (!explicitEmail) return false;
+  if (isEmailOnlyForAiAccountSetup(value)) return true;
   if (isICloudBackedAiAccountProduct(value)) return false;
   if (isEmailBackedAiAccountProduct(value)) return false;
   if (matches(value, ["跑gemini", "跑 gemini", "失败的号", "包gcp", "带gcp"])) return true;
@@ -2026,6 +2027,7 @@ function isPureEmail(value: string): boolean {
 function isEmailBackedAiAccountProduct(value: string): boolean {
   if (!hasEmailSignal(value)) return false;
   if (isICloudStandaloneEmailProduct(value)) return false;
+  if (isEmailOnlyForAiAccountSetup(value)) return false;
 
   const hasChatGptSignal = matches(value, ["chatgpt", "gpt", "openai", "codex"]);
   if (isChatGptTeamDominant(value)) return true;
@@ -2056,6 +2058,63 @@ function isEmailBackedAiAccountProduct(value: string): boolean {
     "未接码",
     "已接码",
     "at发货",
+  ]);
+}
+
+function isEmailOnlyForAiAccountSetup(value: string): boolean {
+  if (!hasEmailSignal(value)) return false;
+  if (!matches(value, ["plus", "chatgpt", "gpt", "openai"])) return false;
+
+  const setupUsageSignal = matches(value, [
+    "配合plus",
+    "配合 plus",
+    "plus自助充值使用",
+    "plus 自助充值使用",
+    "plus使用",
+    "plus 使用",
+    "自助充值使用",
+    "充值使用",
+    "注册gpt专用",
+    "注册 gpt 专用",
+    "适用于gpt",
+    "适用于 gpt",
+    "可开gpt",
+    "可开 gpt",
+    "可注册gpt",
+    "可注册 gpt",
+  ]);
+  if (!setupUsageSignal) return false;
+
+  return !matches(value, [
+    "plus 成品",
+    "plus成品",
+    "plus 独享成品",
+    "plus独享成品",
+    "plus 会员",
+    "plus会员",
+    "plus 账号",
+    "plus账号",
+    "成品号",
+    "成品账号",
+    "成品会员",
+    "独享账号",
+    "独享成品",
+    "会员",
+    "月卡",
+    "年卡",
+    "订阅",
+    "首登",
+    "直登",
+    "账密",
+    "rt",
+    "凭证",
+    "json",
+    "cpa",
+    "直充",
+    "代充",
+    "卡密",
+    "自助开通",
+    "自动发货",
   ]);
 }
 
@@ -2530,10 +2589,58 @@ function isAmbiguousPlusPackage(value: string): boolean {
 }
 
 function isChatGptPlus(value: string): boolean {
-  if (matches(value, ["plus"])) return true;
-  if (!matches(value, ["chatgpt", "gpt", "openai"])) return false;
+  if (isEmailOnlyForAiAccountSetup(value)) return false;
+  const hasChatGptSignal = matches(value, ["chatgpt", "gpt", "openai"]);
+  const hasPlusSignal = matches(value, ["plus"]);
+  if (!hasChatGptSignal && !hasPlusSignal) return false;
   if (matches(value, ["pro"]) && !matches(value, ["plus"])) return false;
   if (matches(value, ["go", "go月卡", "go 年卡", "go-"])) return false;
+  if (hasChatGptSignal && hasPlusSignal) return true;
+
+  if (hasPlusSignal && !hasChatGptSignal) {
+    return matches(value, [
+      "plus 成品",
+      "plus成品",
+      "plus 独享成品",
+      "plus独享成品",
+      "plus 会员",
+      "plus会员",
+      "plus 账号",
+      "plus账号",
+      "plus 月卡",
+      "plus月卡",
+      "plus 一个月",
+      "plus一个月",
+      "plus 直充",
+      "plus直充",
+      "plus 代充",
+      "plus代充",
+      "plus 卡密",
+      "plus卡密",
+      "plus 自助",
+      "plus自助",
+      "gpt plus",
+      "成品 plus",
+      "成品号",
+      "独享账号",
+      "账号",
+      "账密",
+      "首登",
+      "直登",
+      "质保首登",
+      "rt",
+      "凭证",
+      "已接码",
+      "会员",
+      "月卡",
+      "订阅",
+      "直充",
+      "充值",
+      "卡密",
+      "cc 渠道",
+      "谷歌正规付款",
+    ]);
+  }
 
   return matches(value, [
     "ios土区",

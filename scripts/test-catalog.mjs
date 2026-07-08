@@ -164,6 +164,8 @@ const cases = [
   ["【随机地区2022-2024年gmail邮箱带2fa 】 带电话接码链接（接码链接有效期十几天）", "gmail-account"],
   ["Gmail谷歌邮箱【注册gpt专用】", "gmail-account"],
   ["Gmail谷歌邮箱 - API接收邮件(适用于GPT)", "gmail-account"],
+  ["outlook/hotmail邮箱配合plus自助充值使用", "outlook-account"],
+  ["Gmail---URL Chatgpt专用接码 可分裂", "google-phone-verification"],
   ["微软邮箱(长效) 不需要手机验证", "outlook-account"],
   ["𝗧𝘄𝗶𝘁𝘁𝗲𝗿(𝗫)推特 三绑-手机验证 | 2019-2024年 | hotmail邮箱可用 | 2fa/token登录", "x-twitter-account"],
   ["Max5X 成品号(质保掉订阅)", "claude-max-5x"],
