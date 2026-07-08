@@ -8,6 +8,7 @@ const schema = z.object({
   id: z.string().min(1),
   hidden: z.boolean(),
   reason: z.string().max(500).nullable().optional(),
+  mode: z.enum(["manual", "temporary"]).optional(),
 });
 
 export async function POST(request: Request) {

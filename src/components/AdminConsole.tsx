@@ -85,6 +85,7 @@ type Message = {
 
 type AdminProduct = AdminSummary["products"][number];
 type OfferMaintenanceScope = "visible" | "hidden";
+type AdminOfferHideMode = "manual" | "temporary";
 type OfferMaintenanceListState = {
   offers: RawOffer[];
   total: number;
@@ -1299,18 +1300,22 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     router.refresh();
   }
 
-  async function toggleSourceOffersVisibility(source: Source, hidden: boolean) {
+  async function toggleSourceOffersVisibility(source: Source, hidden: boolean, mode: AdminOfferHideMode = "manual") {
     const stats = sourceStatsById.get(source.id);
     const affectedCount = hidden ? stats?.visibleCount || 0 : stats?.manuallyHiddenCount || 0;
     const confirmed = hidden
-      ? window.confirm(`确定下架「${source.name}」的 ${affectedCount} 条可见报价吗？该渠道会同时停用采集，前台会立即隐藏这些报价。`)
+      ? mode === "temporary"
+        ? window.confirm(`确定临时下架「${source.name}」的 ${affectedCount} 条可见报价吗？该渠道会继续采集，后续重新确认后可自动恢复。`)
+        : window.confirm(`确定手动下架「${source.name}」的 ${affectedCount} 条可见报价吗？该渠道会同时停用采集，前台会立即隐藏这些报价。`)
       : window.confirm(`确定恢复「${source.name}」的 ${affectedCount} 条手动下架报价吗？该渠道会同时启用采集。`);
     if (!confirmed) return;
 
-    setLoadingAction(`${hidden ? "hide" : "restore"}-source-offers-${source.id}`);
+    const actionPrefix = hidden ? (mode === "temporary" ? "temp-hide" : "hide") : "restore";
+    setLoadingAction(`${actionPrefix}-source-offers-${source.id}`);
     const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
       id: source.id,
       offersHidden: hidden,
+      offersHiddenMode: mode,
       reason: "线上反馈/临时处理",
     });
     setLoadingAction(null);
@@ -1321,7 +1326,9 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         source.id,
         "success",
         hidden
-          ? `已下架 ${result.updatedOfferCount || 0} 条报价，并停用该渠道采集。`
+          ? mode === "temporary"
+            ? `已临时下架 ${result.updatedOfferCount || 0} 条报价；渠道采集保持开启，后续重新确认后会自动恢复。`
+            : `已手动下架 ${result.updatedOfferCount || 0} 条报价，并停用该渠道采集。`
           : `已恢复 ${result.updatedOfferCount || 0} 条报价，并启用该渠道采集。`,
       );
       router.refresh();
@@ -1368,16 +1375,20 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     router.refresh();
   }
 
-  async function toggleOfferHidden(offer: RawOffer, hidden: boolean) {
+  async function toggleOfferHidden(offer: RawOffer, hidden: boolean, mode: AdminOfferHideMode = "manual") {
     const confirmed = hidden
-      ? window.confirm(`确定下架这条报价吗？\n${offer.sourceTitle}`)
+      ? mode === "temporary"
+        ? window.confirm(`确定临时下架这条报价吗？后续采集重新确认后会自动恢复。\n${offer.sourceTitle}`)
+        : window.confirm(`确定手动下架这条报价吗？\n${offer.sourceTitle}`)
       : window.confirm(`确定恢复这条报价吗？\n${offer.sourceTitle}`);
     if (!confirmed) return;
 
-    setLoadingAction(`${hidden ? "hide" : "restore"}-offer-${offer.id}`);
+    const actionPrefix = hidden ? (mode === "temporary" ? "temp-hide" : "hide") : "restore";
+    setLoadingAction(`${actionPrefix}-offer-${offer.id}`);
     const result = await request("/api/admin/toggle-offer", password, {
       id: offer.id,
       hidden,
+      mode,
       reason: "线上反馈/临时处理",
     });
     setLoadingAction(null);
@@ -1385,7 +1396,11 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     if (result.ok) {
       setGlobalMessage({
         type: "success",
-        text: hidden ? "报价已下架，前台会立即隐藏。" : "报价已恢复，前台可重新展示。",
+        text: hidden
+          ? mode === "temporary"
+            ? "报价已临时下架，前台会立即隐藏；后续采集重新确认后会自动恢复。"
+            : "报价已手动下架，前台会立即隐藏。"
+          : "报价已恢复，前台可重新展示。",
       });
       void loadOfferMaintenancePage("visible", { reset: true, query: offerMaintenanceRef.current.visible.query });
       void loadOfferMaintenancePage("hidden", { reset: true, query: offerMaintenanceRef.current.hidden.query });
@@ -1842,7 +1857,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
 
     const skipped = selectedOfferFeedback.length - targets.length;
     const confirmed = window.confirm(
-      `确定批量下架 ${targets.length} 条报价，并将对应反馈标记为已处理吗？${skipped ? `\n${skipped} 条已选反馈缺少报价 ID，会跳过。` : ""}`,
+      `确定批量临时下架 ${targets.length} 条报价，并将对应反馈标记为已处理吗？后续采集重新确认后可自动恢复。${skipped ? `\n${skipped} 条已选反馈缺少报价 ID，会跳过。` : ""}`,
     );
     if (!confirmed) return;
 
@@ -1855,6 +1870,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const hideResult = await request("/api/admin/toggle-offer", password, {
         id: item.offerId,
         hidden: true,
+        mode: "temporary",
         reason: `用户反馈：${feedbackReasonLabel(item.reason)}`,
       });
       if (!hideResult.ok) continue;
@@ -1863,7 +1879,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const feedbackResult = await requestWithMethod("/api/admin/feedback", "PATCH", password, {
         id: item.id,
         status: "resolved",
-        reviewerNote: "已批量按用户反馈下架报价",
+        reviewerNote: "已批量按用户反馈临时下架报价",
       });
       if (feedbackResult.ok) {
         resolvedSuccess++;
@@ -1875,7 +1891,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     setLoadingAction(null);
     setGlobalMessage({
       type: hiddenSuccess === targets.length && resolvedSuccess === targets.length ? "success" : "info",
-      text: `批量下架报价完成：下架 ${hiddenSuccess}/${targets.length} 条，标记已处理 ${resolvedSuccess}/${targets.length} 条反馈。`,
+      text: `批量临时下架报价完成：下架 ${hiddenSuccess}/${targets.length} 条，标记已处理 ${resolvedSuccess}/${targets.length} 条反馈。`,
     });
     router.refresh();
   }
@@ -1901,7 +1917,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
 
     const skipped = selectedOfferFeedback.length - targets.length;
     const confirmed = window.confirm(
-      `确定批量下架 ${feedbackBySource.size} 个渠道的可见报价，并将 ${targets.length} 条反馈标记为已处理吗？${skipped ? `\n${skipped} 条已选反馈缺少渠道 ID，会跳过。` : ""}`,
+      `确定批量临时下架 ${feedbackBySource.size} 个渠道的当前可见报价，并将 ${targets.length} 条反馈标记为已处理吗？渠道采集会继续运行。${skipped ? `\n${skipped} 条已选反馈缺少渠道 ID，会跳过。` : ""}`,
     );
     if (!confirmed) return;
 
@@ -1917,6 +1933,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const sourceResult = await requestWithMethod("/api/admin/sources", "PATCH", password, {
         id: sourceId,
         offersHidden: true,
+        offersHiddenMode: "temporary",
         reason: `用户反馈批量下架渠道：${reasonLabels}`,
       });
       if (!sourceResult.ok) continue;
@@ -1929,7 +1946,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         const feedbackResult = await requestWithMethod("/api/admin/feedback", "PATCH", password, {
           id: item.id,
           status: "resolved",
-          reviewerNote: "已批量按用户反馈下架渠道报价",
+          reviewerNote: "已批量按用户反馈临时下架渠道报价",
         });
         if (feedbackResult.ok) {
           resolvedSuccess++;
@@ -1945,7 +1962,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     setLoadingAction(null);
     setGlobalMessage({
       type: sourceSuccess === feedbackBySource.size && resolvedSuccess === targets.length ? "success" : "info",
-      text: `批量下架渠道完成：下架 ${sourceSuccess}/${feedbackBySource.size} 个渠道，处理 ${updatedOfferCount} 条报价，标记已处理 ${resolvedSuccess}/${targets.length} 条反馈。`,
+      text: `批量临时下架渠道完成：下架 ${sourceSuccess}/${feedbackBySource.size} 个渠道，处理 ${updatedOfferCount} 条报价，标记已处理 ${resolvedSuccess}/${targets.length} 条反馈。`,
     });
     router.refresh();
   }
@@ -1980,18 +1997,19 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       showRowFeedback(feedback.id, "error", "这条反馈没有关联报价 ID。");
       return;
     }
-    const confirmed = window.confirm(`确定下架这条报价吗？\n${feedback.sourceTitle || feedback.offerUrl || feedback.offerId}`);
+    const confirmed = window.confirm(`确定临时下架这条报价吗？后续采集重新确认后会自动恢复。\n${feedback.sourceTitle || feedback.offerUrl || feedback.offerId}`);
     if (!confirmed) return;
 
     setLoadingAction(`feedback-hide-offer-${feedback.id}`);
     const result = await request("/api/admin/toggle-offer", password, {
       id: feedback.offerId,
       hidden: true,
+      mode: "temporary",
       reason: `用户反馈：${feedbackReasonLabel(feedback.reason)}`,
     });
     if (result.ok) {
-      await updateFeedbackStatus(feedback, "resolved", "已按用户反馈下架报价");
-      setGlobalMessage({ type: "success", text: "报价已下架，反馈已标记处理。" });
+      await updateFeedbackStatus(feedback, "resolved", "已按用户反馈临时下架报价");
+      setGlobalMessage({ type: "success", text: "报价已临时下架，反馈已标记处理。" });
       router.refresh();
     } else {
       setLoadingAction(null);
@@ -2004,21 +2022,22 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       showRowFeedback(feedback.id, "error", "这条反馈没有关联渠道 ID。");
       return;
     }
-    const confirmed = window.confirm(`确定下架「${feedback.sourceName || feedback.sourceId}」整个渠道的可见报价，并停用采集吗？`);
+    const confirmed = window.confirm(`确定临时下架「${feedback.sourceName || feedback.sourceId}」当前可见报价吗？渠道采集会继续运行，后续重新确认后可自动恢复。`);
     if (!confirmed) return;
 
     setLoadingAction(`feedback-hide-source-${feedback.id}`);
     const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
       id: feedback.sourceId,
       offersHidden: true,
+      offersHiddenMode: "temporary",
       reason: `用户反馈：${feedbackReasonLabel(feedback.reason)}`,
     });
     if (result.ok) {
       if (result.source) {
         setSourcePatches((prev) => ({ ...prev, [feedback.sourceId!]: result.source as Source }));
       }
-      await updateFeedbackStatus(feedback, "resolved", "已按用户反馈下架渠道报价");
-      setGlobalMessage({ type: "success", text: `已下架 ${result.updatedOfferCount || 0} 条渠道报价，反馈已标记处理。` });
+      await updateFeedbackStatus(feedback, "resolved", "已按用户反馈临时下架渠道报价");
+      setGlobalMessage({ type: "success", text: `已临时下架 ${result.updatedOfferCount || 0} 条渠道报价，反馈已标记处理。` });
       router.refresh();
     } else {
       setLoadingAction(null);
@@ -2900,7 +2919,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         <h3 className="text-sm font-semibold text-[#202829]">反馈工作台</h3>
                       </div>
                       <p className="mt-1 text-xs leading-5 text-[#5a6061]">
-                        先按反馈性质分流，轻量核验只给处理建议；下架报价或渠道需要选中后确认执行。
+                        先按反馈性质分流，轻量核验只给处理建议；临时下架报价或渠道需要选中后确认执行。
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -2942,7 +2961,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
                           >
                             {loadingAction === "batch-feedback-hide-offer" ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                            批量下架报价 ({selectedFeedbackWithOffer.length})
+                            批量临时下架报价 ({selectedFeedbackWithOffer.length})
                           </button>
                           <button
                             type="button"
@@ -2951,7 +2970,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
                           >
                             {loadingAction === "batch-feedback-hide-source" ? <Loader2 size={14} className="animate-spin" /> : <Store size={14} />}
-                            批量下架渠道 ({selectedFeedbackWithSource.length})
+                            批量临时下架渠道 ({selectedFeedbackWithSource.length})
                           </button>
                           <button
                             type="button"
@@ -3434,7 +3453,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   <Panel title="报价应急处置" icon={<AlertTriangle size={17} />}>
                     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="text-sm leading-6 text-[#5a6061]">
-                        可临时下架单条异常报价；下架后前台立即隐藏，后续采集不会自动恢复。恢复只影响管理员手动下架的报价。
+                        可临时下架单条异常报价；下架后前台立即隐藏，后续采集重新确认后会自动恢复。恢复只影响管理员手动下架的报价。
                       </div>
                       <div className="relative w-full sm:w-80">
                         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#adb3b4]" />
@@ -3457,9 +3476,10 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         loadingMore={offerMaintenance.visible.loadingMore}
                         error={offerMaintenance.visible.error}
                         loadingAction={loadingAction}
-                        actionLabel="下架"
+                        actionLabel="临时下架"
                         actionTone="danger"
                         hiddenAction
+                        hideMode="temporary"
                         onLoadMore={() => loadOfferMaintenancePage("visible")}
                         onToggleHidden={toggleOfferHidden}
                       />
@@ -3476,6 +3496,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         actionLabel="恢复"
                         actionTone="success"
                         hiddenAction={false}
+                        hideMode="manual"
                         onLoadMore={() => loadOfferMaintenancePage("hidden")}
                         onToggleHidden={toggleOfferHidden}
                       />
@@ -4406,7 +4427,7 @@ function OfferFeedbackList({
                 ) : null}
                 {isCategoryFeedback ? (
                   <p className="mt-2 rounded-lg bg-[#eef3f8] px-3 py-2 text-xs leading-5 text-[#47657a]">
-                    分类问题优先用于修正归类；如果确认这条报价或整个渠道不该展示，也可以直接下架报价或渠道。
+                    分类问题优先用于修正归类；如果确认这条报价或整个渠道暂时不该展示，也可以先临时下架报价或渠道。
                   </p>
                 ) : null}
                 {item.contact ? (
@@ -4438,7 +4459,7 @@ function OfferFeedbackList({
                     }`}
                   >
                     {hideOfferLoading ? <Loader2 size={14} className="animate-spin" /> : null}
-                    下架报价
+                    临时下架报价
                   </button>
                   <button
                     type="button"
@@ -4451,7 +4472,7 @@ function OfferFeedbackList({
                     }`}
                   >
                     {hideSourceLoading ? <Loader2 size={14} className="animate-spin" /> : null}
-                    下架渠道
+                    临时下架渠道
                   </button>
                   {item.verificationStatus !== "not_needed" ? (
                     <button
@@ -5942,7 +5963,7 @@ function SourceTable({
   onCopyBrowserCommand: (source: Source) => void;
   onCopyCollectorContext: (source: Source) => void;
   onToggleEnabled: (source: Source, enabled?: boolean) => void;
-  onToggleOffersVisibility: (source: Source, hidden: boolean) => void;
+  onToggleOffersVisibility: (source: Source, hidden: boolean, mode?: AdminOfferHideMode) => void;
   onDeleteSource: (source: Source) => void;
 }) {
   if (!activeGroup) {
@@ -6116,6 +6137,7 @@ function SourceTable({
             riskLabels={sourceRiskFlags(source, sourceStatsById, offerCountBySource).map(sourceRiskFlagLabel)}
             loading={loadingAction === `collect-source-${source.id}` || loadingAction === "batch-collect-sources"}
             toggleLoading={loadingAction === `toggle-source-${source.id}`}
+            tempHideLoading={loadingAction === `temp-hide-source-offers-${source.id}`}
             hideLoading={loadingAction === `hide-source-offers-${source.id}`}
             restoreLoading={loadingAction === `restore-source-offers-${source.id}`}
             deleteLoading={loadingAction === `delete-source-${source.id}`}
@@ -6145,6 +6167,7 @@ function SourceTableRow({
   riskLabels,
   loading,
   toggleLoading,
+  tempHideLoading,
   hideLoading,
   restoreLoading,
   deleteLoading,
@@ -6164,6 +6187,7 @@ function SourceTableRow({
   riskLabels: string[];
   loading: boolean;
   toggleLoading: boolean;
+  tempHideLoading: boolean;
   hideLoading: boolean;
   restoreLoading: boolean;
   deleteLoading: boolean;
@@ -6174,7 +6198,7 @@ function SourceTableRow({
   onCopyBrowserCommand: (source: Source) => void;
   onCopyCollectorContext: (source: Source) => void;
   onToggleEnabled: (source: Source, enabled?: boolean) => void;
-  onToggleOffersVisibility: (source: Source, hidden: boolean) => void;
+  onToggleOffersVisibility: (source: Source, hidden: boolean, mode?: AdminOfferHideMode) => void;
   onDeleteSource: (source: Source) => void;
 }) {
   const displayMethod = resolvedCollectionMethod(source);
@@ -6296,12 +6320,21 @@ function SourceTableRow({
           </button>
           <button
             type="button"
+            disabled={tempHideLoading || (stats?.visibleCount ?? offerCount) <= 0}
+            onClick={() => onToggleOffersVisibility(source, true, "temporary")}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#7a541b]/20 bg-white px-3 text-xs font-medium text-[#7a541b] transition-colors hover:bg-[#fff7e8] disabled:opacity-50"
+          >
+            {tempHideLoading ? <Loader2 size={14} className="animate-spin" /> : null}
+            临时下架
+          </button>
+          <button
+            type="button"
             disabled={hideLoading || offerCount <= 0}
-            onClick={() => onToggleOffersVisibility(source, true)}
+            onClick={() => onToggleOffersVisibility(source, true, "manual")}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/20 bg-white px-3 text-xs font-medium text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
           >
             {hideLoading ? <Loader2 size={14} className="animate-spin" /> : null}
-            下架报价
+            手动下架
           </button>
           <button
             type="button"
@@ -8263,6 +8296,7 @@ function OfferEmergencyList({
   actionLabel,
   actionTone,
   hiddenAction,
+  hideMode,
   onLoadMore,
   onToggleHidden,
 }: {
@@ -8278,8 +8312,9 @@ function OfferEmergencyList({
   actionLabel: string;
   actionTone: "danger" | "success";
   hiddenAction: boolean;
+  hideMode: AdminOfferHideMode;
   onLoadMore: () => void;
-  onToggleHidden: (offer: RawOffer, hidden: boolean) => void;
+  onToggleHidden: (offer: RawOffer, hidden: boolean, mode?: AdminOfferHideMode) => void;
 }) {
   const actionClass =
     actionTone === "danger"
@@ -8312,7 +8347,7 @@ function OfferEmergencyList({
         <>
           <div className="max-h-[520px] divide-y divide-[#adb3b4]/15 overflow-auto" onScroll={handleScroll}>
             {offers.map((offer) => {
-              const actionLoading = loadingAction === `${hiddenAction ? "hide" : "restore"}-offer-${offer.id}`;
+              const actionLoading = loadingAction === `${hiddenAction ? (hideMode === "temporary" ? "temp-hide" : "hide") : "restore"}-offer-${offer.id}`;
               const storedProduct = resolveAdminOfferProduct(productByKey, offer.storedCanonicalProductId);
               const ruleProduct = resolveAdminOfferProduct(productByKey, offer.canonicalProductId);
               const storedProductLabel = adminOfferProductLabel(storedProduct, offer.storedCanonicalProductId, offer.storedCategorySlug);
@@ -8358,7 +8393,7 @@ function OfferEmergencyList({
                   <button
                     type="button"
                     disabled={actionLoading}
-                    onClick={() => onToggleHidden(offer, hiddenAction)}
+                    onClick={() => onToggleHidden(offer, hiddenAction, hideMode)}
                     className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-white px-3 text-xs font-medium transition-colors disabled:opacity-60 ${actionClass}`}
                   >
                     {actionLoading ? <Loader2 size={14} className="animate-spin" /> : null}
@@ -8608,7 +8643,7 @@ function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer
   if (bucket === "category") {
     return {
       label: "分类待修",
-      description: "这类反馈优先进入分类规则或模型辅助归类流程；如果用户明确希望下架，也可以手动或批量下架报价/渠道。",
+      description: "这类反馈优先进入分类规则或模型辅助归类流程；如果用户明确希望暂时不展示，也可以临时下架报价/渠道。",
       tone: "info",
       batchSafe: false,
     };
@@ -8679,10 +8714,10 @@ function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer
   }
 
   if (feedback.reason === "item_removed") {
-    if (currentOffer.hidden || currentOffer.status === "out_of_stock") {
+    if (currentOffer.hidden || currentOffer.status === "out_of_stock" || currentOffer.effectiveStatus === "unavailable") {
       return {
         label: "已不可售",
-        description: "当前报价已隐藏或缺货，和用户反馈方向一致，可批量标记已处理。",
+        description: "当前报价已隐藏、缺货或不可用，和用户反馈方向一致，可批量标记已处理。",
         tone: "success",
         batchSafe: true,
       };
@@ -8831,8 +8866,8 @@ function formatPercent(value: number): string {
 function feedbackUserExpectedActionLabel(value: OfferFeedback["userExpectedAction"]): string {
   const labels: Record<OfferFeedback["userExpectedAction"], string> = {
     recheck: "重新核查",
-    hide_offer: "下架报价",
-    hide_source: "下架渠道",
+    hide_offer: "临时下架报价",
+    hide_source: "临时下架渠道",
     unsure: "管理员判断",
   };
   return labels[value] || "重新核查";
@@ -8842,8 +8877,8 @@ function feedbackSuggestedActionLabel(value: OfferFeedback["suggestedAction"]): 
   const labels: Record<OfferFeedback["suggestedAction"], string> = {
     recollect: "重新采集",
     reclassify: "重建分类",
-    hide_offer: "下架报价",
-    hide_source: "下架渠道",
+    hide_offer: "临时下架报价",
+    hide_source: "临时下架渠道",
     todo: "转待办",
     ignore: "忽略",
   };

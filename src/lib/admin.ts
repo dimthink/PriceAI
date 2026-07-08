@@ -58,6 +58,8 @@ import {
 export const ADMIN_SOURCE_HIDE_REASON_PREFIX = "管理员手动下架渠道";
 export const ADMIN_OFFER_HIDE_REASON_PREFIX = "管理员手动下架报价";
 export const ADMIN_MANUAL_HIDE_REASON_PREFIX = "管理员手动下架";
+export const ADMIN_TEMPORARY_SOURCE_HIDE_REASON_PREFIX = "管理员临时下架渠道";
+export const ADMIN_TEMPORARY_OFFER_HIDE_REASON_PREFIX = "管理员临时下架报价";
 const RAW_OFFER_WRITE_CHUNK_SIZE = 25;
 const RAW_OFFER_CONFIRMATION_WRITE_CHUNK_SIZE = 100;
 const MISSING_OFFER_HIDE_CHUNK_SIZE = 25;
@@ -73,6 +75,8 @@ export type RawOfferUpsertResult = {
   refreshedCount: number;
   confirmedCount: number;
 };
+
+type AdminOfferHideMode = "manual" | "temporary";
 
 let canonicalProductsEnsurePromise: Promise<void> | null = null;
 
@@ -258,25 +262,47 @@ export async function setSourceOffersHidden(input: {
   sourceId: string;
   hidden: boolean;
   reason?: string | null;
+  mode?: AdminOfferHideMode;
 }): Promise<{ source: Source; updatedOfferCount: number }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) throw new Error("Supabase 尚未配置，无法更新渠道报价。");
 
   const now = new Date().toISOString();
-  const source = await updateSourceState({ id: input.sourceId, enabled: !input.hidden });
+  const mode = input.mode || "manual";
+  const source = await updateSourceState({
+    id: input.sourceId,
+    enabled: mode === "temporary" ? undefined : !input.hidden,
+  });
 
   if (input.hidden) {
-    const reason = `${ADMIN_SOURCE_HIDE_REASON_PREFIX}：${input.reason?.trim() || "线上反馈/临时处理"}`;
-    const { count, error } = await supabase
+    const reason = input.reason?.trim() || "线上反馈/临时处理";
+    const row = mode === "temporary"
+      ? {
+          hidden: true,
+          status: "out_of_stock",
+          source_status: "out_of_stock",
+          effective_status: "unavailable",
+          freshness_status: "fresh",
+          verified_at: now,
+          failure_reason: `${ADMIN_TEMPORARY_SOURCE_HIDE_REASON_PREFIX}：${reason}；后续采集重新确认后自动恢复。`,
+          last_failed_at: null,
+          updated_at: now,
+        }
+      : {
+          hidden: true,
+          failure_reason: `${ADMIN_SOURCE_HIDE_REASON_PREFIX}：${reason}`,
+          last_failed_at: now,
+          updated_at: now,
+        };
+    let query = supabase
       .from("raw_offers")
-      .update({
-        hidden: true,
-        failure_reason: reason,
-        last_failed_at: now,
-        updated_at: now,
-      }, { count: "exact" })
+      .update(row, { count: "exact" })
       .eq("source_id", input.sourceId)
       .eq("hidden", false);
+    if (mode === "temporary") {
+      query = query.or(`failure_reason.is.null,failure_reason.not.ilike.${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`);
+    }
+    const { count, error } = await query;
 
     if (error) throw error;
     return { source, updatedOfferCount: count || 0 };
@@ -302,18 +328,33 @@ export async function setRawOfferHidden(input: {
   id: string;
   hidden: boolean;
   reason?: string | null;
+  mode?: AdminOfferHideMode;
 }): Promise<{ updatedOfferCount: number }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) throw new Error("Supabase 尚未配置，无法更新报价。");
 
   const now = new Date().toISOString();
+  const mode = input.mode || "manual";
+  const reason = input.reason?.trim() || "线上反馈/临时处理";
   const row = input.hidden
-    ? {
-        hidden: true,
-        failure_reason: `${ADMIN_OFFER_HIDE_REASON_PREFIX}：${input.reason?.trim() || "线上反馈/临时处理"}`,
-        last_failed_at: now,
-        updated_at: now,
-      }
+    ? mode === "temporary"
+      ? {
+          hidden: true,
+          status: "out_of_stock",
+          source_status: "out_of_stock",
+          effective_status: "unavailable",
+          freshness_status: "fresh",
+          verified_at: now,
+          failure_reason: `${ADMIN_TEMPORARY_OFFER_HIDE_REASON_PREFIX}：${reason}；后续采集重新确认后自动恢复。`,
+          last_failed_at: null,
+          updated_at: now,
+        }
+      : {
+          hidden: true,
+          failure_reason: `${ADMIN_OFFER_HIDE_REASON_PREFIX}：${reason}`,
+          last_failed_at: now,
+          updated_at: now,
+        }
     : {
         hidden: false,
         failure_reason: null,
@@ -325,6 +366,9 @@ export async function setRawOfferHidden(input: {
     .from("raw_offers")
     .update(row, { count: "exact" })
     .eq("id", input.id);
+  if (input.hidden && mode === "temporary") {
+    query = query.or(`failure_reason.is.null,failure_reason.not.ilike.${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`);
+  }
   if (!input.hidden) {
     query = query.ilike("failure_reason", `${ADMIN_MANUAL_HIDE_REASON_PREFIX}%`);
   }

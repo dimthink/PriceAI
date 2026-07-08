@@ -25,6 +25,7 @@ const patchSchema = z.object({
   collectorKind: collectorKindSchema.nullable().optional(),
   notes: z.string().nullable().optional(),
   offersHidden: z.boolean().optional(),
+  offersHiddenMode: z.enum(["manual", "temporary"]).optional(),
   reason: z.string().max(500).nullable().optional(),
 });
 
@@ -62,6 +63,7 @@ export async function PATCH(request: Request) {
         sourceId: payload.id,
         hidden: payload.offersHidden,
         reason: payload.reason,
+        mode: payload.offersHiddenMode,
       });
       clearPublicDataCache();
       const snapshotRefreshQueued = result.updatedOfferCount > 0
