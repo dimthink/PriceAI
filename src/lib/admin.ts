@@ -61,6 +61,8 @@ export const ADMIN_OFFER_HIDE_REASON_PREFIX = "管理员手动下架报价";
 export const ADMIN_MANUAL_HIDE_REASON_PREFIX = "管理员手动下架";
 export const ADMIN_TEMPORARY_SOURCE_HIDE_REASON_PREFIX = "管理员临时下架渠道";
 export const ADMIN_TEMPORARY_OFFER_HIDE_REASON_PREFIX = "管理员临时下架报价";
+const ADMIN_SOURCE_DISABLE_NOTE_REASON_PREFIX = "后台停用原因：";
+const ADMIN_SOURCE_DISABLE_NOTE_TIME_PREFIX = "后台停用时间：";
 const RAW_OFFER_WRITE_CHUNK_SIZE = 25;
 const RAW_OFFER_CONFIRMATION_WRITE_CHUNK_SIZE = 100;
 const MISSING_OFFER_HIDE_CHUNK_SIZE = 25;
@@ -68,6 +70,28 @@ const MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION = 100;
 const STALE_OFFER_FAILURE_THRESHOLD = 3;
 const STALE_OFFER_FAILURE_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_STALE_OFFERS_TO_EXPIRE_PER_FAILURE = 50;
+
+function stripAdminSourceDisableNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const kept = notes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) =>
+      line &&
+      !line.startsWith(ADMIN_SOURCE_DISABLE_NOTE_REASON_PREFIX) &&
+      !line.startsWith(ADMIN_SOURCE_DISABLE_NOTE_TIME_PREFIX),
+    );
+  return kept.length ? kept.join("\n") : null;
+}
+
+function buildAdminSourceDisableNotes(notes: string | null | undefined, reason: string, at: string): string {
+  const preservedNotes = stripAdminSourceDisableNotes(notes);
+  return [
+    `${ADMIN_SOURCE_DISABLE_NOTE_REASON_PREFIX}${reason}`,
+    `${ADMIN_SOURCE_DISABLE_NOTE_TIME_PREFIX}${at}`,
+    preservedNotes,
+  ].filter(Boolean).join("\n");
+}
 
 export type RawOfferUpsertResult = {
   receivedCount: number;
@@ -270,9 +294,28 @@ export async function setSourceOffersHidden(input: {
 
   const now = new Date().toISOString();
   const mode = input.mode || "manual";
+  let nextSourceNotes: string | null | undefined;
+  if (mode !== "temporary") {
+    const { data: sourceRow, error: sourceReadError } = await supabase
+      .from("sources")
+      .select("notes")
+      .eq("id", input.sourceId)
+      .maybeSingle();
+    if (sourceReadError) throw sourceReadError;
+
+    const existingNotes = sourceRow?.notes ? String(sourceRow.notes) : null;
+    nextSourceNotes = input.hidden
+      ? buildAdminSourceDisableNotes(
+          existingNotes,
+          input.reason?.trim() || "后台手动下架渠道报价",
+          now,
+        )
+      : stripAdminSourceDisableNotes(existingNotes);
+  }
   const source = await updateSourceState({
     id: input.sourceId,
     enabled: mode === "temporary" ? undefined : !input.hidden,
+    notes: nextSourceNotes,
   });
 
   if (input.hidden) {

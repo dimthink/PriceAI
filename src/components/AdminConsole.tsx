@@ -87,6 +87,8 @@ type Message = {
 type AdminProduct = AdminSummary["products"][number];
 type OfferMaintenanceScope = "visible" | "hidden";
 type AdminOfferHideMode = "manual" | "temporary";
+const SOURCE_DISABLE_REASON_PREFIX = "后台停用原因：";
+const SOURCE_DISABLE_TIME_PREFIX = "后台停用时间：";
 type OfferMaintenanceListState = {
   offers: RawOffer[];
   total: number;
@@ -1264,6 +1266,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
       id: source.id,
       enabled,
+      notes: enabled ? stripSourceDisableNotes(source.notes) : buildSourceDisableNotes("后台手动停用渠道", source.notes),
     });
     setLoadingAction(null);
 
@@ -1285,6 +1288,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
         id: source.id,
         enabled,
+        notes: enabled ? stripSourceDisableNotes(source.notes) : buildSourceDisableNotes("后台批量停用渠道", source.notes),
       });
       if (result.ok && result.source) {
         success++;
@@ -1317,7 +1321,11 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       id: source.id,
       offersHidden: hidden,
       offersHiddenMode: mode,
-      reason: "线上反馈/临时处理",
+      reason: hidden
+        ? mode === "temporary"
+          ? "后台临时下架渠道报价"
+          : "后台手动下架渠道报价并停用渠道"
+        : "后台恢复渠道报价",
     });
     setLoadingAction(null);
 
@@ -1358,7 +1366,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
         id: source.id,
         offersHidden: hidden,
-        reason: "线上反馈/临时处理",
+        reason: hidden ? "后台批量下架渠道报价并停用渠道" : "后台批量恢复渠道报价",
       });
       if (result.ok && result.source) {
         success++;
@@ -2018,6 +2026,31 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
   }
 
+  async function disableOfferFromFeedback(feedback: OfferFeedback) {
+    if (!feedback.offerId) {
+      showRowFeedback(feedback.id, "error", "这条反馈没有关联报价 ID。");
+      return;
+    }
+    const confirmed = window.confirm(`确定停用这条报价吗？停用后不会被普通采集自动恢复，适合标题党、商品描述不符等明确不应展示的报价。\n${feedback.sourceTitle || feedback.offerUrl || feedback.offerId}`);
+    if (!confirmed) return;
+
+    setLoadingAction(`feedback-disable-offer-${feedback.id}`);
+    const result = await request("/api/admin/toggle-offer", password, {
+      id: feedback.offerId,
+      hidden: true,
+      mode: "manual",
+      reason: `用户反馈停用报价：${feedbackReasonLabel(feedback.reason)}`,
+    });
+    if (result.ok) {
+      await updateFeedbackStatus(feedback, "resolved", "已按用户反馈停用报价");
+      setGlobalMessage({ type: "success", text: "报价已停用，反馈已标记处理。" });
+      router.refresh();
+    } else {
+      setLoadingAction(null);
+      showRowFeedback(feedback.id, "error", result.message || "停用报价失败。");
+    }
+  }
+
   async function hideSourceFromFeedback(feedback: OfferFeedback) {
     if (!feedback.sourceId) {
       showRowFeedback(feedback.id, "error", "这条反馈没有关联渠道 ID。");
@@ -2043,6 +2076,34 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     } else {
       setLoadingAction(null);
       showRowFeedback(feedback.id, "error", result.message || "下架渠道失败。");
+    }
+  }
+
+  async function disableSourceFromFeedback(feedback: OfferFeedback) {
+    if (!feedback.sourceId) {
+      showRowFeedback(feedback.id, "error", "这条反馈没有关联渠道 ID。");
+      return;
+    }
+    const confirmed = window.confirm(`确定停用「${feedback.sourceName || feedback.sourceId}」这个渠道吗？该渠道会停止采集，当前可见报价会手动下架，后续不会被普通采集自动恢复。`);
+    if (!confirmed) return;
+
+    setLoadingAction(`feedback-disable-source-${feedback.id}`);
+    const result = await requestWithMethod("/api/admin/sources", "PATCH", password, {
+      id: feedback.sourceId,
+      offersHidden: true,
+      offersHiddenMode: "manual",
+      reason: `用户反馈停用渠道：${feedbackReasonLabel(feedback.reason)}`,
+    });
+    if (result.ok) {
+      if (result.source) {
+        setSourcePatches((prev) => ({ ...prev, [feedback.sourceId!]: result.source as Source }));
+      }
+      await updateFeedbackStatus(feedback, "resolved", "已按用户反馈停用渠道并下架报价");
+      setGlobalMessage({ type: "success", text: `渠道已停用，已下架 ${result.updatedOfferCount || 0} 条报价，反馈已标记处理。` });
+      router.refresh();
+    } else {
+      setLoadingAction(null);
+      showRowFeedback(feedback.id, "error", result.message || "停用渠道失败。");
     }
   }
 
@@ -3069,6 +3130,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       onToggleSelect={toggleFeedbackSelect}
                       onHideOffer={hideOfferFromFeedback}
                       onHideSource={hideSourceFromFeedback}
+                      onDisableOffer={disableOfferFromFeedback}
+                      onDisableSource={disableSourceFromFeedback}
                       onAutoVerify={runFeedbackAutoVerification}
                       onRecollect={createFeedbackRecollection}
                       onRiskPrecheck={runFeedbackRiskPrecheck}
@@ -4162,6 +4225,8 @@ function OfferFeedbackList({
   onToggleSelect,
   onHideOffer,
   onHideSource,
+  onDisableOffer,
+  onDisableSource,
   onAutoVerify,
   onRecollect,
   onRiskPrecheck,
@@ -4180,6 +4245,8 @@ function OfferFeedbackList({
   onToggleSelect: (id: string) => void;
   onHideOffer: (feedback: OfferFeedback) => void;
   onHideSource: (feedback: OfferFeedback) => void;
+  onDisableOffer: (feedback: OfferFeedback) => void;
+  onDisableSource: (feedback: OfferFeedback) => void;
   onAutoVerify: (feedback: OfferFeedback) => void;
   onRecollect: (feedback: OfferFeedback) => void;
   onRiskPrecheck: (feedback: OfferFeedback) => void;
@@ -4210,6 +4277,8 @@ function OfferFeedbackList({
       {feedback.map((item) => {
         const hideOfferLoading = loadingAction === `feedback-hide-offer-${item.id}`;
         const hideSourceLoading = loadingAction === `feedback-hide-source-${item.id}`;
+        const disableOfferLoading = loadingAction === `feedback-disable-offer-${item.id}`;
+        const disableSourceLoading = loadingAction === `feedback-disable-source-${item.id}`;
         const autoVerifyLoading = loadingAction === `feedback-auto-verify-${item.id}`;
         const recollectLoading = loadingAction === `feedback-recollect-${item.id}`;
         const riskPrecheckLoading = loadingAction === `feedback-risk-precheck-${item.id}`;
@@ -4476,6 +4545,24 @@ function OfferFeedbackList({
                   >
                     {hideSourceLoading ? <Loader2 size={14} className="animate-spin" /> : null}
                     临时下架渠道
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!item.offerId || disableOfferLoading}
+                    onClick={() => onDisableOffer(item)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/25 bg-white px-3 text-xs font-semibold text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
+                  >
+                    {disableOfferLoading ? <Loader2 size={14} className="animate-spin" /> : <EyeOff size={14} />}
+                    停用报价
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!item.sourceId || disableSourceLoading}
+                    onClick={() => onDisableSource(item)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#9b3328]/25 bg-white px-3 text-xs font-semibold text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
+                  >
+                    {disableSourceLoading ? <Loader2 size={14} className="animate-spin" /> : <Store size={14} />}
+                    停用渠道
                   </button>
                   {canAutoVerify ? (
                     <button
@@ -6212,6 +6299,7 @@ function SourceTableRow({
   const needsCollector = sourceNeedsCollector(source);
   const canHttpRetry = source.enabled && displayMethod === "http" && !needsCollector;
   const hasIssue = sourceHasIssue(source);
+  const disabledReason = sourceDisableReasonText(source);
 
   return (
     <div className={`px-3 py-3 transition-colors ${selected ? "bg-[#e8f3ec]/30" : "bg-white"}`}>
@@ -6240,6 +6328,11 @@ function SourceTableRow({
           >
             {source.entryUrl}
           </a>
+          {disabledReason ? (
+            <p className="mt-1 rounded-md bg-[#fff7e8] px-2 py-1 text-xs leading-5 text-[#7a541b]">
+              停用原因：{disabledReason}
+            </p>
+          ) : null}
           {source.lastError && <p className="mt-1 line-clamp-2 text-xs text-[#9b3328]">{source.lastError}</p>}
           {riskLabels.length ? (
             <div className="mt-1 flex flex-wrap gap-1.5">
@@ -9411,6 +9504,54 @@ function sourceHealthClass(source: Source): string {
   if (!source.enabled) return `${base} bg-[#f2f4f4] text-[#5a6061]`;
   if (sourceHasIssue(source)) return `${base} bg-[#fbe9e7] text-[#9b3328]`;
   return `${base} bg-[#e8f3ec] text-[#2f7a4b]`;
+}
+
+function stripSourceDisableNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const kept = notes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith(SOURCE_DISABLE_REASON_PREFIX) && !line.startsWith(SOURCE_DISABLE_TIME_PREFIX));
+  return kept.length ? kept.join("\n") : null;
+}
+
+function buildSourceDisableNotes(reason: string, notes: string | null | undefined): string {
+  const preservedNotes = stripSourceDisableNotes(notes);
+  return [
+    `${SOURCE_DISABLE_REASON_PREFIX}${reason}`,
+    `${SOURCE_DISABLE_TIME_PREFIX}${new Date().toISOString()}`,
+    preservedNotes,
+  ].filter(Boolean).join("\n");
+}
+
+function parseSourceDisableNotes(notes: string | null | undefined): { reason: string | null; at: string | null; fallback: string | null } {
+  if (!notes) return { reason: null, at: null, fallback: null };
+  let reason: string | null = null;
+  let at: string | null = null;
+  const fallbackLines: string[] = [];
+
+  for (const rawLine of notes.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith(SOURCE_DISABLE_REASON_PREFIX)) {
+      reason = line.slice(SOURCE_DISABLE_REASON_PREFIX.length).trim() || null;
+    } else if (line.startsWith(SOURCE_DISABLE_TIME_PREFIX)) {
+      at = line.slice(SOURCE_DISABLE_TIME_PREFIX.length).trim() || null;
+    } else {
+      fallbackLines.push(line);
+    }
+  }
+
+  return { reason, at, fallback: fallbackLines.length ? fallbackLines.join("；") : null };
+}
+
+function sourceDisableReasonText(source: Source): string | null {
+  if (source.enabled) return null;
+  const parsed = parseSourceDisableNotes(source.notes);
+  if (parsed.reason) {
+    return parsed.at ? `${parsed.reason}（${formatRelativeTime(parsed.at)}）` : parsed.reason;
+  }
+  return parsed.fallback || source.lastError || "停用原因未记录";
 }
 
 const knownAutoCollectorHosts = createKnownAutoCollectorHosts();
