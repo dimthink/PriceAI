@@ -16,6 +16,7 @@ const creativeSchema = z.object({
   title: z.string().trim().min(1).max(120),
   description: z.string().trim().max(240).default(""),
   targetUrl: z.string().trim().min(1).max(2048).default("/commercial#slots"),
+  appendUtm: z.boolean().default(true),
   sponsorName: z.string().trim().max(80).nullable().optional(),
   campaignId: z.string().trim().max(120).nullable().optional(),
   imageUrl: z.string().trim().max(2048).nullable().optional(),

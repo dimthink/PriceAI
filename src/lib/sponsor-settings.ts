@@ -204,6 +204,7 @@ function normalizeCreative(value: unknown, fallback: SponsorCreative | undefined
     title,
     description: cleanText(record.description, fallback?.description || ""),
     targetUrl: cleanTargetUrl(record.targetUrl, fallback?.targetUrl || "/commercial#slots"),
+    appendUtm: readBoolean(record.appendUtm, fallback?.appendUtm ?? true),
     sponsorName: cleanText(record.sponsorName, fallback?.sponsorName || null, 80),
     campaignId: cleanIdOrNull(record.campaignId, fallback?.campaignId || null),
     imageUrl: cleanAssetUrl(record.imageUrl, fallback?.imageUrl || null),

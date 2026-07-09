@@ -27,6 +27,7 @@ export type SponsorCreative = {
   title: string;
   description: string;
   targetUrl: string;
+  appendUtm?: boolean;
   sponsorName?: string | null;
   campaignId?: string | null;
   imageUrl?: string | null;
@@ -82,6 +83,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "AI 周边赞助位开放",
       description: "适合云服务器、开发者工具、监控、域名、支付、算力等服务。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "AI 周边服务",
       visualMeta: "云服务 / 监控 / 开发工具",
       tone: "green",
@@ -95,6 +97,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "PriceAI 生态合作展示",
       description: "适合 AI 周边服务、开发者基础设施或工具类品牌的轻曝光。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "Developer Stack",
       visualMeta: "品牌图 / 短标题 / 落地页",
       tone: "blue",
@@ -108,6 +111,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "API Gateway / 中转站赞助展示",
       description: "适合展示品牌、优惠码和资料入口；价格、稳定性和准入规则仍独立展示。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "API Gateway",
       visualMeta: "公开价格 / 优惠码 / 监测资料",
       tone: "green",
@@ -121,6 +125,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "按模型承接 API Gateway 合作",
       description: "适合强调模型覆盖、协议兼容、公开价格和监测能力。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "Model Router",
       visualMeta: "Claude / GPT / Gemini",
       tone: "amber",
@@ -134,6 +139,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "模型 API 与开发者工具赞助",
       description: "面向比较官方 API、Token Plan、模型路由和开发工具的用户。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "API Toolkit",
       visualMeta: "Token Plan / 路由 / 监控 / SDK",
       tone: "blue",
@@ -147,6 +153,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "云服务器 / 网络线路",
       description: "适合 VPS、轻量云、CDN、网络线路和基础设施服务。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "Cloud Stack",
       visualMeta: "VPS · CDN · Network",
       tone: "green",
@@ -158,6 +165,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "购买前检测工具",
       description: "适合 IP 纯净度、支付环境、账号安全和风控检测工具。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "Risk Check",
       visualMeta: "IP · Pay · Safety",
       tone: "blue",
@@ -169,6 +177,7 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       title: "中转 API / 模型路由",
       description: "适合公开价格、监测页、优惠码入口和模型路由服务；不影响中转站自然排序。",
       targetUrl: "/commercial#slots",
+      appendUtm: true,
       visualTitle: "API Gateway",
       visualMeta: "Transit · Router · Monitor",
       tone: "amber",

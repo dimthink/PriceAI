@@ -5076,7 +5076,7 @@ function SponsorSettingsPanel({
             </span>
           </div>
           <p className="mt-1 max-w-[78ch] text-xs leading-5 text-[#5a6061]">
-            控制前台赞助展示。关闭总开关时所有赞助位隐藏；每个站位仍会保留素材草稿。真实外链会自动追加 PriceAI sponsor UTM，并记录曝光、点击和关闭事件。
+            控制前台赞助展示。关闭总开关时所有赞助位隐藏；每个站位仍会保留素材草稿。真实外链可按素材控制是否追加 PriceAI sponsor UTM，并记录曝光、点击和关闭事件。
           </p>
           {settings.message ? <p className="mt-1 text-xs text-[#9b3328]">{settings.message}</p> : null}
         </div>
@@ -5294,15 +5294,30 @@ function SponsorPlacementEditor({
                     className={`${adminInputClassName} h-auto min-h-20 resize-y py-2 leading-6`}
                   />
                 </label>
-                <label className={fullFieldClassName}>
-                  <span className="mb-1 block text-xs font-medium text-[#5a6061]">跳转链接</span>
-                  <input
-                    value={creative.targetUrl}
-                    onChange={(event) => setDraft((current) => updateSponsorCreative(current, kind, index, { targetUrl: event.target.value }))}
-                    className={adminInputClassName}
-                  />
-                  <span className="mt-1 block text-[11px] leading-5 text-[#8a9293]">外部链接会自动追加 utm_source=priceai、utm_medium=sponsor、utm_campaign 和 utm_content。</span>
-                </label>
+                <div className={fullFieldClassName}>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-[#5a6061]">跳转链接</span>
+                    <input
+                      value={creative.targetUrl}
+                      onChange={(event) => setDraft((current) => updateSponsorCreative(current, kind, index, { targetUrl: event.target.value }))}
+                      className={adminInputClassName}
+                    />
+                    <span className="mt-1 block text-[11px] leading-5 text-[#8a9293]">
+                      {creative.appendUtm === false
+                        ? "当前会保留后台填写的原始链接，适合对额外参数敏感的联盟跳转链接。"
+                        : "外部链接会自动追加 utm_source=priceai、utm_medium=sponsor、utm_campaign 和 utm_content。"}
+                    </span>
+                  </label>
+                  <label className="mt-2 inline-flex items-center gap-2 rounded-full bg-[#f2f4f4] px-3 py-1.5 text-xs font-semibold text-[#2d3435] ring-1 ring-[#adb3b4]/20">
+                    <input
+                      type="checkbox"
+                      checked={creative.appendUtm !== false}
+                      onChange={(event) => setDraft((current) => updateSponsorCreative(current, kind, index, { appendUtm: event.target.checked }))}
+                      className="h-4 w-4 accent-[#2d3435]"
+                    />
+                    自动追加 PriceAI UTM
+                  </label>
+                </div>
                 {isTopBanner ? (
                   <p className="rounded-lg bg-[#eef3f8] px-3 py-2 text-[11px] leading-5 text-[#47657a] md:col-span-2 xl:col-span-4">
                     顶部横幅是全站通知条样式，不读取图片素材；前台展示为一行短文案和跳转箭头。
@@ -5669,6 +5684,7 @@ function buildSponsorSettingsPayload(settings: SponsorSettings) {
         title: creative.title,
         description: creative.description || "",
         targetUrl: creative.targetUrl || "/commercial#slots",
+        appendUtm: creative.appendUtm !== false,
         sponsorName: emptyToNull(creative.sponsorName),
         campaignId: emptyToNull(creative.campaignId),
         imageUrl: emptyToNull(creative.imageUrl),
@@ -5730,6 +5746,7 @@ function addSponsorCreative(settings: SponsorSettings, kind: string): SponsorSet
     title: "新赞助素材",
     description: "",
     targetUrl: "/commercial#slots",
+    appendUtm: true,
     sponsorName: "",
     campaignId: "",
     imageUrl: null,

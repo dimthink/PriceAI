@@ -514,6 +514,10 @@ function sponsorHref(targetUrl: string, placement: SponsorPlacementKind, creativ
     return targetUrl;
   }
 
+  if (creative.appendUtm === false) {
+    return targetUrl;
+  }
+
   try {
     const url = new URL(targetUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") return targetUrl;
