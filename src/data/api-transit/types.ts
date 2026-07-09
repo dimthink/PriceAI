@@ -79,6 +79,7 @@ export type TransitStandardModel =
   | "Claude Opus 4.8"
   | "GPT 5.5"
   | "GPT 5.4"
+  | "GPT 5.4 Mini"
   | "Gemini 3.5 Flash"
   | "Gemini 3.1 Pro"
   | "Grok 4.5"
@@ -253,6 +254,7 @@ export const TRANSIT_STANDARD_MODELS = [
   "Claude Opus 4.8",
   "GPT 5.5",
   "GPT 5.4",
+  "GPT 5.4 Mini",
   "Gemini 3.5 Flash",
   "Gemini 3.1 Pro",
   "Grok 4.5",
@@ -286,6 +288,7 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
   "Claude Opus 4.8": "claude",
   "GPT 5.5": "gpt",
   "GPT 5.4": "gpt",
+  "GPT 5.4 Mini": "gpt",
   "Gemini 3.5 Flash": "gemini",
   "Gemini 3.1 Pro": "gemini",
   "Grok 4.5": "grok",
@@ -319,6 +322,7 @@ export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, Trans
   "Claude Opus 4.8": "text",
   "GPT 5.5": "text",
   "GPT 5.4": "text",
+  "GPT 5.4 Mini": "text",
   "Gemini 3.5 Flash": "text",
   "Gemini 3.1 Pro": "text",
   "Grok 4.5": "text",

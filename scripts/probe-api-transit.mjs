@@ -24,6 +24,7 @@ const AVAILABILITY_PROBE_MODEL_COSTS = {
   "Claude Opus 4.7": 5,
   "Claude Opus 4.8": 5,
   "GPT 5.4": 2.5,
+  "GPT 5.4 Mini": 0.75,
   "GPT 5.5": 5,
   "Gemini 3.5 Flash": 1.5,
   "Gemini 3.1 Pro": 4,
@@ -94,6 +95,12 @@ const defaultTargets = [
     standardModel: "GPT 5.4",
     candidates: ["gpt-5.4", "gpt-5-4"],
     keywords: ["gpt", "5.4"],
+  },
+  {
+    family: "gpt",
+    standardModel: "GPT 5.4 Mini",
+    candidates: ["gpt-5.4-mini", "gpt-5-4-mini"],
+    keywords: ["gpt", "5.4", "mini"],
   },
   {
     family: "gemini",

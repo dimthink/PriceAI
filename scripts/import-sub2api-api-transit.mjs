@@ -103,6 +103,11 @@ const standardModelMatchers = [
     candidates: ["gpt-5.4", "gpt-5-4"],
   },
   {
+    family: "gpt",
+    standardModel: "GPT 5.4 Mini",
+    candidates: ["gpt-5.4-mini", "gpt-5-4-mini"],
+  },
+  {
     family: "image",
     standardModel: "GPT Image 2",
     candidates: ["gpt-image-2", "gpt-image2"],

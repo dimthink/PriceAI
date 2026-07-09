@@ -145,6 +145,7 @@ function getTransitModelPriority(model: TransitModelPrice["standardModel"]): num
   if (model === "Kling 2.5 Turbo") return 584;
   if (model === "GPT 5.5") return 505;
   if (model === "GPT 5.4") return 504;
+  if (model === "GPT 5.4 Mini") return 503.5;
   if (model === "Grok 4.5") return 503;
   if (model === "Composer 2.5") return 502;
   if (model === "Claude Fable 5") return 510;
@@ -282,6 +283,16 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     output: 15,
     cacheWrite: 0.25,
     cacheRead: 0.25,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "OpenAI API",
+    sourceUrl: openAiPricingUrl,
+  },
+  "GPT 5.4 Mini": {
+    input: 0.75,
+    output: 4.5,
+    cacheWrite: 0.075,
+    cacheRead: 0.075,
     imageOutput: null,
     currency: "USD",
     sourceLabel: "OpenAI API",

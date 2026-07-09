@@ -147,6 +147,7 @@ declare global {
 const presetModels: PresetModel[] = [
   { id: "gpt-5-5", label: "GPT 5.5", model: "gpt-5.5", protocol: "openai_responses", badge: "常用", standardModel: "GPT 5.5" },
   { id: "gpt-5-4", label: "GPT 5.4", model: "gpt-5.4", protocol: "openai_responses", standardModel: "GPT 5.4" },
+  { id: "gpt-5-4-mini", label: "GPT 5.4 Mini", model: "gpt-5.4-mini", protocol: "openai_responses", standardModel: "GPT 5.4 Mini" },
   { id: "claude-fable-5", label: "Fable 5", model: "claude-fable-5", protocol: "claude", badge: "新", standardModel: "Claude Fable 5" },
   { id: "claude-sonnet-5", label: "Sonnet 5", model: "claude-sonnet-5", protocol: "claude", badge: "新", standardModel: "Claude Sonnet 5" },
   { id: "claude-opus-4-8", label: "Opus 4.8", model: "claude-opus-4-8", protocol: "claude", standardModel: "Claude Opus 4.8" },
@@ -1196,6 +1197,7 @@ function guessStandardModel(model: string, protocol: DetectorProtocol): TransitS
   if (value.includes("grok")) return "Grok 4.5";
   if (value.includes("gemini")) return "Gemini 3.1 Pro";
   if (value.includes("5.5")) return "GPT 5.5";
+  if (value.includes("5.4") && value.includes("mini")) return "GPT 5.4 Mini";
   if (value.includes("5.4") || value.includes("codex")) return "GPT 5.4";
   if (protocol === "claude") return "Claude Sonnet 4.6";
   if (protocol === "gemini") return "Gemini 3.1 Pro";

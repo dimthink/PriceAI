@@ -55,6 +55,7 @@ const officialTransitPrices = {
   "Claude Opus 4.8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "GPT 5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0.5, imageOutput: null, currency: "USD" },
   "GPT 5.4": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0.25, imageOutput: null, currency: "USD" },
+  "GPT 5.4 Mini": { input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0.075, imageOutput: null, currency: "USD" },
   "Gemini 3.5 Flash": { input: 1.5, output: 9, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Gemini 3.1 Pro": { input: 2, output: 12, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Grok 4.5": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
@@ -87,6 +88,7 @@ const modelFamilyByStandard = {
   "Claude Opus 4.8": "claude",
   "GPT 5.5": "gpt",
   "GPT 5.4": "gpt",
+  "GPT 5.4 Mini": "gpt",
   "Gemini 3.5 Flash": "gemini",
   "Gemini 3.1 Pro": "gemini",
   "Grok 4.5": "grok",
@@ -2631,6 +2633,7 @@ function standardizeModelName(name) {
   }
 
   if (value.includes("gpt") || value.includes("codex") || value.includes("openai")) {
+    if (hasExplicitGptVariant(value, "5.4", "mini")) return "GPT 5.4 Mini";
     if (isExcludedGptVariant(value)) return null;
     if (hasExplicitGptVersion(value, "5.5")) return "GPT 5.5";
     if (hasExplicitGptVersion(value, "5.4")) return "GPT 5.4";
@@ -2680,6 +2683,13 @@ function hasExplicitGptVersion(value, version) {
   const separator = "[-._ ]?";
   const escapedVersion = version.split(".").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(separator);
   return new RegExp(`(?:\\bgpt|\\bcodex|\\bopenai)${separator}${escapedVersion}(?:\\b|[-._ ])`).test(value);
+}
+
+function hasExplicitGptVariant(value, version, variant) {
+  const separator = "[-._ ]?";
+  const escapedVersion = version.split(".").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(separator);
+  const escapedVariant = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:\\bgpt|\\bcodex|\\bopenai)${separator}${escapedVersion}${separator}${escapedVariant}(?:\\b|[-._ ])`).test(value);
 }
 
 function isExcludedGptVariant(value) {

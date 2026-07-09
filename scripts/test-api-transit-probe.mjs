@@ -198,6 +198,7 @@ assert.deepEqual(
   [
     ["gpt", "GPT 5.5", "gpt-5.5"],
     ["gpt", "GPT 5.4", "gpt-5.4"],
+    ["gpt", "GPT 5.4 Mini", "gpt-5.4-mini"],
     ["claude", "Claude Fable 5", "claude-fable-5"],
     ["claude", "Claude Opus 4.8", "claude-opus-4-8"],
   ],

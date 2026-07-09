@@ -178,7 +178,7 @@
       "claude-krio-power": ["Claude Opus 4.8"],
       "claude-max-号池-不限制客户端": ["Claude Opus 4.8"],
       "gpt-plus": ["GPT 5.4", "GPT 5.5"],
-      "gpt-pro": ["GPT 5.5"],
+      "gpt-pro": ["GPT 5.4 Mini", "GPT 5.5"],
       "生图专用分组": ["GPT 5.5"]
     },
     "channelTypes": ["first_party_pool", "reverse_engineered", "mixed", "undisclosed"],

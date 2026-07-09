@@ -74,6 +74,7 @@ assert.deepEqual(configuredWawazzSource.groupAliases, {
   "gpt-pro分组": "gpt-pro",
 });
 assert.deepEqual(configuredWawazzSource.aiTransitGroupModels["gpt-plus"], ["GPT 5.4", "GPT 5.5"]);
+assert.deepEqual(configuredWawazzSource.aiTransitGroupModels["gpt-pro"], ["GPT 5.4 Mini", "GPT 5.5"]);
 const configuredMaofeiSource = transitSourceConfig.find((source) => source.id === "999555999-com");
 assert.ok(configuredMaofeiSource, "猫肥NekoAPI public snapshot must stay attached to the existing station source.");
 assert.ok(
@@ -442,6 +443,7 @@ assert.equal(__test.standardizeModelName("bytedance/seedance-2.0"), "Seedance 2.
 assert.equal(__test.standardizeModelName("kling/kling-2.5-turbo"), "Kling 2.5 Turbo");
 assert.equal(__test.standardizeModelName("claude-3-5-sonnet-20241022"), null);
 assert.equal(__test.standardizeModelName("claude-sonnet-4-5-20250929-thinking"), null);
+assert.equal(__test.standardizeModelName("gpt-5.4-mini"), "GPT 5.4 Mini");
 assert.equal(__test.standardizeModelName("gpt-5.4-nano"), null);
 
 const fixedPricePayload = {
@@ -974,6 +976,15 @@ const aliuapiAiTransitSnapshot = __test.parsePricingPayload(
         },
         models: [
           {
+            standard_model: "gpt-5.4-mini",
+            raw_model: "gpt-5.4-mini",
+            price: {
+              input_usd_per_token: 0.00000075,
+              output_usd_per_token: 0.0000045,
+              cache_read_usd_per_token: 0.000000075,
+            },
+          },
+          {
             standard_model: "gpt-5.5",
             raw_model: "gpt-5.5",
             price: {
@@ -1025,6 +1036,10 @@ const aliuapiProGpt55 = aliuapiAiTransitSnapshot.offers.find((offer) => offer.st
 assert.equal(aliuapiProGpt55.model_multiplier, 0.12);
 assert.equal(aliuapiProGpt55.cache_hit_rate, 0.916735);
 assert.equal(aliuapiProGpt55.cache_hit_sample_tokens, 41494453);
+const aliuapiProGpt54Mini = aliuapiAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.4 Mini" && offer.group_name === "T1 - GPT Pro");
+assert.equal(aliuapiProGpt54Mini.model_multiplier, 0.12);
+assert.equal(aliuapiProGpt54Mini.availability_seven_day_samples, 1);
+assert.equal(aliuapiProGpt54Mini.availability_source_type, "public_status");
 
 const mfttaiAiTransitSnapshot = __test.parsePricingPayload(
   configuredMfttaiSource,
@@ -1273,6 +1288,25 @@ const wawazzAiTransitSnapshot = __test.parsePricingPayload(
           { status: "operational", latency_ms: 1547, checked_at: "2026-07-08T06:40:12.000Z" },
         ],
       },
+      {
+        name: "gpt-pro分组",
+        primary_model: "gpt-5.4-mini",
+        primary_status: "operational",
+        availability_7d: 98.92397425583266,
+        latest_latency_ms: 1542,
+        last_checked_at: "2026-07-08T06:40:12.000Z",
+        models: [
+          {
+            model: "gpt-5.4-mini",
+            latest_status: "operational",
+            availability_7d: 98.92397425583266,
+            latest_latency_ms: 1542,
+          },
+        ],
+        timeline: [
+          { status: "operational", latency_ms: 1542, checked_at: "2026-07-08T06:40:12.000Z" },
+        ],
+      },
     ],
     completeness: {
       warnings: ["no public model pricing found"],
@@ -1280,8 +1314,8 @@ const wawazzAiTransitSnapshot = __test.parsePricingPayload(
   },
   "2026-07-08T06:40:41.000Z",
 );
-assert.equal(wawazzAiTransitSnapshot.modelCount, 5);
-assert.equal(wawazzAiTransitSnapshot.offers.length, 5);
+assert.equal(wawazzAiTransitSnapshot.modelCount, 6);
+assert.equal(wawazzAiTransitSnapshot.offers.length, 6);
 assert.equal(wawazzAiTransitSnapshot.station.collection_status, "success");
 assert.equal(wawazzAiTransitSnapshot.station.published, true);
 const wawazzPlusGpt55 = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "gpt-plus");
@@ -1299,6 +1333,11 @@ assert.equal(wawazzProGpt55.model_multiplier, 0.16);
 assert.equal(wawazzProGpt55.cache_hit_rate, 0.884607);
 assert.equal(wawazzProGpt55.availability_seven_day_rate, null);
 assert.equal(wawazzProGpt55.availability_seven_day_samples, 0);
+const wawazzProGpt54Mini = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.4 Mini" && offer.group_name === "gpt-pro");
+assert.equal(wawazzProGpt54Mini.model_multiplier, 0.16);
+assert.equal(wawazzProGpt54Mini.cache_hit_rate, 0.884607);
+assert.equal(wawazzProGpt54Mini.availability_seven_day_rate, 0.98924);
+assert.equal(wawazzProGpt54Mini.availability_seven_day_samples, 1);
 const wawazzKrioClaude = wawazzAiTransitSnapshot.offers.find((offer) => offer.standard_model === "Claude Opus 4.8" && offer.group_name === "claude-krio");
 assert.equal(wawazzKrioClaude.model_multiplier, 0.3);
 assert.equal(wawazzKrioClaude.cache_hit_rate, 0.884978);

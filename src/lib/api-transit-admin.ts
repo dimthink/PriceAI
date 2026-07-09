@@ -1285,6 +1285,7 @@ function modelSortValue(value: string): number {
     "Claude Opus 4.8",
     "GPT 5.5",
     "GPT 5.4",
+    "GPT 5.4 Mini",
     "Gemini 3.5 Flash",
     "Gemini 3.1 Pro",
     "GLM-5.2",
