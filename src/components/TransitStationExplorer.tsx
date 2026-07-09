@@ -36,6 +36,7 @@ import {
   TRANSIT_STANDARD_MODELS,
   TRANSIT_STANDARD_MODEL_FAMILY,
   isTransitModelFamily,
+  transitModelPriceMatchesFamily,
 } from "@/data/api-transit/types";
 import {
   compareStations,
@@ -177,7 +178,7 @@ export default function TransitStationExplorer({ stations }: Props) {
       );
     } else if (familyFilter !== "all") {
       result = result.filter((station) =>
-        station.prices.some((price) => price.family === familyFilter)
+        station.prices.some((price) => transitModelPriceMatchesFamily(price, familyFilter))
       );
     }
 
@@ -548,7 +549,7 @@ function getScopedCacheUsage(
 ) {
   const prices = station.prices.filter((price) => {
     if (activeStandardModel !== "all") return price.standardModel === activeStandardModel;
-    if (activeFamily !== "all") return price.family === activeFamily;
+    if (activeFamily !== "all") return transitModelPriceMatchesFamily(price, activeFamily);
     return true;
   });
 

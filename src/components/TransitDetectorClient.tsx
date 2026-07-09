@@ -1192,6 +1192,8 @@ function guessStandardModel(model: string, protocol: DetectorProtocol): TransitS
   if (value.includes("opus-4-6")) return "Claude Opus 4.6";
   if (value.includes("opus")) return "Claude Opus 4.8";
   if (value.includes("sonnet")) return "Claude Sonnet 4.6";
+  if (value.includes("composer")) return "Composer 2.5";
+  if (value.includes("grok")) return "Grok 4.5";
   if (value.includes("gemini")) return "Gemini 3.1 Pro";
   if (value.includes("5.5")) return "GPT 5.5";
   if (value.includes("5.4") || value.includes("codex")) return "GPT 5.4";

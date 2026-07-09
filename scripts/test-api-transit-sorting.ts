@@ -1,9 +1,11 @@
 import {
   compareStations,
   getActiveTransitCommercialOffers,
+  getFamilyRateSummary,
   getStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
   getStandardModelRateSummary,
+  getTransitModelSummaries,
   normalizedTransitCommercialOfferDisclosure,
   getRechargeCoefficientFromRatio,
   scoreTransitCombinedRate,
@@ -216,6 +218,51 @@ assertEqual(mixedClaudeSummary.claude.priceCount, 4);
 assertEqual(mixedClaudeSummary.claude.combinedRateMin, 0.22);
 assertEqual(mixedClaudeSummary.bestCombinedRate, 0.22);
 assertEqual(getStandardModelRateSummary(mixedClaudeGroupStation, "Claude Sonnet 4.6").combinedRateMin, 0.06);
+
+const grokMediaStation = station({
+  id: "grok-media",
+  name: "Grok Media",
+  claudeRate: 1,
+  availabilityRate: 1,
+  availabilitySamples: 1,
+});
+grokMediaStation.prices = [
+  {
+    ...grokMediaStation.prices[0]!,
+    family: "grok",
+    standardModel: "Grok Image",
+    groupName: "Grok Image",
+    modelMultiplier: 0.12,
+    inputPrice: null,
+    outputPrice: null,
+    cacheReadPrice: null,
+    cacheWritePrice: null,
+    imageOutputPrice: 0.12,
+  },
+  {
+    ...grokMediaStation.prices[0]!,
+    family: "grok",
+    standardModel: "Grok Video",
+    groupName: "Grok Video",
+    modelMultiplier: 0.3,
+    inputPrice: null,
+    outputPrice: null,
+    cacheReadPrice: null,
+    cacheWritePrice: null,
+    imageOutputPrice: 0.3,
+  },
+];
+assertEqual(getFamilyRateSummary(grokMediaStation, "grok").priceCount, 2);
+assertEqual(getFamilyRateSummary(grokMediaStation, "image").priceCount, 1);
+assertEqual(getFamilyRateSummary(grokMediaStation, "video").priceCount, 1);
+assertEqual(
+  getTransitModelSummaries([grokMediaStation], "image").some((summary) => summary.standardModel === "Grok Image"),
+  true,
+);
+assertEqual(
+  getTransitModelSummaries([grokMediaStation], "video").some((summary) => summary.standardModel === "Grok Video"),
+  true,
+);
 
 const commercialStation = station({
   id: "commercial-test",

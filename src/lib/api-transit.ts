@@ -18,6 +18,8 @@ import {
   TRANSIT_STANDARD_MODEL_FAMILY,
   TRANSIT_COMMERCIAL_LABELS,
   TRANSIT_DEFAULT_COMMERCIAL_OFFER_DISCLOSURE,
+  transitModelPriceMatchesFamily,
+  transitStandardModelMatchesFamily,
 } from "@/data/api-transit/types";
 import { seedStations } from "@/data/api-transit/stations";
 
@@ -128,10 +130,12 @@ export function compareTransitModelPriority(
 
 function getTransitModelPriority(model: TransitModelPrice["standardModel"]): number {
   if (model === "GPT Image 2") return 602;
+  if (model === "Grok Image") return 601;
   if (model === "Nano Banana Pro") return 595;
   if (model === "Nano Banana 2") return 594;
   if (model === "Nano Banana") return 593;
   if (model === "Nano Banana Lite") return 592;
+  if (model === "Grok Video") return 591;
   if (model === "Sora 2 Pro") return 590;
   if (model === "Sora 2") return 589;
   if (model === "Veo 3.1") return 588;
@@ -141,6 +145,8 @@ function getTransitModelPriority(model: TransitModelPrice["standardModel"]): num
   if (model === "Kling 2.5 Turbo") return 584;
   if (model === "GPT 5.5") return 505;
   if (model === "GPT 5.4") return 504;
+  if (model === "Grok 4.5") return 503;
+  if (model === "Composer 2.5") return 502;
   if (model === "Claude Fable 5") return 510;
   if (model === "Claude Sonnet 5") return 500;
   if (model === "Claude Opus 4.8") return 408;
@@ -171,6 +177,10 @@ const openAiVideoGenerationUrl = "https://platform.openai.com/docs/guides/video-
 const geminiPricingUrl = "https://ai.google.dev/gemini-api/docs/pricing";
 const geminiImageGenerationUrl = "https://ai.google.dev/gemini-api/docs/image-generation";
 const geminiModelDocsUrl = "https://ai.google.dev/gemini-api/docs/models";
+const xaiGrok45DocsUrl = "https://docs.x.ai/developers/models/grok-4.5";
+const xaiComposerNewsUrl = "https://x.ai/news/composer-2-5";
+const xaiImageDocsUrl = "https://docs.x.ai/developers/models/grok-imagine-image";
+const xaiVideoDocsUrl = "https://docs.x.ai/developers/models/grok-imagine-video";
 const glmPricingUrl = "https://bigmodel.cn/pricing";
 const deepseekPricingUrl = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing";
 const seedanceDocsUrl = "https://docs.byteplus.com/en/docs/ModelArk/1520757";
@@ -297,6 +307,8 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     sourceLabel: "Google Gemini API",
     sourceUrl: geminiPricingUrl,
   },
+  "Grok 4.5": unpricedOfficialModel("xAI API", xaiGrok45DocsUrl),
+  "Composer 2.5": unpricedOfficialModel("Grok Build", xaiComposerNewsUrl),
   "GLM-5.2": {
     input: 8,
     output: 28,
@@ -347,12 +359,14 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     sourceLabel: "OpenAI API",
     sourceUrl: openAiPricingUrl,
   },
+  "Grok Image": unpricedOfficialModel("xAI API", xaiImageDocsUrl),
   "Nano Banana Pro": unpricedOfficialModel("Google Gemini API", geminiImageGenerationUrl),
   "Nano Banana 2": unpricedOfficialModel("Google Gemini API", geminiImageGenerationUrl),
   "Nano Banana": unpricedOfficialModel("Google Gemini API", geminiImageGenerationUrl),
   "Nano Banana Lite": unpricedOfficialModel("Google Gemini API", geminiImageGenerationUrl),
   "Sora 2": unpricedOfficialModel("OpenAI Video API", openAiVideoGenerationUrl),
   "Sora 2 Pro": unpricedOfficialModel("OpenAI Video API", openAiVideoGenerationUrl),
+  "Grok Video": unpricedOfficialModel("xAI API", xaiVideoDocsUrl),
   "Veo 3.1": unpricedOfficialModel("Google Gemini API", geminiModelDocsUrl),
   "Veo 3.1 Lite": unpricedOfficialModel("Google Gemini API", geminiModelDocsUrl),
   "Gemini Omni Flash": unpricedOfficialModel("Google Gemini API", geminiModelDocsUrl),
@@ -443,7 +457,7 @@ export function getFamilyPrices(
   station: TransitStation,
   family: TransitModelFamily
 ): TransitModelPrice[] {
-  return station.prices.filter((price) => price.family === family);
+  return station.prices.filter((price) => transitModelPriceMatchesFamily(price, family));
 }
 
 export function getStandardModelPrices(
@@ -1159,7 +1173,7 @@ export function getTransitModelSummaries(
   const byModel = new Map<TransitModelPrice["standardModel"], TransitModelPriceEntry[]>();
   const standardModels = TRANSIT_STANDARD_MODELS.filter((standardModel) => {
     if (family === "all") return true;
-    return TRANSIT_STANDARD_MODEL_FAMILY[standardModel] === family;
+    return transitStandardModelMatchesFamily(standardModel, family);
   });
   const standardModelOrder = new Map(
     TRANSIT_STANDARD_MODELS.map((standardModel, index) => [standardModel, index])
@@ -1167,7 +1181,7 @@ export function getTransitModelSummaries(
 
   stations.forEach((station) => {
     station.prices.forEach((price) => {
-      if (family !== "all" && price.family !== family) return;
+      if (family !== "all" && !transitModelPriceMatchesFamily(price, family)) return;
 
       const entry: TransitModelPriceEntry = {
         station,
@@ -1212,7 +1226,10 @@ export function getTransitModelSummaries(
               return total + rate * entry.price.availability.sevenDaySamples;
             }, 0) / sampleCount
           : null;
-      const modelFamily = prices[0]?.price.family ?? TRANSIT_STANDARD_MODEL_FAMILY[standardModel];
+      const modelFamily =
+        family === "all"
+          ? prices[0]?.price.family ?? TRANSIT_STANDARD_MODEL_FAMILY[standardModel]
+          : family;
 
       return {
         standardModel,

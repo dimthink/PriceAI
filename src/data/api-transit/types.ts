@@ -6,10 +6,12 @@ export type TransitModelFamily =
   | "gpt"
   | "claude"
   | "gemini"
+  | "grok"
   | "glm"
   | "deepseek"
   | "image"
   | "video";
+export type TransitModelModality = "text" | "image" | "video";
 export type TransitStationSystem = "new_api" | "sub_to_api" | "custom" | "unknown";
 export type TransitOperatorType = "company" | "individual" | "unknown";
 export type TransitInvoiceSupport = "supported" | "unsupported" | "unknown";
@@ -79,17 +81,21 @@ export type TransitStandardModel =
   | "GPT 5.4"
   | "Gemini 3.5 Flash"
   | "Gemini 3.1 Pro"
+  | "Grok 4.5"
+  | "Composer 2.5"
   | "GLM-5.2"
   | "GLM-5.1"
   | "DeepSeek V4 Flash"
   | "DeepSeek V4 Pro"
   | "GPT Image 2"
+  | "Grok Image"
   | "Nano Banana Pro"
   | "Nano Banana 2"
   | "Nano Banana"
   | "Nano Banana Lite"
   | "Sora 2"
   | "Sora 2 Pro"
+  | "Grok Video"
   | "Veo 3.1"
   | "Veo 3.1 Lite"
   | "Gemini Omni Flash"
@@ -194,6 +200,7 @@ export const TRANSIT_MODEL_FAMILY_LABELS: Record<TransitModelFamily, string> = {
   gpt: "ChatGPT",
   claude: "Claude",
   gemini: "Gemini",
+  grok: "Grok",
   glm: "GLM",
   deepseek: "DeepSeek",
   image: "图片生成",
@@ -204,6 +211,7 @@ export const TRANSIT_MODEL_FAMILY_ORDER = [
   "gpt",
   "claude",
   "gemini",
+  "grok",
   "glm",
   "deepseek",
   "image",
@@ -247,17 +255,21 @@ export const TRANSIT_STANDARD_MODELS = [
   "GPT 5.4",
   "Gemini 3.5 Flash",
   "Gemini 3.1 Pro",
+  "Grok 4.5",
+  "Composer 2.5",
   "GLM-5.2",
   "GLM-5.1",
   "DeepSeek V4 Flash",
   "DeepSeek V4 Pro",
   "GPT Image 2",
+  "Grok Image",
   "Nano Banana Pro",
   "Nano Banana 2",
   "Nano Banana",
   "Nano Banana Lite",
   "Sora 2",
   "Sora 2 Pro",
+  "Grok Video",
   "Veo 3.1",
   "Veo 3.1 Lite",
   "Gemini Omni Flash",
@@ -276,17 +288,54 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
   "GPT 5.4": "gpt",
   "Gemini 3.5 Flash": "gemini",
   "Gemini 3.1 Pro": "gemini",
+  "Grok 4.5": "grok",
+  "Composer 2.5": "grok",
   "GLM-5.2": "glm",
   "GLM-5.1": "glm",
   "DeepSeek V4 Flash": "deepseek",
   "DeepSeek V4 Pro": "deepseek",
   "GPT Image 2": "image",
+  "Grok Image": "grok",
   "Nano Banana Pro": "image",
   "Nano Banana 2": "image",
   "Nano Banana": "image",
   "Nano Banana Lite": "image",
   "Sora 2": "video",
   "Sora 2 Pro": "video",
+  "Grok Video": "grok",
+  "Veo 3.1": "video",
+  "Veo 3.1 Lite": "video",
+  "Gemini Omni Flash": "video",
+  "Seedance 2.0": "video",
+  "Kling 2.5 Turbo": "video",
+};
+
+export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, TransitModelModality> = {
+  "Claude Fable 5": "text",
+  "Claude Sonnet 5": "text",
+  "Claude Sonnet 4.6": "text",
+  "Claude Opus 4.6": "text",
+  "Claude Opus 4.7": "text",
+  "Claude Opus 4.8": "text",
+  "GPT 5.5": "text",
+  "GPT 5.4": "text",
+  "Gemini 3.5 Flash": "text",
+  "Gemini 3.1 Pro": "text",
+  "Grok 4.5": "text",
+  "Composer 2.5": "text",
+  "GLM-5.2": "text",
+  "GLM-5.1": "text",
+  "DeepSeek V4 Flash": "text",
+  "DeepSeek V4 Pro": "text",
+  "GPT Image 2": "image",
+  "Grok Image": "image",
+  "Nano Banana Pro": "image",
+  "Nano Banana 2": "image",
+  "Nano Banana": "image",
+  "Nano Banana Lite": "image",
+  "Sora 2": "video",
+  "Sora 2 Pro": "video",
+  "Grok Video": "video",
   "Veo 3.1": "video",
   "Veo 3.1 Lite": "video",
   "Gemini Omni Flash": "video",
@@ -304,6 +353,23 @@ export function isTransitStandardModel(value: unknown): value is TransitStandard
 
 export function isTransitStationSystem(value: unknown): value is TransitStationSystem {
   return value === "new_api" || value === "sub_to_api" || value === "custom" || value === "unknown";
+}
+
+export function transitStandardModelMatchesFamily(
+  standardModel: TransitStandardModel,
+  family: TransitModelFamily
+): boolean {
+  if (TRANSIT_STANDARD_MODEL_FAMILY[standardModel] === family) return true;
+
+  const modality = TRANSIT_STANDARD_MODEL_MODALITY[standardModel];
+  return (family === "image" && modality === "image") || (family === "video" && modality === "video");
+}
+
+export function transitModelPriceMatchesFamily(
+  price: Pick<TransitModelPrice, "family" | "standardModel">,
+  family: TransitModelFamily
+): boolean {
+  return price.family === family || transitStandardModelMatchesFamily(price.standardModel, family);
 }
 
 export function isTransitOperatorType(value: unknown): value is TransitOperatorType {

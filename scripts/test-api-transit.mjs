@@ -430,6 +430,10 @@ assert.equal(__test.standardizeModelName("google/nano-banana"), "Nano Banana");
 assert.equal(__test.standardizeModelName("google/nano-banana-lite"), "Nano Banana Lite");
 assert.equal(__test.standardizeModelName("openai/sora-2-pro"), "Sora 2 Pro");
 assert.equal(__test.standardizeModelName("openai/sora-2"), "Sora 2");
+assert.equal(__test.standardizeModelName("xai/grok-4.5-latest"), "Grok 4.5");
+assert.equal(__test.standardizeModelName("xai/composer-2.5"), "Composer 2.5");
+assert.equal(__test.standardizeModelName("xai/grok-imagine-image"), "Grok Image");
+assert.equal(__test.standardizeModelName("xai/grok-imagine-video-1.5-preview"), "Grok Video");
 assert.equal(__test.standardizeModelName("google/veo-3.1-lite"), "Veo 3.1 Lite");
 assert.equal(__test.standardizeModelName("google/veo-3.1"), "Veo 3.1");
 assert.equal(__test.standardizeModelName("google/gemini-omni-flash"), "Gemini Omni Flash");
@@ -463,6 +467,20 @@ const fixedPricePayload = {
       model_price: 0.25,
       enable_groups: ["default"],
     },
+    {
+      model_name: "xai/grok-imagine-image",
+      quota_type: 1,
+      model_ratio: 0,
+      model_price: 0.03,
+      enable_groups: ["default"],
+    },
+    {
+      model_name: "xai/grok-imagine-video",
+      quota_type: 1,
+      model_ratio: 0,
+      model_price: 0.12,
+      enable_groups: ["default"],
+    },
   ],
   group_ratio: { default: 1 },
 };
@@ -485,6 +503,10 @@ assert.equal(fixedOffersByModel.get("Sora 2").model_multiplier, 0.1);
 assert.equal(fixedOffersByModel.get("GPT Image 2").model_multiplier, 0.008333);
 assert.equal(fixedOffersByModel.get("GPT Image 2").image_output_price, 0.008333);
 assert.equal(fixedOffersByModel.get("GPT Image 2").raw_payload.fixed_price, 0.25);
+assert.equal(fixedOffersByModel.get("Grok Image").family, "grok");
+assert.equal(fixedOffersByModel.get("Grok Image").model_multiplier, 0.03);
+assert.equal(fixedOffersByModel.get("Grok Video").family, "grok");
+assert.equal(fixedOffersByModel.get("Grok Video").model_multiplier, 0.12);
 
 const rtocSource = configuredRtocSource;
 const rtocParsed = __test.parsePricingPayload(
