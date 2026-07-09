@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { BrandIcon } from "@/components/BrandIcon";
 
-export type ModelBrandIconKind = "openai" | "gemini" | "volcengine" | "kling";
+export type ModelBrandIconKind = "openai" | "gemini" | "grok" | "volcengine" | "kling";
 
 const modelBrandIconByPrefix: { prefix: string; icon: ModelBrandIconKind }[] = [
   { prefix: "gpt image", icon: "openai" },
@@ -9,6 +9,8 @@ const modelBrandIconByPrefix: { prefix: string; icon: ModelBrandIconKind }[] = [
   { prefix: "nano banana", icon: "gemini" },
   { prefix: "veo", icon: "gemini" },
   { prefix: "gemini omni", icon: "gemini" },
+  { prefix: "grok", icon: "grok" },
+  { prefix: "composer", icon: "grok" },
   { prefix: "seedance", icon: "volcengine" },
   { prefix: "kling", icon: "kling" },
 ];
@@ -32,6 +34,7 @@ export function ModelBrandIcon({
   className?: string;
 }) {
   if (icon === "openai") return <BrandIcon platform="ChatGPT" className={className} />;
+  if (icon === "grok") return <BrandIcon platform="Grok" className={className} />;
 
   const src = modelBrandImageSrc[icon];
   if (!src) return null;

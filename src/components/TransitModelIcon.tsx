@@ -26,6 +26,9 @@ export function TransitModelIcon({
   if (normalizedFamily === "gpt") {
     return <ModelBrandIcon icon="openai" className={className} />;
   }
+  if (normalizedFamily === "grok") {
+    return <ModelBrandIcon icon="grok" className={className} />;
+  }
   if (normalizedFamily === "image") {
     return <GeneratedMediaIcon kind="image" className={className} />;
   }

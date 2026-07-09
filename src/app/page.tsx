@@ -59,7 +59,7 @@ const heroModules = [
   {
     title: "中转 API",
     href: "/api-transit",
-    description: "面向 GPT、Claude、Gemini 等模型的第三方中转站，重点看倍率、稳定性和披露信息。",
+    description: "面向 GPT、Claude、Gemini、Grok 等模型的第三方中转站，重点看倍率、稳定性和披露信息。",
     icon: KeyRound,
   },
 ];
@@ -89,7 +89,7 @@ const decisionPaths = [
   {
     label: "资深买家",
     title: "我想找更低价或更灵活的方案",
-    body: "先看卡网订阅里的低价现货、渠道和更新时间；如果要接 GPT、Claude、Gemini 等模型，再看中转 API。",
+    body: "先看卡网订阅里的低价现货、渠道和更新时间；如果要接 GPT、Claude、Gemini、Grok 等模型，再看中转 API。",
     primaryHref: "/channels",
     primaryLabel: "看卡网订阅",
     secondaryHref: "/api-transit",

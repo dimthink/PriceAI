@@ -27,12 +27,13 @@
 | ChatGPT / OpenAI | `GPT 5.5`、`GPT 5.4` | `gpt-5.5`、`gpt-5-5`、`gpt-5.4`、`gpt-5-4`；会排除 `mini/nano` 变体，避免误归。 |
 | Claude | `Claude Fable 5`、`Claude Sonnet 5`、`Claude Sonnet 4.6`、`Claude Opus 4.6/4.7/4.8` | `claude-fable-5`、`claude-sonnet-5`、`claude-sonnet-4.6`、`claude-opus-4.8` 等显式版本。 |
 | Gemini | `Gemini 3.5 Flash`、`Gemini 3.1 Pro` | `gemini-3.5-flash`、`gemini-3.1-pro-preview`。 |
+| Grok | `Grok 4.5`、`Composer 2.5`、`Grok Image`、`Grok Video` | `grok-4.5`、`grok-4.5-latest`、`composer-2.5`、`grok-imagine-image`、`grok-imagine-video`。Grok 图片/视频模型的主品牌归属是 Grok，同时也会被图片生成/视频生成能力筛选命中。 |
 | GLM | `GLM-5.2`、`GLM-5.1` | `glm-5.2`、`glm-5-2`、`zhipu/glm-5.1`。 |
 | DeepSeek | `DeepSeek V4 Flash`、`DeepSeek V4 Pro` | `deepseek-v4-flash`、`deepseek-v4-pro`。 |
-| 图片生成 | `GPT Image 2`、`Nano Banana Pro`、`Nano Banana 2`、`Nano Banana`、`Nano Banana Lite` | `gpt-image-2`、`gemini-3-pro-image-preview`、`gemini-3.1-flash-image-preview`、`gemini-2.5-flash-image`、`nano-banana-*`。 |
-| 视频生成 | `Sora 2`、`Sora 2 Pro`、`Veo 3.1`、`Veo 3.1 Lite`、`Gemini Omni Flash`、`Seedance 2.0`、`Kling 2.5 Turbo` | `sora-2`、`sora-2-pro`、`veo-3.1`、`gemini-omni-flash`、`seedance-2.0`、`video-ds-2.0`、`kling-2.5-turbo`。 |
+| 图片生成 | `GPT Image 2`、`Grok Image`、`Nano Banana Pro`、`Nano Banana 2`、`Nano Banana`、`Nano Banana Lite` | `gpt-image-2`、`grok-imagine-image`、`grok-image`、`gemini-3-pro-image-preview`、`gemini-3.1-flash-image-preview`、`gemini-2.5-flash-image`、`nano-banana-*`。 |
+| 视频生成 | `Sora 2`、`Sora 2 Pro`、`Grok Video`、`Veo 3.1`、`Veo 3.1 Lite`、`Gemini Omni Flash`、`Seedance 2.0`、`Kling 2.5 Turbo` | `sora-2`、`sora-2-pro`、`grok-imagine-video`、`grok-video`、`veo-3.1`、`gemini-omni-flash`、`seedance-2.0`、`video-ds-2.0`、`kling-2.5-turbo`。 |
 
-暂时只记录但不标准化的公开模型名包括：`Gemini 3 Flash/Pro`、`Gemini 2.5 Flash` 文本模型、`Grok Imagine`、`GLM-4.x/5` 非当前标准版本、`DeepSeek v3.x`、Qwen、Doubao、Runway、Luma、Vidu 等。它们需要先补官方基准价或独立标准模型位，否则会污染倍率比较。
+暂时只记录但不标准化的公开模型名包括：`Gemini 3 Flash/Pro`、`Gemini 2.5 Flash` 文本模型、`GLM-4.x/5` 非当前标准版本、`DeepSeek v3.x`、Qwen、Doubao、Runway、Luma、Vidu 等。它们需要先补官方基准价或独立标准模型位，否则会污染倍率比较。
 
 ## 4. 可用性监测流程
 

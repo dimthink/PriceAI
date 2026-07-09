@@ -41,6 +41,7 @@ import {
   TRANSIT_STATION_STATUS_LABELS,
   TRANSIT_USAGE_ADVICE_LABELS,
   TRANSIT_VERIFICATION_EVENT_SOURCE_LABELS,
+  transitModelPriceMatchesFamily,
 } from "@/data/api-transit/types";
 import {
   ALLOWED_RETURN_KEYS,
@@ -1817,7 +1818,7 @@ function AvailabilityTable({ station }: { station: TransitStation }) {
 
 function getStationPriceFamilies(station: TransitStation): TransitModelFamily[] {
   return TRANSIT_MODEL_FAMILY_ORDER.filter((family) =>
-    station.prices.some((price) => price.family === family)
+    station.prices.some((price) => transitModelPriceMatchesFamily(price, family))
   );
 }
 

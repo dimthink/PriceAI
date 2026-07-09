@@ -57,17 +57,21 @@ const officialTransitPrices = {
   "GPT 5.4": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0.25, imageOutput: null, currency: "USD" },
   "Gemini 3.5 Flash": { input: 1.5, output: 9, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Gemini 3.1 Pro": { input: 2, output: 12, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
+  "Grok 4.5": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
+  "Composer 2.5": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "GLM-5.2": { input: 8, output: 28, cacheRead: 2, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "GLM-5.1": { input: 6, output: 24, cacheRead: 1.3, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "DeepSeek V4 Flash": { input: 1, output: 2, cacheRead: 0.02, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "DeepSeek V4 Pro": { input: 3, output: 6, cacheRead: 0.025, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "GPT Image 2": { input: 5, output: null, cacheRead: 1.25, cacheWrite: null, imageOutput: 30, currency: "USD" },
+  "Grok Image": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Nano Banana Pro": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Nano Banana 2": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Nano Banana": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Nano Banana Lite": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Sora 2": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Sora 2 Pro": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
+  "Grok Video": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Veo 3.1": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Veo 3.1 Lite": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Gemini Omni Flash": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
@@ -85,17 +89,21 @@ const modelFamilyByStandard = {
   "GPT 5.4": "gpt",
   "Gemini 3.5 Flash": "gemini",
   "Gemini 3.1 Pro": "gemini",
+  "Grok 4.5": "grok",
+  "Composer 2.5": "grok",
   "GLM-5.2": "glm",
   "GLM-5.1": "glm",
   "DeepSeek V4 Flash": "deepseek",
   "DeepSeek V4 Pro": "deepseek",
   "GPT Image 2": "image",
+  "Grok Image": "grok",
   "Nano Banana Pro": "image",
   "Nano Banana 2": "image",
   "Nano Banana": "image",
   "Nano Banana Lite": "image",
   "Sora 2": "video",
   "Sora 2 Pro": "video",
+  "Grok Video": "grok",
   "Veo 3.1": "video",
   "Veo 3.1 Lite": "video",
   "Gemini Omni Flash": "video",
@@ -2551,6 +2559,14 @@ function standardizeModelName(name) {
     return "GPT Image 2";
   }
   if (
+    value.includes("grok-imagine-image") ||
+    value.includes("grok imagine image") ||
+    value.includes("grok-image") ||
+    value.includes("grok image")
+  ) {
+    return "Grok Image";
+  }
+  if (
     value.includes("gemini-3-pro-image") ||
     value.includes("gemini 3 pro image") ||
     value.includes("gemini-3-pro-image-preview")
@@ -2577,6 +2593,14 @@ function standardizeModelName(name) {
   if (value.includes("nano-banana") || value.includes("nano banana")) return "Nano Banana";
   if (value.includes("sora-2-pro") || value.includes("sora 2 pro")) return "Sora 2 Pro";
   if (value.includes("sora-2") || value.includes("sora 2")) return "Sora 2";
+  if (
+    value.includes("grok-imagine-video") ||
+    value.includes("grok imagine video") ||
+    value.includes("grok-video") ||
+    value.includes("grok video") ||
+    value.includes("grok-videos") ||
+    value.includes("grok videos")
+  ) return "Grok Video";
   if (value.includes("veo-3.1-lite") || value.includes("veo 3.1 lite") || value.includes("veo-3-1-lite")) return "Veo 3.1 Lite";
   if (value.includes("veo-3.1") || value.includes("veo 3.1") || value.includes("veo-3-1")) return "Veo 3.1";
   if (value.includes("gemini-omni-flash") || value.includes("gemini omni flash")) return "Gemini Omni Flash";
@@ -2610,6 +2634,14 @@ function standardizeModelName(name) {
     if (isExcludedGptVariant(value)) return null;
     if (hasExplicitGptVersion(value, "5.5")) return "GPT 5.5";
     if (hasExplicitGptVersion(value, "5.4")) return "GPT 5.4";
+  }
+
+  if (value.includes("grok")) {
+    if (value.includes("4.5") || value.includes("4-5") || value.includes("4_5")) return "Grok 4.5";
+  }
+
+  if (value.includes("composer")) {
+    if (value.includes("2.5") || value.includes("2-5") || value.includes("2_5")) return "Composer 2.5";
   }
 
   if (value.includes("gemini")) {
