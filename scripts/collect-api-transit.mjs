@@ -2541,7 +2541,13 @@ function dedupeBestOffers(offers) {
   for (const offer of offers) {
     const key = `${offer.station_id}|${offer.standard_model}|${offer.group_name}`;
     const existing = byKey.get(key);
-    if (!existing || nullableSortValue(offer.model_multiplier) < nullableSortValue(existing.model_multiplier)) {
+    const offerSortValue = nullableSortValue(offer.model_multiplier);
+    const existingSortValue = nullableSortValue(existing?.model_multiplier);
+    if (
+      !existing ||
+      offerSortValue < existingSortValue ||
+      (offerSortValue === existingSortValue && rawModelAliasSpecificity(offer) > rawModelAliasSpecificity(existing))
+    ) {
       byKey.set(key, offer);
     }
   }
@@ -2551,6 +2557,17 @@ function dedupeBestOffers(offers) {
     a.standard_model.localeCompare(b.standard_model) ||
     nullableSortValue(a.model_multiplier) - nullableSortValue(b.model_multiplier)
   );
+}
+
+function rawModelAliasSpecificity(offer) {
+  const standard = String(offer?.standard_model || "");
+  const raw = String(offer?.raw_model_name || "").toLowerCase();
+  if (standard === "Grok Image") {
+    if (raw.includes("image")) return 2;
+    if (raw.includes("edit")) return 1;
+  }
+  if (standard === "Grok Video" && raw.includes("video")) return 2;
+  return 0;
 }
 
 function standardizeModelName(name) {
@@ -2603,6 +2620,10 @@ function standardizeModelName(name) {
     value.includes("grok-videos") ||
     value.includes("grok videos")
   ) return "Grok Video";
+  if (
+    value.includes("grok-imagine") ||
+    value.includes("grok imagine")
+  ) return "Grok Image";
   if (value.includes("veo-3.1-lite") || value.includes("veo 3.1 lite") || value.includes("veo-3-1-lite")) return "Veo 3.1 Lite";
   if (value.includes("veo-3.1") || value.includes("veo 3.1") || value.includes("veo-3-1")) return "Veo 3.1";
   if (value.includes("gemini-omni-flash") || value.includes("gemini omni flash")) return "Gemini Omni Flash";
