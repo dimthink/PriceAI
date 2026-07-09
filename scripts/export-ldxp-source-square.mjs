@@ -140,10 +140,11 @@ function normalizeSourceSquareList(value, page, baseUrl) {
   const list = Array.isArray(value) ? value : [];
   return list.flatMap((item, offset) => {
     const user = item && typeof item === "object" ? item.user || {} : {};
-    const shopToken = cleanText(user.agent_key || user.token || user.shop_key || "");
+    const link = cleanText(user.link || "");
+    const shopToken = shopTokenFromUrl(link) || cleanText(user.token || user.shop_key || user.agent_key || "");
     if (!shopToken) return [];
 
-    const sourceUrl = `${baseUrl}/shop/${encodeURIComponent(shopToken)}`;
+    const sourceUrl = normalizeShopUrl(link, baseUrl, shopToken);
     const name = cleanText(user.nickname || item.nickname || item.name || `链动小铺 / ${shopToken}`);
     const title = cleanText(item.title || item.description || user.description || "");
     const goodsCount = numberOrNull(item.goods_count ?? item.goodsCount);
@@ -158,6 +159,7 @@ function normalizeSourceSquareList(value, page, baseUrl) {
       sourceName: name,
       sourceUrl,
       shopToken,
+      agentKey: cleanText(user.agent_key || ""),
       description: title,
       goodsCount,
       avatarUrl: cleanText(user.avatar || ""),
@@ -285,15 +287,15 @@ function renderMarkdown(report) {
   lines.push("");
   lines.push("## 明细");
   lines.push("");
-  lines.push("| 状态 | 店铺 | 源头店铺链接 | 商品数 | 匹配到的已有记录 |");
-  lines.push("|---|---|---:|---:|---|");
+  lines.push("| 状态 | 店铺 | 源头店铺链接 | 对接码 | 商品数 | 匹配到的已有记录 |");
+  lines.push("|---|---|---:|---:|---:|---|");
   for (const row of report.rows) {
     const matches = row.existingMatches
       .slice(0, 3)
       .map((match) => cleanMarkdown(`${match.source}${match.id ? ` / ${match.id}` : ""}${match.name ? ` / ${match.name}` : ""}`))
       .join("<br>");
     lines.push(
-      `| ${statusLabel(row.compareStatus)} | ${cleanMarkdown(row.sourceName)} | ${row.sourceUrl} | ${row.goodsCount ?? ""} | ${matches || "-"} |`,
+      `| ${statusLabel(row.compareStatus)} | ${cleanMarkdown(row.sourceName)} | ${row.sourceUrl} | ${cleanMarkdown(row.agentKey)} | ${row.goodsCount ?? ""} | ${matches || "-"} |`,
     );
   }
   lines.push("");
@@ -326,6 +328,21 @@ function shopTokenFromUrl(value) {
   } catch {
     return null;
   }
+}
+
+function normalizeShopUrl(link, baseUrl, shopToken) {
+  try {
+    const url = new URL(link);
+    const token = shopTokenFromUrl(url.href);
+    if (token && normalizeHostname(url.href) === normalizeHostname(baseUrl)) {
+      url.hash = "";
+      url.search = "";
+      return `${url.protocol}//${url.hostname}${url.pathname.replace(/\/$/, "")}`;
+    }
+  } catch {
+    // Fall back to the known shop-token route below.
+  }
+  return `${baseUrl}/shop/${encodeURIComponent(shopToken)}`;
 }
 
 function normalizeUrl(value) {
