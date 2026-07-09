@@ -343,6 +343,18 @@ begin
     output := array_append(output, 'delivery_account');
   end if;
 
+  if text_value ~ 'k12' then
+    output := array_append(output, 'team_k12');
+  end if;
+
+  if text_value ~ '(bugteam|teambug|bug号|bug號|漏洞)' then
+    output := array_append(output, 'team_bug');
+  end if;
+
+  if text_value ~ '(正价|正规官方|官方.{0,12}(team|business|团队|席位)|business\(team\)|gptbusiness|48个月|48月|四十八个月|4年|四年|全程质保订阅|无限续费|可无限续费|可用pro模型额度比plus高|首次激活码|续费码)' then
+    output := array_append(output, 'team_official');
+  end if;
+
   if text_value ~ '(12个月|十二个月|一年|1年|365天|三百六十五天|年卡|年度|全年)' then
     output := array_append(output, 'duration_year');
   end if;
@@ -844,6 +856,9 @@ as $$
       'domestic_mirror_site',
       'delivery_recharge',
       'delivery_account',
+      'team_k12',
+      'team_bug',
+      'team_official',
       'duration_trial',
       'duration_month',
       'duration_quarter',

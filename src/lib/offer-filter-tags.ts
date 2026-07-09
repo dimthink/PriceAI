@@ -1,5 +1,6 @@
 export const OFFER_FILTER_TAG_GROUPS = {
   access: "交付方式",
+  team: "Team 类型",
   duration: "时长",
   gemini: "Gemini 条件",
   proxy: "反代能力",
@@ -16,6 +17,9 @@ export type OfferFilterTagId =
   | "domestic_mirror_site"
   | "delivery_recharge"
   | "delivery_account"
+  | "team_k12"
+  | "team_bug"
+  | "team_official"
   | "duration_trial"
   | "duration_month"
   | "duration_quarter"
@@ -72,6 +76,24 @@ export const OFFER_FILTER_TAGS: OfferFilterTagDefinition[] = [
     label: "成品号",
     group: "access",
     description: "交付成品号、账号、账密、独享号、首登或接码状态明确的报价。",
+  },
+  {
+    id: "team_k12",
+    label: "K12",
+    group: "team",
+    description: "ChatGPT Team / Business 里的 K12、K12 子号或 K12 渠道报价。",
+  },
+  {
+    id: "team_bug",
+    label: "Bug Team",
+    group: "team",
+    description: "ChatGPT Team / Business 里的 Bug Team、Team Bug 或 Bug 号报价。",
+  },
+  {
+    id: "team_official",
+    label: "正价/官方 Team",
+    group: "team",
+    description: "正规官方 Team、Business、48 个月权益、激活码或续费码报价。",
   },
   {
     id: "duration_trial",
@@ -228,6 +250,11 @@ const GEMINI_PRO_ACCOUNT_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "gemini_phone_required",
   "gemini_appeal_required",
 ]);
+const CHATGPT_TEAM_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
+  "team_k12",
+  "team_bug",
+  "team_official",
+]);
 const AI_SUBSCRIPTION_RECHARGE_FILTER_PRODUCT_IDS = new Set<string>([
   "chatgpt-plus",
   "chatgpt-go",
@@ -311,6 +338,7 @@ export function offerFilterTagAppliesToProduct(productId: string, tagId: OfferFi
   if (TELEGRAM_ACCOUNT_FILTER_TAG_IDS.has(tagId)) return productId === "telegram-account";
   if (TELEGRAM_PREMIUM_FILTER_TAG_IDS.has(tagId)) return productId === "telegram-premium";
   if (GEMINI_PRO_ACCOUNT_FILTER_TAG_IDS.has(tagId)) return productId === "gemini-pro-year";
+  if (CHATGPT_TEAM_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-team-business";
   return true;
 }
 
@@ -344,6 +372,16 @@ export function deriveOfferFilterTags(input: {
     hasAccountDeliverySignal(titleText)
   ) {
     output.add("delivery_account");
+  }
+
+  if (hasChatGptTeamK12Signal(text)) {
+    output.add("team_k12");
+  }
+  if (hasChatGptTeamBugSignal(text)) {
+    output.add("team_bug");
+  }
+  if (hasChatGptTeamOfficialSignal(text)) {
+    output.add("team_official");
   }
 
   if (hasDurationYearSignal(text)) {
@@ -487,6 +525,18 @@ function hasAccountDeliveryExclusionSignal(text: string): boolean {
 
 function hasAccountDeliverySignal(text: string): boolean {
   return /成品号|成品账号|成品帐号|成品会员账号|成品|账号购买|账号|帐号|账户|账密|独享号|独享账号|独享账户|库存号|会员号|普通号|普号|白号|网页号|半成品|首登|保首登|质保首登|直登|未接码|已接码|已接|未接|带2fa|带二验|可二验|已绑手机|未绑手机/.test(text);
+}
+
+function hasChatGptTeamK12Signal(text: string): boolean {
+  return /k12/.test(text);
+}
+
+function hasChatGptTeamBugSignal(text: string): boolean {
+  return /bugteam|teambug|bug号|bug號|漏洞/.test(text);
+}
+
+function hasChatGptTeamOfficialSignal(text: string): boolean {
+  return /正价|正规官方|官方.{0,12}(team|business|团队|席位)|business\(team\)|gptbusiness|48个月|48月|四十八个月|4年|四年|全程质保订阅|无限续费|可无限续费|可用pro模型额度比plus高|首次激活码|续费码/.test(text);
 }
 
 function hasStrongSharedAccessSignal(text: string): boolean {
