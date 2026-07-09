@@ -33,6 +33,7 @@ import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset, newestUsableGeneratedDataset } from "@/lib/client-refresh";
+import { trackOutboundEvent, withPriceAiUtm } from "@/lib/outbound-analytics-client";
 import {
   MERCHANT_COLLECTOR_FILTERS,
   merchantCollectorLabel,
@@ -1746,11 +1747,32 @@ function MerchantSourceLink({ merchant }: { merchant: PublicMerchantSummary }) {
     );
   }
 
+  const outboundUrl = withPriceAiUtm(usableHref, {
+    medium: "merchant_shop",
+    campaign: "priceai_merchant",
+    content: merchant.sourceId || merchant.id,
+  });
+
   return (
     <a
-      href={usableHref}
+      href={outboundUrl}
       target="_blank"
       rel="noreferrer"
+      onClick={() => {
+        trackOutboundEvent({
+          eventType: "merchant_shop_click",
+          entityType: "merchant",
+          entityId: merchant.sourceId || merchant.id,
+          sourceId: merchant.sourceId || null,
+          targetUrl: outboundUrl,
+          metadata: {
+            name: merchant.name,
+            collector_kind: merchant.collectorKind || "",
+            product_count: merchant.productCount,
+            offer_count: merchant.offerCount,
+          },
+        });
+      }}
       className="inline-flex h-9 min-w-[72px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
     >
       进店

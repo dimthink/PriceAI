@@ -24,8 +24,10 @@ import { TransitAvailabilityStrip } from "@/components/TransitAvailabilityStrip"
 import { TransitPriceBreakdown } from "@/components/TransitPriceBreakdown";
 import { TransitStationSystemIcon } from "@/components/TransitStationSystemIcon";
 import { useMediaQuery } from "@/lib/client-hooks";
+import { trackOutboundEvent, withPriceAiUtm } from "@/lib/outbound-analytics-client";
 import { formatDateDay, formatDateMinute, formatDateShortMinute } from "@/lib/utils";
 import type {
+  TransitCommercialOffer,
   TransitModelFamily,
   TransitMultiplierHistoryPoint,
   TransitModelPrice,
@@ -118,6 +120,8 @@ type TransitPriceGroup = {
 type TransitOutboundIntent = {
   url: string;
   isAff: boolean;
+  offerId?: string | null;
+  label?: string | null;
 };
 
 type StoredRiskConfirmation = {
@@ -144,6 +148,7 @@ export default function TransitStationDetail({ station, children }: Props) {
   const verificationEvents = getTransitVerificationEvents(station);
   const outboundOffer = getPrimaryTransitOutboundOffer(station);
   const outboundUrl = getTransitStationOutboundUrl(station, outboundOffer);
+  const trackedOutboundUrl = transitOutboundUrl(station, outboundUrl, outboundOffer);
   const hasAffRelation = hasTransitAffRelation(station);
   const isAffOutbound = isTransitStationOutboundAff(station, outboundOffer);
   const outboundLabel = outboundOffer?.url ? "优惠入口" : "官网";
@@ -169,19 +174,24 @@ export default function TransitStationDetail({ station, children }: Props) {
       await navigator.clipboard.writeText(code);
       setCopiedOfferId(offerId);
       window.setTimeout(() => setCopiedOfferId(null), 1600);
+      const offer = commercialOffers.find((item) => item.id === offerId) || null;
+      trackTransitCouponCopy(station, offer, code);
     } catch {
       setCopiedOfferId(null);
     }
-  }, []);
+  }, [commercialOffers, station]);
 
   const requestOutboundVisit = useCallback(
     (event: MouseEvent<HTMLAnchorElement>, intent: TransitOutboundIntent) => {
-      if (hasValidRiskConfirmation(station.slug, intent.url)) return;
+      if (hasValidRiskConfirmation(station.slug, intent.url)) {
+        trackTransitOutboundClick(station, intent, outboundOffer);
+        return;
+      }
       event.preventDefault();
       setRememberRiskConfirmation(false);
       setPendingOutbound(intent);
     },
-    [station.slug],
+    [outboundOffer, station],
   );
 
   const closeOutboundRiskDialog = useCallback(() => {
@@ -195,9 +205,10 @@ export default function TransitStationDetail({ station, children }: Props) {
     if (rememberRiskConfirmation) {
       writeRiskConfirmation(station.slug, targetUrl);
     }
+    trackTransitOutboundClick(station, pendingOutbound, outboundOffer);
     closeOutboundRiskDialog();
     window.open(targetUrl, "_blank", "noopener,noreferrer");
-  }, [closeOutboundRiskDialog, pendingOutbound, rememberRiskConfirmation, station.slug]);
+  }, [closeOutboundRiskDialog, outboundOffer, pendingOutbound, rememberRiskConfirmation, station]);
 
   return (
     <div className="pb-16 sm:pb-14">
@@ -227,10 +238,10 @@ export default function TransitStationDetail({ station, children }: Props) {
                   ) : null}
                 </div>
                 <a
-                  href={outboundUrl}
+                  href={trackedOutboundUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={(event) => requestOutboundVisit(event, { url: outboundUrl, isAff: isAffOutbound })}
+                  onClick={(event) => requestOutboundVisit(event, { url: trackedOutboundUrl, isAff: isAffOutbound, offerId: outboundOffer?.id || null, label: outboundLabel })}
                   aria-label={`访问 ${station.name} ${outboundLabel}`}
                   className="mt-1 inline-flex max-w-full items-center gap-1 text-sm font-semibold text-[#5a6061] transition-colors hover:text-[#2d3435]"
                 >
@@ -281,10 +292,10 @@ export default function TransitStationDetail({ station, children }: Props) {
             />
             <div className="mt-4 flex flex-wrap gap-2">
               <a
-                href={outboundUrl}
+                href={trackedOutboundUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={(event) => requestOutboundVisit(event, { url: outboundUrl, isAff: isAffOutbound })}
+                onClick={(event) => requestOutboundVisit(event, { url: trackedOutboundUrl, isAff: isAffOutbound, offerId: outboundOffer?.id || null, label: outboundButtonLabel })}
                 className="inline-flex h-10 items-center gap-1.5 rounded-full bg-[#2d3435] px-4 text-sm font-bold text-[#f8f8f8] transition-colors hover:bg-[#202829]"
               >
                 {outboundButtonLabel}
@@ -709,6 +720,63 @@ function getUrlHost(url: string) {
   } catch {
     return "unknown";
   }
+}
+
+function transitOutboundUrl(
+  station: TransitStation,
+  value: string,
+  offer: TransitCommercialOffer | null,
+): string {
+  return withPriceAiUtm(value, {
+    medium: "api_transit",
+    campaign: "priceai_api_transit",
+    content: offer?.id || station.slug,
+  });
+}
+
+function trackTransitOutboundClick(
+  station: TransitStation,
+  intent: TransitOutboundIntent,
+  offer: TransitCommercialOffer | null,
+): void {
+  trackOutboundEvent({
+    eventType: "api_transit_outbound_click",
+    entityType: "api_transit_station",
+    entityId: station.id,
+    stationId: station.id,
+    targetUrl: intent.url,
+    campaignId: offer?.id || null,
+    metadata: {
+      station_slug: station.slug,
+      station_name: station.name,
+      is_aff: intent.isAff,
+      outbound_label: intent.label || "",
+      commercial_offer_id: intent.offerId || offer?.id || "",
+      commercial_relation: station.commercialRelation,
+    },
+  });
+}
+
+function trackTransitCouponCopy(
+  station: TransitStation,
+  offer: TransitCommercialOffer | null,
+  code: string,
+): void {
+  trackOutboundEvent({
+    eventType: "api_transit_coupon_copy",
+    entityType: "api_transit_station",
+    entityId: station.id,
+    stationId: station.id,
+    campaignId: offer?.id || null,
+    targetUrl: offer?.url ? transitOutboundUrl(station, offer.url, offer) : station.websiteUrl,
+    metadata: {
+      station_slug: station.slug,
+      station_name: station.name,
+      commercial_offer_id: offer?.id || "",
+      commercial_offer_type: offer?.type || "",
+      coupon_code_length: code.length,
+    },
+  });
 }
 
 function CommercialOfferCard({

@@ -196,6 +196,64 @@ export type PublicMerchantSummary = {
   hasPlatformAftersalesMechanism: boolean;
 };
 
+export const outboundAnalyticsEventTypes = [
+  "card_offer_click",
+  "merchant_shop_click",
+  "api_transit_outbound_click",
+  "api_transit_coupon_copy",
+  "sponsor_click",
+] as const;
+
+export type OutboundAnalyticsEventType = (typeof outboundAnalyticsEventTypes)[number];
+
+export const outboundAnalyticsEntityTypes = [
+  "card_offer",
+  "merchant",
+  "api_transit_station",
+  "sponsor",
+] as const;
+
+export type OutboundAnalyticsEntityType = (typeof outboundAnalyticsEntityTypes)[number];
+
+export type OutboundAnalyticsRollup = {
+  eventType: OutboundAnalyticsEventType;
+  entityType: OutboundAnalyticsEntityType;
+  entityId: string;
+  offerId: string | null;
+  sourceId: string | null;
+  productId: string | null;
+  stationId: string | null;
+  placement: string | null;
+  creativeId: string | null;
+  campaignId: string | null;
+  targetHost: string | null;
+  clickCount: number;
+  uniqueSessionCount: number;
+  lastClickedAt: string | null;
+};
+
+export type OutboundAnalyticsSummary = {
+  configured: boolean;
+  tableReady: boolean;
+  source: "database" | "static" | "unconfigured";
+  generatedAt: string;
+  windowDays: number;
+  message?: string | null;
+  totals: {
+    clicks30d: number;
+    clicks7d: number;
+    uniqueSessions30d: number;
+    uniqueSessions7d: number;
+  };
+  eventTotals: Array<{
+    eventType: OutboundAnalyticsEventType;
+    clickCount: number;
+    uniqueSessionCount: number;
+    lastClickedAt: string | null;
+  }>;
+  topEntities: OutboundAnalyticsRollup[];
+};
+
 export type ExplorerData = {
   generatedAt: string;
   configured: boolean;
@@ -235,6 +293,7 @@ export type AdminSummary = DashboardData & {
   feedbackRawOffers: RawOffer[];
   riskReviewSettings: RiskReviewSettingsSummary;
   sponsorSettings: SponsorSettingsSummary;
+  outboundAnalytics: OutboundAnalyticsSummary;
   passwordStatus: AdminPasswordStatus;
 };
 

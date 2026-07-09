@@ -14,6 +14,7 @@ import {
 } from "@/lib/sponsor-settings-shared";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { isQQGroupPromptUrl, qqGroupPromptEventName } from "@/lib/community";
+import { trackOutboundEvent } from "@/lib/outbound-analytics-client";
 import { sponsorAssetDisplayUrl } from "@/lib/sponsor-asset-url";
 
 type SponsoredPlacementPreviewProps = {
@@ -445,6 +446,20 @@ function SponsorLink({ creative, placement, placementId, path, children, ...prop
           campaign_id: creative.campaignId || campaignSlug(placement, creative),
           target_url: href,
           path,
+        });
+        trackOutboundEvent({
+          eventType: "sponsor_click",
+          entityType: "sponsor",
+          entityId: creative.campaignId || creative.id,
+          placement,
+          creativeId: creative.id,
+          campaignId: creative.campaignId || campaignSlug(placement, creative),
+          targetUrl: typeof href === "string" ? href : String(href),
+          metadata: {
+            placement_id: placementId,
+            sponsor_name: creative.sponsorName || creative.title,
+            path,
+          },
         });
         if (shouldOpenQQGroupPrompt && shouldHandleInCurrentTab(event, target)) {
           event.preventDefault();

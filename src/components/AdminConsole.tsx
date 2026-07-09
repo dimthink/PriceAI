@@ -3,6 +3,7 @@
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -113,6 +114,7 @@ type ApiProviderCandidate = ApiModelAdminData["providerCandidates"][number];
 type ApiProviderSubmission = ApiModelAdminData["providerSubmissions"][number];
 type RiskReviewSettings = AdminSummary["riskReviewSettings"];
 type SponsorSettings = AdminSummary["sponsorSettings"];
+type OutboundAnalyticsData = AdminSummary["outboundAnalytics"];
 type SponsorPlacementKind = keyof SponsorSettings["placements"];
 type SponsorPlacementConfig = SponsorSettings["placements"][SponsorPlacementKind];
 type PasswordStatus = AdminSummary["passwordStatus"];
@@ -233,7 +235,7 @@ type ApiModelProbeResult = {
   };
 };
 
-type AdminTab = "review" | "todo" | "feedback" | "sponsors" | "security" | "history" | "collect" | "health" | "official" | "apiModels" | "apiTransit" | "sources" | "manual" | "logs";
+type AdminTab = "review" | "todo" | "feedback" | "sponsors" | "security" | "history" | "collect" | "health" | "official" | "apiModels" | "apiTransit" | "analytics" | "sources" | "manual" | "logs";
 
 type RowFeedback = {
   id: string;
@@ -330,6 +332,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [apiProviderSubmissions, setApiProviderSubmissions] = useState<ApiProviderSubmission[]>(data.apiModels.providerSubmissions || []);
   const [riskReviewSettings, setRiskReviewSettings] = useState<RiskReviewSettings>(data.riskReviewSettings);
   const [sponsorSettings, setSponsorSettings] = useState<SponsorSettings>(data.sponsorSettings);
+  const outboundAnalytics = data.outboundAnalytics;
   const [passwordStatus, setPasswordStatus] = useState<PasswordStatus>(data.passwordStatus);
   const [collectorStatus, setCollectorStatus] = useState<CollectorStatusState>({
     generatedAt: data.collectorHealth.generatedAt || data.generatedAt,
@@ -780,11 +783,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { id: "official", label: "官方价", count: officialPrices.currentPrices.length || null, icon: <Database size={15} /> },
       { id: "apiModels", label: "API 模型", count: apiModels.offers.length || null, icon: <TerminalSquare size={15} /> },
       { id: "apiTransit", label: "中转 API", count: data.apiTransit.metrics.candidateOffers || data.apiTransit.metrics.pendingStations || null, icon: <Server size={15} /> },
+      { id: "analytics", label: "数据分析", count: outboundAnalytics.totals.clicks30d || null, icon: <BarChart3 size={15} /> },
       { id: "sources", label: "渠道", count: sources.length, icon: <Store size={15} /> },
       { id: "manual", label: "维护", count: null, icon: <Plus size={15} /> },
       { id: "logs", label: "日志", count: collectorStatus.crawlRuns.length, icon: <Clock size={15} /> },
     ],
-    [apiModels.offers.length, collectorHealthIssueCount, collectorStatus.crawlRuns.length, collectorTodoSubmissions.length, data.apiTransit.metrics.candidateOffers, data.apiTransit.metrics.pendingStations, failedRunCount, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length, sponsorSettings],
+    [apiModels.offers.length, collectorHealthIssueCount, collectorStatus.crawlRuns.length, collectorTodoSubmissions.length, data.apiTransit.metrics.candidateOffers, data.apiTransit.metrics.pendingStations, failedRunCount, officialPrices.currentPrices.length, outboundAnalytics.totals.clicks30d, pendingFeedbackCount, reviewSubmissions.length, sources.length, sponsorSettings],
   );
 
   /* ─── Keyboard shortcuts ─── */
@@ -3342,6 +3346,20 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
               </div>
             )}
 
+            {/* Analytics tab */}
+            {activeTab === "analytics" && (
+              <div role="tabpanel" id="tabpanel-analytics">
+                <OutboundAnalyticsPanel
+                  analytics={outboundAnalytics}
+                  sources={sources}
+                  sourceStatsById={sourceStatsById}
+                  offerCountBySource={offerCountBySource}
+                  offerById={offerById}
+                  stations={data.apiTransit.stations}
+                />
+              </div>
+            )}
+
             {/* Sources tab */}
             {activeTab === "sources" && (
               <div role="tabpanel" id="tabpanel-sources">
@@ -4810,6 +4828,320 @@ function MessageBox({ message, onDismiss }: { message: Message; onDismiss?: () =
       )}
     </div>
   );
+}
+
+type AnalyticsLeaderboardRow = {
+  id: string;
+  label: string;
+  meta: string;
+  clickCount: number;
+  uniqueSessionCount: number;
+  lastClickedAt: string | null;
+};
+
+type AnalyticsAccumulator = {
+  clickCount: number;
+  uniqueSessionCount: number;
+  lastClickedAt: string | null;
+};
+
+function OutboundAnalyticsPanel({
+  analytics,
+  sources,
+  sourceStatsById,
+  offerCountBySource,
+  offerById,
+  stations,
+}: {
+  analytics: OutboundAnalyticsData;
+  sources: Source[];
+  sourceStatsById: Map<string, SourceOfferStats>;
+  offerCountBySource: Map<string, number>;
+  offerById: Map<string, RawOffer>;
+  stations: AdminSummary["apiTransit"]["stations"];
+}) {
+  const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations]);
+  const merchantRows = useMemo(() => buildMerchantAnalyticsRows(analytics, sources, sourceStatsById, offerCountBySource), [analytics, offerCountBySource, sourceStatsById, sources]);
+  const offerRows = useMemo(() => buildOfferAnalyticsRows(analytics, offerById), [analytics, offerById]);
+  const transitRows = useMemo(() => buildTransitAnalyticsRows(analytics, stationById), [analytics, stationById]);
+  const sponsorRows = useMemo(() => buildSponsorAnalyticsRows(analytics), [analytics]);
+  const clickedSourceIds = useMemo(() => new Set(merchantRows.map((row) => row.id)), [merchantRows]);
+  const zeroClickSources = useMemo(
+    () =>
+      sources
+        .filter((source) => source.enabled)
+        .filter((source) => sourceVisibleOfferCount(source, sourceStatsById, offerCountBySource) > 0)
+        .filter((source) => !clickedSourceIds.has(source.id))
+        .sort((a, b) => sourceVisibleOfferCount(b, sourceStatsById, offerCountBySource) - sourceVisibleOfferCount(a, sourceStatsById, offerCountBySource))
+        .slice(0, 16),
+    [clickedSourceIds, offerCountBySource, sourceStatsById, sources],
+  );
+
+  return (
+    <div className="space-y-4">
+      <Panel title="数据分析概览" icon={<BarChart3 size={17} />}>
+        <div className="grid gap-3 md:grid-cols-4">
+          <AnalyticsMetric label="30 天点击" value={formatAnalyticsNumber(analytics.totals.clicks30d)} />
+          <AnalyticsMetric label="7 天点击" value={formatAnalyticsNumber(analytics.totals.clicks7d)} />
+          <AnalyticsMetric label="30 天会话" value={formatAnalyticsNumber(analytics.totals.uniqueSessions30d)} />
+          <AnalyticsMetric label="7 天会话" value={formatAnalyticsNumber(analytics.totals.uniqueSessions7d)} />
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[#5a6061]">
+          <span className={`rounded-full px-2 py-1 font-semibold ${analytics.tableReady ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-[#fff7e8] text-[#7a541b]"}`}>
+            {analytics.tableReady ? "数据库已就绪" : "等待迁移"}
+          </span>
+          <span>窗口：最近 {analytics.windowDays} 天</span>
+          <span>更新：{formatRelativeTime(analytics.generatedAt)}</span>
+          <span>来源：{outboundAnalyticsSourceLabel(analytics.source)}</span>
+        </div>
+        {analytics.message ? (
+          <p className="mt-3 rounded-lg bg-[#fff7e8] px-3 py-2 text-xs leading-5 text-[#7a541b]">{analytics.message}</p>
+        ) : null}
+        <div className="mt-4 grid gap-2 md:grid-cols-5">
+          {analytics.eventTotals.map((item) => (
+            <div key={item.eventType} className="rounded-lg bg-[#f7f9f9] px-3 py-2">
+              <p className="text-[11px] font-semibold text-[#5a6061]">{outboundEventLabel(item.eventType)}</p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-[#202829]">{formatAnalyticsNumber(item.clickCount)}</p>
+              <p className="mt-0.5 text-[11px] text-[#7a8587]">{item.lastClickedAt ? formatRelativeTime(item.lastClickedAt) : "暂无记录"}</p>
+            </div>
+          ))}
+          {!analytics.eventTotals.length ? (
+            <p className="rounded-lg bg-[#f7f9f9] px-3 py-3 text-xs leading-5 text-[#5a6061] md:col-span-5">
+              还没有可展示的点击事件。迁移上线后，商品、店铺、中转站和赞助位的出站行为会在这里沉淀。
+            </p>
+          ) : null}
+        </div>
+      </Panel>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <AnalyticsLeaderboard title="店铺归因 Top" rows={merchantRows.slice(0, 12)} emptyText="还没有店铺或商品出站点击。" />
+        <AnalyticsLeaderboard title="商品链接 Top" rows={offerRows.slice(0, 12)} emptyText="还没有卡商品链接点击。" />
+        <AnalyticsLeaderboard title="中转站 Top" rows={transitRows.slice(0, 12)} emptyText="还没有中转站出站或优惠码复制。" />
+        <AnalyticsLeaderboard title="赞助点击 Top" rows={sponsorRows.slice(0, 12)} emptyText="还没有赞助位点击。" />
+      </div>
+
+      <Panel title="30 天零点击店铺" icon={<Store size={17} />}>
+        {zeroClickSources.length ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="text-xs text-[#7a8587]">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">店铺</th>
+                  <th className="px-3 py-2 font-semibold">可见报价</th>
+                  <th className="px-3 py-2 font-semibold">入口</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e4e9ea]">
+                {zeroClickSources.map((source) => (
+                  <tr key={source.id}>
+                    <td className="px-3 py-2">
+                      <div className="font-semibold text-[#202829]">{source.name}</div>
+                      <div className="text-xs text-[#7a8587]">{source.id}</div>
+                    </td>
+                    <td className="px-3 py-2 tabular-nums text-[#2d3435]">{sourceVisibleOfferCount(source, sourceStatsById, offerCountBySource)}</td>
+                    <td className="px-3 py-2 text-xs text-[#5a6061]">{hostFromUrl(source.entryUrl) || "未记录"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm leading-6 text-[#5a6061]">
+            暂无可见报价且 30 天零点击的启用店铺，或点击表尚未产生足够数据。
+          </p>
+        )}
+        <p className="mt-3 text-xs leading-5 text-[#7a8587]">
+          零点击按“商品出站点击 + 进店点击”归因到 source 维度；不包含曝光，曝光与转化漏斗留到下一阶段。
+        </p>
+      </Panel>
+    </div>
+  );
+}
+
+function AnalyticsMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-[#f7f9f9] px-4 py-3">
+      <p className="text-xs font-semibold text-[#5a6061]">{label}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums text-[#202829]">{value}</p>
+    </div>
+  );
+}
+
+function AnalyticsLeaderboard({ title, rows, emptyText }: { title: string; rows: AnalyticsLeaderboardRow[]; emptyText: string }) {
+  return (
+    <Panel title={title} icon={<BarChart3 size={17} />}>
+      {rows.length ? (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-xs text-[#7a8587]">
+              <tr>
+                <th className="px-3 py-2 font-semibold">对象</th>
+                <th className="px-3 py-2 font-semibold">点击</th>
+                <th className="px-3 py-2 font-semibold">会话</th>
+                <th className="px-3 py-2 font-semibold">最近</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e4e9ea]">
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-3 py-2">
+                    <div className="max-w-[360px] truncate font-semibold text-[#202829]">{row.label}</div>
+                    <div className="max-w-[360px] truncate text-xs text-[#7a8587]">{row.meta}</div>
+                  </td>
+                  <td className="px-3 py-2 font-semibold tabular-nums text-[#202829]">{formatAnalyticsNumber(row.clickCount)}</td>
+                  <td className="px-3 py-2 tabular-nums text-[#5a6061]">{formatAnalyticsNumber(row.uniqueSessionCount)}</td>
+                  <td className="px-3 py-2 text-xs text-[#5a6061]">{row.lastClickedAt ? formatRelativeTime(row.lastClickedAt) : "暂无"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-sm leading-6 text-[#5a6061]">{emptyText}</p>
+      )}
+    </Panel>
+  );
+}
+
+function buildMerchantAnalyticsRows(
+  analytics: OutboundAnalyticsData,
+  sources: Source[],
+  sourceStatsById: Map<string, SourceOfferStats>,
+  offerCountBySource: Map<string, number>,
+): AnalyticsLeaderboardRow[] {
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
+  const rows = new Map<string, AnalyticsAccumulator>();
+
+  for (const rollup of analytics.topEntities) {
+    if (rollup.eventType !== "card_offer_click" && rollup.eventType !== "merchant_shop_click") continue;
+    const sourceId = rollup.sourceId || (rollup.entityType === "merchant" ? rollup.entityId : null);
+    if (!sourceId) continue;
+    mergeAnalyticsAccumulator(rows, sourceId, rollup);
+  }
+
+  return sortAnalyticsRows(Array.from(rows.entries()).map(([sourceId, value]) => {
+    const source = sourceById.get(sourceId);
+    const visibleOffers = source ? sourceVisibleOfferCount(source, sourceStatsById, offerCountBySource) : 0;
+    return {
+      id: sourceId,
+      label: source?.name || sourceId,
+      meta: source ? `${hostFromUrl(source.entryUrl) || source.id} · 可见报价 ${visibleOffers}` : sourceId,
+      ...value,
+    };
+  }));
+}
+
+function buildOfferAnalyticsRows(
+  analytics: OutboundAnalyticsData,
+  offerById: Map<string, RawOffer>,
+): AnalyticsLeaderboardRow[] {
+  const rows = new Map<string, AnalyticsAccumulator>();
+
+  for (const rollup of analytics.topEntities) {
+    if (rollup.eventType !== "card_offer_click") continue;
+    const offerId = rollup.offerId || rollup.entityId;
+    mergeAnalyticsAccumulator(rows, offerId, rollup);
+  }
+
+  return sortAnalyticsRows(Array.from(rows.entries()).map(([offerId, value]) => {
+    const offer = offerById.get(offerId);
+    return {
+      id: offerId,
+      label: offer?.sourceTitle || offerId,
+      meta: offer ? `${offer.sourceName} · ${offer.canonicalProductId || offer.categorySlug || "未归类"}` : offerId,
+      ...value,
+    };
+  }));
+}
+
+function buildTransitAnalyticsRows(
+  analytics: OutboundAnalyticsData,
+  stationById: Map<string, AdminSummary["apiTransit"]["stations"][number]>,
+): AnalyticsLeaderboardRow[] {
+  const rows = new Map<string, AnalyticsAccumulator>();
+
+  for (const rollup of analytics.topEntities) {
+    if (rollup.eventType !== "api_transit_outbound_click" && rollup.eventType !== "api_transit_coupon_copy") continue;
+    const stationId = rollup.stationId || rollup.entityId;
+    mergeAnalyticsAccumulator(rows, stationId, rollup);
+  }
+
+  return sortAnalyticsRows(Array.from(rows.entries()).map(([stationId, value]) => {
+    const station = stationById.get(stationId);
+    return {
+      id: stationId,
+      label: station?.name || stationId,
+      meta: station ? `${station.slug} · ${hostFromUrl(station.websiteUrl) || "未记录"}` : stationId,
+      ...value,
+    };
+  }));
+}
+
+function buildSponsorAnalyticsRows(analytics: OutboundAnalyticsData): AnalyticsLeaderboardRow[] {
+  const rows = new Map<string, AnalyticsAccumulator>();
+  const metaById = new Map<string, string>();
+
+  for (const rollup of analytics.topEntities) {
+    if (rollup.eventType !== "sponsor_click") continue;
+    const id = rollup.campaignId || rollup.creativeId || rollup.entityId;
+    mergeAnalyticsAccumulator(rows, id, rollup);
+    const placement = rollup.placement && rollup.placement in sponsorPlacementLabels
+      ? sponsorPlacementLabels[rollup.placement as SponsorPlacementKind]
+      : rollup.placement || "未知位置";
+    metaById.set(id, `${placement}${rollup.targetHost ? ` · ${rollup.targetHost}` : ""}`);
+  }
+
+  return sortAnalyticsRows(Array.from(rows.entries()).map(([id, value]) => ({
+    id,
+    label: id,
+    meta: metaById.get(id) || "赞助点击",
+    ...value,
+  })));
+}
+
+function mergeAnalyticsAccumulator(
+  rows: Map<string, AnalyticsAccumulator>,
+  id: string,
+  rollup: OutboundAnalyticsData["topEntities"][number],
+): void {
+  const current = rows.get(id) || { clickCount: 0, uniqueSessionCount: 0, lastClickedAt: null };
+  current.clickCount += rollup.clickCount;
+  current.uniqueSessionCount += rollup.uniqueSessionCount;
+  if (!current.lastClickedAt || (rollup.lastClickedAt && rollup.lastClickedAt > current.lastClickedAt)) {
+    current.lastClickedAt = rollup.lastClickedAt;
+  }
+  rows.set(id, current);
+}
+
+function sortAnalyticsRows(rows: AnalyticsLeaderboardRow[]): AnalyticsLeaderboardRow[] {
+  return rows.sort((a, b) => b.clickCount - a.clickCount || String(b.lastClickedAt || "").localeCompare(String(a.lastClickedAt || "")));
+}
+
+function outboundEventLabel(eventType: OutboundAnalyticsData["eventTotals"][number]["eventType"]): string {
+  if (eventType === "card_offer_click") return "商品出站";
+  if (eventType === "merchant_shop_click") return "店铺进店";
+  if (eventType === "api_transit_outbound_click") return "中转出站";
+  if (eventType === "api_transit_coupon_copy") return "优惠码复制";
+  return "赞助点击";
+}
+
+function outboundAnalyticsSourceLabel(source: OutboundAnalyticsData["source"]): string {
+  if (source === "database") return "数据库";
+  if (source === "unconfigured") return "未配置";
+  return "静态兜底";
+}
+
+function formatAnalyticsNumber(value: number): string {
+  return new Intl.NumberFormat("zh-CN").format(Math.max(0, value));
+}
+
+function hostFromUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
 }
 
 function AdminLoadErrors({ errors }: { errors: AdminSummary["loadErrors"] }) {
