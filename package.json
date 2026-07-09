@@ -38,6 +38,7 @@
     "collect:browser": "node scripts/collect-browser.mjs",
     "reparse:submissions": "node scripts/reparse-submissions-local.mjs",
     "migrate:remote:freshness": "node scripts/apply-remote-migration.mjs",
+    "export:ldxp-source-square": "node scripts/export-ldxp-source-square.mjs",
     "setup:ga4": "node scripts/setup-ga4.mjs",
     "audit:catalog": "node scripts/audit-catalog.mjs",
     "test:catalog": "node scripts/test-catalog.mjs",
