@@ -43,35 +43,80 @@ begin
 end;
 $migration$;
 
-do $migration$
-declare
-  current_definition text;
-  next_definition text;
-  old_facet_order constant text := $old$'delivery_recharge',
-      'delivery_account',
-      'duration_trial',$old$;
-  new_facet_order constant text := $new$'delivery_recharge',
+create or replace function list_public_product_offer_filter_facets(
+  p_product_id text
+)
+returns table (
+  tag_id text,
+  offer_count bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with product as (
+    select id
+    from canonical_products
+    where is_active = true
+      and (canonical_products.id = p_product_id or canonical_products.slug = p_product_id)
+    limit 1
+  ),
+  tag_rows as (
+    select distinct
+      priceai_public_offer_dedupe_key(
+        raw_offers.canonical_product_id,
+        raw_offers.url,
+        raw_offers.source_title,
+        raw_offers.price
+      ) as offer_key,
+      unnest(raw_offers.public_filter_tags) as tag_id
+    from raw_offers
+    join product on product.id = raw_offers.canonical_product_id
+    where raw_offers.hidden = false
+      and coalesce(array_length(raw_offers.public_filter_tags, 1), 0) > 0
+  )
+  select
+    tag_rows.tag_id,
+    count(*) as offer_count
+  from tag_rows
+  where tag_rows.tag_id is not null
+    and tag_rows.tag_id <> ''
+  group by tag_rows.tag_id
+  order by array_position(
+    array[
+      'shared_access',
+      'domestic_mirror_site',
+      'delivery_recharge',
       'delivery_account',
       'team_k12',
       'team_bug',
       'team_official',
-      'duration_trial',$new$;
-begin
-  select pg_get_functiondef('public.list_public_product_offer_filter_facets(text)'::regprocedure)
-  into current_definition;
-
-  if position('team_k12' in current_definition) > 0 then
-    raise notice 'list_public_product_offer_filter_facets already orders ChatGPT Team filter tags';
-  else
-    if position(old_facet_order in current_definition) = 0 then
-      raise exception 'Expected offer filter facet order block was not found';
-    end if;
-
-    next_definition := replace(current_definition, old_facet_order, new_facet_order);
-    execute next_definition;
-  end if;
-end;
-$migration$;
+      'duration_trial',
+      'duration_month',
+      'duration_quarter',
+      'duration_half_year',
+      'duration_year',
+      'verification_single',
+      'verification_short',
+      'verification_long',
+      'verification_monthly',
+      'telegram_region_us',
+      'telegram_region_india',
+      'telegram_premium_quarter',
+      'telegram_premium_half_year',
+      'telegram_premium_year',
+      'telegram_stars',
+      'proxy_supported',
+      'gemini_antigravity_gcp',
+      'gemini_phone_required',
+      'gemini_appeal_required',
+      'warranty_long'
+    ]::text[],
+    tag_rows.tag_id
+  ),
+  tag_rows.tag_id;
+$$;
 
 do $refresh_public_filter_tags$
 declare
