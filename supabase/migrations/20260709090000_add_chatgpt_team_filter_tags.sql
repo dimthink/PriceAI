@@ -126,7 +126,8 @@ begin
     with stale_offers as (
       select id
       from raw_offers
-      where coalesce(public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(source_title, tags)
+      where canonical_product_id = 'chatgpt-team-business'
+        and coalesce(public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(source_title, tags)
       order by id
       limit 500
       for update skip locked
