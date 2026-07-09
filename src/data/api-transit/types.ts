@@ -77,6 +77,9 @@ export type TransitStandardModel =
   | "Claude Opus 4.6"
   | "Claude Opus 4.7"
   | "Claude Opus 4.8"
+  | "GPT 5.6 Sol"
+  | "GPT 5.6 Terra"
+  | "GPT 5.6 Luna"
   | "GPT 5.5"
   | "GPT 5.4"
   | "GPT 5.4 Mini"
@@ -252,6 +255,9 @@ export const TRANSIT_STANDARD_MODELS = [
   "Claude Opus 4.6",
   "Claude Opus 4.7",
   "Claude Opus 4.8",
+  "GPT 5.6 Sol",
+  "GPT 5.6 Terra",
+  "GPT 5.6 Luna",
   "GPT 5.5",
   "GPT 5.4",
   "GPT 5.4 Mini",
@@ -286,6 +292,9 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
   "Claude Opus 4.6": "claude",
   "Claude Opus 4.7": "claude",
   "Claude Opus 4.8": "claude",
+  "GPT 5.6 Sol": "gpt",
+  "GPT 5.6 Terra": "gpt",
+  "GPT 5.6 Luna": "gpt",
   "GPT 5.5": "gpt",
   "GPT 5.4": "gpt",
   "GPT 5.4 Mini": "gpt",
@@ -320,6 +329,9 @@ export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, Trans
   "Claude Opus 4.6": "text",
   "Claude Opus 4.7": "text",
   "Claude Opus 4.8": "text",
+  "GPT 5.6 Sol": "text",
+  "GPT 5.6 Terra": "text",
+  "GPT 5.6 Luna": "text",
   "GPT 5.5": "text",
   "GPT 5.4": "text",
   "GPT 5.4 Mini": "text",

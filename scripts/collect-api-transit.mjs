@@ -53,6 +53,9 @@ const officialTransitPrices = {
   "Claude Opus 4.6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "Claude Opus 4.7": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "Claude Opus 4.8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
+  "GPT 5.6 Sol": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
+  "GPT 5.6 Terra": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125, imageOutput: null, currency: "USD" },
+  "GPT 5.6 Luna": { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25, imageOutput: null, currency: "USD" },
   "GPT 5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0.5, imageOutput: null, currency: "USD" },
   "GPT 5.4": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0.25, imageOutput: null, currency: "USD" },
   "GPT 5.4 Mini": { input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0.075, imageOutput: null, currency: "USD" },
@@ -86,6 +89,9 @@ const modelFamilyByStandard = {
   "Claude Opus 4.6": "claude",
   "Claude Opus 4.7": "claude",
   "Claude Opus 4.8": "claude",
+  "GPT 5.6 Sol": "gpt",
+  "GPT 5.6 Terra": "gpt",
+  "GPT 5.6 Luna": "gpt",
   "GPT 5.5": "gpt",
   "GPT 5.4": "gpt",
   "GPT 5.4 Mini": "gpt",
@@ -2654,6 +2660,11 @@ function standardizeModelName(name) {
   }
 
   if (value.includes("gpt") || value.includes("codex") || value.includes("openai")) {
+    if (hasExplicitGptVariant(value, "5.6", "sol")) return "GPT 5.6 Sol";
+    if (hasExplicitGptVariant(value, "5.6", "terra")) return "GPT 5.6 Terra";
+    if (hasExplicitGptVariant(value, "5.6", "luna")) return "GPT 5.6 Luna";
+    if (hasExplicitGptVariant(value, "5.6", "mini") || hasExplicitGptVariant(value, "5.6", "nano")) return null;
+    if (hasExplicitGptVersion(value, "5.6")) return "GPT 5.6 Sol";
     if (hasExplicitGptVariant(value, "5.4", "mini")) return "GPT 5.4 Mini";
     if (isExcludedGptVariant(value)) return null;
     if (hasExplicitGptVersion(value, "5.5")) return "GPT 5.5";

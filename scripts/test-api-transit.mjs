@@ -447,6 +447,11 @@ assert.equal(__test.standardizeModelName("bytedance/seedance-2.0"), "Seedance 2.
 assert.equal(__test.standardizeModelName("kling/kling-2.5-turbo"), "Kling 2.5 Turbo");
 assert.equal(__test.standardizeModelName("claude-3-5-sonnet-20241022"), null);
 assert.equal(__test.standardizeModelName("claude-sonnet-4-5-20250929-thinking"), null);
+assert.equal(__test.standardizeModelName("openai/gpt-5.6"), "GPT 5.6 Sol");
+assert.equal(__test.standardizeModelName("openai/gpt-5.6-sol"), "GPT 5.6 Sol");
+assert.equal(__test.standardizeModelName("openai/gpt-5.6-terra"), "GPT 5.6 Terra");
+assert.equal(__test.standardizeModelName("openai/gpt-5.6-luna"), "GPT 5.6 Luna");
+assert.equal(__test.standardizeModelName("openai/gpt-5.6-mini"), null);
 assert.equal(__test.standardizeModelName("gpt-5.4-mini"), "GPT 5.4 Mini");
 assert.equal(__test.standardizeModelName("gpt-5.4-nano"), null);
 

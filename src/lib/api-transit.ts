@@ -143,6 +143,9 @@ function getTransitModelPriority(model: TransitModelPrice["standardModel"]): num
   if (model === "Gemini Omni Flash") return 586;
   if (model === "Seedance 2.0") return 585;
   if (model === "Kling 2.5 Turbo") return 584;
+  if (model === "GPT 5.6 Sol") return 506;
+  if (model === "GPT 5.6 Terra") return 505.8;
+  if (model === "GPT 5.6 Luna") return 505.6;
   if (model === "GPT 5.5") return 505;
   if (model === "GPT 5.4") return 504;
   if (model === "GPT 5.4 Mini") return 503.5;
@@ -267,6 +270,36 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     currency: "USD",
     sourceLabel: "Anthropic API",
     sourceUrl: anthropicPricingUrl,
+  },
+  "GPT 5.6 Sol": {
+    input: 5,
+    output: 30,
+    cacheWrite: 6.25,
+    cacheRead: 0.5,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "OpenAI API",
+    sourceUrl: openAiPricingUrl,
+  },
+  "GPT 5.6 Terra": {
+    input: 2.5,
+    output: 15,
+    cacheWrite: 3.125,
+    cacheRead: 0.25,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "OpenAI API",
+    sourceUrl: openAiPricingUrl,
+  },
+  "GPT 5.6 Luna": {
+    input: 1,
+    output: 6,
+    cacheWrite: 1.25,
+    cacheRead: 0.1,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "OpenAI API",
+    sourceUrl: openAiPricingUrl,
   },
   "GPT 5.5": {
     input: 5,
