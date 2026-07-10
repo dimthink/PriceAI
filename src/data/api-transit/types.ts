@@ -61,6 +61,26 @@ export interface TransitCacheUsage {
   sampleTokens: number;
 }
 
+export type TransitModelDetectionVerdict = "passed" | "review" | "failed" | "untested";
+export type TransitModelDetectionSource =
+  | "priceai"
+  | "station_public"
+  | "user_submitted"
+  | "merchant_submitted"
+  | "unknown";
+
+export interface TransitModelDetectionSummary {
+  verdict: TransitModelDetectionVerdict;
+  score: number | null;
+  checkedAt: string | null;
+  reportCount: number;
+  issueCount: number;
+  source: TransitModelDetectionSource;
+  sourceLabel: string | null;
+  reportUrl?: string | null;
+  note?: string | null;
+}
+
 export interface TransitMultiplierHistoryPoint {
   observedAt: string;
   rechargeRatio: string | null;
@@ -124,6 +144,7 @@ export interface TransitModelPrice {
   lastVerifiedAt: string;
   availability: TransitAvailability;
   cacheUsage?: TransitCacheUsage;
+  modelDetection?: TransitModelDetectionSummary;
   history?: TransitMultiplierHistoryPoint[];
 }
 
@@ -192,6 +213,7 @@ export interface TransitStation {
   lastUpdatedAt: string;
   dataStatus: TransitDataStatus;
   availability: TransitAvailability;
+  modelDetection?: TransitModelDetectionSummary;
   prices: TransitModelPrice[];
   feedback: TransitFeedbackSummary;
   strengths?: string[];

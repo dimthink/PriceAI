@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowUpDown, ChevronRight, Filter } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Filter, ShieldCheck } from "lucide-react";
 import {
   DataTableHead,
   DataTableShell,
@@ -40,8 +40,11 @@ import {
 } from "@/data/api-transit/types";
 import {
   compareStations,
+  buildTransitDetectorHref,
   formatAvailability,
   formatCacheHitRate,
+  formatTransitModelDetectionLabel,
+  formatTransitModelDetectionMeta,
   getRechargeCoefficientFromRatio,
   formatMultiplierRange,
   formatRate,
@@ -60,6 +63,9 @@ import {
   getStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
   getStationRechargeCoefficient,
+  getTransitModelDetectionBadgeClass,
+  getTransitPriceDetectionSummary,
+  getTransitStationDetectionSummary,
   hasTransitAffRelation,
   getTransitReviewTags,
   getTransitStationSystemLabel,
@@ -352,7 +358,7 @@ export default function TransitStationExplorer({ stations }: Props) {
       ) : (
         <>
           <DataTableShell className="hidden md:block">
-            <table className="w-full min-w-[1220px] border-collapse text-left text-sm" role="table">
+            <table className="w-full min-w-[1360px] border-collapse text-left text-sm" role="table">
                 <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
                   <tr role="row">
                     <DataTableHead className="w-[300px]">站点</DataTableHead>
@@ -361,6 +367,7 @@ export default function TransitStationExplorer({ stations }: Props) {
                     </DataTableHead>
                     <DataTableHead explanation={TRANSIT_RATE_BREAKDOWN_EXPLANATION}>倍率构成</DataTableHead>
                     <DataTableHead explanation={availabilityColumnExplanation}>稳定性</DataTableHead>
+                    <DataTableHead explanation="模型真实性检测报告：用于识别模型掺水、暗调路由、私下替换等风险；无公开报告时只显示待检测。">模型检测</DataTableHead>
                     <DataTableHead explanation="公开披露或 PriceAI 推断的上游来源与号池类型，用于判断风险边界。">来源渠道</DataTableHead>
                     <DataTableHead>更新时间</DataTableHead>
                     <DataTableHead className="w-[120px] text-center">操作</DataTableHead>
@@ -621,6 +628,13 @@ function StationRow({
       <td className="px-5 py-4">
         <AvailabilityCell station={station} activeFamily={activeFamily} activeStandardModel={activeStandardModel} />
       </td>
+      <td className="px-5 py-4">
+        <ModelDetectionCell
+          station={station}
+          activeFamily={activeFamily}
+          activeStandardModel={activeStandardModel}
+        />
+      </td>
       <td className="max-w-[220px] px-5 py-4">
         <SourceChannelCell station={station} />
       </td>
@@ -703,6 +717,14 @@ function StationCard({
           compact
         />
       </div>
+      <div className="mb-3">
+        <ModelDetectionCell
+          station={station}
+          activeFamily={activeFamily}
+          activeStandardModel={activeStandardModel}
+          compact
+        />
+      </div>
       <SourceChannelCell station={station} />
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#5a6061]">
         <span>更新于 {formatDateShortMinute(station.lastUpdatedAt)} · {TRANSIT_DATA_STATUS_LABELS[station.dataStatus]}</span>
@@ -777,6 +799,84 @@ function AvailabilityCell({
       </div>
     </div>
   );
+}
+
+function ModelDetectionCell({
+  station,
+  activeFamily,
+  activeStandardModel = "all",
+  compact = false,
+}: {
+  station: TransitStation;
+  activeFamily: "all" | TransitModelFamily;
+  activeStandardModel?: "all" | TransitStandardModel;
+  compact?: boolean;
+}) {
+  const price = getScopedDetectionPrice(station, activeFamily, activeStandardModel);
+  const summary = price
+    ? getTransitPriceDetectionSummary(station, price)
+    : getTransitStationDetectionSummary(station);
+  const detectorHref = buildTransitDetectorHref(station, price ?? undefined);
+  const hasReport = Boolean(summary && summary.verdict !== "untested" && summary.reportCount > 0);
+  const checkedAt = summary?.checkedAt ? formatDateShortMinute(summary.checkedAt) : null;
+  const title = summary?.note ?? "暂无公开模型真实性检测报告。";
+
+  return (
+    <div className={compact ? "rounded-lg bg-[#f7f9f9] px-3 py-2" : "min-w-[132px]"} title={title}>
+      <div className="flex items-center gap-1.5">
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[#7f8889]" aria-hidden="true" />
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold ${getTransitModelDetectionBadgeClass(summary)}`}>
+          {formatTransitModelDetectionLabel(summary)}
+        </span>
+      </div>
+      <div className="mt-1 text-[10px] leading-4 text-[#7f8889]">
+        {hasReport ? formatTransitModelDetectionMeta(summary) : compact ? "暂无公开报告" : "暂无模型真伪报告"}
+      </div>
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] font-semibold">
+        {checkedAt ? (
+          <span className="truncate text-[#7f8889]">
+            {summary?.sourceLabel ?? "检测"} · {checkedAt}
+          </span>
+        ) : null}
+        {summary?.reportUrl ? (
+          <a
+            href={summary.reportUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            className="shrink-0 text-[#2f7a4b] hover:text-[#245f3b]"
+          >
+            报告
+          </a>
+        ) : (
+          <Link
+            href={detectorHref}
+            onClick={(event) => event.stopPropagation()}
+            className="shrink-0 text-[#2f7a4b] hover:text-[#245f3b]"
+          >
+            去检测
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getScopedDetectionPrice(
+  station: TransitStation,
+  activeFamily: "all" | TransitModelFamily,
+  activeStandardModel: "all" | TransitStandardModel
+): TransitStation["prices"][number] | null {
+  const prices = station.prices.filter((price) => {
+    if (activeStandardModel !== "all") return price.standardModel === activeStandardModel;
+    if (activeFamily !== "all") return transitModelPriceMatchesFamily(price, activeFamily);
+    return true;
+  });
+  const withReport = prices.find((price) => {
+    const summary = getTransitPriceDetectionSummary(station, price);
+    return Boolean(summary && summary.verdict !== "untested" && summary.reportCount > 0);
+  });
+  return withReport ?? prices[0] ?? null;
 }
 
 function AvailabilitySourceBadge({

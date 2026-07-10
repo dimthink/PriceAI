@@ -2,6 +2,9 @@ import type {
   TransitAvailability,
   TransitChannelType,
   TransitCommercialOffer,
+  TransitModelDetectionSource,
+  TransitModelDetectionSummary,
+  TransitModelDetectionVerdict,
   TransitModelFamily,
   TransitModelPrice,
   TransitOperatorType,
@@ -1393,6 +1396,14 @@ export function formatCacheHitRate(cacheUsage: TransitModelPrice["cacheUsage"] |
   return formatPercent(cacheUsage.hitRate);
 }
 
+export function formatTransitTokenVolume(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return "0 tokens";
+  if (value >= 1_000_000_000) return `${formatCompactNumber(value / 1_000_000_000)}B tokens`;
+  if (value >= 1_000_000) return `${formatCompactNumber(value / 1_000_000)}M tokens`;
+  if (value >= 1_000) return `${formatCompactNumber(value / 1_000)}K tokens`;
+  return `${Math.round(value)} tokens`;
+}
+
 export function getCacheHitRateBadgeClass(cacheUsage: TransitModelPrice["cacheUsage"] | null | undefined): string {
   if (!cacheUsage || cacheUsage.sampleTokens <= 0 || cacheUsage.hitRate === null) {
     return "bg-[#f2f4f4] text-[#7f8889]";
@@ -1421,6 +1432,183 @@ export function getRepresentativeCacheUsage(
       if (leftHasSamples !== rightHasSamples) return leftHasSamples ? -1 : 1;
       return right.sampleTokens - left.sampleTokens;
     })[0];
+}
+
+export type TransitModelDetectionTone = "success" | "info" | "warning" | "danger" | "muted";
+
+export function getTransitPriceDetectionSummary(
+  station: TransitStation,
+  price: TransitModelPrice
+): TransitModelDetectionSummary | null {
+  return price.modelDetection ?? getTransitDetectionSummaryFromEvents(station, price.standardModel);
+}
+
+export function getTransitStationDetectionSummary(
+  station: TransitStation,
+  standardModel?: TransitModelPrice["standardModel"]
+): TransitModelDetectionSummary | null {
+  if (!standardModel && station.modelDetection) return station.modelDetection;
+
+  return getTransitDetectionSummaryFromEvents(station, standardModel);
+}
+
+function getTransitDetectionSummaryFromEvents(
+  station: TransitStation,
+  standardModel?: TransitModelPrice["standardModel"]
+): TransitModelDetectionSummary | null {
+  const events = (station.verificationEvents ?? [])
+    .filter((event) => isModelDetectionEvent(event, standardModel))
+    .sort((left, right) => new Date(right.happenedAt).getTime() - new Date(left.happenedAt).getTime());
+
+  const latest = events[0];
+  if (!latest) return null;
+  const reportUrl = extractFirstUrl(`${latest.title} ${latest.description ?? ""}`);
+
+  return {
+    verdict: detectionVerdictFromEvent(latest.status),
+    score: null,
+    checkedAt: latest.happenedAt,
+    reportCount: events.length,
+    issueCount: events.filter((event) => event.status === "warning" || event.status === "failed").length,
+    source: detectionSourceFromEvent(latest.source),
+    sourceLabel: detectionSourceLabelFromEvent(latest.source),
+    reportUrl,
+    note: latest.description,
+  };
+}
+
+export function buildTransitDetectorHref(
+  station?: TransitStation,
+  price?: TransitModelPrice
+): string {
+  const params = new URLSearchParams();
+  if (station?.slug) params.set("station", station.slug);
+  if (price?.standardModel) params.set("model", price.standardModel);
+  const query = params.toString();
+  return query ? `/api-transit/detector?${query}` : "/api-transit/detector";
+}
+
+export function formatTransitModelDetectionLabel(
+  summary: TransitModelDetectionSummary | null | undefined
+): string {
+  if (!hasPublicTransitModelDetectionReport(summary)) return "待检测";
+  switch (summary.verdict) {
+    case "passed":
+      return "快检通过";
+    case "review":
+      return "需复核";
+    case "failed":
+      return "异常";
+    default:
+      return "待检测";
+  }
+}
+
+export function formatTransitModelDetectionMeta(
+  summary: TransitModelDetectionSummary | null | undefined
+): string {
+  if (!hasPublicTransitModelDetectionReport(summary)) return "暂无公开报告";
+  const parts = [`${summary.reportCount} 份报告`];
+  if (summary.issueCount > 0) parts.push(`${summary.issueCount} 项需复核`);
+  if (summary.score !== null && Number.isFinite(summary.score)) parts.push(`${formatDetectionScore(summary.score)} 分`);
+  return parts.join(" · ");
+}
+
+export function getTransitModelDetectionTone(
+  summary: TransitModelDetectionSummary | null | undefined
+): TransitModelDetectionTone {
+  if (!hasPublicTransitModelDetectionReport(summary)) return "muted";
+  if (summary.verdict === "passed") return "success";
+  if (summary.verdict === "failed") return "danger";
+  return "warning";
+}
+
+export function getTransitModelDetectionBadgeClass(
+  summary: TransitModelDetectionSummary | null | undefined
+): string {
+  switch (getTransitModelDetectionTone(summary)) {
+    case "success":
+      return "bg-[#e8f3ec] text-[#2f7a4b]";
+    case "warning":
+      return "bg-[#fff7e8] text-[#7a541b]";
+    case "danger":
+      return "bg-[#fbe9e7] text-[#9b3328]";
+    default:
+      return "bg-[#f2f4f4] text-[#5a6061]";
+  }
+}
+
+export function hasPublicTransitModelDetectionReport(
+  summary: TransitModelDetectionSummary | null | undefined
+): summary is TransitModelDetectionSummary & { reportUrl: string } {
+  return Boolean(summary && summary.verdict !== "untested" && summary.reportCount > 0 && summary.reportUrl);
+}
+
+function isModelDetectionEvent(
+  event: TransitVerificationEvent,
+  standardModel?: TransitModelPrice["standardModel"]
+): boolean {
+  const text = `${event.title} ${event.description ?? ""}`.toLowerCase();
+  if (!extractFirstUrl(text)) return false;
+  const hasDetectionSignal =
+    text.includes("模型检测") ||
+    text.includes("检测报告") ||
+    text.includes("真实性") ||
+    text.includes("真伪") ||
+    text.includes("路由") ||
+    text.includes("暗调") ||
+    text.includes("掺水");
+  if (!hasDetectionSignal) return false;
+  return standardModel ? text.includes(standardModel.toLowerCase()) : true;
+}
+
+function detectionVerdictFromEvent(
+  status: TransitVerificationEvent["status"]
+): TransitModelDetectionVerdict {
+  if (status === "success") return "passed";
+  if (status === "failed") return "failed";
+  return "review";
+}
+
+function detectionSourceFromEvent(
+  source: TransitVerificationEvent["source"]
+): TransitModelDetectionSource {
+  switch (source) {
+    case "priceai":
+      return "priceai";
+    case "merchant":
+      return "merchant_submitted";
+    case "user":
+      return "user_submitted";
+    case "official":
+      return "station_public";
+    default:
+      return "unknown";
+  }
+}
+
+function detectionSourceLabelFromEvent(source: TransitVerificationEvent["source"]): string {
+  switch (source) {
+    case "priceai":
+      return "PriceAI";
+    case "official":
+      return "站方公开";
+    case "user":
+      return "用户反馈";
+    case "merchant":
+      return "商家提交";
+    default:
+      return "未知来源";
+  }
+}
+
+function extractFirstUrl(text: string): string | null {
+  return text.match(/https?:\/\/[^\s)）]+/)?.[0] ?? null;
+}
+
+function formatDetectionScore(score: number): string {
+  if (score <= 1) return Math.round(score * 100).toString();
+  return Math.round(score).toString();
 }
 
 function latestLatencyFromPrices(prices: TransitModelPrice[]): number | null {

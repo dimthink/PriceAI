@@ -3,7 +3,7 @@
 import { Fragment, type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
 import {
   DataTableHead,
   DataTableShell,
@@ -23,17 +23,29 @@ import {
   isTransitModelFamily,
 } from "@/data/api-transit/types";
 import {
+  buildTransitDetectorHref,
+  formatAvailability,
+  formatCacheHitRate,
   formatPercent,
   formatRate,
+  formatTransitModelDetectionLabel,
+  formatTransitModelDetectionMeta,
   formatTransitModelMultiplier,
+  formatTransitTokenVolume,
+  getAvailabilitySourceMeta,
+  getCacheHitRateBadgeClass,
   getRateBadgeClass,
   getTransitModelSummaries,
+  getTransitModelDetectionBadgeClass,
+  getTransitPriceDetectionSummary,
   getTransitStationSystemLabel,
   getUsageAdviceBadgeClass,
+  hasPublicTransitModelDetectionReport,
   type TransitModelPriceEntry,
   type TransitModelSummary,
 } from "@/lib/api-transit";
 import {
+  TRANSIT_CACHE_HIT_RATE_EXPLANATION,
   TRANSIT_COMBINED_RATE_EXPLANATION,
   TRANSIT_MODEL_MULTIPLIER_EXPLANATION,
   TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION,
@@ -322,7 +334,7 @@ function ModelExpandedPanel({ summary, stationId }: { summary: TransitModelSumma
           <p className="text-sm font-extrabold text-[#202829]">
             {selectedStation ? selectedStation.name : "全部站点"} · {summary.standardModel}
           </p>
-          <p className="mt-1 text-xs text-[#5a6061]">展示该模型在对应站点/分组下的官方价、换算价、充值倍率、模型倍率和综合倍率。</p>
+          <p className="mt-1 text-xs text-[#5a6061]">展示该模型在对应站点/分组下的综合倍率、模型倍率、充值倍率、输入输出、缓存率、可用性和检测报告。</p>
         </div>
         {selectedStation ? (
           <Link
@@ -334,18 +346,28 @@ function ModelExpandedPanel({ summary, stationId }: { summary: TransitModelSumma
           </Link>
         ) : null}
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1060px] border-collapse text-left text-xs">
+      <div className="overflow-hidden">
+        <table className="w-full table-fixed border-collapse text-left text-xs">
+          <colgroup>
+            <col className="w-[12%]" />
+            <col className="w-[17%]" />
+            <col className="w-[18%]" />
+            <col className="w-[17%]" />
+            <col className="w-[15%]" />
+            <col className="w-[11%]" />
+            <col className="w-[10%]" />
+          </colgroup>
           <thead className="bg-[#f7f9f9] text-[#5a6061]">
             <tr>
               <DataTableHead>站点</DataTableHead>
               <DataTableHead>分组</DataTableHead>
-              <DataTableHead explanation={TRANSIT_MODEL_MULTIPLIER_EXPLANATION}>模型倍率</DataTableHead>
-              <DataTableHead explanation={TRANSIT_COMBINED_RATE_EXPLANATION}>综合倍率</DataTableHead>
+              <DataTableHead explanation={`${TRANSIT_COMBINED_RATE_EXPLANATION}；${TRANSIT_MODEL_MULTIPLIER_EXPLANATION}；${TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}；${TRANSIT_CACHE_HIT_RATE_EXPLANATION}`}>
+                倍率 / 缓存
+              </DataTableHead>
               <DataTableHead>输入 / 输出</DataTableHead>
-              <DataTableHead explanation={TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}>充值倍率</DataTableHead>
-              <DataTableHead>渠道 / 号池</DataTableHead>
-              <DataTableHead>确认时间</DataTableHead>
+              <DataTableHead>可用性</DataTableHead>
+              <DataTableHead explanation="模型真实性检测报告：用于识别模型掺水、暗调路由、私下替换等风险；无公开报告时只显示待检测。">模型检测</DataTableHead>
+              <DataTableHead>渠道 / 时间</DataTableHead>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#edf0f1]">
@@ -355,7 +377,7 @@ function ModelExpandedPanel({ summary, stationId }: { summary: TransitModelSumma
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="px-4 py-8">
+                <td colSpan={7} className="px-4 py-8">
                   <NoPublishedPricesMessage />
                 </td>
               </tr>
@@ -390,32 +412,190 @@ function ModelExpandedEntryRow({ entry }: { entry: TransitModelPriceEntry }) {
       tabIndex={0}
       aria-label={`查看 ${entry.station.name} 详情`}
     >
-      <td className="px-4 py-3">
+      <td className="min-w-0 px-3 py-3">
         <Link
           href={stationHref}
           onClick={(event) => event.stopPropagation()}
-          className="font-semibold text-[#202829] transition-colors hover:text-[#2f7a4b]"
+          className="block truncate font-semibold text-[#202829] transition-colors hover:text-[#2f7a4b]"
         >
           {entry.station.name}
         </Link>
-        <div className="mt-1 text-[11px] text-[#5a6061]">{getTransitStationSystemLabel(entry.station)}</div>
+        <div className="mt-1 truncate text-[11px] text-[#5a6061]">{getTransitStationSystemLabel(entry.station)}</div>
       </td>
-      <td className="px-4 py-3 text-[#2d3435]">{entry.price.groupName}</td>
-      <td className="px-4 py-3 font-semibold text-[#202829]">{formatTransitModelMultiplier(entry.price)}</td>
-      <td className="px-4 py-3">
-        <span className={`rounded-full px-2.5 py-1 text-[11px] font-extrabold ${getRateBadgeClass(entry.combinedRate)}`}>
-          {formatRate(entry.combinedRate)}
-        </span>
+      <td className="min-w-0 px-3 py-3 text-[#2d3435]">
+        <span className="block break-words leading-5">{entry.price.groupName}</span>
       </td>
-      <td className="px-4 py-3">
+      <td className="min-w-0 px-3 py-3">
+        <RateAndCacheCell entry={entry} />
+      </td>
+      <td className="min-w-0 px-3 py-3">
         <TransitPriceBreakdown station={entry.station} price={entry.price} mode="compact" />
       </td>
-      <td className="px-4 py-3 text-[#2d3435]">{formatRate(entry.rechargeCoefficient)}</td>
-      <td className="px-4 py-3 text-[#5a6061]">
-        {TRANSIT_CHANNEL_TYPE_LABELS[entry.price.channelType]} / {TRANSIT_ACCOUNT_POOL_LABELS[entry.price.accountPool]}
+      <td className="min-w-0 px-3 py-3">
+        <PriceAvailabilityCell entry={entry} />
       </td>
-      <td className="px-4 py-3 text-[#5a6061]">{formatDateMinute(entry.price.lastVerifiedAt)}</td>
+      <td className="min-w-0 px-3 py-3">
+        <ModelDetectionCell entry={entry} />
+      </td>
+      <td className="min-w-0 px-3 py-3 text-[#5a6061]">
+        <ChannelTimeCell entry={entry} />
+      </td>
     </tr>
+  );
+}
+
+function RateAndCacheCell({ entry }: { entry: TransitModelPriceEntry }) {
+  const cacheUsage = entry.price.cacheUsage;
+  const sampleTokens = formatTransitTokenVolume(cacheUsage?.sampleTokens);
+
+  return (
+    <div className="min-w-0 space-y-1.5" title={TRANSIT_CACHE_HIT_RATE_EXPLANATION}>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-extrabold ${getRateBadgeClass(entry.combinedRate)}`}>
+          {formatRate(entry.combinedRate)}
+        </span>
+        <span className="truncate text-[10px] font-semibold text-[#7f8889]">综合倍率</span>
+      </div>
+      <div className="grid min-w-0 grid-cols-2 gap-1.5">
+        <div className="min-w-0 rounded-lg bg-[#eef3f8] px-2 py-1.5 text-[#47657a] ring-1 ring-[#47657a]/10">
+          <span className="block truncate text-[10px] font-bold leading-none">模型倍率</span>
+          <span className="mt-1 block truncate text-[11px] font-extrabold leading-4 tabular-nums">
+            {formatTransitModelMultiplier(entry.price)}
+          </span>
+        </div>
+        <div className="min-w-0 rounded-lg bg-[#fff7e8] px-2 py-1.5 text-[#7a541b] ring-1 ring-[#7a541b]/10">
+          <span className="block truncate text-[10px] font-bold leading-none">充值倍率</span>
+          <span className="mt-1 block truncate text-[11px] font-extrabold leading-4 tabular-nums">
+            {formatRate(entry.rechargeCoefficient)}
+          </span>
+        </div>
+      </div>
+      <div className="min-w-0 rounded-lg bg-[#f2f4f4] px-2 py-1.5 ring-1 ring-[#adb3b4]/15">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ${getCacheHitRateBadgeClass(cacheUsage)}`}>
+            缓存 {formatCacheHitRate(cacheUsage)}
+          </span>
+          <span className="min-w-0 truncate text-[10px] font-semibold text-[#7f8889]">
+            {sampleTokens}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PriceAvailabilityCell({ entry }: { entry: TransitModelPriceEntry }) {
+  const availability = entry.price.availability;
+  const source = getAvailabilitySourceMeta(availability);
+
+  return (
+    <div className="min-w-0" title={source.title}>
+      <p className="font-semibold text-[#202829]">{formatAvailability(availability)}</p>
+      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] text-[#7f8889]">
+        <span>{formatDateMinute(availability.lastCheckedAt)}</span>
+        <AvailabilitySourcePill source={source} />
+      </div>
+    </div>
+  );
+}
+
+function AvailabilitySourcePill({
+  source,
+}: {
+  source: ReturnType<typeof getAvailabilitySourceMeta>;
+}) {
+  const className = [
+    "inline-flex max-w-full items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+    availabilitySourceToneClass(source.tone),
+  ].join(" ");
+
+  if (source.url) {
+    return (
+      <a
+        href={source.url}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(event) => event.stopPropagation()}
+        className={className}
+        title={source.title}
+      >
+        {source.label}
+      </a>
+    );
+  }
+
+  return (
+    <span className={className} title={source.title}>
+      {source.label}
+    </span>
+  );
+}
+
+function availabilitySourceToneClass(tone: ReturnType<typeof getAvailabilitySourceMeta>["tone"]): string {
+  switch (tone) {
+    case "success":
+      return "bg-[#e8f3ec] text-[#2f7a4b]";
+    case "info":
+      return "bg-[#eef3f8] text-[#47657a]";
+    case "warning":
+      return "bg-[#fff7e8] text-[#7a541b]";
+    default:
+      return "bg-[#f2f4f4] text-[#5a6061]";
+  }
+}
+
+function ModelDetectionCell({ entry }: { entry: TransitModelPriceEntry }) {
+  const summary = getTransitPriceDetectionSummary(entry.station, entry.price);
+  const detectorHref = buildTransitDetectorHref(entry.station, entry.price);
+  const hasReport = hasPublicTransitModelDetectionReport(summary);
+  const checkedAt = hasReport && summary.checkedAt ? formatDateMinute(summary.checkedAt) : null;
+  const title = summary?.note ?? "暂无公开模型真实性检测报告。";
+
+  return (
+    <div className="min-w-0" title={title}>
+      <div className="flex items-center gap-1.5">
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[#7f8889]" aria-hidden="true" />
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold ${getTransitModelDetectionBadgeClass(summary)}`}>
+          {formatTransitModelDetectionLabel(summary)}
+        </span>
+      </div>
+      <p className="mt-1 text-[10px] leading-4 text-[#7f8889]">
+        {hasReport ? formatTransitModelDetectionMeta(summary) : "暂无公开报告"}
+      </p>
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] font-semibold">
+        {checkedAt ? <span className="truncate text-[#7f8889]">{checkedAt}</span> : null}
+        {summary?.reportUrl ? (
+          <a
+            href={summary.reportUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            className="shrink-0 text-[#2f7a4b] hover:text-[#245f3b]"
+          >
+            报告
+          </a>
+        ) : (
+          <Link
+            href={detectorHref}
+            onClick={(event) => event.stopPropagation()}
+            className="shrink-0 text-[#2f7a4b] hover:text-[#245f3b]"
+          >
+            去检测
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChannelTimeCell({ entry }: { entry: TransitModelPriceEntry }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="break-words text-[11px] leading-5 text-[#5a6061]">
+        {TRANSIT_CHANNEL_TYPE_LABELS[entry.price.channelType]} / {TRANSIT_ACCOUNT_POOL_LABELS[entry.price.accountPool]}
+      </p>
+      <p className="text-[10px] leading-4 text-[#7f8889]">{formatDateMinute(entry.price.lastVerifiedAt)}</p>
+    </div>
   );
 }
 
@@ -431,33 +611,62 @@ function ModelMobileExpandedPanel({ summary, stationId }: { summary: TransitMode
     <div className="mb-3 rounded-lg border border-[#dfe4e5] bg-[#fbfcfc] p-3">
       <div className="space-y-2">
         {entries.length > 0 ? (
-          entries.slice(0, 8).map((entry) => (
-            <button
-              key={`${entry.station.id}-${entry.price.groupName}`}
-              type="button"
-              onClick={() => navigateToStation(entry.station.slug)}
-              className="flex w-full items-start justify-between gap-3 border-b border-[#edf0f1] pb-2 text-left transition hover:bg-[#f7f9f9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35 last:border-0 last:pb-0"
-              aria-label={`查看 ${entry.station.name} 详情`}
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold text-[#202829]">{entry.station.name}</p>
-                <p className="mt-1 truncate text-[11px] text-[#5a6061]">{entry.price.groupName} · {TRANSIT_CHANNEL_TYPE_LABELS[entry.price.channelType]}</p>
-                <div className="mt-2">
-                  <TransitPriceBreakdown station={entry.station} price={entry.price} mode="compact" />
+          entries.slice(0, 8).map((entry) => {
+            const detection = getTransitPriceDetectionSummary(entry.station, entry.price);
+
+            return (
+              <button
+                key={`${entry.station.id}-${entry.price.groupName}`}
+                type="button"
+                onClick={() => navigateToStation(entry.station.slug)}
+                className="w-full border-b border-[#edf0f1] pb-3 text-left transition hover:bg-[#f7f9f9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35 last:border-0 last:pb-0"
+                aria-label={`查看 ${entry.station.name} 详情`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-semibold text-[#202829]">{entry.station.name}</p>
+                    <p className="mt-1 truncate text-[11px] text-[#5a6061]">
+                      {entry.price.groupName} · {TRANSIT_CHANNEL_TYPE_LABELS[entry.price.channelType]} / {TRANSIT_ACCOUNT_POOL_LABELS[entry.price.accountPool]}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${getRateBadgeClass(entry.combinedRate)}`}>
+                    {formatRate(entry.combinedRate)}
+                  </span>
                 </div>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-xs font-bold text-[#202829]">{formatTransitModelMultiplier(entry.price)}</p>
-                <p className={`mt-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${getRateBadgeClass(entry.combinedRate)}`}>
-                  {formatRate(entry.combinedRate)}
-                </p>
-              </div>
-            </button>
-          ))
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <MobileQuoteMetric label="模型" value={formatTransitModelMultiplier(entry.price)} />
+                  <MobileQuoteMetric label="充值" value={formatRate(entry.rechargeCoefficient)} />
+                  <MobileQuoteMetric
+                    label="缓存"
+                    value={`${formatCacheHitRate(entry.price.cacheUsage)} · ${formatTransitTokenVolume(entry.price.cacheUsage?.sampleTokens)}`}
+                  />
+                  <MobileQuoteMetric label="可用性" value={formatAvailability(entry.price.availability)} />
+                </div>
+                <div className="mt-2 flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[#7f8889]" aria-hidden="true" />
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-extrabold ${getTransitModelDetectionBadgeClass(detection)}`}>
+                    {formatTransitModelDetectionLabel(detection)}
+                  </span>
+                  <span className="min-w-0 truncate text-[10px] text-[#7f8889]">
+                    {formatTransitModelDetectionMeta(detection)}
+                  </span>
+                </div>
+              </button>
+            );
+          })
         ) : (
           <NoPublishedPricesMessage compact />
         )}
       </div>
+    </div>
+  );
+}
+
+function MobileQuoteMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg bg-white px-2.5 py-2 ring-1 ring-[#adb3b4]/15">
+      <p className="text-[10px] font-bold text-[#7f8889]">{label}</p>
+      <p className="mt-1 truncate text-[11px] font-semibold text-[#202829]">{value}</p>
     </div>
   );
 }
