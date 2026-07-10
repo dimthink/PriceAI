@@ -146,6 +146,8 @@ export default async function ProductDetail({
           </div>
         </div>
 
+        <ProductRelatedCta product={product} />
+
         <ProductOffersPanel
           productId={product.id}
           productSlug={product.slug}
@@ -153,8 +155,6 @@ export default async function ProductDetail({
           initialCount={product.offerCount}
           initialData={initialOffers}
         />
-
-        <ProductRelatedCta product={product} />
 
         <p className="mt-8 text-xs leading-6 text-[#5a6061]">
           免责声明：本站仅聚合公开采集或审核通过的报价信息，不参与交易，实际价格、库存、质保和售后规则以原平台为准。
@@ -331,11 +331,12 @@ function ProductRelatedCta({ product }: { product: ExplorerProductSummary }) {
   if (!cta) return null;
 
   return (
-    <section className="mt-8 rounded-lg bg-[#f2f4f4] p-5 ring-1 ring-[#adb3b4]/15">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <section className="mb-5 mt-4 rounded-lg bg-white px-4 py-3 shadow-[0_14px_42px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="font-serif text-2xl font-semibold tracking-normal text-[#202829]">{cta.title}</h2>
-          <p className="mt-2 text-sm leading-6 text-[#5a6061]">{cta.description}</p>
+          <p className="text-xs font-semibold text-[#47657a]">买前指南</p>
+          <h2 className="mt-1 text-base font-semibold tracking-normal text-[#202829]">{cta.title}</h2>
+          <p className="mt-1 text-sm leading-6 text-[#5a6061]">{cta.description}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {cta.links.map((link) => (

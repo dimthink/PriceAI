@@ -5,6 +5,7 @@ import { BookOpenText, ShieldCheck } from "lucide-react";
 import { getTransitStations } from "@/lib/api-transit-db";
 import { getTransitModelFamilyOptions } from "@/lib/api-transit";
 import { formatRate, getSummaryStats } from "@/lib/api-transit";
+import { GuidePromptStrip } from "@/components/GuidePromptStrip";
 import { SiteHeader } from "@/components/SiteHeader";
 import { TransitFamilyTabs } from "@/components/TransitFamilyTabs";
 import TransitStationExplorer from "@/components/TransitStationExplorer";
@@ -105,7 +106,7 @@ export default async function ApiTransitPage() {
             >
               <BookOpenText className="h-4 w-4 shrink-0 text-[#5a6061]" />
               <span className="sm:hidden">百科</span>
-              <span className="hidden sm:inline">中转站百科</span>
+              <span className="hidden sm:inline">使用前说明</span>
             </Link>
             <TransitSubmissionActions
               className="contents"
@@ -115,6 +116,19 @@ export default async function ApiTransitPage() {
             />
           </div>
         </div>
+
+        <GuidePromptStrip
+          className="mb-5"
+          label="使用前先看"
+          links={[
+            { label: "充值系数和综合倍率", href: "/guides/api-transit" },
+            { label: "模型真假怎么判断", href: "/guides/api-transit" },
+            { label: "为什么要小额试用", href: "/guides/api-transit" },
+          ]}
+          note="价格榜只做购买前参考，充值前仍要回原站确认余额、退款和售后规则。"
+          ctaHref="/guides/api-transit"
+          ctaLabel="中转指南"
+        />
 
         <SponsoredPlacementPreview kind="apiTransit" settings={sponsorSettings} className="mb-5" />
 

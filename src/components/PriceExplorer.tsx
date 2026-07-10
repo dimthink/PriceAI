@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/components/CategoryTabBar";
 import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
+import { GuidePromptStrip } from "@/components/GuidePromptStrip";
 import { OfferActions, OfferFeedbackButton, OfferFeedbackDialog, OfferLink } from "@/components/ProductOffersPanel";
 import { SiteHeader } from "@/components/SiteHeader";
 import { listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
@@ -806,6 +807,17 @@ export function PriceExplorer({
               outOfStock={totalOutOfStock}
             />
           </div>
+
+          <GuidePromptStrip
+            links={[
+              { label: "卡网渠道靠谱吗？", href: "/guides/are-ai-subscription-card-shops-reliable" },
+              { label: "价格为什么差很多？", href: "/guides/why-ai-subscription-prices-differ" },
+              { label: "ChatGPT 获取方式", href: "/guides/chatgpt-subscription-options" },
+            ]}
+            note="下单前先核验原店铺的交付、售后和投诉入口。"
+            ctaHref="/guides"
+            ctaLabel="入门指南"
+          />
 
           <div className="space-y-3 md:hidden">
             <label className="flex h-11 min-w-0 items-center gap-2 rounded-full bg-white px-4 shadow-[0_16px_45px_rgba(45,52,53,0.05)] ring-1 ring-[#adb3b4]/15 sm:w-[360px]">

@@ -17,7 +17,6 @@ import { HomeUrlCleaner } from "@/components/HomeUrlCleaner";
 import { JsonLd } from "@/components/JsonLd";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SponsoredPlacementPreview } from "@/components/SponsoredPlacementPreview";
-import { supportPagePath } from "@/lib/support";
 import { getSponsorSettingsSummary } from "@/lib/sponsor-settings";
 
 export const revalidate = 3600;
@@ -120,29 +119,6 @@ const verificationItems = [
   {
     title: "交付和售后谁负责？",
     body: "PriceAI 不参与交易。付款、交付、售后、退款和账号风险都按原平台规则判断。",
-  },
-];
-
-const guideLinks = [
-  {
-    label: "卡网订阅渠道靠谱吗？",
-    description: "把卡网当作信息源和交付入口，先看售后、投诉入口和商品描述。",
-    href: "/guides/are-ai-subscription-card-shops-reliable",
-  },
-  {
-    label: "为什么同一个 AI 订阅价格差这么多？",
-    description: "分清官网正价、地区价、资格价、代充价和第三方渠道价。",
-    href: "/guides/why-ai-subscription-prices-differ",
-  },
-  {
-    label: "如何尽量走官方方式订阅 AI？",
-    description: "理解官网、App Store、Google Play、支付方式和地区价。",
-    href: "/guides/how-to-subscribe-ai-officially",
-  },
-  {
-    label: "ChatGPT 有哪些获取方式？",
-    description: "区分 Plus、Pro、Team、成品号、代充和卡密。",
-    href: "/guides/chatgpt-subscription-options",
   },
 ];
 
@@ -316,38 +292,6 @@ export default async function Home() {
           </div>
         </section>
 
-        <section className="border-b border-[var(--color-border)]">
-          <div className="mx-auto max-w-[1500px] border-x border-[var(--color-border-soft)] px-5 py-12 sm:px-8 md:py-14">
-            <div className="mx-auto max-w-4xl text-center">
-              <p className="text-sm font-semibold text-[var(--color-success-text)]">购买指南</p>
-              <h2 className="mt-3 text-balance font-serif text-3xl font-semibold tracking-normal text-[var(--color-text-primary)] sm:text-4xl">
-                进工具前，先把规则看明白。
-              </h2>
-              <p className="mt-4 text-sm leading-7 text-[var(--color-text-muted)]">
-                指南负责解释购买路径、渠道风险和官方订阅边界；工具页负责展示当前价格、来源和库存。
-              </p>
-            </div>
-
-            <div className="mx-auto mt-8 grid max-w-6xl gap-3 md:grid-cols-2">
-              {guideLinks.map((guide) => (
-                <Link
-                  key={guide.href}
-                  href={guide.href}
-                  className="group rounded-lg bg-[var(--color-panel)] p-5 ring-1 ring-[var(--color-border-soft)] transition hover:bg-[var(--color-surface-hover)] hover:ring-[var(--color-border-muted)]"
-                >
-                  <span className="flex items-start justify-between gap-4">
-                    <span>
-                      <span className="block text-base font-semibold text-[var(--color-text-primary)]">{guide.label}</span>
-                      <span className="mt-2 block text-sm leading-6 text-[var(--color-text-muted)]">{guide.description}</span>
-                    </span>
-                    <ArrowRight size={16} className="mt-1 shrink-0 text-[var(--color-text-soft)] transition group-hover:translate-x-0.5 group-hover:text-[var(--color-text-primary)]" />
-                  </span>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </section>
-
         <section id="verify" className="border-b border-[var(--color-border)]">
           <div className="mx-auto max-w-[1500px] border-x border-[var(--color-border-soft)] px-5 py-12 sm:px-8 md:py-16">
             <div className="mx-auto max-w-4xl text-center">
@@ -418,29 +362,6 @@ export default async function Home() {
         </section>
       </main>
 
-      <footer className="bg-[var(--color-page)]">
-        <div className="mx-auto flex max-w-[1500px] flex-col items-center gap-5 border-x border-[var(--color-border-soft)] px-5 py-6 text-center text-sm text-[var(--color-text-muted)] sm:px-8">
-          <div className="flex flex-wrap justify-center gap-4">
-            <Link href="/guides" className="font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-primary-hover)]">
-              指南
-            </Link>
-            <Link href={supportPagePath} className="font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-primary-hover)]">
-              支持 PriceAI
-            </Link>
-            <a
-              href="https://t.me/dimthink"
-              target="_blank"
-              rel="nofollow noopener noreferrer"
-              className="font-semibold text-[var(--color-text-primary)] hover:text-[var(--color-primary-hover)]"
-              aria-label="通过 Telegram 联系商务合作"
-              title="Telegram @dimthink"
-            >
-              商务合作
-            </a>
-          </div>
-          <p className="max-w-[72ch]">PriceAI 不参与交易。购买前请回到原平台核验价格、库存、交付方式和售后规则。</p>
-        </div>
-      </footer>
     </div>
   );
 }

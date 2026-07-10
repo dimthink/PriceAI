@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Suspense } from "react";
+import { GlobalGuideFooter } from "@/components/GlobalGuideFooter";
 import { GlobalSponsorPlacements } from "@/components/GlobalSponsorPlacements";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import { QQGroupAutoPrompt } from "@/components/QQGroupAutoPrompt";
@@ -76,6 +77,7 @@ export default function RootLayout({
         <GlobalSponsorPlacements>
           {children}
         </GlobalSponsorPlacements>
+        <GlobalGuideFooter />
         <SiteNoticePrompt />
         <SupportNudgePrompt />
         <Suspense fallback={null}>
