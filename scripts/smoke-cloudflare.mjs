@@ -31,7 +31,7 @@ const checks = [
     text: {
       forbidden: fallbackHtmlMarkers,
       requiredAny: [
-        { label: "homepage-title", patterns: ["先看清价格从哪里来"] },
+        { label: "homepage-title", patterns: ["AI 低价卡网订阅", "与中转 API 比价雷达"] },
         { label: "purchase-paths", patterns: ["先回答一个问题：你现在要买什么"] },
         { label: "sponsor-contact", patterns: ["https://t.me/priceaicc"] },
       ],
