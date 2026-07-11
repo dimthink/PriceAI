@@ -145,6 +145,20 @@ assertEqual(publishedAvailability.sevenDaySamples, 298);
 assertEqual(publishedAvailability.sevenDayRate, 0.916);
 assertEqual(getStationComparisonSummary(mixedAvailabilityStation).stabilityRate, 0.916);
 
+const publicMonitorCompatibilityStation = station({
+  id: "public-monitor-compatibility",
+  name: "Public Monitor Compatibility",
+  claudeRate: 0.8,
+  availabilityRate: 0.972,
+  availabilitySamples: 500,
+});
+publicMonitorCompatibilityStation.monitorUrl = "https://public-monitor-compatibility.example.test/public/transit?view=monitoring";
+publicMonitorCompatibilityStation.availability.sourceUrl =
+  "https://public-monitor-compatibility.example.test/public/transit?view=monitoring";
+const publicMonitorCompatibilityAvailability = getStationPublishedAvailabilitySummary(publicMonitorCompatibilityStation);
+assertEqual(publicMonitorCompatibilityAvailability.sourceType, "public_status");
+assertEqual(publicMonitorCompatibilityAvailability.sourceUrl, publicMonitorCompatibilityStation.monitorUrl);
+
 const stationOnlyProbeAvailability = station({
   id: "station-only-probe",
   name: "Station Only Probe",

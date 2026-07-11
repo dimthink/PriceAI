@@ -547,9 +547,9 @@ export function getStandardModelAvailabilitySourceMeta(
 
 function availabilitySourcePriority(sourceType: TransitModelPrice["availability"]["sourceType"]): number {
   switch (sourceType) {
-    case "priceai_probe":
-      return 6;
     case "public_status":
+      return 6;
+    case "priceai_probe":
       return 5;
     case "public_model_catalog":
       return 4;
@@ -945,6 +945,26 @@ function getStationPublishedAvailabilitySourceMeta(station: TransitStation): Pic
   TransitAvailability,
   "sourceType" | "sourceLabel" | "sourceUrl"
 > {
+  const publicStatusPrice = station.prices.find(
+    (item) => item.availability.sourceType === "public_status" && item.availability.sevenDaySamples > 0
+  );
+  if (publicStatusPrice) {
+    return {
+      sourceType: publicStatusPrice.availability.sourceType,
+      sourceLabel: publicStatusPrice.availability.sourceLabel,
+      sourceUrl: publicStatusPrice.availability.sourceUrl,
+    };
+  }
+
+  const publicMonitorUrl = publicMonitorAvailabilityUrl(station);
+  if (publicMonitorUrl) {
+    return {
+      sourceType: "public_status",
+      sourceLabel: station.availability.sourceType === "public_status" ? station.availability.sourceLabel : "公开监测页",
+      sourceUrl: publicMonitorUrl,
+    };
+  }
+
   const prices = [...station.prices].sort(
     (left, right) =>
       availabilitySourcePriority(right.availability.sourceType) -
@@ -964,6 +984,20 @@ function getStationPublishedAvailabilitySourceMeta(station: TransitStation): Pic
     sourceLabel: price.availability.sourceLabel,
     sourceUrl: price.availability.sourceUrl,
   };
+}
+
+function publicMonitorAvailabilityUrl(station: TransitStation): string | null {
+  if (station.availability.sourceType === "public_status" && station.availability.sourceUrl) {
+    return station.availability.sourceUrl;
+  }
+  if (isPublicMonitorAvailabilityUrl(station.availability.sourceUrl)) return station.availability.sourceUrl;
+  if (isPublicMonitorAvailabilityUrl(station.monitorUrl)) return station.monitorUrl;
+  return null;
+}
+
+function isPublicMonitorAvailabilityUrl(value: string | null | undefined): value is string {
+  const text = value?.toLowerCase() || "";
+  return Boolean(text && (text.includes("view=monitoring") || text.includes("/status") || text.includes("status.") || text.includes("monitor")));
 }
 
 function roundAvailabilityRate(value: number): number {

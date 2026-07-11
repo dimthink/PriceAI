@@ -16,6 +16,8 @@ const DEFAULT_TIMEOUT_MS = 20000;
 const DEFAULT_TARGET_LIMIT = 4;
 const MAX_MODELS_SNAPSHOT = 200;
 const AVAILABILITY_SAMPLE_LOOKBACK_LIMIT = 2000;
+const PUBLIC_STATUS_SAMPLE_LOOKBACK_MS = 8 * 24 * 60 * 60 * 1000;
+const PUBLIC_STATUS_AVAILABILITY_SOURCE_TYPE = "public_status";
 const HIGH_COST_AVAILABILITY_PROBE_MODELS = new Set(["Claude Fable 5"]);
 const AVAILABILITY_PROBE_MODEL_COSTS = {
   "Claude Sonnet 5": 2,
@@ -1345,7 +1347,7 @@ async function loadProbeProfilesForRun(options) {
 function selectProfiles(profiles, options) {
   const ids = optionList(options.station || options.stationId || options.source || options.sources);
   const selected = ids.length ? profiles.filter((profile) => ids.includes(profile.stationId)) : profiles;
-  if (!selected.length) throw new Error("No API transit probe profiles matched.");
+  if (!selected.length && ids.length) throw new Error("No API transit probe profiles matched.");
   return selected;
 }
 
@@ -1364,7 +1366,11 @@ async function readRunnableApiTransitStationIds() {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for API transit probe selection.");
   }
 
-  return readCredentialedApiTransitStationIds(supabase);
+  const [credentialedStationIds, publicMonitoredStationIds] = await Promise.all([
+    readCredentialedApiTransitStationIds(supabase),
+    readPublicMonitoredApiTransitStationIds(supabase),
+  ]);
+  return filterStationIdsWithoutPublicStatus(credentialedStationIds, publicMonitoredStationIds);
 }
 
 async function readCredentialedApiTransitStationIds(supabase) {
@@ -1383,6 +1389,81 @@ async function readCredentialedApiTransitStationIds(supabase) {
       .filter((row) => stringValue(row.station_id) && !isExpired(row.expires_at))
       .map((row) => String(row.station_id)),
   );
+}
+
+async function readPublicMonitoredApiTransitStationIds(supabase) {
+  const [sampleStationIds, configuredStationIds] = await Promise.all([
+    readPublicStatusSampleStationIds(supabase),
+    readPublicMonitorConfiguredStationIds(supabase),
+  ]);
+  return mergeStationIdSets(sampleStationIds, configuredStationIds);
+}
+
+async function readPublicStatusSampleStationIds(supabase) {
+  const since = new Date(Date.now() - PUBLIC_STATUS_SAMPLE_LOOKBACK_MS).toISOString();
+  const { data, error } = await supabase
+    .from("api_transit_availability_samples")
+    .select("station_id")
+    .eq("source_type", PUBLIC_STATUS_AVAILABILITY_SOURCE_TYPE)
+    .gte("checked_at", since)
+    .limit(10000);
+  if (error) {
+    if (
+      isMissingTableError(error, "api_transit_availability_samples") ||
+      isMissingColumnError(error, "source_type")
+    ) {
+      return new Set();
+    }
+    throw error;
+  }
+
+  return new Set((data || []).map((row) => stringValue(row.station_id)).filter(Boolean));
+}
+
+async function readPublicMonitorConfiguredStationIds(supabase) {
+  const { data, error } = await supabase
+    .from("api_transit_stations")
+    .select("id,monitor_url,availability_source_type")
+    .limit(10000);
+  if (error) {
+    if (
+      isMissingTableError(error, "api_transit_stations") ||
+      isMissingColumnError(error, "monitor_url") ||
+      isMissingColumnError(error, "availability_source_type")
+    ) {
+      return new Set();
+    }
+    throw error;
+  }
+
+  return new Set(
+    (data || [])
+      .filter((row) => {
+        const sourceType = stringValue(row.availability_source_type);
+        return sourceType === PUBLIC_STATUS_AVAILABILITY_SOURCE_TYPE || isPublicMonitorUrl(row.monitor_url);
+      })
+      .map((row) => stringValue(row.id))
+      .filter(Boolean),
+  );
+}
+
+function filterStationIdsWithoutPublicStatus(stationIds, publicMonitoredStationIds) {
+  return new Set(Array.from(stationIds || []).filter((stationId) => !publicMonitoredStationIds.has(stationId)));
+}
+
+function mergeStationIdSets(...sets) {
+  return new Set(sets.flatMap((set) => Array.from(set || [])));
+}
+
+function isPublicMonitorUrl(value) {
+  const text = stringValue(value).toLowerCase();
+  return Boolean(text && (text.includes("view=monitoring") || text.includes("/status") || text.includes("status.") || text.includes("monitor")));
+}
+
+function isMissingTableError(error, tableName) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error?.details || "");
+  return (code === "42P01" || code === "PGRST205") && (!tableName || message.includes(tableName));
 }
 
 function isMissingColumnError(error, columnName) {
@@ -1741,6 +1822,7 @@ export const __test = {
   completionBody,
   availabilitySampleMatchesActiveOfferScope,
   availabilitySamplesFromProbe,
+  filterStationIdsWithoutPublicStatus,
   summarizeSamples,
   filterProfilesByRunnableStationIds,
   isAvailabilitySample,

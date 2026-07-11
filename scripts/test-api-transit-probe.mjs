@@ -437,6 +437,15 @@ assert.deepEqual(
   __test.filterProfilesByRunnableStationIds(profiles, new Set(["published-with-key", "pending-with-key"])),
   profiles.slice(0, 2),
 );
+assert.deepEqual(
+  Array.from(
+    __test.filterStationIdsWithoutPublicStatus(
+      new Set(["published-with-key", "pending-with-key", "public-monitored"]),
+      new Set(["public-monitored"]),
+    ),
+  ),
+  ["published-with-key", "pending-with-key"],
+);
 assert.equal(__test.shouldRestrictToRunnableStations({ post: true }), true);
 assert.equal(__test.shouldRestrictToRunnableStations({ post: true, station: "pending-with-key" }), false);
 assert.equal(__test.shouldRestrictToRunnableStations({ post: true, dryRun: true }), false);

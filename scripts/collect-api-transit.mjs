@@ -3240,8 +3240,8 @@ function isTrustedAvailabilitySource(sourceType) {
 }
 
 function availabilitySourcePriority(sourceType) {
+  if (sourceType === "public_status") return 60;
   if (sourceType === "priceai_probe") return 50;
-  if (sourceType === "public_status") return 40;
   if (sourceType === "partner_api") return 30;
   if (sourceType === "merchant_reported") return 20;
   if (sourceType === "public_model_catalog" || sourceType === "manual_snapshot") return 10;

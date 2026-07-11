@@ -183,7 +183,7 @@ assert.equal(
   "active",
 );
 
-const preservedPriceaiProbeStation = __test.mergeStationForRefresh(
+const publicStatusPreferredStation = __test.mergeStationForRefresh(
   {
     id: "published-new-api",
     auto_publish: true,
@@ -205,9 +205,9 @@ const preservedPriceaiProbeStation = __test.mergeStationForRefresh(
   },
   {},
 );
-assert.equal(preservedPriceaiProbeStation.availability_source_type, "priceai_probe");
-assert.equal(preservedPriceaiProbeStation.availability_seven_day_rate, 0.95);
-assert.equal(preservedPriceaiProbeStation.availability_seven_day_samples, 50);
+assert.equal(publicStatusPreferredStation.availability_source_type, "public_status");
+assert.equal(publicStatusPreferredStation.availability_seven_day_rate, 0.8);
+assert.equal(publicStatusPreferredStation.availability_seven_day_samples, 10);
 
 assert.equal(
   __test.mergeOfferForRefresh(
@@ -1473,7 +1473,7 @@ assert.equal(stationRefreshFromUnknown.station_system, "sub_to_api");
 assert.equal(stationRefreshFromUnknown.operator_type, "individual");
 assert.equal(stationRefreshFromUnknown.invoice_support, "supported");
 
-const stationRefreshPreservesProbeEvidence = __test.mergeStationForRefresh(
+const stationRefreshPrefersPublicStatusEvidence = __test.mergeStationForRefresh(
   {
     id: "sub-callai-one",
     availability_source_type: "public_status",
@@ -1492,8 +1492,8 @@ const stationRefreshPreservesProbeEvidence = __test.mergeStationForRefresh(
   },
   {},
 );
-assert.equal(stationRefreshPreservesProbeEvidence.availability_source_type, "priceai_probe");
-assert.equal(stationRefreshPreservesProbeEvidence.availability_seven_day_samples, 250);
+assert.equal(stationRefreshPrefersPublicStatusEvidence.availability_source_type, "public_status");
+assert.equal(stationRefreshPrefersPublicStatusEvidence.availability_seven_day_samples, 3);
 
 const zivvParsed = __test.parseZivvModelHubPayload(
   {
