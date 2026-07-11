@@ -191,8 +191,8 @@ const partialRecentBars = buildTransitAvailabilityBars({
   ],
 });
 assertEqual(partialRecentBars.length, 20);
-assertDeepEqual(partialRecentBars.slice(0, 19), Array(19).fill("empty"));
-assertEqual(partialRecentBars[19], "warn");
+assertEqual(partialRecentBars[0], "warn");
+assertDeepEqual(partialRecentBars.slice(1), Array(19).fill("empty"));
 
 const fallbackAvailabilityBars = buildTransitAvailabilityBars({
   rate: 1,
@@ -200,7 +200,18 @@ const fallbackAvailabilityBars = buildTransitAvailabilityBars({
   firstCheckedAt: now,
   lastCheckedAt: now,
 });
-assertEqual(fallbackAvailabilityBars.length, 16);
+assertEqual(fallbackAvailabilityBars.length, 20);
+assertDeepEqual(fallbackAvailabilityBars.slice(0, 6), Array(6).fill("good"));
+assertDeepEqual(fallbackAvailabilityBars.slice(6), Array(14).fill("empty"));
+
+const fullFallbackAvailabilityBars = buildTransitAvailabilityBars({
+  rate: 0.99,
+  samples: 360,
+  firstCheckedAt: now,
+  lastCheckedAt: now,
+});
+assertEqual(fullFallbackAvailabilityBars.length, 20);
+assertEqual(fullFallbackAvailabilityBars.filter((tone) => tone === "empty").length, 0);
 
 mixedAvailabilityStation.prices[0]!.availability.recentSamples = [
   { ok: true, checkedAt: "2026-07-02T06:00:00.000Z" },

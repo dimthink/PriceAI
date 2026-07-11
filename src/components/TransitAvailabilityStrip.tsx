@@ -42,8 +42,8 @@ export function TransitAvailabilityStrip({
       })}
       title={
         recentSampleCount > 0
-          ? "最近请求样本概览，按时间从旧到新：每条最多代表 3 次请求，绿色为成功，黄色为部分失败，红色为失败，浅灰为暂无样本。"
-          : "近 7 日滚动样本比例概览，非时间顺序：绿色为成功，黄色/红色为异常或失败，浅灰为空白未检测。"
+          ? "最近请求样本概览，按时间从旧到新：每条最多代表 3 次请求，绿色为成功，黄色为部分失败，红色为失败，浅灰为样本不足。"
+          : "近 7 日样本比例概览，非时间顺序：绿色为成功，黄色/红色为异常或失败，浅灰为样本不足。"
       }
     >
       {bars.map((tone, index) => (
@@ -72,12 +72,12 @@ function availabilityAriaLabel({
     const rateText = rate === null || samples <= 0
       ? "稳定性样本不足"
       : `稳定性 ${(rate * 100).toFixed(1)}%，样本 ${samples}`;
-    return `${rateText}；最近 ${recentSampleCount} 次请求概览，每条最多 3 次，按时间从旧到新`;
+    return `${rateText}；最近 ${recentSampleCount} 次请求概览，每条最多 3 次，按时间从旧到新，样本不足时右侧留空`;
   }
   if (rate === null || samples <= 0) return "稳定性样本不足，暂无可用性监测样本";
   const rateText = `稳定性样本比例概览 ${(rate * 100).toFixed(1)}%，样本 ${samples}，非时间顺序`;
   if (emptyCount <= 0) return rateText;
-  return `${rateText}，${emptyCount} 段未检测`;
+  return `${rateText}，${emptyCount} 段样本不足`;
 }
 
 function availabilityBarClass(tone: TransitAvailabilityBarTone): string {
