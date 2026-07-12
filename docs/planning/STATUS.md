@@ -1,6 +1,6 @@
 # PriceAI 规划状态总控台
 
-> 最后更新：2026-07-11
+> 最后更新：2026-07-12
 > 维护范围：`docs/planning/` 下的产品规划、增长规划、采集规划、执行跟踪和复盘文档
 > 用途：作为内部规划的统一状态窗口，方便在任何新对话里快速判断“哪些阶段已经完成、哪些仍在排队、下一步该做什么”。
 
@@ -36,6 +36,7 @@
 | 产品总路线 | 规划中，已重新对齐 | 原 V2“AI Token 获取入口”路线已作为历史规划收尾；当前由双雷达 PRD Lite 接替 | 总标题已确认为“AI 低价卡网订阅与中转 API 比价雷达”，以卡网订阅和中转 API 为核心，官方订阅与官方 API 作为辅助基准 | 分别讨论卡网订阅和中转 API 的独立 PRD Lite，再确认首页入口主次 | [双雷达产品规划](archive/pending/product/2026-07-10_priceai-low-cost-subscription-and-api-transit-radar-plan.md)、[历史产品总体规划 V2](archive/done/product/2026-06-06_priceai-product-roadmap-v2.md) |
 | PriceAI 双雷达产品定位 | 命名与入口调整已完成，模块规划中 | 总标题、四个正式模块名和公开路径已确认 | 模块统一为卡网订阅、官方订阅、官方 API、中转 API；原“API 模型雷达”公开名称停用，公开路径迁移为 `/official-api`，旧路径保留永久跳转 | 继续分模块讨论产品旅程和版本范围；排序中立等问题由独立治理备忘承接 | [双雷达产品规划](archive/pending/product/2026-07-10_priceai-low-cost-subscription-and-api-transit-radar-plan.md)、[信任与工程治理行动备忘](archive/pending/product/2026-07-10_priceai-product-focus-and-trust-governance-plan.md) |
 | 工程质量与可维护性 | 规划完成，待分阶段实施 | 已完成架构、测试/脚本/CI、产品规划上下文三路核验；确定“门禁优先、契约优先、兼容迁移、按业务切片”路线 | 现有脚本测试本地全部通过，但尚未进入 Quality / Deploy；`data.ts`、`admin.ts` 和 `AdminConsole` 仍是高风险中心，Cloudflare promotion workflow 另有 npm script 断链 | 先收口当前 API 中转 WIP 和冲突任务，再独立实施统一 `npm test`、发布门禁、商业排序不变量与 promotion 修复；之后才开始兼容式拆分 | [工程质量与可维护性规划](archive/pending/product/2026-07-10_priceai-engineering-quality-and-maintainability-plan.md)、[信任与工程治理行动备忘](archive/pending/product/2026-07-10_priceai-product-focus-and-trust-governance-plan.md) |
+| 后台管理信息架构与组件拆分 | 规划完成，待实施 | 已确认从顶部横向 Tab 调整为左侧一级/二级导航 + 右侧工作区；执行上采用 Admin Shell 先行、按工作流迁移、先行为等价再视觉增强 | 当前只是产品与执行规划，未改后台代码；`AdminConsole.tsx` 仍是约 1 万行高风险组件，`ApiTransitAdminConsole.tsx` 也需防止继续膨胀 | 先调整 `05-13-admin-review-redesign` 任务口径；再开 Phase 0/1 实现任务做后台功能地图和 Admin Shell；首个业务迁移切片建议选择 API 中转 | [后台管理左侧导航与工作流拆分规划](archive/pending/product/2026-07-12_admin-console-left-nav-workflow-split-plan.md)、[工程质量与可维护性规划](archive/pending/product/2026-07-10_priceai-engineering-quality-and-maintainability-plan.md) |
 | 订阅比价 / 卡网渠道 | 进行中 | P2 分类体系持续优化 | 有货最低价、下架同步、渠道停用、批量提交等能力已有多轮修复；Apple ID、其他辅助分类、语义图标和归类一致性已有改动；早期反馈/分类/采集路线已阶段收尾 | 按真实错分样本继续修分类；规划 AI 错分巡检后台，先做规则审计 + 大模型辅助判断 + 管理员裁决，不直接自动改生产分类 | [数据与分类重构方案](archive/in-progress/data-collection/2026-05-14_data-classification-redesign.md)、[反馈自动化与分类预审](archive/pending/product/2026-07-08_feedback-automation-and-classification-precheck-plan.md) |
 | 低价订阅渠道稳定性反馈 | 规划中，待确认 | 已按 Idea-to-Product PRD Lite 沉淀产品规划；推荐先做轻量信号层，不做公开评论墙 | 方案围绕商品、商家、商品渠道三层反馈；用近 7/30 天样本、卖家标称渠道、证据门槛和审核摘要服务购前判断 | 确认 P0 是否采用轻量信号层；确认渠道标签优先覆盖范围、样本阈值、高风险反馈联系方式和商家回应排期 | [低价订阅渠道稳定性反馈产品规划](archive/pending/product/2026-07-11_ai-subscription-channel-stability-feedback-product-plan.md) |
 | 官方订阅地区价 | 已收尾，规划中 | P1 远端库落地完成；下一阶段策略待定 | App Store 公开地区价、38 个地区、后台管理、远端 Supabase 写入已收尾；地区解析又经过增强 | 规划尽量覆盖全部国家；确认更新周期按天、按周，或继续采用静态方案 | [执行跟踪](archive/done/execution/2026-06-05_implementation-tracker.md) |
