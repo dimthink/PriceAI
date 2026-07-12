@@ -2350,11 +2350,13 @@ function buildStationRow(source, collectedAt, collection = {}) {
     last_updated_at: stringOrNull(collection?.meta?.generated_at || collection?.site?.generated_at) || collectedAt,
     published: autoPublish,
     auto_publish: autoPublish,
-    admin_note: collection.offerCount
-      ? autoPublish
-        ? `自动抓取到 ${collection.offerCount} 条 API 中转价格，已按来源快照发布。`
-        : `自动抓取到 ${collection.offerCount} 条 MVP 模型价格，待人工审核。`
-      : "自动抓取未识别到 MVP 模型，待人工确认。",
+    admin_note: source.adminNote || (
+      collection.offerCount
+        ? autoPublish
+          ? `自动抓取到 ${collection.offerCount} 条 API 中转价格，已按来源快照发布。`
+          : `自动抓取到 ${collection.offerCount} 条 MVP 模型价格，待人工审核。`
+        : "自动抓取未识别到 MVP 模型，待人工确认。"
+    ),
     created_at: collectedAt,
   };
 }

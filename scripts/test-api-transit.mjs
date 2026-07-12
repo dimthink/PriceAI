@@ -89,6 +89,22 @@ assert.equal(configuredMaofeiSource.monitorUrl, "https://api.999555999.com/publi
 assert.equal(configuredMaofeiSource.stationSystem, "sub_to_api");
 assert.equal(configuredMaofeiSource.rechargeRatio, "1:1");
 assert.equal(configuredMaofeiSource.autoPublish, true);
+const configuredYujianSource = transitSourceConfig.find((source) => source.id === "yujianwudi-top");
+assert.ok(configuredYujianSource, "天机阁 must stay saved as an API transit draft source.");
+assert.equal(configuredYujianSource.collectorKind, "new_api_pricing");
+assert.equal(configuredYujianSource.stationSystem, "new_api");
+assert.equal(configuredYujianSource.pricingUrl, "https://yujianwudi.top/pricing");
+assert.equal(configuredYujianSource.pricingEndpointUrl, "https://yujianwudi.top/api/pricing");
+assert.equal(configuredYujianSource.rechargeRatio, "1:1");
+assert.equal(configuredYujianSource.autoPublish, false);
+assert.equal(configuredYujianSource.commercialRelation, "affiliate");
+assert.equal(configuredYujianSource.operatorType, "individual");
+assert.equal(configuredYujianSource.invoiceSupport, "supported");
+assert.equal(Boolean(configuredYujianSource.monitorUrl), false);
+assert.ok(
+  configuredYujianSource.adminNote.includes("Pro 号池常规 0.20 倍率"),
+  "天机阁后台备注必须保留站长提交的常规 Pro 倍率口径。",
+);
 
 const scheduledPublishedRtocSources = __test.selectSources(
   __test.filterSourcesByPublishedStationIds(transitSourceConfig, new Set(["ai-rtoc-cc"])),
@@ -415,6 +431,32 @@ assert.equal(__test.shouldRestrictToPublishedStations({ post: true }), true);
 assert.equal(__test.shouldRestrictToPublishedStations({ post: true, source: "pending-new-api" }), false);
 assert.equal(__test.shouldRestrictToPublishedStations({ post: true, publish: true }), false);
 assert.equal(__test.shouldRestrictToPublishedStations({ post: true, dryRun: true }), false);
+const customAdminNoteParsedStation = __test.parsePricingPayload(
+  {
+    id: "custom-admin-note",
+    name: "Custom Admin Note",
+    websiteUrl: "https://example.com/",
+    apiBaseUrl: "https://example.com/v1",
+    pricingUrl: "https://example.com/pricing",
+    pricingEndpointUrl: "https://example.com/api/pricing",
+    collectorKind: "new_api_pricing",
+    adminNote: "保留来源配置中的人工备注。",
+  },
+  {
+    data: [
+      {
+        model_name: "gpt-5.5",
+        model_ratio: 1,
+        completion_ratio: 2,
+        enable_groups: ["pro"],
+      },
+    ],
+    group_ratio: { pro: 0.2 },
+  },
+  "2026-07-12T05:23:00.000Z",
+).station;
+assert.equal(customAdminNoteParsedStation.admin_note, "保留来源配置中的人工备注。");
+assert.equal(customAdminNoteParsedStation.published, false);
 assert.equal(__test.standardizeModelName("anthropic/claude-sonnet-5"), "Claude Sonnet 5");
 assert.equal(__test.standardizeModelName("Claude Sonnet 5"), "Claude Sonnet 5");
 assert.equal(__test.standardizeModelName("claude-sonnet-5-0"), "Claude Sonnet 5");

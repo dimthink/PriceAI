@@ -464,6 +464,77 @@
     ]
   },
   {
+    "id": "yujianwudi-top",
+    "name": "天机阁",
+    "websiteUrl": "https://yujianwudi.top/",
+    "apiBaseUrl": "https://yujianwudi.top/v1",
+    "pricingUrl": "https://yujianwudi.top/pricing",
+    "pricingEndpointUrl": "https://yujianwudi.top/api/pricing",
+    "collectorKind": "new_api_pricing",
+    "stationSystem": "new_api",
+    "commercialRelation": "affiliate",
+    "rechargeRatio": "1:1",
+    "autoPublish": false,
+    "operatorType": "individual",
+    "invoiceSupport": "supported",
+    "channelTypes": ["first_party_pool"],
+    "accountPools": ["pro", "plus", "max", "kiro", "mixed"],
+    "paymentMethods": ["人民币支付"],
+    "supportChannels": ["联系客服"],
+    "refundPolicy": "联系客服退款",
+    "riskLabels": ["insufficient_samples", "pending_feedback"],
+    "summary": "天机阁使用 New API 系统，官网与公开价格页可访问，公开 /api/pricing 可读取模型与分组倍率；站长提交口径为 1:1 充值、Pro 号池常规 0.20 倍率、自建号池、个体工商户、支持普票。当前先作为后台待审核草稿保存，不进入前台公开展示。",
+    "strengths": [
+      "公开 /api/pricing 可读取 New API 模型、分组倍率和价格口径，适合进入后台待审采集队列。",
+      "站长提交资料包含 1:1 充值、主体类型、发票支持、售后退款和 AFF 链接，后台资料完整度较高。"
+    ],
+    "cautions": [
+      "未提供公开监测页，真实可用性和扣费仍需后续测试 Key 或人工样本核验。",
+      "用户提交的常规口径为 Pro 号池 0.20 倍率；2026-07-12 公开价格页当前 Codex-pro 显示 0.10，疑似站内限时活动价，正式上架前需再次确认。"
+    ],
+    "commercialOffers": [
+      {
+        "id": "yujianwudi-aff-3uxw",
+        "type": "affiliate",
+        "title": "天机阁 AFF 注册入口",
+        "listLabel": "AFF 注册",
+        "description": "用户提供的天机阁 AFF 注册链接，正式展示前需确认活动规则和是否继续保留 AFF 披露。",
+        "code": null,
+        "url": "https://yujianwudi.top/sign-up?aff=3UXW",
+        "validUntil": null,
+        "disclosure": "该访问链接包含 AFF，但不影响页面排序及价格口径；注册后请回原站核验活动规则、充值比例和退款规则。",
+        "enabled": true
+      }
+    ],
+    "verificationEvents": [
+      {
+        "id": "yujianwudi-merchant-submitted-2026-07-12",
+        "source": "merchant",
+        "status": "info",
+        "title": "站长提交入驻资料",
+        "description": "提交了官网、公开价格页、1:1 充值、Pro 号池 0.20 倍率、自建号池、个体工商户、普票支持、售后退款和 AFF 链接；未提供公开监测页。",
+        "happenedAt": "2026-07-12T05:23:00.000Z"
+      },
+      {
+        "id": "yujianwudi-public-pricing-2026-07-12",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开 New API 价格接口可读取",
+        "description": "2026-07-12 检查 https://yujianwudi.top/api/pricing 返回模型、分组倍率和站点公告；/pricing 为 New API 前端页面，/v1/models 需要 API Key。",
+        "happenedAt": "2026-07-12T05:23:00.000Z"
+      },
+      {
+        "id": "yujianwudi-monitor-missing-2026-07-12",
+        "source": "priceai",
+        "status": "warning",
+        "title": "未提供公开监测页",
+        "description": "当前仅能读取公开价格页，站点可用性和真实扣费仍需后续测试 Key、测试账号或人工样本补充。",
+        "happenedAt": "2026-07-12T05:23:00.000Z"
+      }
+    ],
+    "adminNote": "用户提交口径：天机阁 / New API / 运营约 70 天 / 1:1 充值 / Pro 号池常规 0.20 倍率 / 自建号池 / 个体工商户 / 支持普票 / 联系客服退款 / AFF: https://yujianwudi.top/sign-up?aff=3UXW。PriceAI 2026-07-12 读取公开 /api/pricing 时，Codex-pro 当前显示 0.10，结合站内公告疑似限时活动价；正式上架前需让站长确认常规倍率、活动结束后口径、公开监测或测试 Key。"
+  },
+  {
     "id": "kksj-org",
     "name": "KK API",
     "websiteUrl": "https://api.kksj.org/",
