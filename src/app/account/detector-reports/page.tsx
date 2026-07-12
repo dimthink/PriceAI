@@ -5,7 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { buildGoogleAuthHref } from "@/lib/auth-paths";
 import { listUserDetectorJobs } from "@/lib/account";
-import { buildDetectorReportAssetUrl, buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
+import { buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
 import type { TransitDetectorJob } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -63,7 +63,7 @@ export default async function AccountDetectorReportsPage() {
                 <tbody className="divide-y divide-[#edf0f1]">
                   {jobs.map((job) => {
                     const reportHref = job.detectorJobId ? buildPriceAiDetectorReportHref(job.detectorJobId) : "";
-                    const jsonHref = job.jsonUrl && detectorServiceUrl ? buildDetectorReportAssetUrl(detectorServiceUrl, job.jsonUrl) : "";
+                    const jsonHref = buildDetectorJsonHref(detectorServiceUrl, job.jsonUrl);
                     return (
                       <tr key={job.id}>
                         <td className="px-5 py-4">
@@ -125,6 +125,15 @@ function detectorStatusLabel(value: TransitDetectorJob["status"]) {
   if (value === "error") return "失败";
   if (value === "running") return "运行中";
   return "排队中";
+}
+
+function buildDetectorJsonHref(detectorServiceUrl: string, jsonUrl: string | null) {
+  if (!jsonUrl) return "";
+  if (/^https?:\/\//i.test(jsonUrl)) return jsonUrl;
+  if (!detectorServiceUrl) return "";
+  const baseUrl = detectorServiceUrl.replace(/\/$/, "");
+  const path = jsonUrl.startsWith("/") ? jsonUrl : `/${jsonUrl}`;
+  return `${baseUrl}${path}`;
 }
 
 function formatDate(value: string) {

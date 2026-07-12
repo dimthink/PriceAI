@@ -90,6 +90,7 @@ function feedbackStatusLabel(value: OfferFeedback["status"]) {
 function feedbackReasonLabel(value: OfferFeedback["reason"]) {
   const labels: Record<OfferFeedback["reason"], string> = {
     wrong_price: "价格不准",
+    description_mismatch: "描述不符",
     item_removed: "商品已下架",
     stock_mismatch: "库存状态不准",
     wrong_category: "分类错误",
