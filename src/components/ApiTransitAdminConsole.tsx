@@ -6,10 +6,12 @@ import {
   Archive,
   CheckCircle2,
   ClipboardList,
+  Copy,
   Database,
   ExternalLink,
   Eye,
   EyeOff,
+  FileText,
   RotateCcw,
   Inbox,
   KeyRound,
@@ -55,6 +57,9 @@ import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 export type ApiTransitAdminTab = "stations" | "candidates" | "rawOffers" | "submissions" | "runs";
 type StationBucket = "published" | "pending" | "removed";
+type WholesaleLeadRoleFilter = "all" | "buyer" | "seller";
+type WholesaleLeadDirectionFilter = "all" | "api_transit" | "subscription_channel" | "other";
+type WholesaleLeadStatusFilter = "all" | ApiTransitSubmissionReviewStatus;
 type Message = {
   type: "success" | "error" | "info";
   text: string;
@@ -129,6 +134,208 @@ const transitInvoiceSupportOptions = Object.entries(TRANSIT_INVOICE_SUPPORT_LABE
 
 export function ApiTransitAdminConsole({ data }: { data: ApiTransitAdminData }) {
   return <ApiTransitAdminPanel data={data} framed />;
+}
+
+export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<WholesaleLeadRoleFilter>("all");
+  const [directionFilter, setDirectionFilter] = useState<WholesaleLeadDirectionFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<WholesaleLeadStatusFilter>("all");
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [adminNoteDrafts, setAdminNoteDrafts] = useState<Record<string, string>>({});
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const wholesaleLeads = useMemo(
+    () => groupVisibleSubmissions(data.submissions).filter(isWholesaleSubmission),
+    [data.submissions],
+  );
+
+  const filteredLeads = useMemo(
+    () =>
+      wholesaleLeads.filter((lead) => {
+        const role = wholesaleRoleValue(lead.submittedMeta);
+        const direction = wholesaleDirectionValue(lead.submittedMeta);
+        if (roleFilter !== "all" && role !== roleFilter) return false;
+        if (directionFilter !== "all" && direction !== directionFilter) return false;
+        if (statusFilter !== "all" && lead.reviewStatus !== statusFilter) return false;
+        return matchesQuery(normalizedQuery, [
+          lead.submittedName,
+          lead.contact,
+          lead.notes,
+          lead.submittedUrl,
+          stringMeta(lead.submittedMeta, "identityType"),
+          stringMeta(lead.submittedMeta, "target"),
+          stringMeta(lead.submittedMeta, "volume"),
+          stringMeta(lead.submittedMeta, "budget"),
+          stringMeta(lead.submittedMeta, "pricing"),
+          stringMeta(lead.submittedMeta, "sourceDescription"),
+          stringMeta(lead.submittedMeta, "evidenceSummary"),
+          stringMeta(lead.submittedMeta, "proofUrl"),
+        ]);
+      }),
+    [directionFilter, normalizedQuery, roleFilter, statusFilter, wholesaleLeads],
+  );
+
+  const selectedLead =
+    filteredLeads.find((lead) => lead.id === selectedLeadId) ||
+    filteredLeads[0] ||
+    null;
+  const selectedAdminNoteDraft = selectedLead
+    ? adminNoteDrafts[selectedLead.id] ?? selectedLead.adminNote ?? ""
+    : "";
+
+  const pendingCount = wholesaleLeads.filter((lead) => lead.reviewStatus === "pending").length;
+  const followUpCount = wholesaleLeads.filter((lead) => lead.reviewStatus === "collector_todo").length;
+  const buyerCount = wholesaleLeads.filter((lead) => wholesaleRoleValue(lead.submittedMeta) === "buyer").length;
+  const sellerCount = wholesaleLeads.filter((lead) => wholesaleRoleValue(lead.submittedMeta) === "seller").length;
+
+  async function updateWholesaleLead(
+    lead: ApiTransitAdminSubmission,
+    reviewStatus: ApiTransitSubmissionReviewStatus,
+  ) {
+    setLoadingAction(`wholesale-${reviewStatus}-${lead.id}`);
+    const result = await requestJson("/api/admin/api-transit/submissions", "PATCH", {
+      id: lead.id,
+      reviewStatus,
+      adminNote: defaultSubmissionNote(reviewStatus, true),
+    });
+    if (result.ok) {
+      setMessage({ type: "success", text: wholesaleStatusSuccessText(reviewStatus) });
+      router.refresh();
+    } else {
+      setMessage({ type: "error", text: result.message || "更新批发线索失败。" });
+    }
+    setLoadingAction(null);
+  }
+
+  async function saveAdminNote() {
+    if (!selectedLead) return;
+    setLoadingAction(`wholesale-note-${selectedLead.id}`);
+    const result = await requestJson("/api/admin/api-transit/submissions", "PATCH", {
+      id: selectedLead.id,
+      reviewStatus: selectedLead.reviewStatus,
+      adminNote: selectedAdminNoteDraft,
+    });
+    if (result.ok) {
+      setMessage({ type: "success", text: "后台备注已保存。" });
+      router.refresh();
+    } else {
+      setMessage({ type: "error", text: result.message || "保存后台备注失败。" });
+    }
+    setLoadingAction(null);
+  }
+
+  async function copyContact(lead: ApiTransitAdminSubmission) {
+    const text = lead.contact || "";
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage({ type: "success", text: "联系方式已复制。" });
+    } catch {
+      setMessage({ type: "error", text: "复制失败，请手动选择联系方式。" });
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      {message ? <MessageBox message={message} onDismiss={() => setMessage(null)} /> : null}
+
+      <div className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-[#202829]">批发线索池</h3>
+              <StatusBadge tone={pendingCount ? "warn" : "muted"}>{pendingCount} 待处理</StatusBadge>
+              <StatusBadge tone={followUpCount ? "info" : "muted"}>{followUpCount} 待跟进</StatusBadge>
+            </div>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-[#5a6061]">
+              独立承接买方需求和源头供给；这里先做人工初筛、联系和备注，不进入中转站探测流程。
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap sm:justify-end">
+            <span className="rounded-lg bg-[#f2f4f4] px-3 py-2 font-medium text-[#2d3435]">全部 {wholesaleLeads.length}</span>
+            <span className="rounded-lg bg-[#eef3f8] px-3 py-2 font-medium text-[#47657a]">买方 {buyerCount}</span>
+            <span className="rounded-lg bg-[#e8f3ec] px-3 py-2 font-medium text-[#2f7a4b]">源头 {sellerCount}</span>
+            <span className="rounded-lg bg-[#fff7e8] px-3 py-2 font-medium text-[#7a541b]">筛选 {filteredLeads.length}</span>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(240px,1fr)_auto] xl:items-start">
+          <label className="relative block">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#9aa2a3]" />
+            <span className="sr-only">搜索批发线索</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索标题、联系方式、需求、价格、证明链接..."
+              className="h-10 w-full rounded-lg border border-[#adb3b4]/25 bg-white pl-9 pr-3 text-sm text-[#202829] outline-none transition placeholder:text-[#7c8586] focus:border-[#2d3435]"
+            />
+          </label>
+
+          <div className="flex flex-wrap gap-2">
+            <WholesaleFilterButton active={roleFilter === "all"} onClick={() => setRoleFilter("all")}>全部角色</WholesaleFilterButton>
+            <WholesaleFilterButton active={roleFilter === "buyer"} onClick={() => setRoleFilter("buyer")}>买方需求</WholesaleFilterButton>
+            <WholesaleFilterButton active={roleFilter === "seller"} onClick={() => setRoleFilter("seller")}>源头供给</WholesaleFilterButton>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <WholesaleFilterButton active={directionFilter === "all"} onClick={() => setDirectionFilter("all")}>全部方向</WholesaleFilterButton>
+          <WholesaleFilterButton active={directionFilter === "api_transit"} onClick={() => setDirectionFilter("api_transit")}>API 中转</WholesaleFilterButton>
+          <WholesaleFilterButton active={directionFilter === "subscription_channel"} onClick={() => setDirectionFilter("subscription_channel")}>卡网/订阅</WholesaleFilterButton>
+          <WholesaleFilterButton active={directionFilter === "other"} onClick={() => setDirectionFilter("other")}>其他源头</WholesaleFilterButton>
+          <span className="mx-1 hidden h-8 w-px bg-[#adb3b4]/25 sm:inline-block" />
+          <WholesaleFilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>全部状态</WholesaleFilterButton>
+          <WholesaleFilterButton active={statusFilter === "pending"} onClick={() => setStatusFilter("pending")}>待处理</WholesaleFilterButton>
+          <WholesaleFilterButton active={statusFilter === "collector_todo"} onClick={() => setStatusFilter("collector_todo")}>待跟进</WholesaleFilterButton>
+          <WholesaleFilterButton active={statusFilter === "approved"} onClick={() => setStatusFilter("approved")}>初筛通过</WholesaleFilterButton>
+          <WholesaleFilterButton active={statusFilter === "rejected"} onClick={() => setStatusFilter("rejected")}>已拒绝</WholesaleFilterButton>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <section className="overflow-hidden rounded-lg border border-[#adb3b4]/20 bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+          <div className="flex items-center justify-between border-b border-[#edf0f1] bg-[#f2f4f4] px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-[#202829]">
+              <Inbox size={16} />
+              线索列表
+            </div>
+            <span className="text-xs font-medium text-[#5a6061]">{filteredLeads.length} 条</span>
+          </div>
+          <div className="divide-y divide-[#edf0f1]">
+            {filteredLeads.map((lead) => (
+              <WholesaleLeadRow
+                key={lead.id}
+                lead={lead}
+                selected={selectedLead?.id === lead.id}
+                loadingAction={loadingAction}
+                onSelect={() => setSelectedLeadId(lead.id)}
+                onCopyContact={() => copyContact(lead)}
+                onUpdate={(reviewStatus) => updateWholesaleLead(lead, reviewStatus)}
+              />
+            ))}
+            {!filteredLeads.length ? <EmptyState text="没有匹配的批发线索。" /> : null}
+          </div>
+        </section>
+
+        <WholesaleLeadDetailPanel
+          lead={selectedLead}
+          adminNoteDraft={selectedAdminNoteDraft}
+          loadingAction={loadingAction}
+          onAdminNoteDraftChange={(value) => {
+            if (!selectedLead) return;
+            setAdminNoteDrafts((previous) => ({ ...previous, [selectedLead.id]: value }));
+          }}
+          onCopyContact={selectedLead ? () => copyContact(selectedLead) : undefined}
+          onSaveAdminNote={saveAdminNote}
+          onUpdate={selectedLead ? (reviewStatus) => updateWholesaleLead(selectedLead, reviewStatus) : undefined}
+        />
+      </div>
+    </section>
+  );
 }
 
 export function ApiTransitAdminPanel({
@@ -219,9 +426,14 @@ export function ApiTransitAdminPanel({
     [data.offers, normalizedQuery],
   );
 
+  const visibleTransitSubmissions = useMemo(
+    () => groupVisibleSubmissions(data.submissions).filter((submission) => !isWholesaleSubmission(submission)),
+    [data.submissions],
+  );
+
   const filteredSubmissions = useMemo(
     () =>
-      groupVisibleSubmissions(data.submissions).filter((submission) =>
+      visibleTransitSubmissions.filter((submission) =>
         matchesQuery(normalizedQuery, [
           submission.submittedName,
           submission.submittedUrl,
@@ -236,7 +448,7 @@ export function ApiTransitAdminPanel({
           stringMeta(submission.submittedMeta, "sourceDescription"),
         ]),
       ),
-    [data.submissions, normalizedQuery],
+    [normalizedQuery, visibleTransitSubmissions],
   );
 
   const filteredRuns = useMemo(
@@ -256,7 +468,7 @@ export function ApiTransitAdminPanel({
     { id: "stations", label: "站点池", count: data.metrics.pendingStations, icon: <Server size={15} /> },
     { id: "candidates", label: "清洗候选", count: data.metrics.candidateOffers, icon: <Database size={15} /> },
     { id: "rawOffers", label: "原始报价", count: data.metrics.pendingOffers, icon: <ClipboardList size={15} /> },
-    { id: "submissions", label: "提交线索", count: data.metrics.pendingSubmissions, icon: <Inbox size={15} /> },
+    { id: "submissions", label: "提交线索", count: visibleTransitSubmissions.filter((submission) => submission.reviewStatus === "pending").length, icon: <Inbox size={15} /> },
     { id: "runs", label: "检测记录", count: data.metrics.failedRuns, icon: <Activity size={15} /> },
   ];
 
@@ -1221,6 +1433,305 @@ function SubmissionsPanel({
         {!submissions.length ? <EmptyState text="没有匹配的提交线索。" /> : null}
       </div>
     </section>
+  );
+}
+
+function WholesaleFilterButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`inline-flex h-8 items-center rounded-full px-3 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[#2d3435]/20 ${
+        active
+          ? "bg-[#2d3435] text-[#f8f8f8]"
+          : "border border-[#adb3b4]/25 bg-white text-[#5a6061] hover:bg-[#f2f4f4] hover:text-[#202829]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function WholesaleLeadRow({
+  lead,
+  loadingAction,
+  onCopyContact,
+  onSelect,
+  onUpdate,
+  selected,
+}: {
+  lead: ApiTransitAdminSubmission;
+  loadingAction: string | null;
+  onCopyContact: () => void;
+  onSelect: () => void;
+  onUpdate: (reviewStatus: ApiTransitSubmissionReviewStatus) => void;
+  selected: boolean;
+}) {
+  const meta = lead.submittedMeta;
+  const proofUrl = wholesaleProofUrl(lead);
+  const primaryText = firstWholesaleText(
+    stringMeta(meta, "target"),
+    stringMeta(meta, "sourceDescription"),
+    lead.notes,
+  );
+  const secondaryRows = [
+    ["身份", stringMeta(meta, "identityType")],
+    ["量级", stringMeta(meta, "volume")],
+    ["预算", stringMeta(meta, "budget")],
+    ["价格", stringMeta(meta, "pricing")],
+    ["起批", stringMeta(meta, "minimumOrder")],
+    ["验真", stringMeta(meta, "testRequirement")],
+  ].filter((row): row is [string, string] => Boolean(row[1]));
+
+  return (
+    <article
+      className={`grid gap-3 px-4 py-4 text-sm transition-colors lg:grid-cols-[minmax(0,1fr)_180px_170px] lg:items-start ${
+        selected ? "bg-[#f8fafa]" : "bg-white hover:bg-[#fafbfb]"
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="min-w-0 max-w-full truncate text-sm font-semibold text-[#202829]">
+            {lead.submittedName || wholesaleRoleLabel(meta) || "批发线索"}
+          </h3>
+          <StatusBadge tone={wholesaleStatusTone(lead.reviewStatus)}>{wholesaleReviewStatusLabel(lead.reviewStatus)}</StatusBadge>
+          <StatusBadge tone={wholesaleRoleValue(meta) === "seller" ? "success" : "info"}>{wholesaleRoleLabel(meta) || "批发线索"}</StatusBadge>
+          <StatusBadge tone="muted">{wholesaleDirectionLabel(meta) || "未分类"}</StatusBadge>
+        </div>
+        <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#2d3435]">{primaryText || "暂无摘要内容"}</p>
+        {secondaryRows.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {secondaryRows.slice(0, 6).map(([label, value]) => (
+              <span key={`${label}-${value}`} className="max-w-full rounded-full bg-[#f2f4f4] px-2 py-0.5 text-xs font-medium text-[#5a6061]">
+                {label}：{value}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="min-w-0">
+        <MobileLabel>联系</MobileLabel>
+        {lead.contact ? (
+          <button
+            type="button"
+            onClick={onCopyContact}
+            className="inline-flex max-w-full items-center gap-1.5 text-left text-sm font-semibold text-[#202829] transition-colors hover:text-[#47657a]"
+          >
+            <Copy size={13} />
+            <span className="truncate">{lead.contact}</span>
+          </button>
+        ) : (
+          <span className="text-sm text-[#adb3b4]">未填写</span>
+        )}
+        <div className="mt-1 text-xs text-[#5a6061]">{formatRelativeTime(lead.createdAt)}</div>
+        {proofUrl ? (
+          <a
+            href={proofUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex max-w-full items-center gap-1 text-xs font-medium text-[#47657a] hover:text-[#202829]"
+          >
+            <ExternalLink size={12} />
+            <span className="truncate">证明链接</span>
+          </a>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap gap-2 lg:justify-end">
+        <button
+          type="button"
+          onClick={onSelect}
+          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4]"
+        >
+          <FileText size={13} />
+          详情
+        </button>
+        <button
+          type="button"
+          disabled={lead.reviewStatus === "collector_todo" || loadingAction === `wholesale-collector_todo-${lead.id}`}
+          onClick={() => onUpdate("collector_todo")}
+          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+        >
+          {loadingAction === `wholesale-collector_todo-${lead.id}` ? <Loader2 size={13} className="animate-spin" /> : <ClipboardList size={13} />}
+          跟进
+        </button>
+        <button
+          type="button"
+          disabled={lead.reviewStatus === "approved" || loadingAction === `wholesale-approved-${lead.id}`}
+          onClick={() => onUpdate("approved")}
+          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50"
+        >
+          {loadingAction === `wholesale-approved-${lead.id}` ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+          初筛
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function WholesaleLeadDetailPanel({
+  adminNoteDraft,
+  lead,
+  loadingAction,
+  onAdminNoteDraftChange,
+  onCopyContact,
+  onSaveAdminNote,
+  onUpdate,
+}: {
+  adminNoteDraft: string;
+  lead: ApiTransitAdminSubmission | null;
+  loadingAction: string | null;
+  onAdminNoteDraftChange: (value: string) => void;
+  onCopyContact?: () => void;
+  onSaveAdminNote: () => void;
+  onUpdate?: (reviewStatus: ApiTransitSubmissionReviewStatus) => void;
+}) {
+  if (!lead) {
+    return (
+      <aside className="rounded-lg border border-[#adb3b4]/20 bg-white p-6 text-sm leading-6 text-[#5a6061] shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+        选择一条批发线索后，可以在这里查看完整字段、复制联系方式、打开证明链接和记录后台备注。
+      </aside>
+    );
+  }
+
+  const meta = lead.submittedMeta;
+  const proofUrl = wholesaleProofUrl(lead);
+  const detailRows: Array<[string, string | null]> = [
+    ["角色", wholesaleRoleLabel(meta)],
+    ["方向", wholesaleDirectionLabel(meta)],
+    ["联系方式", lead.contact],
+    ["身份", stringMeta(meta, "identityType")],
+    ["目标/供给", stringMeta(meta, "target")],
+    ["月量/批量", stringMeta(meta, "volume")],
+    ["预算", stringMeta(meta, "budget")],
+    ["可接受来源", stringMeta(meta, "acceptableSources")],
+    ["源头说明", stringMeta(meta, "sourceDescription")],
+    ["起批门槛", stringMeta(meta, "minimumOrder")],
+    ["价格/结算", stringMeta(meta, "pricing")],
+    ["测试/验真", stringMeta(meta, "testRequirement")],
+    ["售后/边界", stringMeta(meta, "afterSales")],
+    ["证明材料", stringMeta(meta, "evidenceSummary")],
+  ];
+
+  return (
+    <aside className="space-y-4 xl:sticky xl:top-5 xl:self-start">
+      <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-semibold text-[#202829]">{lead.submittedName || "批发线索"}</h3>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <StatusBadge tone={wholesaleStatusTone(lead.reviewStatus)}>{wholesaleReviewStatusLabel(lead.reviewStatus)}</StatusBadge>
+              <StatusBadge tone="info">{wholesaleDirectionLabel(meta) || "未分类"}</StatusBadge>
+              <StatusBadge tone={wholesaleRoleValue(meta) === "seller" ? "success" : "muted"}>{wholesaleRoleLabel(meta) || "批发线索"}</StatusBadge>
+            </div>
+          </div>
+          <span className="shrink-0 text-xs text-[#5a6061]">{formatRelativeTime(lead.createdAt)}</span>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={!lead.contact}
+            onClick={onCopyContact}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+          >
+            <Copy size={13} />
+            复制联系
+          </button>
+          {proofUrl ? (
+            <a
+              href={proofUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4]"
+            >
+              <ExternalLink size={13} />
+              打开证明
+            </a>
+          ) : null}
+          <button
+            type="button"
+            disabled={!onUpdate || lead.reviewStatus === "collector_todo" || loadingAction === `wholesale-collector_todo-${lead.id}`}
+            onClick={() => onUpdate?.("collector_todo")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+          >
+            <ClipboardList size={13} />
+            待跟进
+          </button>
+          <button
+            type="button"
+            disabled={!onUpdate || lead.reviewStatus === "approved" || loadingAction === `wholesale-approved-${lead.id}`}
+            onClick={() => onUpdate?.("approved")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50"
+          >
+            <CheckCircle2 size={13} />
+            初筛通过
+          </button>
+          <button
+            type="button"
+            disabled={!onUpdate || lead.reviewStatus === "rejected" || loadingAction === `wholesale-rejected-${lead.id}`}
+            onClick={() => onUpdate?.("rejected")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#e5b5ad] bg-white px-3 text-xs font-semibold text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
+          >
+            <XCircle size={13} />
+            拒绝
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[#202829]">
+          <FileText size={15} />
+          完整字段
+        </div>
+        <dl className="mt-3 grid gap-2">
+          {detailRows.filter(([, value]) => Boolean(value)).map(([label, value]) => (
+            <div key={label} className="grid gap-1 rounded-lg bg-[#f8fafa] px-3 py-2">
+              <dt className="text-xs font-semibold text-[#5a6061]">{label}</dt>
+              <dd className="break-words text-sm leading-6 text-[#202829]">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {lead.notes ? (
+          <div className="mt-3 rounded-lg bg-[#f2f4f4] px-3 py-2">
+            <div className="text-xs font-semibold text-[#5a6061]">原始补充</div>
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-[#202829]">{lead.notes}</p>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+        <label className="block">
+          <span className="text-sm font-semibold text-[#202829]">后台备注</span>
+          <textarea
+            value={adminNoteDraft}
+            onChange={(event) => onAdminNoteDraftChange(event.target.value)}
+            rows={5}
+            className="mt-2 w-full resize-y rounded-lg border border-[#adb3b4]/30 bg-white px-3 py-2 text-sm leading-6 text-[#202829] outline-none transition placeholder:text-[#7c8586] focus:border-[#2d3435]"
+            placeholder="记录是否已联系、资料是否可信、下一步怎么处理..."
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onSaveAdminNote}
+          disabled={loadingAction === `wholesale-note-${lead.id}`}
+          className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-4 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50"
+        >
+          {loadingAction === `wholesale-note-${lead.id}` ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+          保存备注
+        </button>
+      </section>
+    </aside>
   );
 }
 
@@ -2366,21 +2877,63 @@ function submissionTypeLabel(submission: ApiTransitAdminSubmission): string {
   return submission.submissionType === "merchant" ? "站长提交" : "用户推荐";
 }
 
-function wholesaleRoleLabel(meta: Record<string, unknown>): string | null {
+function wholesaleRoleValue(meta: Record<string, unknown>): "buyer" | "seller" | null {
   const value = stringMeta(meta, "wholesaleRole");
+  if (value === "buyer" || value === "seller") return value;
+  return null;
+}
+
+function wholesaleRoleLabel(meta: Record<string, unknown>): string | null {
+  const value = wholesaleRoleValue(meta);
   const explicitLabel = stringMeta(meta, "wholesaleRoleLabel");
   if (value === "buyer") return "批发买方";
   if (value === "seller") return "源头供给";
   return explicitLabel;
 }
 
-function wholesaleDirectionLabel(meta: Record<string, unknown>): string | null {
+function wholesaleDirectionValue(meta: Record<string, unknown>): "api_transit" | "subscription_channel" | "other" | null {
   const value = stringMeta(meta, "wholesaleDirection");
+  if (value === "api_transit" || value === "subscription_channel" || value === "other") return value;
+  return null;
+}
+
+function wholesaleDirectionLabel(meta: Record<string, unknown>): string | null {
+  const value = wholesaleDirectionValue(meta);
   const explicitLabel = stringMeta(meta, "wholesaleDirectionLabel");
   if (value === "api_transit") return "API 中转批发";
   if (value === "subscription_channel") return "卡网/订阅渠道批发";
   if (value === "other") return "其他源头";
   return explicitLabel;
+}
+
+function wholesaleReviewStatusLabel(value: ApiTransitSubmissionReviewStatus): string {
+  if (value === "approved") return "初筛通过";
+  if (value === "collector_todo") return "待跟进";
+  if (value === "rejected") return "已拒绝";
+  return "待处理";
+}
+
+function wholesaleStatusTone(value: ApiTransitSubmissionReviewStatus): "success" | "warn" | "danger" | "info" | "muted" {
+  if (value === "approved") return "success";
+  if (value === "collector_todo") return "info";
+  if (value === "rejected") return "danger";
+  return "warn";
+}
+
+function wholesaleStatusSuccessText(value: ApiTransitSubmissionReviewStatus): string {
+  if (value === "approved") return "批发线索已通过初筛。";
+  if (value === "collector_todo") return "批发线索已标记为待跟进。";
+  if (value === "rejected") return "批发线索已拒绝。";
+  return "批发线索已更新。";
+}
+
+function wholesaleProofUrl(submission: ApiTransitAdminSubmission): string | null {
+  return stringMeta(submission.submittedMeta, "proofUrl") ||
+    (isInternalWholesaleLeadUrl(submission) ? null : submission.submittedUrl);
+}
+
+function firstWholesaleText(...values: Array<string | null | undefined>): string | null {
+  return values.find((value) => value && value.trim())?.trim() || null;
 }
 
 function stringMeta(meta: Record<string, unknown>, key: string): string | null {

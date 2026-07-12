@@ -38,7 +38,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Dispatch, FormEvent, ReactNode, SetStateAction, UIEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiTransitAdminPanel, type ApiTransitAdminTab } from "@/components/ApiTransitAdminConsole";
+import { ApiTransitAdminPanel, WholesaleAdminPanel, type ApiTransitAdminTab } from "@/components/ApiTransitAdminConsole";
 import { AdminShell, type AdminNavSection } from "@/components/admin/AdminShell";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { formatBeijingDateTimeLocalValue, parseBeijingDateTimeLocalValue } from "@/lib/beijing-time";
@@ -241,7 +241,7 @@ type ApiModelProbeResult = {
   };
 };
 
-type AdminTab = "review" | "todo" | "feedback" | "sponsors" | "security" | "history" | "collect" | "health" | "official" | "apiModels" | "apiTransit" | "sources" | "manual" | "logs";
+type AdminTab = "review" | "todo" | "feedback" | "sponsors" | "security" | "history" | "collect" | "health" | "official" | "apiModels" | "apiTransit" | "wholesale" | "sources" | "manual" | "logs";
 
 type RowFeedback = {
   id: string;
@@ -378,6 +378,24 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const embeddedApiTransitData = useMemo(
     () => (data.apiTransit.isAuthenticated === authed ? data.apiTransit : { ...data.apiTransit, isAuthenticated: authed }),
     [authed, data.apiTransit],
+  );
+  const wholesalePendingLeadCount = useMemo(
+    () =>
+      data.apiTransit.submissions.filter(
+        (submission) =>
+          submission.submittedMeta.workflow === "wholesale" &&
+          submission.reviewStatus === "pending",
+      ).length,
+    [data.apiTransit.submissions],
+  );
+  const apiTransitPendingSubmissionCount = useMemo(
+    () =>
+      data.apiTransit.submissions.filter(
+        (submission) =>
+          submission.submittedMeta.workflow !== "wholesale" &&
+          submission.reviewStatus === "pending",
+      ).length,
+    [data.apiTransit.submissions],
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -884,13 +902,20 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         ],
       },
       {
+        id: "wholesale",
+        label: "批发专区",
+        items: [
+          { id: "wholesale", label: "批发线索", count: wholesalePendingLeadCount, icon: <FileInput size={15} />, description: "集中处理买方需求和源头供给，记录联系、初筛和后续跟进。" },
+        ],
+      },
+      {
         id: "api-transit",
         label: "API 中转",
         items: [
           { id: "apiTransit:stations", label: "站点池", count: data.apiTransit.metrics.pendingStations, icon: <Server size={15} />, description: "维护中转站点、发布状态、商业披露和站点资料。" },
           { id: "apiTransit:candidates", label: "清洗候选", count: data.apiTransit.metrics.candidateOffers, icon: <Database size={15} />, description: "审核已清洗出的模型报价候选，决定是否进入可见报价。" },
           { id: "apiTransit:rawOffers", label: "原始报价", count: data.apiTransit.metrics.pendingOffers, icon: <ClipboardList size={15} />, description: "追溯中转站原始报价、模型名、分组和来源 URL。" },
-          { id: "apiTransit:submissions", label: "提交线索", count: data.apiTransit.metrics.pendingSubmissions, icon: <Inbox size={15} />, description: "处理用户和站长提交的中转站线索。" },
+          { id: "apiTransit:submissions", label: "提交线索", count: apiTransitPendingSubmissionCount, icon: <Inbox size={15} />, description: "处理用户和站长提交的中转站线索。" },
           { id: "apiTransit:runs", label: "检测记录", count: data.apiTransit.metrics.failedRuns, icon: <Activity size={15} />, description: "查看中转站检测运行、失败和最近采集记录。" },
         ],
       },
@@ -913,7 +938,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         ],
       },
     ],
-    [apiModels.offers.length, collectorHealthIssueCount, collectorStatus.crawlRuns.length, collectorTodoSubmissions.length, data.apiTransit.metrics.candidateOffers, data.apiTransit.metrics.failedRuns, data.apiTransit.metrics.pendingOffers, data.apiTransit.metrics.pendingStations, data.apiTransit.metrics.pendingSubmissions, failedRunCount, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length, sponsorSettings],
+    [apiModels.offers.length, apiTransitPendingSubmissionCount, collectorHealthIssueCount, collectorStatus.crawlRuns.length, collectorTodoSubmissions.length, data.apiTransit.metrics.candidateOffers, data.apiTransit.metrics.failedRuns, data.apiTransit.metrics.pendingOffers, data.apiTransit.metrics.pendingStations, failedRunCount, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length, sponsorSettings, wholesalePendingLeadCount],
   );
 
   /* ─── Keyboard shortcuts ─── */
@@ -3462,6 +3487,13 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   onActiveTabChange={setApiTransitActiveTab}
                   hideTabs
                 />
+              </div>
+            )}
+
+            {/* Wholesale tab */}
+            {activeTab === "wholesale" && (
+              <div role="tabpanel" id="tabpanel-wholesale">
+                <WholesaleAdminPanel data={embeddedApiTransitData} />
               </div>
             )}
 
