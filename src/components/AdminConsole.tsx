@@ -305,6 +305,16 @@ type OfferFeedbackVerdict = {
   tone: OfferFeedbackVerdictTone;
   batchSafe: boolean;
 };
+type OfferFeedbackDisplayGroup = {
+  key: string;
+  offerId: string | null;
+  sourceName: string;
+  title: string;
+  currentPrice: string | null;
+  currentStatus: string | null;
+  reasonSummary: string;
+  items: OfferFeedback[];
+};
 
 const feedbackStatusOptions: Array<{ value: OfferFeedbackStatus; label: string }> = [
   { value: "pending", label: "待处理" },
@@ -4446,9 +4456,30 @@ function OfferFeedbackList({
     );
   }
 
+  const displayGroups = groupOfferFeedbackForDisplay(feedback, offerById);
+
   return (
     <div className="space-y-3">
-      {feedback.map((item) => {
+      {displayGroups.map((group) => (
+        <div key={group.key} className="space-y-2">
+          {group.items.length > 1 ? (
+            <div className="flex flex-col gap-2 border-l-2 border-[#47657a]/30 pl-3 text-xs text-[#5a6061] sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-[#2d3435]">同一报价 {group.items.length} 条反馈</span>
+                  <span>{group.reasonSummary}</span>
+                  {group.offerId ? <span>报价 ID: {group.offerId}</span> : null}
+                </div>
+                <p className="mt-0.5 truncate text-[#8a9293]">{group.sourceName} · {group.title}</p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2 text-[#8a9293]">
+                {group.currentPrice ? <span>{group.currentPrice}</span> : null}
+                {group.currentStatus ? <span>{group.currentStatus}</span> : null}
+                <span>已选 {group.items.filter((item) => selectedIds.has(item.id)).length}/{group.items.length}</span>
+              </div>
+            </div>
+          ) : null}
+          {group.items.map((item) => {
         const hideOfferLoading = loadingAction === `feedback-hide-offer-${item.id}`;
         const hideSourceLoading = loadingAction === `feedback-hide-source-${item.id}`;
         const disableOfferLoading = loadingAction === `feedback-disable-offer-${item.id}`;
@@ -4829,6 +4860,8 @@ function OfferFeedbackList({
           </article>
         );
       })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -8992,6 +9025,47 @@ function getOfferFeedbackBucket(feedback: OfferFeedback): OfferFeedbackBucket {
   return "other";
 }
 
+function groupOfferFeedbackForDisplay(
+  feedback: OfferFeedback[],
+  offerById: Map<string, RawOffer>,
+): OfferFeedbackDisplayGroup[] {
+  const groups = new Map<string, OfferFeedbackDisplayGroup>();
+
+  for (const item of feedback) {
+    const offer = item.offerId ? offerById.get(item.offerId) || null : null;
+    const key = item.offerId ? `offer:${item.offerId}` : `feedback:${item.id}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.items.push(item);
+      existing.reasonSummary = offerFeedbackReasonSummary(existing.items);
+      continue;
+    }
+
+    groups.set(key, {
+      key,
+      offerId: item.offerId,
+      sourceName: offerSourceLabel(offer, item),
+      title: item.sourceTitle || offer?.sourceTitle || "未记录原始商品名",
+      currentPrice: offer ? formatCurrency(offer.price, offer.currency) : null,
+      currentStatus: offer ? offerStatusLabel(offer.status) : item.offerStatus ? offerStatusLabel(item.offerStatus) : null,
+      reasonSummary: offerFeedbackReasonSummary([item]),
+      items: [item],
+    });
+  }
+
+  return Array.from(groups.values());
+}
+
+function offerFeedbackReasonSummary(feedback: OfferFeedback[]): string {
+  const counts = new Map<OfferFeedback["reason"], number>();
+  for (const item of feedback) {
+    counts.set(item.reason, (counts.get(item.reason) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([reason, count]) => `${feedbackReasonLabel(reason)} ${count}`)
+    .join(" / ");
+}
+
 function canRunFeedbackRiskPrecheck(feedback: OfferFeedback): boolean {
   return feedback.reason === "fraud" ||
     feedback.reason === "bad_source" ||
@@ -9071,6 +9145,15 @@ function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer
     };
   }
 
+  if (bucket === "transient" && isUnavailableOfferForFeedback(currentOffer)) {
+    return {
+      label: "已不可售",
+      description: "当前报价已隐藏、缺货或不可用，和这类临时数据反馈方向一致，可批量标记已处理。",
+      tone: "success",
+      batchSafe: true,
+    };
+  }
+
   if (feedback.reason === "wrong_price") {
     if (feedback.offerPrice !== null && feedback.offerPrice !== undefined && currentOffer.price !== null) {
       const priceChanged = Math.abs(Number(currentOffer.price) - Number(feedback.offerPrice)) >= 0.01;
@@ -9126,7 +9209,7 @@ function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer
   }
 
   if (feedback.reason === "item_removed") {
-    if (currentOffer.hidden || currentOffer.status === "out_of_stock" || currentOffer.effectiveStatus === "unavailable") {
+    if (isUnavailableOfferForFeedback(currentOffer)) {
       return {
         label: "已不可售",
         description: "当前报价已隐藏、缺货或不可用，和用户反馈方向一致，可批量标记已处理。",
@@ -9148,6 +9231,10 @@ function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer
     tone: "info",
     batchSafe: false,
   };
+}
+
+function isUnavailableOfferForFeedback(offer: RawOffer): boolean {
+  return Boolean(offer.hidden || offer.status === "out_of_stock" || offer.effectiveStatus === "unavailable");
 }
 
 function offerFeedbackVerdictClass(tone: OfferFeedbackVerdictTone): string {

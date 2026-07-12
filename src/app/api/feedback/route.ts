@@ -2,7 +2,11 @@ import { z } from "zod";
 import { after } from "next/server";
 import { createOfferFeedback, runOfferFeedbackRiskPrecheck } from "@/lib/admin";
 import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
-import { runOfferFeedbackAutoVerification } from "@/lib/feedback-auto-verification";
+import {
+  closePendingTransientOfferFeedback,
+  runOfferFeedbackAutoVerification,
+  runOfferFeedbackMultiFeedbackEscalation,
+} from "@/lib/feedback-auto-verification";
 import { isFeedbackEvidenceReference } from "@/lib/feedback-evidence";
 import {
   checkPublicWriteRateLimit,
@@ -119,13 +123,13 @@ export async function POST(request: Request) {
 
     after(async () => {
       try {
+        const snapshotScope = emptyFeedbackSnapshotScope();
         if (shouldCreateFeedbackVerification(payload.reason, payload.notes, payload.evidenceText)) {
           const verification = await runOfferFeedbackAutoVerification(result.id);
-          if (verification.snapshotScope) {
-            clearPublicDataCache();
-            await markPublicApiSnapshotsDirty("public feedback auto verification", verification.snapshotScope);
-          }
-          return;
+          mergeFeedbackSnapshotScope(snapshotScope, verification.snapshotScope);
+        } else if (payload.offerId) {
+          const escalation = await runOfferFeedbackMultiFeedbackEscalation(result.id);
+          mergeFeedbackSnapshotScope(snapshotScope, escalation.snapshotScope);
         }
 
         if (HIGH_RISK_FEEDBACK_REASONS.has(payload.reason)) {
@@ -137,6 +141,16 @@ export async function POST(request: Request) {
             sourceIds: [feedback.sourceId],
           });
         }
+
+        if (payload.offerId) {
+          const closeup = await closePendingTransientOfferFeedback({ offerIds: [payload.offerId], limit: 100 });
+          mergeFeedbackSnapshotScope(snapshotScope, closeup.snapshotScope);
+        }
+
+        if (hasFeedbackSnapshotScope(snapshotScope)) {
+          clearPublicDataCache();
+          await markPublicApiSnapshotsDirty("public feedback closeup", snapshotScope);
+        }
       } catch (error) {
         console.warn("Offer feedback background verification failed:", error instanceof Error ? error.message : error);
       }
@@ -147,4 +161,26 @@ export async function POST(request: Request) {
     const message = getErrorMessage(error);
     return Response.json({ ok: false, message }, { status: getErrorStatus(error, message) });
   }
+}
+
+function emptyFeedbackSnapshotScope() {
+  return {
+    productIds: [] as string[],
+    offerIds: [] as string[],
+    sourceIds: [] as string[],
+  };
+}
+
+function mergeFeedbackSnapshotScope(
+  target: ReturnType<typeof emptyFeedbackSnapshotScope>,
+  source: ReturnType<typeof emptyFeedbackSnapshotScope> | null,
+): void {
+  if (!source) return;
+  target.productIds = Array.from(new Set([...target.productIds, ...source.productIds].filter(Boolean)));
+  target.offerIds = Array.from(new Set([...target.offerIds, ...source.offerIds].filter(Boolean)));
+  target.sourceIds = Array.from(new Set([...target.sourceIds, ...source.sourceIds].filter(Boolean)));
+}
+
+function hasFeedbackSnapshotScope(scope: ReturnType<typeof emptyFeedbackSnapshotScope>): boolean {
+  return Boolean(scope.productIds.length || scope.offerIds.length || scope.sourceIds.length);
 }

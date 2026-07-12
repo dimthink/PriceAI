@@ -9,7 +9,11 @@ import {
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
 import { clearPublicDataCache, listRawOffersByIds, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminRequest } from "@/lib/env";
-import { runOfferFeedbackAutoVerification } from "@/lib/feedback-auto-verification";
+import {
+  closePendingTransientOfferFeedback,
+  runPendingTransientFeedbackEscalations,
+  runOfferFeedbackAutoVerification,
+} from "@/lib/feedback-auto-verification";
 import { z } from "zod";
 
 const statusSchema = z.enum(["pending", "resolved", "ignored"]);
@@ -48,6 +52,15 @@ export async function GET(request: Request) {
     await requireAdminRequest(request);
     const { searchParams } = new URL(request.url);
     const status = statusSchema.catch("pending").parse(searchParams.get("status") || "pending");
+    if (status === "pending") {
+      const closeup = await closePendingTransientOfferFeedback({ limit: 300 });
+      const escalation = await runPendingTransientFeedbackEscalations({ limit: 300 });
+      const snapshotScope = mergeFeedbackSnapshotScopes(closeup.snapshotScope, escalation.snapshotScope);
+      if (snapshotScope) {
+        clearPublicDataCache();
+        await markPublicApiSnapshotsDirty("admin feedback reconciliation", snapshotScope);
+      }
+    }
     const feedback = await listOfferFeedback(status);
     const offers = await listRawOffersByIds(
       feedback
@@ -77,11 +90,17 @@ export async function PATCH(request: Request) {
 
     if (action === "auto_verify") {
       const result = await runOfferFeedbackAutoVerification(payload.id);
+      const closeup = await closePendingTransientOfferFeedback({ limit: 300 });
+      const escalation = await runPendingTransientFeedbackEscalations({ limit: 300 });
       clearPublicDataCache();
-      const snapshotRefreshQueued = result.snapshotScope
-        ? await markPublicApiSnapshotsDirty("admin feedback auto verification", result.snapshotScope)
+      const snapshotScope = mergeFeedbackSnapshotScopes(
+        mergeFeedbackSnapshotScopes(result.snapshotScope, closeup.snapshotScope),
+        escalation.snapshotScope,
+      );
+      const snapshotRefreshQueued = snapshotScope
+        ? await markPublicApiSnapshotsDirty("admin feedback auto verification", snapshotScope)
         : false;
-      return Response.json({ ok: true, ...result, snapshotRefreshQueued });
+      return Response.json({ ok: true, ...result, closeup, escalation, snapshotRefreshQueued });
     }
 
     if (action === "risk_precheck") {
@@ -171,8 +190,24 @@ function feedbackSnapshotScope(feedback: {
   sourceId?: string | null;
 }) {
   return {
-    productIds: [feedback.productId, feedback.productSlug],
-    offerIds: [feedback.offerId],
-    sourceIds: [feedback.sourceId],
+    productIds: compactStrings([feedback.productId, feedback.productSlug]),
+    offerIds: compactStrings([feedback.offerId]),
+    sourceIds: compactStrings([feedback.sourceId]),
   };
+}
+
+function mergeFeedbackSnapshotScopes(
+  left: ReturnType<typeof feedbackSnapshotScope> | null,
+  right: ReturnType<typeof feedbackSnapshotScope> | null,
+): ReturnType<typeof feedbackSnapshotScope> | null {
+  if (!left && !right) return null;
+  return {
+    productIds: compactStrings([...(left?.productIds || []), ...(right?.productIds || [])]),
+    offerIds: compactStrings([...(left?.offerIds || []), ...(right?.offerIds || [])]),
+    sourceIds: compactStrings([...(left?.sourceIds || []), ...(right?.sourceIds || [])]),
+  };
+}
+
+function compactStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
 }

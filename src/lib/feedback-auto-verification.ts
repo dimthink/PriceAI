@@ -14,10 +14,17 @@ const FEEDBACK_RECHECK_JOB_PRIORITY = 80;
 const FEEDBACK_RECHECK_JOB_MAX_ATTEMPTS = 1;
 const FEEDBACK_RECHECK_FETCH_TIMEOUT_MS = 8_000;
 const FEEDBACK_RECHECK_MAX_HTML_BYTES = 128 * 1024;
+const TRANSIENT_FEEDBACK_REASONS: ReadonlySet<OfferFeedbackReason> = new Set([
+  "wrong_price",
+  "description_mismatch",
+  "item_removed",
+  "stock_mismatch",
+]);
+const TRANSIENT_FEEDBACK_REASON_VALUES = Array.from(TRANSIENT_FEEDBACK_REASONS);
 const AUTO_HIDE_FAILURE_REASON =
   "用户反馈后自动复核：源站商品已下架；如源站后续重新返回会自动恢复展示。";
 const MULTI_FEEDBACK_HIDE_REASON =
-  "24小时内多个独立用户反馈商品已下架，自动临时下架；如源站后续重新返回会自动恢复展示。";
+  "24小时内多个独立用户反馈该报价不可买或信息不一致，自动临时下架；如源站后续重新返回会自动恢复展示。";
 
 type SupabaseServerClient = NonNullable<ReturnType<typeof getSupabaseServerClient>>;
 
@@ -28,8 +35,10 @@ type FeedbackRow = Record<string, unknown> & {
   source_id: string | null;
   product_id: string | null;
   product_slug: string | null;
+  offer_price: number | string | null;
   offer_url: string | null;
   offer_status: string | null;
+  source_title: string | null;
   offer_last_seen_at: string | null;
   offer_source_updated_at: string | null;
   notes: string | null;
@@ -45,6 +54,7 @@ type RawOfferRow = {
   source_name: string | null;
   source_store_name: string | null;
   source_title: string | null;
+  price: number | string | null;
   url: string | null;
   status: string | null;
   hidden: boolean | null;
@@ -80,6 +90,48 @@ export type OfferFeedbackAutoVerificationResult = {
   message: string;
   changedOfferCount: number;
   createdCollectionJobId: string | null;
+  snapshotScope: {
+    productIds: string[];
+    offerIds: string[];
+    sourceIds: string[];
+  } | null;
+};
+
+export type OfferFeedbackCloseupResult = {
+  checkedFeedbackCount: number;
+  closedFeedbackCount: number;
+  closedFeedbackIds: string[];
+  snapshotScope: {
+    productIds: string[];
+    offerIds: string[];
+    sourceIds: string[];
+  } | null;
+};
+
+export type OfferFeedbackMultiFeedbackEscalationResult = {
+  feedbackId: string;
+  status: "skipped" | "auto_hidden" | "already_unavailable";
+  independentFeedbackCount: number;
+  changedOfferCount: number;
+  createdCollectionJobId: string | null;
+  closedFeedbackCount: number;
+  message: string;
+  snapshotScope: {
+    productIds: string[];
+    offerIds: string[];
+    sourceIds: string[];
+  } | null;
+};
+
+export type OfferFeedbackMultiFeedbackScanResult = {
+  checkedFeedbackCount: number;
+  checkedOfferCount: number;
+  autoHiddenOfferCount: number;
+  alreadyUnavailableOfferCount: number;
+  changedOfferCount: number;
+  closedFeedbackCount: number;
+  createdCollectionJobIds: string[];
+  results: OfferFeedbackMultiFeedbackEscalationResult[];
   snapshotScope: {
     productIds: string[];
     offerIds: string[];
@@ -153,25 +205,29 @@ export async function runOfferFeedbackAutoVerification(feedbackId: string): Prom
     });
   }
 
+  const independentFeedback = await countIndependentTransientFeedback(supabase, feedback);
+  if (independentFeedback.count >= INDEPENDENT_FEEDBACK_HIDE_THRESHOLD) {
+    const jobId = await createForcedRecollectionJob(supabase, feedback, source, "multi_feedback_auto_hide", {
+      independentFeedbackCount: independentFeedback.count,
+      independentFeedbackReasons: independentFeedback.reasonCounts,
+    });
+    return await autoHideFeedbackOffer(supabase, feedback, offer, {
+      result: "item_removed",
+      message: `24小时内已有 ${independentFeedback.count} 个独立用户反馈该报价不可买或信息不一致，已临时下架并创建强制重采。`,
+      reason: MULTI_FEEDBACK_HIDE_REASON,
+      probe,
+      source,
+      createdCollectionJobId: jobId,
+      independentFeedbackCount: independentFeedback.count,
+      independentFeedbackReasons: independentFeedback.reasonCounts,
+    });
+  }
+
   if (probe.result === "still_available") {
     return await finishManualReview(supabase, feedback, {
       result: "still_available",
       message: "源站复核仍返回可售状态，已保留前台报价并转人工确认。",
       details: { probe },
-    });
-  }
-
-  const independentFeedbackCount = await countIndependentRemovedFeedback(supabase, feedback);
-  if (independentFeedbackCount >= INDEPENDENT_FEEDBACK_HIDE_THRESHOLD) {
-    const jobId = await createForcedRecollectionJob(supabase, feedback, source, "multi_feedback_auto_hide");
-    return await autoHideFeedbackOffer(supabase, feedback, offer, {
-      result: "item_removed",
-      message: `24小时内已有 ${independentFeedbackCount} 个独立用户反馈该商品已下架，已临时下架并创建强制重采。`,
-      reason: MULTI_FEEDBACK_HIDE_REASON,
-      probe,
-      source,
-      createdCollectionJobId: jobId,
-      independentFeedbackCount,
     });
   }
 
@@ -183,14 +239,14 @@ export async function runOfferFeedbackAutoVerification(feedbackId: string): Prom
       message: jobId
         ? "自动复核未能确认下架，且报价更新时间已超过30分钟，已创建高优先级来源重采。"
         : "自动复核未能确认下架，但缺少可重采的来源信息，已转人工核验。",
-      details: { probe, independentFeedbackCount },
+      details: { probe, independentFeedbackCount: independentFeedback.count },
     });
   }
 
   return await finishManualReview(supabase, feedback, {
     result: probe.result,
     message: "自动复核未能确认下架，且报价近期刚更新；已保留前台报价并转人工确认。",
-    details: { probe, independentFeedbackCount },
+    details: { probe, independentFeedbackCount: independentFeedback.count },
   });
 }
 
@@ -198,6 +254,211 @@ function shouldAutoVerifyFeedback(feedback: FeedbackRow): boolean {
   const reason = feedback.reason as OfferFeedbackReason;
   if (LOW_RISK_VERIFICATION_REASONS.has(reason)) return true;
   return shouldCreateFeedbackVerification(reason, feedback.notes, feedback.evidence_text);
+}
+
+export async function closePendingTransientOfferFeedback(input: {
+  feedbackIds?: string[];
+  offerIds?: string[];
+  sourceIds?: string[];
+  limit?: number;
+} = {}): Promise<OfferFeedbackCloseupResult> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) throw new Error("Supabase 尚未配置，无法收口报价反馈。");
+
+  let query = supabase
+    .from("offer_feedback")
+    .select("*")
+    .eq("status", "pending")
+    .in("reason", TRANSIENT_FEEDBACK_REASON_VALUES)
+    .order("created_at", { ascending: false })
+    .limit(Math.max(1, Math.min(input.limit ?? 300, 1000)));
+
+  if (input.feedbackIds?.length) query = query.in("id", input.feedbackIds);
+  if (input.offerIds?.length) query = query.in("offer_id", compactStrings(input.offerIds));
+  if (input.sourceIds?.length) query = query.in("source_id", compactStrings(input.sourceIds));
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const feedbackRows = ((data || []) as FeedbackRow[]).filter((row) =>
+    TRANSIENT_FEEDBACK_REASONS.has(row.reason as OfferFeedbackReason)
+  );
+  if (!feedbackRows.length) {
+    return {
+      checkedFeedbackCount: 0,
+      closedFeedbackCount: 0,
+      closedFeedbackIds: [],
+      snapshotScope: null,
+    };
+  }
+
+  const offerIds = compactStrings(feedbackRows.map((row) => row.offer_id));
+  const offersById = await getRawOfferRowsById(supabase, offerIds);
+  const checkedAt = new Date().toISOString();
+  const closedFeedbackIds: string[] = [];
+  const scope = emptySnapshotScope();
+
+  for (const feedback of feedbackRows) {
+    const offer = feedback.offer_id ? offersById.get(feedback.offer_id) || null : null;
+    const outcome = buildFeedbackCloseupOutcome(feedback, offer);
+    if (!outcome) continue;
+
+    await updateFeedbackVerification(supabase, feedback, {
+      feedbackStatus: "resolved",
+      verificationStatus: "auto_fixed",
+      verificationResult: outcome.result,
+      verificationMessage: outcome.message,
+      checkedAt,
+      reviewedAt: checkedAt,
+      autoVerification: {
+        status: "auto_fixed",
+        result: outcome.result,
+        message: outcome.message,
+        checkedAt,
+        closeup: outcome.details,
+      },
+    });
+
+    closedFeedbackIds.push(feedback.id);
+    mergeSnapshotScope(scope, feedbackSnapshotScope(feedback, offer, null));
+  }
+
+  return {
+    checkedFeedbackCount: feedbackRows.length,
+    closedFeedbackCount: closedFeedbackIds.length,
+    closedFeedbackIds,
+    snapshotScope: closedFeedbackIds.length ? scope : null,
+  };
+}
+
+export async function runOfferFeedbackMultiFeedbackEscalation(
+  feedbackId: string,
+): Promise<OfferFeedbackMultiFeedbackEscalationResult> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) throw new Error("Supabase 尚未配置，无法检查重复反馈。");
+
+  const feedback = await getFeedbackRow(supabase, feedbackId);
+  if (!feedback) throw new Error("反馈记录不存在。");
+
+  if (!TRANSIENT_FEEDBACK_REASONS.has(feedback.reason as OfferFeedbackReason) || !feedback.offer_id) {
+    return buildSkippedEscalation(feedback, 0, "这条反馈不属于报价临时数据聚合处理范围。");
+  }
+
+  const independentFeedback = await countIndependentTransientFeedback(supabase, feedback);
+  if (independentFeedback.count < INDEPENDENT_FEEDBACK_HIDE_THRESHOLD) {
+    return buildSkippedEscalation(
+      feedback,
+      independentFeedback.count,
+      `24小时内独立反馈数 ${independentFeedback.count}，未达到自动临时下架阈值。`,
+    );
+  }
+
+  const offer = await getRawOfferRow(supabase, feedback.offer_id);
+  const sourceId = offer?.source_id || feedback.source_id || null;
+  const source = sourceId ? await getSourceRow(supabase, sourceId) : null;
+  const existingCloseup = buildFeedbackCloseupOutcome(feedback, offer);
+
+  if (existingCloseup) {
+    const closeup = await closePendingTransientOfferFeedback({ offerIds: [feedback.offer_id], limit: 100 });
+    return {
+      feedbackId: feedback.id,
+      status: "already_unavailable",
+      independentFeedbackCount: independentFeedback.count,
+      changedOfferCount: 0,
+      createdCollectionJobId: feedback.created_collection_job_id || null,
+      closedFeedbackCount: closeup.closedFeedbackCount,
+      message: "当前报价已经不可售或已被采集修正，已自动收口相关待处理反馈。",
+      snapshotScope: closeup.snapshotScope,
+    };
+  }
+
+  const checkedAt = new Date().toISOString();
+  const jobId = await createForcedRecollectionJob(supabase, feedback, source, "multi_transient_feedback_auto_hide", {
+    independentFeedbackCount: independentFeedback.count,
+    independentFeedbackReasons: independentFeedback.reasonCounts,
+  });
+  const hidden = await autoHideFeedbackOffer(supabase, feedback, offer, {
+    result: "item_removed",
+    message: `24小时内已有 ${independentFeedback.count} 个独立用户反馈该报价不可买或信息不一致，已临时下架并创建强制重采。`,
+    reason: MULTI_FEEDBACK_HIDE_REASON,
+    probe: {
+      result: "inconclusive",
+      message: "多用户反馈达到自动临时下架阈值。",
+      checkedAt,
+      details: {
+        kind: "multi_feedback",
+        independentFeedbackCount: independentFeedback.count,
+        independentFeedbackReasons: independentFeedback.reasonCounts,
+      },
+    },
+    source,
+    createdCollectionJobId: jobId,
+    independentFeedbackCount: independentFeedback.count,
+    independentFeedbackReasons: independentFeedback.reasonCounts,
+  });
+  const closeup = feedback.offer_id
+    ? await closePendingTransientOfferFeedback({ offerIds: [feedback.offer_id], limit: 100 })
+    : { closedFeedbackCount: 0, snapshotScope: null };
+
+  const scope = emptySnapshotScope();
+  mergeSnapshotScope(scope, hidden.snapshotScope);
+  mergeSnapshotScope(scope, closeup.snapshotScope);
+
+  return {
+    feedbackId: feedback.id,
+    status: "auto_hidden",
+    independentFeedbackCount: independentFeedback.count,
+    changedOfferCount: hidden.changedOfferCount,
+    createdCollectionJobId: jobId,
+    closedFeedbackCount: closeup.closedFeedbackCount + 1,
+    message: hidden.message,
+    snapshotScope: hasSnapshotScope(scope) ? scope : null,
+  };
+}
+
+export async function runPendingTransientFeedbackEscalations(input: {
+  limit?: number;
+} = {}): Promise<OfferFeedbackMultiFeedbackScanResult> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) throw new Error("Supabase 尚未配置，无法扫描重复反馈。");
+
+  const limit = Math.max(1, Math.min(input.limit ?? 300, 1000));
+  const { data, error } = await supabase
+    .from("offer_feedback")
+    .select("id,offer_id")
+    .eq("status", "pending")
+    .in("reason", TRANSIENT_FEEDBACK_REASON_VALUES)
+    .not("offer_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+
+  const rows = (data || []) as Array<Pick<FeedbackRow, "id" | "offer_id">>;
+  const processedOfferIds = new Set<string>();
+  const results: OfferFeedbackMultiFeedbackEscalationResult[] = [];
+  const scope = emptySnapshotScope();
+
+  for (const row of rows) {
+    const offerId = row.offer_id;
+    if (!offerId || processedOfferIds.has(offerId)) continue;
+    processedOfferIds.add(offerId);
+
+    const result = await runOfferFeedbackMultiFeedbackEscalation(row.id);
+    results.push(result);
+    mergeSnapshotScope(scope, result.snapshotScope);
+  }
+
+  return {
+    checkedFeedbackCount: rows.length,
+    checkedOfferCount: processedOfferIds.size,
+    autoHiddenOfferCount: results.filter((result) => result.status === "auto_hidden").length,
+    alreadyUnavailableOfferCount: results.filter((result) => result.status === "already_unavailable").length,
+    changedOfferCount: results.reduce((sum, result) => sum + result.changedOfferCount, 0),
+    closedFeedbackCount: results.reduce((sum, result) => sum + result.closedFeedbackCount, 0),
+    createdCollectionJobIds: compactStrings(results.map((result) => result.createdCollectionJobId)),
+    results,
+    snapshotScope: hasSnapshotScope(scope) ? scope : null,
+  };
 }
 
 async function getFeedbackRow(supabase: SupabaseServerClient, feedbackId: string): Promise<FeedbackRow | null> {
@@ -213,11 +474,29 @@ async function getFeedbackRow(supabase: SupabaseServerClient, feedbackId: string
 async function getRawOfferRow(supabase: SupabaseServerClient, offerId: string): Promise<RawOfferRow | null> {
   const { data, error } = await supabase
     .from("raw_offers")
-    .select("id,source_id,source_name,source_store_name,source_title,url,status,hidden,effective_status,verified_at,last_seen_at,source_updated_at,updated_at")
+    .select("id,source_id,source_name,source_store_name,source_title,price,url,status,hidden,effective_status,verified_at,last_seen_at,source_updated_at,updated_at")
     .eq("id", offerId)
     .maybeSingle();
   if (error) throw error;
   return data ? data as RawOfferRow : null;
+}
+
+async function getRawOfferRowsById(supabase: SupabaseServerClient, offerIds: string[]): Promise<Map<string, RawOfferRow>> {
+  const output = new Map<string, RawOfferRow>();
+  if (!offerIds.length) return output;
+
+  for (const ids of chunks(Array.from(new Set(offerIds)), 100)) {
+    const { data, error } = await supabase
+      .from("raw_offers")
+      .select("id,source_id,source_name,source_store_name,source_title,price,url,status,hidden,effective_status,verified_at,last_seen_at,source_updated_at,updated_at")
+      .in("id", ids);
+    if (error) throw error;
+    for (const row of data || []) {
+      output.set(String((row as Record<string, unknown>).id), row as RawOfferRow);
+    }
+  }
+
+  return output;
 }
 
 async function getSourceRow(supabase: SupabaseServerClient, sourceId: string): Promise<SourceRow | null> {
@@ -228,6 +507,95 @@ async function getSourceRow(supabase: SupabaseServerClient, sourceId: string): P
     .maybeSingle();
   if (error) throw error;
   return data ? data as SourceRow : null;
+}
+
+function buildFeedbackCloseupOutcome(
+  feedback: FeedbackRow,
+  offer: RawOfferRow | null,
+): {
+  result: OfferFeedbackVerificationResult;
+  message: string;
+  details: Record<string, unknown>;
+} | null {
+  if (!offer) return null;
+
+  const currentStatus = stringValue(offer.status) || "";
+  const currentEffectiveStatus = stringValue(offer.effective_status) || "";
+  const currentHidden = offer.hidden === true;
+  const baseDetails = {
+    reason: feedback.reason,
+    offerId: feedback.offer_id,
+    currentStatus,
+    currentEffectiveStatus,
+    currentHidden,
+  };
+
+  if (currentHidden || currentEffectiveStatus === "unavailable" || currentStatus === "out_of_stock") {
+    return {
+      result: currentStatus === "out_of_stock" ? "out_of_stock" : "item_removed",
+      message: currentHidden
+        ? "当前报价已隐藏或临时下架，自动标记该反馈已处理。"
+        : currentStatus === "out_of_stock"
+          ? "当前报价已显示缺货，自动标记该反馈已处理。"
+          : "当前报价已不可用，自动标记该反馈已处理。",
+      details: { ...baseDetails, outcome: "current_unavailable" },
+    };
+  }
+
+  const reason = feedback.reason as OfferFeedbackReason;
+  if (reason === "wrong_price") {
+    const snapshotPrice = numberValue(feedback.offer_price);
+    const currentPrice = numberValue(offer.price);
+    if (snapshotPrice !== null && currentPrice !== null && Math.abs(snapshotPrice - currentPrice) >= 0.01) {
+      return {
+        result: "offer_changed",
+        message: `当前报价价格已从 ¥${snapshotPrice} 变为 ¥${currentPrice}，自动标记该反馈已处理。`,
+        details: { ...baseDetails, outcome: "price_changed", snapshotPrice, currentPrice },
+      };
+    }
+  }
+
+  if (reason === "stock_mismatch") {
+    const snapshotStatus = stringValue(feedback.offer_status);
+    if (snapshotStatus && currentStatus && snapshotStatus !== currentStatus) {
+      return {
+        result: "offer_changed",
+        message: `当前库存状态已从「${snapshotStatus}」变为「${currentStatus}」，自动标记该反馈已处理。`,
+        details: { ...baseDetails, outcome: "status_changed", snapshotStatus },
+      };
+    }
+  }
+
+  if (reason === "description_mismatch") {
+    const snapshotTitle = stringValue(feedback.source_title);
+    const currentTitle = stringValue(offer.source_title);
+    if (snapshotTitle && currentTitle && snapshotTitle !== currentTitle) {
+      return {
+        result: "offer_changed",
+        message: "当前原始商品描述已更新，自动标记该反馈已处理。",
+        details: { ...baseDetails, outcome: "description_changed", snapshotTitle, currentTitle },
+      };
+    }
+  }
+
+  return null;
+}
+
+function buildSkippedEscalation(
+  feedback: FeedbackRow,
+  independentFeedbackCount: number,
+  message: string,
+): OfferFeedbackMultiFeedbackEscalationResult {
+  return {
+    feedbackId: feedback.id,
+    status: "skipped",
+    independentFeedbackCount,
+    changedOfferCount: 0,
+    createdCollectionJobId: feedback.created_collection_job_id || null,
+    closedFeedbackCount: 0,
+    message,
+    snapshotScope: null,
+  };
 }
 
 async function probeOfferUrl(rawUrl: string, source: SourceRow | null): Promise<ProbeResult> {
@@ -507,6 +875,7 @@ async function autoHideFeedbackOffer(
     source: SourceRow | null;
     createdCollectionJobId?: string | null;
     independentFeedbackCount?: number;
+    independentFeedbackReasons?: Record<string, number>;
   },
 ): Promise<OfferFeedbackAutoVerificationResult> {
   const now = new Date().toISOString();
@@ -548,6 +917,7 @@ async function autoHideFeedbackOffer(
       checkedAt: now,
       probe: input.probe,
       independentFeedbackCount: input.independentFeedbackCount,
+      independentFeedbackReasons: input.independentFeedbackReasons,
       createdCollectionJobId: input.createdCollectionJobId || feedback.created_collection_job_id || null,
     },
   });
@@ -685,6 +1055,7 @@ async function createForcedRecollectionJob(
   feedback: FeedbackRow,
   source: SourceRow | null,
   intent: string,
+  extraResult: Record<string, unknown> = {},
 ): Promise<string | null> {
   const sourceId = source?.id || feedback.source_id;
   if (!sourceId) return null;
@@ -716,6 +1087,7 @@ async function createForcedRecollectionJob(
         verificationIntent: intent,
         force: true,
         noCooldown: true,
+        ...extraResult,
       },
       created_at: now,
       updated_at: now,
@@ -724,27 +1096,34 @@ async function createForcedRecollectionJob(
   return jobId;
 }
 
-async function countIndependentRemovedFeedback(supabase: SupabaseServerClient, feedback: FeedbackRow): Promise<number> {
+async function countIndependentTransientFeedback(
+  supabase: SupabaseServerClient,
+  feedback: FeedbackRow,
+): Promise<{ count: number; reasonCounts: Record<string, number> }> {
   const offerId = feedback.offer_id;
-  if (!offerId) return 0;
+  if (!offerId) return { count: 0, reasonCounts: {} };
 
   const since = new Date(Date.now() - INDEPENDENT_FEEDBACK_WINDOW_MS).toISOString();
   const { data, error } = await supabase
     .from("offer_feedback")
-    .select("id,submitter_ip")
+    .select("id,reason,submitter_ip")
     .eq("offer_id", offerId)
-    .eq("reason", "item_removed")
+    .in("reason", TRANSIENT_FEEDBACK_REASON_VALUES)
     .neq("status", "ignored")
     .gte("created_at", since)
-    .limit(20);
+    .limit(50);
   if (error) throw error;
 
   const fingerprints = new Set<string>();
+  const reasonCounts: Record<string, number> = {};
   for (const row of data || []) {
-    const ip = stringValue((row as Record<string, unknown>).submitter_ip);
-    fingerprints.add(ip || `feedback:${String((row as Record<string, unknown>).id || "")}`);
+    const record = row as Record<string, unknown>;
+    const reason = stringValue(record.reason) || "other";
+    const ip = stringValue(record.submitter_ip);
+    fingerprints.add(ip || `feedback:${String(record.id || "")}`);
+    reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
   }
-  return fingerprints.size;
+  return { count: fingerprints.size, reasonCounts };
 }
 
 function shouldCreateForcedRecollection(
@@ -773,6 +1152,36 @@ function feedbackSnapshotScope(feedback: FeedbackRow, offer: RawOfferRow | null,
     offerIds: compactStrings([offer?.id, feedback.offer_id]),
     sourceIds: compactStrings([source?.id, offer?.source_id, feedback.source_id]),
   };
+}
+
+function emptySnapshotScope() {
+  return {
+    productIds: [] as string[],
+    offerIds: [] as string[],
+    sourceIds: [] as string[],
+  };
+}
+
+function mergeSnapshotScope(
+  target: ReturnType<typeof emptySnapshotScope>,
+  source: ReturnType<typeof emptySnapshotScope> | null,
+): void {
+  if (!source) return;
+  target.productIds = compactStrings([...target.productIds, ...source.productIds]);
+  target.offerIds = compactStrings([...target.offerIds, ...source.offerIds]);
+  target.sourceIds = compactStrings([...target.sourceIds, ...source.sourceIds]);
+}
+
+function hasSnapshotScope(scope: ReturnType<typeof emptySnapshotScope>): boolean {
+  return Boolean(scope.productIds.length || scope.offerIds.length || scope.sourceIds.length);
+}
+
+function chunks<T>(values: T[], size: number): T[][] {
+  const output: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    output.push(values.slice(index, index + size));
+  }
+  return output;
 }
 
 function firstTimestamp(...values: Array<string | null | undefined>): Date | null {
