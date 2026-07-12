@@ -94,7 +94,7 @@ export async function createWholesaleSubmission(input: WholesaleSubmissionInput)
   const sourceDescription = cleanText(input.sourceDescription, 1000);
   const evidenceSummary = cleanText(input.evidenceSummary, 1000);
   const title = cleanText(input.title, 120) ?? `${roleLabel} - ${directionLabel}`;
-  const notes = cleanText(input.notes, 2000);
+  const notes = cleanText(input.notes, 4000);
 
   const meta: Record<string, unknown> = {
     workflow: "wholesale",

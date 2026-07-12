@@ -26,8 +26,9 @@ const schema = z.object({
   direction: z.enum(["api_transit", "subscription_channel", "other"]),
   title: z.string().trim().min(2).max(120),
   contact: z.string().trim().min(2).max(200),
+  details: z.string().trim().min(10).max(4000),
   identityType: optionalText(80),
-  target: z.string().trim().min(2).max(1000),
+  target: optionalText(1000),
   volume: optionalText(200),
   budget: optionalText(200),
   acceptableSources: optionalText(500),
@@ -38,7 +39,7 @@ const schema = z.object({
   afterSales: optionalText(300),
   evidenceSummary: optionalText(1000),
   proofUrl: optionalHttpUrlSchema,
-  notes: optionalText(2000),
+  notes: optionalText(4000),
   website: z.string().max(200).optional().nullable(),
 });
 
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
       title: payload.title,
       contact: payload.contact,
       identityType: payload.identityType ?? null,
-      target: payload.target,
+      target: payload.target || payload.details,
       volume: payload.volume ?? null,
       budget: payload.budget ?? null,
       acceptableSources: payload.acceptableSources ?? null,
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
       afterSales: payload.afterSales ?? null,
       evidenceSummary: payload.evidenceSummary ?? null,
       proofUrl: payload.proofUrl ?? null,
-      notes: payload.notes ?? null,
+      notes: payload.notes || payload.details,
       submitterIp,
       userAgent: request.headers.get("user-agent"),
     });

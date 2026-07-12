@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ExternalLink, HeartHandshake, Info, Menu, MessageCircle, X } from "lucide-react";
+import { ExternalLink, Handshake, HeartHandshake, Info, Menu, MessageCircle, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
@@ -17,10 +17,9 @@ const navItems = [
   { key: "official", href: "/official-prices", label: "官方订阅", mobileLabel: "订阅", match: (pathname: string) => pathname.startsWith("/official-prices") },
   { key: "api", href: "/official-api", label: "官方 API", mobileLabel: "API", match: (pathname: string) => pathname.startsWith("/official-api") },
   { key: "transit", href: "/api-transit", label: "中转 API", mobileLabel: "中转", match: (pathname: string) => pathname.startsWith("/api-transit") },
-  { key: "wholesale", href: "/wholesale", label: "批发专区", mobileLabel: "批发", match: (pathname: string) => pathname.startsWith("/wholesale") },
 ];
 
-type SiteHeaderSection = (typeof navItems)[number]["key"] | "home" | "guides" | "support";
+type SiteHeaderSection = (typeof navItems)[number]["key"] | "home" | "guides" | "support" | "wholesale";
 const homeHref = "/?home=1";
 const githubUrl = "https://github.com/physics-dimension/PriceAI";
 
@@ -38,6 +37,7 @@ export function SiteHeader({
   const pathname = usePathname();
   const aboutActive = pathname.startsWith("/about");
   const supportActive = pathname.startsWith(supportPagePath);
+  const wholesaleActive = activeSection === "wholesale" || pathname.startsWith("/wholesale");
   const desktopCenterNavClassName = "hidden items-center rounded-full bg-[#e4e9ea] p-1 text-sm font-semibold text-[#5a6061] min-[720px]:flex";
   const actionGroupGapClassName =
     compactActionLabelFrom === "never" ? "gap-1.5" : compactActionLabelFrom === "2xl" ? "gap-1.5 2xl:gap-3" : "gap-1.5 sm:gap-3";
@@ -90,6 +90,22 @@ export function SiteHeader({
         </div>
 
         <div className={`relative z-10 hidden min-w-0 items-center justify-end justify-self-end min-[720px]:col-start-3 min-[720px]:flex ${actionGroupGapClassName}`}>
+          <Link
+            href="/wholesale"
+            className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
+              wholesaleActive
+                ? "bg-[#2d3435] text-[#f8f8f8] shadow-[0_10px_30px_rgba(45,52,53,0.10)]"
+                : "bg-white text-[#2d3435] ring-1 ring-[#adb3b4]/25 hover:bg-[#f5f7f7]"
+            }`}
+            aria-current={wholesaleActive ? "page" : undefined}
+            aria-label="批发合作"
+            title="批发合作"
+          >
+            <Handshake size={16} />
+            <span className={compactActionLabelFrom === "sm" ? "hidden sm:inline" : "hidden xl:inline"}>
+              批发合作
+            </span>
+          </Link>
           <ThemeToggle compact labelFrom={compactActionLabelFrom} />
           <FeedbackLink compact labelFrom={compactActionLabelFrom} />
           <QQGroupLink compact labelFrom={compactActionLabelFrom} />
@@ -103,6 +119,7 @@ export function SiteHeader({
           activeKey={activeNavItem?.key}
           aboutActive={aboutActive}
           supportActive={supportActive}
+          wholesaleActive={wholesaleActive}
           onClose={() => setMobileDrawerOpen(false)}
           onFeedback={() => {
             setMobileDrawerOpen(false);
@@ -124,6 +141,7 @@ function MobileModuleDrawer({
   activeKey,
   aboutActive,
   supportActive,
+  wholesaleActive,
   onClose,
   onFeedback,
   onQQGroup,
@@ -131,6 +149,7 @@ function MobileModuleDrawer({
   activeKey?: (typeof navItems)[number]["key"];
   aboutActive: boolean;
   supportActive: boolean;
+  wholesaleActive: boolean;
   onClose: () => void;
   onFeedback: () => void;
   onQQGroup: () => void;
@@ -197,6 +216,22 @@ function MobileModuleDrawer({
 
         <div className="mt-4 border-t border-[var(--color-border-soft)] pt-3">
           <div className="space-y-1">
+            <Link
+              href="/wholesale"
+              onClick={onClose}
+              className={`flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold transition ${
+                wholesaleActive
+                  ? "bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]"
+                  : "text-[var(--color-text-body)] hover:bg-[var(--color-surface-hover)]"
+              }`}
+              aria-current={wholesaleActive ? "page" : undefined}
+            >
+              <span className="inline-flex items-center gap-3">
+                <Handshake size={17} />
+                批发合作
+              </span>
+              {wholesaleActive ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" aria-hidden="true" /> : null}
+            </Link>
             <Link
               href="/about"
               onClick={onClose}
