@@ -796,7 +796,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       { label: "API 模型", value: apiModels.offers.length, icon: <TerminalSquare key="api" size={15} /> },
       { label: "待审核", value: reviewSubmissions.length, icon: <Inbox key="i" size={15} /> },
       { label: "反馈", value: pendingFeedbackCount, icon: <Flag key="fb" size={15} /> },
-      { label: "采集待办", value: collectorTodoSubmissions.length, icon: <TerminalSquare key="t" size={15} /> },
+      { label: "解析器待办", value: collectorTodoSubmissions.length, icon: <TerminalSquare key="t" size={15} /> },
     ],
     [apiModels.offers.length, collectorTodoSubmissions.length, data.products.length, data.rawOfferTotal, officialPrices.currentPrices.length, pendingFeedbackCount, reviewSubmissions.length, sources.length],
   );
@@ -875,7 +875,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       },
       {
         id: "data-maintenance",
-        label: "数据维护",
+        label: "数据资产",
         items: [
           { id: "sources", label: "渠道源", count: sources.length, icon: <Store size={15} />, description: "维护来源站点、采集器类型、启停状态和批量采集动作。" },
           { id: "manual", label: "报价维护", count: null, icon: <Plus size={15} />, description: "调试补录报价和处理隐藏报价，作为排查工具而非长期维护入口。" },
@@ -896,12 +896,12 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       },
       {
         id: "collection",
-        label: "采集系统",
+        label: "采集运行",
         items: [
-          { id: "todo", label: "采集待办", count: collectorTodoSubmissions.length, icon: <ClipboardList size={15} />, description: "查看试采集失败或需要新增解析器的渠道待办。" },
-          { id: "collect", label: "运行调度", count: failedRunCount || null, icon: <RefreshCcw size={15} />, description: "创建采集任务、查看采集队列和最近运行状态。" },
-          { id: "health", label: "健康状态", count: collectorHealthIssueCount || null, icon: <Activity size={15} />, description: "查看采集节点、来源新鲜度、失败来源和健康指标。" },
-          { id: "logs", label: "运行日志", count: collectorStatus.crawlRuns.length, icon: <Clock size={15} />, description: "查看采集状态快照和最近运行日志。" },
+          { id: "todo", label: "解析器待办", count: collectorTodoSubmissions.length, icon: <ClipboardList size={15} />, description: "沉淀试采集失败、缺解析器或需要新增规则的渠道。" },
+          { id: "collect", label: "任务队列", count: failedRunCount || null, icon: <RefreshCcw size={15} />, description: "创建采集任务、查看队列领取情况和最近运行状态。" },
+          { id: "health", label: "采集健康", count: collectorHealthIssueCount || null, icon: <Activity size={15} />, description: "查看采集节点、来源新鲜度、失败来源和健康指标。" },
+          { id: "logs", label: "运行记录", count: collectorStatus.crawlRuns.length, icon: <Clock size={15} />, description: "查看采集状态快照和最近运行日志。" },
         ],
       },
       {
@@ -2714,7 +2714,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
       {/* Header */}
       <header className="border-b border-[#adb3b4]/30 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-none items-center justify-between gap-4 px-4 py-3 sm:px-5 lg:px-6 2xl:px-8">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm font-medium text-[#5a6061] transition-colors hover:text-[#2d3435]">
               &larr; PriceAI
@@ -2723,7 +2723,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
             <h1 className="font-serif text-lg font-semibold text-[#202829]">后台管理</h1>
           </div>
           {authed && (
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
               {summary.map((s) => (
                 <div key={s.label} className="hidden items-center gap-1.5 text-xs text-[#5a6061] sm:flex">
                   {s.icon}
@@ -2736,7 +2736,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-none px-4 py-4 sm:px-5 lg:px-6 2xl:px-8">
         {/* Global message */}
         {globalMessage && (
           <div className="mb-4">

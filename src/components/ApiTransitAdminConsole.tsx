@@ -479,14 +479,14 @@ export function ApiTransitAdminPanel({
           </section>
         ) : (
           <>
-            <section className="mb-5 grid gap-3 md:grid-cols-4">
-              <MetricCard label="待发布站点" value={data.metrics.pendingStations} />
-              <MetricCard label="清洗候选" value={data.metrics.candidateOffers} />
-              <MetricCard label="原始待审" value={data.metrics.pendingOffers} />
-              <MetricCard label="提交线索" value={data.metrics.pendingSubmissions} />
+            <section className={hideTabs ? "mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-[#adb3b4]/20 bg-white px-3 py-2" : "mb-5 grid gap-3 md:grid-cols-4"}>
+              <MetricCard label="待发布站点" value={data.metrics.pendingStations} compact={hideTabs} />
+              <MetricCard label="清洗候选" value={data.metrics.candidateOffers} compact={hideTabs} />
+              <MetricCard label="原始待审" value={data.metrics.pendingOffers} compact={hideTabs} />
+              <MetricCard label="提交线索" value={data.metrics.pendingSubmissions} compact={hideTabs} />
             </section>
 
-            <section className="mb-5 rounded-lg border border-[#adb3b4]/25 bg-white p-3 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+            <section className={hideTabs ? "mb-3 rounded-lg border border-[#adb3b4]/20 bg-white p-2" : "mb-5 rounded-lg border border-[#adb3b4]/25 bg-white p-3 shadow-[0_3px_8px_rgba(45,52,53,0.025)]"}>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="relative min-w-0 flex-1">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#adb3b4]" />
@@ -494,7 +494,7 @@ export function ApiTransitAdminPanel({
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="搜索站点、模型、分组、URL..."
-                    className="h-10 w-full rounded-lg border border-[#adb3b4]/30 bg-white pl-9 pr-3 text-sm outline-none transition-colors focus:border-[#2d3435]"
+                    className={`${hideTabs ? "h-9" : "h-10"} w-full rounded-lg border border-[#adb3b4]/30 bg-white pl-9 pr-3 text-sm outline-none transition-colors focus:border-[#2d3435]`}
                   />
                 </div>
                 {!hideTabs && <div className="flex gap-1 overflow-x-auto">
@@ -628,7 +628,16 @@ export function ApiTransitAdminPanel({
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: number }) {
+function MetricCard({ label, value, compact = false }: { label: string; value: number; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="inline-flex min-h-8 items-center gap-2 rounded-full bg-[#f2f4f4] px-3 text-xs">
+        <span className="font-medium text-[#5a6061]">{label}</span>
+        <strong className="font-semibold text-[#202829]">{value}</strong>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-[#adb3b4]/25 bg-white p-4">
       <span className="text-xs font-medium text-[#5a6061]">{label}</span>
