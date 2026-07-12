@@ -31,6 +31,9 @@ export function TransitStationLivePricingPanels({ slug, initialStation }: Props)
     let active = true;
 
     async function refreshDetailData() {
+      setStation(initialStation);
+      setRequestedFreshData(false);
+
       try {
         const response = await fetch(`/api/api-transit-stations/${encodeURIComponent(slug)}/detail`, {
           headers: {
@@ -60,7 +63,7 @@ export function TransitStationLivePricingPanels({ slug, initialStation }: Props)
       active = false;
       controller.abort();
     };
-  }, [slug]);
+  }, [initialStation, slug]);
 
   if (!station.prices.length && !requestedFreshData) {
     return <TransitStationPricingSkeleton />;
