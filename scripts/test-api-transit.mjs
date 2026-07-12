@@ -105,6 +105,26 @@ assert.ok(
   configuredYujianSource.adminNote.includes("Pro 号池常规 0.20 倍率"),
   "天机阁后台备注必须保留站长提交的常规 Pro 倍率口径。",
 );
+const configuredUmapisSource = transitSourceConfig.find((source) => source.id === "umapis-com");
+assert.ok(configuredUmapisSource, "悠米AI中转 must stay saved as an API transit draft source.");
+assert.equal(configuredUmapisSource.collectorKind, "new_api_pricing");
+assert.equal(configuredUmapisSource.stationSystem, "new_api");
+assert.equal(configuredUmapisSource.websiteUrl, "https://www.umapis.com/");
+assert.equal(configuredUmapisSource.pricingUrl, "https://www.umapis.com/pricing");
+assert.equal(configuredUmapisSource.pricingEndpointUrl, "https://www.umapis.com/api/pricing");
+assert.equal(configuredUmapisSource.autoPublish, false);
+assert.equal(configuredUmapisSource.commercialRelation, "none");
+assert.equal(configuredUmapisSource.operatorType, "unknown");
+assert.equal(configuredUmapisSource.invoiceSupport, "unknown");
+assert.equal(Boolean(configuredUmapisSource.monitorUrl), false);
+assert.ok(
+  configuredUmapisSource.adminNote.includes("GPT-Pro 0.15"),
+  "悠米AI中转后台备注必须保留公开读取到的 GPT-Pro 分组倍率。",
+);
+assert.ok(
+  configuredUmapisSource.adminNote.includes("充值倍率"),
+  "悠米AI中转后台备注必须列出正式上架前需要补充的充值倍率。",
+);
 
 const scheduledPublishedRtocSources = __test.selectSources(
   __test.filterSourcesByPublishedStationIds(transitSourceConfig, new Set(["ai-rtoc-cc"])),
