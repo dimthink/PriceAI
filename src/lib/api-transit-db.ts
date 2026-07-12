@@ -378,9 +378,24 @@ export async function getTransitStationBySlug(
   slug: string,
   options: { includeHistory?: boolean } = {}
 ): Promise<TransitStation | undefined> {
-  const station = options.includeHistory
-    ? await readStationFromSupabaseBySlug(slug)
-    : getCachedStationBySlug(slug) ?? await readStationFromSupabaseBySlug(slug);
+  const cachedStation = getCachedStationBySlug(slug);
+  if (!options.includeHistory && cachedStation) return cachedStation;
+
+  let station: TransitStation | undefined;
+  try {
+    station = await readStationFromSupabaseBySlug(slug);
+  } catch (error) {
+    station = await getTransitStationFallbackBySlug(slug);
+    if (!station) {
+      console.warn(
+        `Returning no API transit station for ${slug} because the live read failed and no fallback was available:`,
+        error
+      );
+      return undefined;
+    }
+    console.warn(`Using fallback API transit station for ${slug} because the live read failed:`, error);
+  }
+
   if (!station || !options.includeHistory) return station;
   return getTransitStationDetailData(station);
 }
@@ -389,14 +404,35 @@ export async function getTransitStationDetailData(station: TransitStation): Prom
   return enrichStationWithDetailData(station);
 }
 
-function getCachedStationBySlug(slug: string): TransitStation | undefined {
+async function getTransitStationFallbackBySlug(slug: string): Promise<TransitStation | undefined> {
+  const cachedStation = getCachedStationBySlug(slug, { allowStale: true });
+  if (cachedStation) return cachedStation;
+
+  const snapshot = await readTransitStationsSnapshot();
+  const snapshotStation = snapshot ? findTransitStationBySlug(snapshot.stations, slug) : undefined;
+  if (snapshotStation) {
+    cacheStationLookup(snapshotStation, Date.now(), slug);
+    return snapshotStation;
+  }
+
+  return findTransitStationBySlug(seedStations, slug);
+}
+
+function getCachedStationBySlug(
+  slug: string,
+  options: { allowStale?: boolean } = {}
+): TransitStation | undefined {
   const now = Date.now();
-  if (cached && now - cachedAt < CACHE_TTL_MS) {
-    return cached.find((item) => item.slug === slug || item.id === slug);
+  if (cached && (options.allowStale || now - cachedAt < CACHE_TTL_MS)) {
+    return findTransitStationBySlug(cached, slug);
   }
   const entry = cachedBySlug.get(slug);
-  if (!entry || now - entry.cachedAt >= CACHE_TTL_MS) return undefined;
+  if (!entry || (!options.allowStale && now - entry.cachedAt >= CACHE_TTL_MS)) return undefined;
   return entry.station;
+}
+
+function findTransitStationBySlug(stations: TransitStation[], slug: string): TransitStation | undefined {
+  return stations.find((item) => item.slug === slug || item.id === slug);
 }
 
 async function readStationsFromSupabase(options: TransitStationsReadOptions = {}): Promise<TransitStation[]> {
@@ -499,14 +535,7 @@ async function readStationFromSupabaseBySlug(slug: string): Promise<TransitStati
   const supabase = getSupabaseServerClient();
   if (!supabase) return seedStations.find((station) => station.slug === slug || station.id === slug);
 
-  let stationRow: DbRow | undefined;
-  try {
-    stationRow = (await queryPublishedStationRows(supabase, publicTransitReadSignal(), slug))[0];
-  } catch (error) {
-    console.warn("Returning no API transit station because Supabase station read failed:", error);
-    return undefined;
-  }
-
+  const stationRow = (await queryPublishedStationRows(supabase, publicTransitReadSignal(), slug))[0];
   if (!stationRow) return undefined;
 
   const stationId = stringValue(stationRow.id);
