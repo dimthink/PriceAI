@@ -89,6 +89,23 @@ assert.equal(configuredMaofeiSource.monitorUrl, "https://api.999555999.com/publi
 assert.equal(configuredMaofeiSource.stationSystem, "sub_to_api");
 assert.equal(configuredMaofeiSource.rechargeRatio, "1:1");
 assert.equal(configuredMaofeiSource.autoPublish, true);
+const configuredOnePkapiSource = transitSourceConfig.find((source) => source.id === "api-1pkapi-com");
+assert.ok(configuredOnePkapiSource, "皓悦 API must stay saved as an API transit draft source.");
+assert.equal(configuredOnePkapiSource.collectorKind, "ai_transit_snapshot");
+assert.equal(configuredOnePkapiSource.stationSystem, "sub_to_api");
+assert.equal(configuredOnePkapiSource.websiteUrl, "https://api.1pkapi.com/");
+assert.equal(configuredOnePkapiSource.pricingUrl, "https://api.1pkapi.com/public/transit");
+assert.equal(configuredOnePkapiSource.pricingEndpointUrl, "https://api.1pkapi.com/api/public/transit/v1/snapshot");
+assert.equal(configuredOnePkapiSource.monitorUrl, "https://api.1pkapi.com/public/transit?view=monitoring");
+assert.equal(configuredOnePkapiSource.rechargeRatio, "1:1");
+assert.equal(configuredOnePkapiSource.autoPublish, false);
+assert.equal(configuredOnePkapiSource.commercialRelation, "none");
+assert.equal(configuredOnePkapiSource.operatorType, "unknown");
+assert.equal(configuredOnePkapiSource.invoiceSupport, "unknown");
+assert.ok(
+  configuredOnePkapiSource.adminNote.includes("autoPublish=false"),
+  "皓悦 API 后台备注必须明确保持待审核草稿，不自动上前台。",
+);
 const configuredYujianSource = transitSourceConfig.find((source) => source.id === "yujianwudi-top");
 assert.ok(configuredYujianSource, "天机阁 must stay saved as an API transit draft source.");
 assert.equal(configuredYujianSource.collectorKind, "new_api_pricing");
