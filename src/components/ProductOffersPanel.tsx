@@ -38,6 +38,7 @@ import {
 } from "@/lib/trust-risk";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
+import { hasMoreProductOfferPage, mergeProductOfferPages } from "@/lib/product-offer-pagination";
 import type { MerchantCollectorFilter, RawOffer } from "@/lib/types";
 import { formatCurrency, formatDateMinute, formatRelativeTime } from "@/lib/utils";
 
@@ -143,12 +144,16 @@ export function ProductOffersPanel({
   const [error, setError] = useState<string | null>(null);
   const [feedbackOffer, setFeedbackOffer] = useState<RawOffer | null>(null);
   const [outboundOffer, setOutboundOffer] = useState<RawOffer | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const pagingControllerRef = useRef<AbortController | null>(null);
   const isDesktop = useMediaQuery("(min-width: 768px)");
 
   useEffect(() => {
     activeCacheKeyRef.current = activeCacheKey;
+    pagingControllerRef.current?.abort();
+    pagingControllerRef.current = null;
   }, [activeCacheKey]);
+
+  useEffect(() => () => pagingControllerRef.current?.abort(), []);
 
   useEffect(() => {
     const urlFilters = readOfferFiltersFromUrl();
@@ -191,6 +196,7 @@ export function ProductOffersPanel({
     let active = true;
 
     async function loadOffers() {
+      setPaging(false);
       const shouldUseInitialData =
         filterTags.join(",") === initialFilterKey &&
         query === normalizedInitialQuery &&
@@ -215,8 +221,6 @@ export function ProductOffersPanel({
       } else {
         setLoading(true);
       }
-      setPaging(false);
-
       const timeout = createTimeoutSignal(PRODUCT_OFFERS_REFRESH_TIMEOUT_MS);
       cancelRefresh = timeout.cancel;
 
@@ -277,7 +281,7 @@ export function ProductOffersPanel({
     initialData?.filterFacets,
     selectedFilterTags,
   );
-  const hasMore = Boolean(activeData) && !loading && offers.length < total;
+  const hasMore = activeData ? !loading && hasMoreProductOfferPage(activeData) : false;
   const activeFilters = selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all");
 
   const loadMoreOffers = useCallback(async () => {
@@ -289,26 +293,21 @@ export function ProductOffersPanel({
     const maxPrice = normalizeOfferPriceInput(offerMaxPrice);
     const requestCacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
     if (dataCacheKey !== requestCacheKey) return;
+    if (pagingControllerRef.current) return;
 
+    const controller = new AbortController();
+    pagingControllerRef.current = controller;
     setPaging(true);
     setError(null);
 
     try {
-      const nextPage = await fetchProductOfferPage(productId, offers.length, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
+      const nextPage = await fetchProductOfferPage(productId, offers.length, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice, controller.signal);
       if (activeCacheKeyRef.current !== requestCacheKey) return;
       setData((current) => {
         if (activeCacheKeyRef.current !== requestCacheKey) return current;
         if (!current) return nextPage;
 
-        const seen = new Set(current.offers.map((offer) => offer.id));
-        const nextOffers = nextPage.offers.filter((offer) => !seen.has(offer.id));
-
-        const mergedData = {
-          ...nextPage,
-          offers: [...current.offers, ...nextOffers],
-          total: nextPage.total || current.total,
-          limited: nextPage.limited,
-        };
+        const mergedData = mergeProductOfferPages(current, nextPage);
 
         const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
         rememberHealthyProductOffers(cacheKey, mergedData);
@@ -316,32 +315,14 @@ export function ProductOffersPanel({
         return mergedData;
       });
     } catch (currentError) {
+      if (controller.signal.aborted) return;
       if (activeCacheKeyRef.current !== requestCacheKey) return;
       setError(currentError instanceof Error ? currentError.message : "报价加载失败");
     } finally {
-      if (activeCacheKeyRef.current === requestCacheKey) setPaging(false);
+      if (pagingControllerRef.current === controller) pagingControllerRef.current = null;
+      if (!controller.signal.aborted && activeCacheKeyRef.current === requestCacheKey) setPaging(false);
     }
   }, [activeData, dataCacheKey, loading, offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, offers.length, paging, productId, selectedCollector, selectedFilterTags, total]);
-
-  useEffect(() => {
-    if (!hasMore) return;
-
-    const node = loadMoreRef.current;
-    if (!node) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          void loadMoreOffers();
-        }
-      },
-      { rootMargin: "640px 0px" },
-    );
-
-    observer.observe(node);
-
-    return () => observer.disconnect();
-  }, [hasMore, loadMoreOffers]);
 
   const handleToggleFilterTag = useCallback((tagId: OfferFilterTagId) => {
     const nextTags = toggleOfferFilterTag(selectedFilterTags, tagId);
@@ -455,11 +436,12 @@ export function ProductOffersPanel({
         <EmptyOfferFilterState onClear={clearOfferFilters} />
       )}
       {hasMore ? (
-        <div ref={loadMoreRef} className="mt-4 flex justify-center">
+        <div className="mt-4 flex justify-center">
           <button
             type="button"
             onClick={loadMoreOffers}
             disabled={paging}
+            aria-busy={paging}
             className="inline-flex h-10 items-center justify-center rounded-full bg-[#e4e9ea] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5] disabled:opacity-60"
           >
             {paging ? "正在加载更多报价..." : `继续加载报价 (${offers.length}/${total})`}

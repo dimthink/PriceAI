@@ -162,6 +162,10 @@ const productOffersPanelText = read("src/components/ProductOffersPanel.tsx");
 assert(/PRODUCT_OFFERS_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer client cache must use the shared price cache policy.");
 assert(/PRODUCT_OFFERS_REFRESH_TIMEOUT_MS\s*=\s*10_000/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer refresh timeout must tolerate slow-tail product API responses.");
 assert(/createTimeoutSignal\(PRODUCT_OFFERS_REFRESH_TIMEOUT_MS\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offers must use the product-specific refresh timeout.");
+assert(!/IntersectionObserver/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: deep product offer pages must require an explicit load-more action.");
+assert(/hasMoreProductOfferPage\(activeData\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer pagination must honor the server end-of-list signal.");
+assert(/mergeProductOfferPages\(current, nextPage\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: empty or duplicate product offer pages must stop pagination.");
+assert(/pagingControllerRef\.current\?\.abort\(\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: changing filters must abort the previous pagination request.");
 
 const clientHooksText = read("src/lib/client-hooks.ts");
 assert(/export function useMediaQuery/.test(clientHooksText), "src/lib/client-hooks.ts: shared client media query hook must stay centralized.");
