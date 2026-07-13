@@ -1972,8 +1972,17 @@ function MobileProductCard({
   const handleProductClick = listDetailClickHandler(productHref, returnQuery, () => trackProductDetailOpen(product));
 
   return (
-    <article className="rounded-lg bg-white px-4 py-3.5 ring-1 ring-[#adb3b4]/15 md:hidden">
-      <div className="flex items-start justify-between gap-3">
+    <article className="group relative rounded-lg bg-white px-4 py-3.5 ring-1 ring-[#adb3b4]/15 transition hover:bg-[var(--color-panel-soft)] active:bg-[var(--color-surface-hover)] md:hidden">
+      <Link
+        href={productHref}
+        onClick={handleProductClick}
+        className="absolute inset-0 z-10 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-text-muted)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-page)]"
+        aria-label={`查看 ${product.displayName} 详情`}
+      >
+        <span className="sr-only">查看 {product.displayName} 详情</span>
+      </Link>
+
+      <div className="pointer-events-none flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5a6061]">
             {productIcon(product)}
@@ -1986,7 +1995,7 @@ function MobileProductCard({
         <OfferStatusBadge available={available} />
       </div>
 
-      <div className="mt-3 flex items-end justify-between gap-3">
+      <div className="pointer-events-none mt-3 flex items-end justify-between gap-3">
         <div className="min-w-0">
           <p className={`text-2xl font-bold tracking-normal ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
             {formatCurrency(product.lowestPrice, previewOffer?.currency)}
@@ -2000,17 +2009,15 @@ function MobileProductCard({
             mode="mobile"
           />
         </div>
-        <Link
-          href={productHref}
-          onClick={handleProductClick}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2d3435] text-[#f8f8f8] transition hover:bg-[#1f2526]"
-          aria-label={`查看 ${product.displayName} 详情`}
+        <span
+          aria-hidden="true"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2d3435] text-[#f8f8f8] transition group-hover:bg-[#1f2526]"
         >
           <ChevronRight size={15} />
-        </Link>
+        </span>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
+      <div className="pointer-events-none mt-2.5 flex flex-wrap gap-1.5 text-xs">
         <CountBadge tone="good">有货 {product.inStockCount}</CountBadge>
         <CountBadge tone="danger">缺货 {product.outOfStockCount}</CountBadge>
         <CountBadge tone="muted">渠道 {product.offerCount}</CountBadge>
@@ -2072,7 +2079,7 @@ function WarrantyLowestPrice({
       <Link
         href={href}
         onClick={handleWarrantyClick}
-        className="mt-1 inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-[#47657a]"
+        className="pointer-events-auto relative z-20 mt-1 inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-[#47657a]"
       >
         <span className="shrink-0 rounded-full bg-[#eef3f8] px-2 py-0.5">质保</span>
         <span className="truncate">{formatCurrency(product.warrantyLowestPrice, warrantyOffer.currency)}</span>
