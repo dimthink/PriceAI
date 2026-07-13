@@ -86,7 +86,7 @@ const EXPLORER_OFFER_SEARCH_TEXT_MAX_LENGTH = 480;
 const STALE_PUBLIC_DATA_MESSAGE = "报价服务响应变慢，已先显示最近缓存结果。";
 const PRIMARY_COLLECTOR_NODE_IDS = new Set([
   "huoshan2-nonshop",
-  "aliyun4-beijing-priceai",
+  "aliyun6-hangzhou-priceai",
   "aliyun5-chengdu-priceai",
 ]);
 const PUBLIC_EXPLORER_SNAPSHOT_KEY = "default";
