@@ -204,10 +204,7 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
     });
   }, [channelFilter, familyFilter, modelFilter, poolFilter, rankingReferenceAt, search, sortBy, stations]);
 
-  const activeFilterCount =
-    [channelFilter, poolFilter].filter((value) => value !== "all").length +
-    (search ? 1 : 0) +
-    (sortBy !== "overall" ? 1 : 0);
+  const advancedFilterCount = [channelFilter, poolFilter].filter((value) => value !== "all").length;
 
   const returnQuery = useMemo(() => {
     const params = new URLSearchParams();
@@ -252,7 +249,7 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
 
   return (
     <div>
-      <div className="mb-5 space-y-3">
+      <div className="mb-4 space-y-2.5 md:mb-5 md:space-y-3">
         <div className="grid gap-3 xl:grid-cols-[minmax(260px,460px)_auto] xl:items-center xl:justify-start">
           <SearchField
             value={search}
@@ -290,13 +287,13 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
                 type="button"
                 onClick={() => setShowFilters((value) => !value)}
                 className={`inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition-colors sm:px-4 ${
-                  showFilters || activeFilterCount > 0
+                  showFilters || advancedFilterCount > 0
                     ? "bg-[#2d3435] text-[#f8f8f8]"
                     : "bg-white text-[#5a6061] ring-1 ring-[#adb3b4]/15 hover:bg-[#f5f7f7] hover:text-[#202829]"
                 }`}
               >
                 <Filter className="h-3.5 w-3.5" />
-                筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
+                筛选{advancedFilterCount > 0 ? ` ${advancedFilterCount}` : ""}
               </button>
             </div>
           </div>
@@ -326,10 +323,8 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
         resultCount={filtered.length}
         onClose={() => setShowFilters(false)}
         onReset={() => {
-          setSearch("");
           setChannelFilter("all");
           setPoolFilter("all");
-          setSortBy("overall");
         }}
       >
         <SelectFilter
@@ -676,6 +671,7 @@ function StationCard({
   onClick: (href: string) => void;
   onWarm: () => void;
 }) {
+  const sourceTags = getNormalizedSourceTags(station);
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -685,7 +681,7 @@ function StationCard({
 
   return (
     <div
-      className="cursor-pointer rounded-lg bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 transition-colors hover:bg-[#fbfcfc] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/40"
+      className="cursor-pointer rounded-lg bg-white px-4 py-3.5 ring-1 ring-[#adb3b4]/15 transition-colors hover:bg-[#fbfcfc] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/40"
       onClick={() => onClick(href)}
       onFocus={onWarm}
       onKeyDown={handleKeyDown}
@@ -694,24 +690,20 @@ function StationCard({
       role="button"
       aria-label={`查看 ${station.name} 详情`}
     >
-      <div className="mb-3 flex items-center gap-3">
-        <StationIdentity station={station} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <StationIdentity station={station} />
+        </div>
+        <ChevronRight size={17} className="mt-2 shrink-0 text-[#adb3b4]" />
       </div>
 
-      <div className="mb-3 flex items-center justify-between gap-3 border-t border-[#edf0f1] pt-3 text-xs">
-        <span className="min-w-0 break-words text-[10px] font-bold text-[#5a6061]">{rateLabel}</span>
-        <CombinedRateCell station={station} family={activeFamily} standardModel={activeStandardModel} compact />
-      </div>
-      <div className="mb-3">
-        <PriceBreakdownCell
-          station={station}
-          activeFamily={activeFamily}
-          activeStandardModel={activeStandardModel}
-          compact
-        />
-      </div>
-
-      <div className="mb-3">
+      <div className="mt-3 grid grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-3 border-t border-[#edf0f1] pt-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold leading-4 text-[#5a6061]">{rateLabel}</p>
+          <div className="mt-1.5">
+            <CombinedRateCell station={station} family={activeFamily} standardModel={activeStandardModel} compact />
+          </div>
+        </div>
         <AvailabilityCell
           station={station}
           activeFamily={activeFamily}
@@ -719,19 +711,13 @@ function StationCard({
           compact
         />
       </div>
-      <div className="mb-3">
-        <ModelDetectionCell
-          station={station}
-          activeFamily={activeFamily}
-          activeStandardModel={activeStandardModel}
-          compact
-        />
-      </div>
-      <SourceChannelCell station={station} />
-      <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#5a6061]">
-        <span>更新于 {formatDateShortMinute(station.lastUpdatedAt)} · {TRANSIT_DATA_STATUS_LABELS[station.dataStatus]}</span>
-        <span className="inline-flex items-center gap-1 font-semibold text-[#2d3435]">
-          查看 <ChevronRight size={13} />
+
+      <div className="mt-3 flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0 overflow-hidden">
+          <PillList items={sourceTags} max={2} />
+        </div>
+        <span className="shrink-0 text-[0.68rem] text-[#5a6061]">
+          {formatDateShortMinute(station.lastUpdatedAt)}
         </span>
       </div>
     </div>

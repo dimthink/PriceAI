@@ -72,10 +72,10 @@ export default async function ApiTransitPage() {
         </Suspense>
       </div>
 
-      <main className="mx-auto max-w-[1500px] px-5 py-7 pb-20">
-        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <main className="mx-auto max-w-[1500px] px-5 py-4 pb-20 sm:py-7">
+        <div className="mb-4 flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-[900px]">
-            <h1 className="min-w-0 font-serif text-2xl font-semibold tracking-normal text-[#202829] md:text-4xl">
+            <h1 className="min-w-0 font-serif text-[1.4rem] font-semibold leading-8 tracking-normal text-[#202829] sm:text-2xl md:text-4xl">
               API 中转站价格榜
             </h1>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-[0.72rem] font-medium text-[#5a6061] md:gap-3">
@@ -87,12 +87,23 @@ export default async function ApiTransitPage() {
               <span className="hidden h-1 w-1 rounded-full bg-[#adb3b4] lg:inline-block" />
               <span className="hidden lg:inline">Gemini 最低 {formatRate(stats.bestByFamily.gemini)}</span>
             </div>
-            <p className="mt-2.5 max-w-[860px] text-sm leading-[1.8] text-[#5a6061]">
+            <p className="mt-2 line-clamp-2 max-w-[860px] text-[0.82rem] leading-6 text-[#5a6061] sm:mt-2.5 sm:line-clamp-none sm:text-sm sm:leading-[1.8]">
               先把主流 API 中转站的价格和稳定性比清楚。这里展示充值系数、模型倍率、综合倍率、近 7 日可用性和来源渠道；不售卖 API，不替商家担保。
               没有完成审核发布的数据不会出现在榜单里，使用前仍建议小额试用并回原站核验。
             </p>
+            <div className="mt-2.5 flex items-center gap-4 text-xs font-semibold text-[#47657a] sm:hidden">
+              <Link href="/api-transit/detector" className="inline-flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                模型检测
+              </Link>
+              <Link href="/guides/api-transit" className="inline-flex items-center gap-1.5">
+                <BookOpenText className="h-3.5 w-3.5" />
+                使用说明
+              </Link>
+              <Link href="/api-transit/submit" className="text-[#5a6061]">提交站点</Link>
+            </div>
           </div>
-          <div className="grid w-full shrink-0 grid-cols-4 gap-1.5 sm:w-auto sm:gap-2 lg:justify-end">
+          <div className="hidden w-full shrink-0 grid-cols-4 gap-1.5 sm:grid sm:w-auto sm:gap-2 lg:justify-end">
             <Link
               href="/api-transit/detector"
               className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-[#202829] px-2 text-[0.78rem] font-semibold text-white shadow-[0_12px_30px_rgba(45,52,53,0.08)] transition hover:bg-[#2d3435] sm:h-11 sm:gap-2 sm:px-4 sm:text-sm"
@@ -119,7 +130,7 @@ export default async function ApiTransitPage() {
         </div>
 
         <GuidePromptStrip
-          className="mb-5"
+          className="mb-5 hidden md:block"
           label="使用前先看"
           links={[
             { label: "充值系数和综合倍率", href: "/guides/api-transit" },
@@ -131,11 +142,22 @@ export default async function ApiTransitPage() {
           ctaLabel="中转指南"
         />
 
-        <SponsoredPlacementPreview kind="apiTransit" settings={sponsorSettings} className="mb-5" />
+        <SponsoredPlacementPreview kind="apiTransit" settings={sponsorSettings} className="mb-5 hidden md:block" hideOnMobile />
 
         <Suspense fallback={<div className="text-center py-16 text-[#5a6061]">加载中...</div>}>
           <TransitStationExplorer stations={stations} rankingReferenceAt={rankingReferenceAt} />
         </Suspense>
+
+        <Link
+          href="/guides/api-transit"
+          className="mt-5 flex min-h-11 items-center justify-between gap-3 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-[#202829] ring-1 ring-[#adb3b4]/15 transition hover:bg-[#f5f7f7] md:hidden"
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <BookOpenText className="h-4 w-4 shrink-0 text-[#47657a]" />
+            <span className="truncate">充值系数、倍率与小额试用说明</span>
+          </span>
+          <span className="shrink-0 text-xs text-[#5a6061]">查看</span>
+        </Link>
       </main>
     </div>
   );

@@ -110,22 +110,22 @@ export default async function ProductDetail({
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
       <ProductDetailHeader />
 
-      <div className="mx-auto max-w-[1300px] px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
-        <div className="mb-5">
+      <div className="mx-auto max-w-[1300px] px-4 py-4 sm:px-6 md:py-8 lg:px-8 lg:py-12">
+        <div className="mb-2 md:mb-5">
           <ProductReturnLink />
         </div>
 
-        <section className="rounded-lg bg-[#f2f4f4] p-5 shadow-[0_20px_60px_rgba(45,52,53,0.04)] lg:p-6">
+        <section className="bg-transparent py-1 md:rounded-lg md:bg-[#f2f4f4] md:p-5 md:shadow-[0_20px_60px_rgba(45,52,53,0.04)] lg:p-6">
           <div className="min-w-0 max-w-4xl">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0">
               <Badge>{platformIcon(product.platform, product.id)} {product.platform}</Badge>
               <Badge>{productTypeLabel(product.productType)}</Badge>
               <Badge>{product.spec}</Badge>
             </div>
-            <h1 className="mt-4 font-serif text-3xl font-bold tracking-normal text-[#202829] sm:text-4xl">
+            <h1 className="mt-3 text-balance font-serif text-[1.45rem] font-bold leading-8 tracking-normal text-[#202829] sm:text-3xl md:mt-4 md:text-4xl">
               {product.displayName}
             </h1>
-            <p className="mt-3 text-sm leading-7 text-[#5a6061]">{product.summary}</p>
+            <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#5a6061] md:mt-3 md:line-clamp-none md:leading-7">{product.summary}</p>
           </div>
         </section>
 
@@ -133,20 +133,18 @@ export default async function ProductDetail({
           <OfficialPriceReferenceSection product={product} />
         </Suspense>
 
-        <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mt-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-2 md:mt-7">
           <div>
-            <h2 className="font-serif text-3xl font-semibold tracking-normal text-[#202829]">渠道报价表</h2>
-            <p className="mt-2 text-sm text-[#5a6061]">
+            <h2 className="font-serif text-xl font-semibold tracking-normal text-[#202829] sm:text-2xl md:text-3xl">渠道报价表</h2>
+            <p className="mt-1 text-xs text-[#5a6061] md:mt-2 md:text-sm">
               {product.offerCount} 条报价 · {product.inStockCount} 有货 · 按有货优先和低价排序
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-[#5a6061]">
-            <Clock3 size={16} />
+          <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-[#5a6061] md:text-sm">
+            <Clock3 size={15} />
             最近记录 {formatRelativeTime(product.latestSeenAt)}
           </div>
         </div>
-
-        <ProductRelatedCta product={product} />
 
         <ProductOffersPanel
           productId={product.id}
@@ -155,6 +153,8 @@ export default async function ProductDetail({
           initialCount={product.offerCount}
           initialData={initialOffers}
         />
+
+        <ProductRelatedCta product={product} />
 
         <p className="mt-8 text-xs leading-6 text-[#5a6061]">
           免责声明：本站仅聚合公开采集或审核通过的报价信息，不参与交易，实际价格、库存、质保和售后规则以原平台为准。
@@ -237,8 +237,24 @@ function OfficialPriceReferenceStrip({
   if (!lowest) return null;
 
   return (
-    <section className="mt-4 rounded-lg bg-white px-4 py-3 shadow-[0_14px_42px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <section className="mt-3 rounded-lg bg-white px-3 py-2.5 ring-1 ring-[#adb3b4]/15 md:mt-4 md:px-4 md:py-3 md:shadow-[0_14px_42px_rgba(45,52,53,0.035)]">
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <div className="min-w-0">
+          <p className="text-[0.68rem] font-semibold text-[#47657a]">官方价格参考</p>
+          <p className="mt-1 truncate text-xs text-[#5a6061]">
+            渠道最低 <span className="font-semibold text-[#202829]">{formatCurrency(product.lowestPrice, product.lowestOffer?.currency)}</span>
+            <span className="mx-1.5 text-[#adb3b4]">·</span>
+            官方最低 <span className="font-semibold text-[#202829]">{formatCurrency(lowest.cnyPrice, "CNY")}</span>
+          </p>
+        </div>
+        <Link
+          href={`/official-prices/${summary.id}`}
+          className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-[#e4e9ea] px-3 text-xs font-semibold text-[#2d3435]"
+        >
+          地区价
+        </Link>
+      </div>
+      <div className="hidden flex-col gap-3 md:flex lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm text-[#5a6061]">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[#eef3f8] px-3 py-1 text-xs font-semibold text-[#47657a]">
             <BrandIcon platform={summary.platform} className="h-[15px] w-[15px]" />
@@ -267,8 +283,15 @@ function OfficialPriceReferenceStrip({
 
 function OfficialPriceReferenceSkeleton() {
   return (
-    <section className="mt-4 rounded-lg bg-white px-4 py-3 shadow-[0_14px_42px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <section className="mt-3 rounded-lg bg-white px-3 py-2.5 ring-1 ring-[#adb3b4]/15 md:mt-4 md:px-4 md:py-3 md:shadow-[0_14px_42px_rgba(45,52,53,0.035)]">
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-3 w-24 rounded-full" />
+          <Skeleton className="mt-2 h-4 w-full rounded-full" />
+        </div>
+        <Skeleton className="h-9 w-16 rounded-full" />
+      </div>
+      <div className="hidden flex-col gap-3 md:flex lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <Skeleton className="h-7 w-24 rounded-full" />
           <Skeleton className="h-5 w-32 rounded-full" />
@@ -298,7 +321,7 @@ function ReferenceText({ label, value, detail }: { label: string; value: string;
 
 function Badge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#5a6061] ring-1 ring-[#adb3b4]/15">
+    <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-[0.7rem] font-semibold text-[#5a6061] ring-1 ring-[#adb3b4]/15 md:px-3 md:py-1.5 md:text-xs">
       {children}
     </span>
   );
@@ -331,12 +354,12 @@ function ProductRelatedCta({ product }: { product: ExplorerProductSummary }) {
   if (!cta) return null;
 
   return (
-    <section className="mb-5 mt-4 rounded-lg bg-white px-4 py-3 shadow-[0_14px_42px_rgba(45,52,53,0.035)] ring-1 ring-[#adb3b4]/15">
+    <section className="mb-5 mt-5 rounded-lg bg-white px-4 py-3 ring-1 ring-[#adb3b4]/15 md:mt-6 md:shadow-[0_14px_42px_rgba(45,52,53,0.035)]">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-semibold text-[#47657a]">买前指南</p>
           <h2 className="mt-1 text-base font-semibold tracking-normal text-[#202829]">{cta.title}</h2>
-          <p className="mt-1 text-sm leading-6 text-[#5a6061]">{cta.description}</p>
+          <p className="mt-1 hidden text-sm leading-6 text-[#5a6061] md:block">{cta.description}</p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {cta.links.map((link) => (

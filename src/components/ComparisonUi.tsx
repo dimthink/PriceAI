@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, useRef, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import { ClickInfoPopover } from "@/components/ClickInfoPopover";
 
@@ -252,6 +254,8 @@ export function MobileFilterSheet({
   resultCount,
   onClose,
   onReset,
+  onApply,
+  primaryLabel,
 }: {
   open: boolean;
   title: string;
@@ -260,7 +264,29 @@ export function MobileFilterSheet({
   resultCount: number;
   onClose: () => void;
   onReset: () => void;
+  onApply?: () => void;
+  primaryLabel?: string;
 }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open || window.matchMedia("(min-width: 768px)").matches) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    closeButtonRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
+
   if (!open) return null;
 
   return (
@@ -279,9 +305,10 @@ export function MobileFilterSheet({
             <p className="mt-1 text-sm text-[#5a6061]">{description}</p>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e4e9ea] text-[#5a6061] transition hover:bg-[#dde4e5] hover:text-[#202829]"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e4e9ea] text-[#5a6061] outline-none transition hover:bg-[#dde4e5] hover:text-[#202829] focus-visible:ring-2 focus-visible:ring-[#45bf78]/45"
             aria-label="关闭筛选"
           >
             <X size={17} />
@@ -298,10 +325,10 @@ export function MobileFilterSheet({
           </button>
           <button
             type="button"
-            onClick={onClose}
+            onClick={onApply ?? onClose}
             className="inline-flex h-11 items-center justify-center rounded-full bg-[#2d3435] px-5 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
           >
-            查看 {resultCount} 条结果
+            {primaryLabel ?? `查看 ${resultCount} 条结果`}
           </button>
         </div>
       </section>

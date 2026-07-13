@@ -24,9 +24,10 @@ export function ProductReturnLink() {
   }, []);
 
   return (
-    <a href={returnHref} className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-2 text-sm font-semibold text-[#5a6061] hover:bg-[#edf0f1] hover:text-[#2d3435] sm:px-3">
+    <a href={returnHref} className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-1 text-sm font-semibold text-[#5a6061] hover:bg-[#edf0f1] hover:text-[#2d3435] sm:h-10 sm:gap-2 sm:px-3">
       <ArrowLeft size={17} />
-      返回卡网订阅
+      <span className="sm:hidden">返回</span>
+      <span className="hidden sm:inline">返回卡网订阅</span>
     </a>
   );
 }

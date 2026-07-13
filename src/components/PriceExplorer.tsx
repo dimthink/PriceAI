@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookOpenText,
   CheckCircle2,
   ChevronRight,
   X,
@@ -214,6 +215,23 @@ export function PriceExplorer({
     })),
     [],
   );
+
+  useEffect(() => {
+    if (!filtersOpen || isDesktopViewport !== false) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFiltersOpen(false);
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [filtersOpen, isDesktopViewport]);
 
   useEffect(() => {
     if (!restoreStateFromUrl || typeof window === "undefined") return;
@@ -753,7 +771,7 @@ export function PriceExplorer({
         />
       </div>
 
-      <main className="mx-auto max-w-[1500px] px-5 py-6 sm:px-8 md:py-10 lg:py-12">
+      <main className="mx-auto max-w-[1500px] px-5 py-4 sm:px-8 md:py-10 lg:py-12">
         {!dataLoading && !explorerData.configured ? (
           <div className="mb-8 rounded-lg bg-[#fff7e8] px-5 py-4 text-sm text-[#6a4b16] shadow-[0_18px_50px_rgba(45,52,53,0.04)]">
             当前使用内置演示数据。配置 Supabase 后，可在后台维护渠道并保存真实采集结果。
@@ -764,10 +782,10 @@ export function PriceExplorer({
           <DegradedBanner message={explorerData.message} />
         ) : null}
 
-        <div className="mb-6 space-y-4 md:mb-9 md:space-y-5">
+        <div className="mb-4 space-y-3 md:mb-9 md:space-y-5">
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
             <div className="min-w-0">
-              <h1 className="min-w-0 font-serif text-2xl font-semibold tracking-normal text-[#202829] md:text-4xl">
+              <h1 className="min-w-0 font-serif text-[1.4rem] font-semibold leading-8 tracking-normal text-[#202829] sm:text-2xl md:text-4xl">
                 {title}
               </h1>
               <div className="mt-3 flex items-center justify-between gap-3 md:mt-4">
@@ -775,7 +793,7 @@ export function PriceExplorer({
                   <span>
                     最近更新：{dataLoading ? "正在同步" : <RelativeTime value={explorerData.generatedAt} />}
                   </span>
-                  <span className="h-1 w-1 rounded-full bg-[#adb3b4]" />
+                  <span className="h-1 w-1 shrink-0 rounded-full bg-[#adb3b4]" />
                   <span>
                     {dataLoading && !showingOffers && !showingMerchants ? "正在加载" : resultCount} {showingMerchants ? "个商家" : showingOffers ? "条报价" : "个商品"}
                   </span>
@@ -785,11 +803,11 @@ export function PriceExplorer({
                 <button
                   type="button"
                   onClick={openSubmission}
-                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] shadow-[0_12px_30px_rgba(45,52,53,0.14)] md:hidden"
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-sm font-semibold text-[#f8f8f8] md:hidden"
                   aria-label="提交新的卡网订阅渠道"
                 >
                   <Plus size={15} />
-                  提交渠道
+                  <span className="hidden min-[380px]:inline">提交</span>
                 </button>
               </div>
               <p className="mt-3 hidden max-w-[78ch] text-sm leading-7 text-[#5a6061] md:block">
@@ -809,6 +827,7 @@ export function PriceExplorer({
           </div>
 
           <GuidePromptStrip
+            className="hidden md:block"
             links={[
               { label: "卡网渠道靠谱吗？", href: "/guides/are-ai-subscription-card-shops-reliable" },
               { label: "价格为什么差很多？", href: "/guides/why-ai-subscription-prices-differ" },
@@ -819,7 +838,7 @@ export function PriceExplorer({
             ctaLabel="入门指南"
           />
 
-          <div className="space-y-3 md:hidden">
+          <div className="space-y-2.5 md:hidden">
             <label className="flex h-11 min-w-0 items-center gap-2 rounded-full bg-white px-4 shadow-[0_16px_45px_rgba(45,52,53,0.05)] ring-1 ring-[#adb3b4]/15 sm:w-[360px]">
               <Search size={16} className="shrink-0 text-[#5a6061]" />
               <input
@@ -869,6 +888,20 @@ export function PriceExplorer({
                 筛选{activeFilterCount ? ` ${activeFilterCount}` : ""}
               </button>
             </div>
+            {activeFilterChips.length ? (
+              <div className="-mx-5 overflow-x-auto px-5" aria-label="当前筛选条件">
+                <div className="flex w-max items-center gap-2 pb-1">
+                  {activeFilterChips.map((filter) => (
+                    <span
+                      key={filter}
+                      className="shrink-0 rounded-full bg-[#e4e9ea] px-3 py-1 text-xs font-medium text-[#2d3435]"
+                    >
+                      {filter}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="hidden flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center md:flex">
@@ -1141,6 +1174,17 @@ export function PriceExplorer({
         ) : (
           <EmptyState text="没有符合条件的商品" />
         )}
+
+        <Link
+          href="/guides"
+          className="mt-5 flex min-h-11 items-center justify-between gap-3 rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-[#202829] ring-1 ring-[#adb3b4]/15 transition hover:bg-[#f5f7f7] md:hidden"
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <BookOpenText size={17} className="shrink-0 text-[#47657a]" />
+            <span className="truncate">购买前先看：渠道与售后判断</span>
+          </span>
+          <ChevronRight size={16} className="shrink-0 text-[#7a8182]" />
+        </Link>
       </main>
 
       <footer className="px-5 py-8 text-center text-xs leading-6 text-[#5a6061] sm:px-8">
@@ -1855,14 +1899,14 @@ function ProductTableSkeleton() {
     <>
       <div
         aria-busy="true"
-        className="grid grid-cols-1 gap-6 md:hidden"
+        className="grid grid-cols-1 gap-3 md:hidden"
       >
         {PRODUCT_SKELETON_ROWS.map((row) => (
           <div
             key={row}
-            className="min-h-[220px] animate-pulse rounded-lg bg-white p-6 shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15"
+            className="min-h-[150px] animate-pulse rounded-lg bg-white p-4 ring-1 ring-[#adb3b4]/15"
           >
-            <div className="mb-6 flex items-center justify-between gap-4">
+            <div className="mb-4 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-[#edf0f1]" />
                 <div className="space-y-2">
@@ -1878,7 +1922,7 @@ function ProductTableSkeleton() {
               <div className="h-7 w-20 rounded-full bg-[#edf0f1]" />
               <div className="h-7 w-16 rounded-full bg-[#edf0f1]" />
             </div>
-            <div className="mt-8 h-10 rounded-full bg-[#edf0f1]" />
+            <div className="mt-5 h-8 rounded-full bg-[#edf0f1]" />
           </div>
         ))}
       </div>
@@ -1928,23 +1972,23 @@ function MobileProductCard({
   const handleProductClick = listDetailClickHandler(productHref, returnQuery, () => trackProductDetailOpen(product));
 
   return (
-    <article className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.04)] ring-1 ring-[#adb3b4]/15 md:hidden">
+    <article className="rounded-lg bg-white px-4 py-3.5 ring-1 ring-[#adb3b4]/15 md:hidden">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5a6061]">
+          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5a6061]">
             {productIcon(product)}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-[#202829]">{product.displayName}</p>
-            <p className="mt-1 line-clamp-1 text-sm text-[#5a6061]">{product.spec || product.platform}</p>
+            <p className="truncate text-[0.95rem] font-semibold text-[#202829]">{product.displayName}</p>
+            <p className="mt-0.5 line-clamp-1 text-xs text-[#5a6061]">{product.spec || product.platform}</p>
           </div>
         </div>
         <OfferStatusBadge available={available} />
       </div>
 
-      <div className="mt-4 flex items-end justify-between gap-4">
+      <div className="mt-3 flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className={`text-3xl font-bold tracking-normal ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
+          <p className={`text-2xl font-bold tracking-normal ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
             {formatCurrency(product.lowestPrice, previewOffer?.currency)}
           </p>
           <p className="mt-1 truncate text-xs text-[#5a6061]">
@@ -1959,22 +2003,19 @@ function MobileProductCard({
         <Link
           href={productHref}
           onClick={handleProductClick}
-          className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2d3435] text-[#f8f8f8] transition hover:bg-[#1f2526]"
+          aria-label={`查看 ${product.displayName} 详情`}
         >
-          查看
           <ChevronRight size={15} />
         </Link>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+      <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
         <CountBadge tone="good">有货 {product.inStockCount}</CountBadge>
         <CountBadge tone="danger">缺货 {product.outOfStockCount}</CountBadge>
         <CountBadge tone="muted">渠道 {product.offerCount}</CountBadge>
       </div>
 
-      {previewOffer?.sourceTitle ? (
-        <p className="mt-3 line-clamp-1 text-xs leading-5 text-[#5a6061]">{previewOffer.sourceTitle}</p>
-      ) : null}
     </article>
   );
 }

@@ -21,7 +21,7 @@ export function AppLogo({ compact = false }: { compact?: boolean }) {
         </svg>
       </span>
       <span className="flex min-w-0 flex-col leading-none">
-        <span className={`truncate font-sans font-extrabold tracking-[-0.01em] text-[#202829] ${compact ? "text-2xl" : "text-[1.75rem] sm:text-3xl"}`}>
+        <span className={`truncate font-sans font-extrabold tracking-[-0.01em] text-[#202829] ${compact ? "text-2xl" : "text-2xl sm:text-3xl"}`}>
           PriceAI
         </span>
         {!compact ? (

@@ -3,6 +3,7 @@
 import { AlertTriangle, ExternalLink, Filter, Flag, ImageUp, Loader2, ShieldAlert, Trash2, X } from "lucide-react";
 import { type ChangeEvent, type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CommunityPrompt } from "@/components/FeedbackLink";
+import { MobileFilterSheet } from "@/components/ComparisonUi";
 import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
 import { isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
@@ -179,7 +180,7 @@ export function ProductOffersPanel({
       setOfferExcludeQuery(nextExcludeQuery);
       setOfferMinPrice(nextMinPrice);
       setOfferMaxPrice(nextMaxPrice);
-      setFilterOpen(true);
+      if (window.matchMedia("(min-width: 768px)").matches) setFilterOpen(true);
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -330,8 +331,7 @@ export function ProductOffersPanel({
     syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice);
   }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags]);
 
-  const handleSearchSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const applyOfferFilters = useCallback(() => {
     const nextQuery = normalizeOfferSearchQuery(queryInput);
     const nextExcludeQuery = normalizeOfferSearchQuery(excludeInput, 160);
     const nextMinPrice = normalizeOfferPriceInput(minPriceInput);
@@ -346,6 +346,16 @@ export function ProductOffersPanel({
     setOfferMaxPrice(nextMaxPrice);
     syncOfferFiltersToUrl(selectedFilterTags, nextQuery, nextExcludeQuery, selectedCollector, nextMinPrice, nextMaxPrice);
   }, [excludeInput, maxPriceInput, minPriceInput, queryInput, selectedCollector, selectedFilterTags]);
+
+  const handleSearchSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    applyOfferFilters();
+  }, [applyOfferFilters]);
+
+  const applyOfferFiltersAndClose = useCallback(() => {
+    applyOfferFilters();
+    setFilterOpen(false);
+  }, [applyOfferFilters]);
 
   const handleCollectorChange = useCallback((collector: MerchantCollectorFilter) => {
     setSelectedCollector(collector);
@@ -411,6 +421,7 @@ export function ProductOffersPanel({
         onFilterOpenChange={setFilterOpen}
         onMaxPriceInputChange={setMaxPriceInput}
         onMinPriceInputChange={setMinPriceInput}
+        onApply={applyOfferFiltersAndClose}
         onSearchInputChange={setQueryInput}
         onSearchSubmit={handleSearchSubmit}
         onToggle={handleToggleFilterTag}
@@ -670,6 +681,7 @@ function OfferFilterBar({
   onFilterOpenChange,
   onMaxPriceInputChange,
   onMinPriceInputChange,
+  onApply,
   onSearchInputChange,
   onSearchSubmit,
   onToggle,
@@ -695,6 +707,7 @@ function OfferFilterBar({
   onFilterOpenChange: (open: boolean) => void;
   onMaxPriceInputChange: (value: string) => void;
   onMinPriceInputChange: (value: string) => void;
+  onApply: () => void;
   onSearchInputChange: (value: string) => void;
   onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onToggle: (tagId: OfferFilterTagId) => void;
@@ -712,9 +725,9 @@ function OfferFilterBar({
   });
 
   return (
-    <section className="mt-5 border-y border-[#e5eaea] py-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+    <section className="mt-3 border-y border-[#e5eaea] py-3 md:mt-5">
+      <div className="flex items-start justify-between gap-3 lg:items-center">
+        <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button
               type="button"
@@ -732,7 +745,7 @@ function OfferFilterBar({
             <span className="text-xs text-[#7a8587]">{pending ? "正在加载" : active ? `当前 ${total} 条` : `${total} 条报价`}</span>
           </div>
           {visibleFacets.length ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2" aria-label="商品特征">
+            <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0" aria-label="商品特征">
               {visibleFacets.map((facet) => {
                 const selected = selectedTags.includes(facet.id);
 
@@ -756,7 +769,7 @@ function OfferFilterBar({
             </div>
           ) : null}
           {activeAdvancedChips.length ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2" aria-label="当前筛选条件">
+            <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0" aria-label="当前筛选条件">
               {activeAdvancedChips.map((chip) => (
                 <span key={chip} className="inline-flex h-7 max-w-[190px] items-center rounded-full bg-[#eef1f1] px-2.5 text-xs font-semibold text-[#4d5657]">
                   <span className="truncate">{chip}</span>
@@ -769,7 +782,7 @@ function OfferFilterBar({
           <button
             type="button"
             onClick={onClear}
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-full bg-transparent px-2 text-xs font-semibold text-[#6c7677] transition hover:bg-[#eef1f1] hover:text-[#202829] lg:self-auto"
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full bg-transparent px-2 text-xs font-semibold text-[#6c7677] transition hover:bg-[#eef1f1] hover:text-[#202829]"
           >
             <X size={13} />
             清除
@@ -778,62 +791,130 @@ function OfferFilterBar({
       </div>
 
       {filterOpen ? (
-        <form onSubmit={onSearchSubmit} className="mt-3 rounded-lg bg-white p-3 ring-1 ring-[#adb3b4]/15">
-          <div className="space-y-4">
-            <fieldset className="min-w-0">
-              <legend className="text-xs font-semibold text-[#5a6061]">渠道来源</legend>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {MERCHANT_COLLECTOR_FILTERS.map((collector) => {
-                  const selected = selectedCollector === collector;
-                  const logo = merchantCollectorFilterLogo(collector);
-                  return (
-                    <button
-                      key={collector}
-                      type="button"
-                      onClick={() => onCollectorChange(collector)}
-                      className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
-                        selected
-                          ? "bg-[#202829] text-white"
-                          : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-                      }`}
-                    >
-                      {logo ? <CollectorSourceLogo group={logo.group} platformId={logo.platformId} size="compact" /> : null}
-                      {merchantCollectorLabel(collector)}
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-
-            <div className="grid gap-4 border-t border-[#edf0f1] pt-3 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.15fr)_auto] lg:items-end">
-              <fieldset className="min-w-0">
-                <legend className="text-xs font-semibold text-[#5a6061]">价格区间</legend>
-                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                  <PriceFilterInput value={minPriceInput} onChange={onMinPriceInputChange} label="最低价" />
-                  <span className="text-xs font-semibold text-[#7a8587]">至</span>
-                  <PriceFilterInput value={maxPriceInput} onChange={onMaxPriceInputChange} label="最高价" />
-                </div>
-              </fieldset>
-
-              <fieldset className="min-w-0">
-                <legend className="text-xs font-semibold text-[#5a6061]">报价关键词</legend>
-                <div className="mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
-                  <TextFilterInput label="包含" value={queryInput} onChange={onSearchInputChange} placeholder="关键词、渠道、商品名" />
-                  <TextFilterInput label="排除" value={excludeInput} onChange={onExcludeInputChange} placeholder="网页、无质保、日抛" danger />
-                </div>
-              </fieldset>
-
-              <button
-                type="submit"
-                className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-[#202829] px-4 text-sm font-semibold text-white transition hover:opacity-90"
-              >
-                应用筛选
-              </button>
-            </div>
-          </div>
+        <form onSubmit={onSearchSubmit} className="mt-3 hidden rounded-lg bg-white p-3 ring-1 ring-[#adb3b4]/15 md:block">
+          <OfferAdvancedFilterFields
+            selectedCollector={selectedCollector}
+            excludeInput={excludeInput}
+            maxPriceInput={maxPriceInput}
+            minPriceInput={minPriceInput}
+            queryInput={queryInput}
+            onCollectorChange={onCollectorChange}
+            onExcludeInputChange={onExcludeInputChange}
+            onMaxPriceInputChange={onMaxPriceInputChange}
+            onMinPriceInputChange={onMinPriceInputChange}
+            onSearchInputChange={onSearchInputChange}
+          />
         </form>
       ) : null}
+
+      <MobileFilterSheet
+        open={filterOpen}
+        title="筛选渠道报价"
+        description="来源、价格和关键词都放在这里，商品特征可在页面上快速切换。"
+        resultCount={total}
+        onClose={() => onFilterOpenChange(false)}
+        onReset={onClear}
+        onApply={onApply}
+        primaryLabel="应用筛选"
+      >
+        <OfferAdvancedFilterFields
+          compact
+          selectedCollector={selectedCollector}
+          excludeInput={excludeInput}
+          maxPriceInput={maxPriceInput}
+          minPriceInput={minPriceInput}
+          queryInput={queryInput}
+          onCollectorChange={onCollectorChange}
+          onExcludeInputChange={onExcludeInputChange}
+          onMaxPriceInputChange={onMaxPriceInputChange}
+          onMinPriceInputChange={onMinPriceInputChange}
+          onSearchInputChange={onSearchInputChange}
+        />
+      </MobileFilterSheet>
     </section>
+  );
+}
+
+function OfferAdvancedFilterFields({
+  compact = false,
+  selectedCollector,
+  excludeInput,
+  maxPriceInput,
+  minPriceInput,
+  queryInput,
+  onCollectorChange,
+  onExcludeInputChange,
+  onMaxPriceInputChange,
+  onMinPriceInputChange,
+  onSearchInputChange,
+}: {
+  compact?: boolean;
+  selectedCollector: MerchantCollectorFilter;
+  excludeInput: string;
+  maxPriceInput: string;
+  minPriceInput: string;
+  queryInput: string;
+  onCollectorChange: (collector: MerchantCollectorFilter) => void;
+  onExcludeInputChange: (value: string) => void;
+  onMaxPriceInputChange: (value: string) => void;
+  onMinPriceInputChange: (value: string) => void;
+  onSearchInputChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <fieldset className="min-w-0">
+        <legend className="text-xs font-semibold text-[#5a6061]">渠道来源</legend>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {MERCHANT_COLLECTOR_FILTERS.map((collector) => {
+            const selected = selectedCollector === collector;
+            const logo = merchantCollectorFilterLogo(collector);
+            return (
+              <button
+                key={collector}
+                type="button"
+                onClick={() => onCollectorChange(collector)}
+                className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
+                  selected
+                    ? "bg-[#202829] text-white"
+                    : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+                }`}
+              >
+                {logo ? <CollectorSourceLogo group={logo.group} platformId={logo.platformId} size="compact" /> : null}
+                {merchantCollectorLabel(collector)}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      <div className={compact ? "space-y-4 border-t border-[#edf0f1] pt-4" : "grid gap-4 border-t border-[#edf0f1] pt-3 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.15fr)_auto] lg:items-end"}>
+        <fieldset className="min-w-0">
+          <legend className="text-xs font-semibold text-[#5a6061]">价格区间</legend>
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+            <PriceFilterInput value={minPriceInput} onChange={onMinPriceInputChange} label="最低价" />
+            <span className="text-xs font-semibold text-[#7a8587]">至</span>
+            <PriceFilterInput value={maxPriceInput} onChange={onMaxPriceInputChange} label="最高价" />
+          </div>
+        </fieldset>
+
+        <fieldset className="min-w-0">
+          <legend className="text-xs font-semibold text-[#5a6061]">报价关键词</legend>
+          <div className={`mt-2 grid min-w-0 grid-cols-1 gap-2 ${compact ? "" : "sm:grid-cols-2"}`}>
+            <TextFilterInput label="包含" value={queryInput} onChange={onSearchInputChange} placeholder="关键词、渠道、商品名" />
+            <TextFilterInput label="排除" value={excludeInput} onChange={onExcludeInputChange} placeholder="网页、无质保、日抛" danger />
+          </div>
+        </fieldset>
+
+        {compact ? null : (
+          <button
+            type="submit"
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-[#202829] px-4 text-sm font-semibold text-white transition hover:opacity-90"
+          >
+            应用筛选
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1107,7 +1188,7 @@ function OfferListItem({
 
   return (
     <article
-      className={`min-w-0 rounded-lg p-4 shadow-[0_16px_45px_rgba(45,52,53,0.04)] ring-1 ${
+      className={`min-w-0 rounded-lg px-4 py-3.5 ring-1 ${
         available ? "bg-white ring-[#adb3b4]/15" : "bg-[#fbf7f6] ring-[#ead8d5]"
       }`}
     >
@@ -1127,7 +1208,7 @@ function OfferListItem({
         </div>
         <OfferStatusBadge available={available} />
       </div>
-      <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-3 gap-y-2">
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <p className={`text-2xl font-bold leading-none tracking-normal ${available ? "text-[#202829]" : "text-[#9b3328]"}`}>
             {formatCurrency(offer.price, offer.currency)}
@@ -1163,9 +1244,9 @@ function OfferSourceTitle({ title, mode, sharedAccess }: { title: string; mode: 
   }
 
   return (
-    <p className="mt-1 text-sm leading-6 text-[#5a6061]" title={title}>
+    <p className="mt-1 text-sm leading-5 text-[#5a6061]" title={title}>
       {sharedAccess ? <OfferSharedAccessBadge /> : null}
-      <span className="line-clamp-2">{title}</span>
+      <span className="line-clamp-1">{title}</span>
     </p>
   );
 }

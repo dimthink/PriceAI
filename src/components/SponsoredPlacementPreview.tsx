@@ -21,6 +21,7 @@ type SponsoredPlacementPreviewProps = {
   settings?: SponsorSettingsSummary | null;
   className?: string;
   reserveWhenEmpty?: boolean;
+  hideOnMobile?: boolean;
 };
 
 type PlacementCopy = {
@@ -131,7 +132,7 @@ const placementCopy: Record<SponsorPlacementKind, PlacementCopy> = {
   },
 };
 
-export function SponsoredPlacementPreview({ kind, settings = null, className = "", reserveWhenEmpty = false }: SponsoredPlacementPreviewProps) {
+export function SponsoredPlacementPreview({ kind, settings = null, className = "", reserveWhenEmpty = false, hideOnMobile = false }: SponsoredPlacementPreviewProps) {
   const copy = placementCopy[kind];
   const dismissStorageKey = `${dismissStoragePrefix}.${copy.id}.v2`;
   const pathname = usePathname();
@@ -161,6 +162,7 @@ export function SponsoredPlacementPreview({ kind, settings = null, className = "
 
   useEffect(() => {
     if (!creatives.length || dismissed) return;
+    if (hideOnMobile && window.matchMedia("(max-width: 767px)").matches) return;
     trackAnalyticsEvent("sponsor_impression", {
       placement: kind,
       placement_id: copy.id,
@@ -168,7 +170,7 @@ export function SponsoredPlacementPreview({ kind, settings = null, className = "
       creative_count: creatives.length,
       path: pathname,
     });
-  }, [copy.id, creatives.length, dismissed, impressionKey, kind, pathname]);
+  }, [copy.id, creatives.length, dismissed, hideOnMobile, impressionKey, kind, pathname]);
 
   if (dismissed) return null;
 
@@ -193,7 +195,7 @@ function TopNoticeAdPlaceholder({ className }: { className: string }) {
       aria-hidden="true"
       className={`border-b border-[#d8e3df] bg-[#edf7f3] ${className}`}
     >
-      <div className="mx-auto min-h-11 max-w-[1500px] px-4 sm:px-8" />
+      <div className="mx-auto min-h-9 max-w-[1500px] px-3 sm:min-h-11 sm:px-8" />
     </section>
   );
 }
@@ -242,13 +244,13 @@ function TopNoticeAd({
       aria-label={`${copy.eyebrow}广告位`}
       className={`border-b border-[#d8e3df] bg-[#edf7f3] text-[#202829] ${className}`}
     >
-      <div className="mx-auto flex min-h-11 max-w-[1500px] items-center gap-3 px-4 sm:px-8">
+      <div className="mx-auto flex min-h-9 max-w-[1500px] items-center gap-2 px-3 sm:min-h-11 sm:gap-3 sm:px-8">
         <SponsorLink
           creative={creative}
           placement={kind}
           placementId={copy.id}
           path={pathname}
-          className="flex min-w-0 flex-1 items-center justify-center gap-2 text-sm leading-6 text-[#2f6247] transition hover:text-[#1d4d34]"
+          className="flex min-w-0 flex-1 items-center justify-center gap-1.5 text-xs leading-5 text-[#2f6247] transition hover:text-[#1d4d34] sm:gap-2 sm:text-sm sm:leading-6"
         >
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-extrabold text-[#2f7a4b] ring-1 ring-[#b9d8c9]">
             <Megaphone className="h-3.5 w-3.5" />
@@ -264,7 +266,7 @@ function TopNoticeAd({
         <button
           type="button"
           onClick={onDismiss}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[#5a6061] ring-1 ring-[#d8e3df] transition hover:bg-[#f8f8f8] hover:text-[#202829]"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#5a6061] ring-1 ring-[#d8e3df] transition hover:bg-[#f8f8f8] hover:text-[#202829] sm:h-8 sm:w-8"
           aria-label="关闭顶部广告"
         >
           <X className="h-4 w-4" />

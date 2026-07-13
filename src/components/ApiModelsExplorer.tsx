@@ -262,12 +262,12 @@ export function ApiModelsExplorer({
         />
       </div>
 
-      <main className="mx-auto max-w-[1500px] px-5 py-6 sm:px-8 md:py-10 lg:py-12">
-      <div className="mb-6 space-y-4 md:mb-8 md:space-y-5">
+      <main className="mx-auto max-w-[1500px] px-5 py-4 sm:px-8 md:py-10 lg:py-12">
+      <div className="mb-4 space-y-3 md:mb-8 md:space-y-5">
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
           <div className="min-w-0">
             <div className="flex items-start justify-between gap-3">
-              <h1 className="min-w-0 font-serif text-2xl font-semibold tracking-normal text-[#202829] md:text-4xl">
+              <h1 className="min-w-0 font-serif text-[1.4rem] font-semibold leading-8 tracking-normal text-[#202829] sm:text-2xl md:text-4xl">
                 {buildTitle(family, scopeMode, typeFilter, familyOptions)}
               </h1>
               <button
@@ -294,7 +294,7 @@ export function ApiModelsExplorer({
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-2 xl:w-[420px]">
+          <div className="hidden grid-cols-4 gap-2 md:grid xl:w-[420px]">
             <Metric label="模型" value={`${allModelCount}`} />
             <Metric label="渠道" value={`${allProviderCount}`} />
             <Metric label="报价" value={`${dataset.offers.length}`} />
@@ -302,7 +302,7 @@ export function ApiModelsExplorer({
           </div>
         </div>
 
-        <SponsoredPlacementPreview kind="apiModels" settings={sponsorSettings} />
+        <SponsoredPlacementPreview kind="apiModels" settings={sponsorSettings} className="hidden md:block" hideOnMobile />
 
         <div className="space-y-3 md:hidden">
           <label className="flex h-11 min-w-0 items-center gap-2 rounded-full bg-white px-4 shadow-[0_16px_45px_rgba(45,52,53,0.05)] ring-1 ring-[#adb3b4]/15">
@@ -846,7 +846,7 @@ function ApiModelSummaryMobileList({
             key={summary.id}
             href={href}
             onClick={listDetailClickHandler(href, returnQuery)}
-            className="rounded-lg bg-white p-4 shadow-[0_16px_45px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 transition active:scale-[0.995]"
+            className="rounded-lg bg-white px-4 py-3.5 ring-1 ring-[#adb3b4]/15 transition active:scale-[0.995]"
           >
             <div className="flex min-w-0 items-start gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f2f4f4] ring-1 ring-[#adb3b4]/15">
@@ -1081,20 +1081,18 @@ function ApiProviderSummaryMobileList({
                   </div>
                   <TypeChip type={provider.type} />
                 </div>
-                <p className="mt-3 text-sm font-semibold leading-6 text-[#202829]">
+                <p className="mt-2.5 text-sm font-semibold leading-6 text-[#202829]">
                   {summary.planCount ? `${summary.planCount} 个订阅计划` : `${summary.modelCount || summary.offerCount} 个模型`}
                 </p>
                 <div className="mt-2">
                   <ProviderPlanRows plans={summary.plans} currency={currency} providerBillingMode={provider.billingMode} compact />
                 </div>
-                <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#5a6061]">
+                <p className="mt-2 line-clamp-1 text-xs leading-5 text-[#5a6061]">
                   {summary.modelNames.join("、") || summary.primaryPlan?.coverageLabel || formatApiDisplayText(provider.limitSummary)}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <CountBadge tone="neutral">模型 {summary.modelCount || summary.offerCount}</CountBadge>
-                  <CountBadge tone="neutral">报价 {summary.offerCount}</CountBadge>
-                  <CountBadge tone="warn">订阅 {summary.planCount}</CountBadge>
-                </div>
+                <p className="mt-2 text-[0.7rem] font-medium text-[#5a6061]">
+                  模型 {summary.modelCount || summary.offerCount} · 报价 {summary.offerCount} · 订阅 {summary.planCount}
+                </p>
               </div>
               <ChevronRight size={17} className="mt-3 shrink-0 text-[#adb3b4]" />
             </div>
@@ -1124,10 +1122,10 @@ function ProviderPlanRows({
     );
   }
 
-  const visiblePlans = compact ? plans.slice(0, 3) : plans;
+  const visiblePlans = compact ? plans.slice(0, 2) : plans;
 
   return (
-    <div className="grid gap-2">
+    <div className={compact ? "divide-y divide-[#dfe4e5]" : "grid gap-2"}>
       {visiblePlans.map((plan) => (
         <PlanRow
           key={plan.id}
@@ -1144,9 +1142,9 @@ function ProviderPlanRows({
 }
 
 function PlanRow({ compact, currency, plan }: { compact: boolean; currency: ApiCurrency; plan: ApiPlan }) {
-  const className = `block rounded-lg bg-[#f7f9f9] ring-1 ring-[#adb3b4]/10 transition ${
-    compact ? "px-3 py-2" : "px-3.5 py-3 hover:bg-[#edf2f1]"
-  }`;
+  const className = compact
+    ? "block py-2"
+    : "block rounded-lg bg-[#f7f9f9] px-3.5 py-3 ring-1 ring-[#adb3b4]/10 transition hover:bg-[#edf2f1]";
   const content = (
     <>
       <span className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -1156,13 +1154,15 @@ function PlanRow({ compact, currency, plan }: { compact: boolean; currency: ApiC
       <span className={`mt-1 block text-xs leading-5 text-[#5a6061] ${compact ? "line-clamp-1" : "line-clamp-2"}`}>
         {formatApiDisplayText(plan.quotaSummary)}
       </span>
-      <span className="mt-2 flex flex-wrap gap-1.5">
-        {planQuotaBadges(plan).map((badge) => (
-          <span key={badge} className="rounded-full bg-[#d8f5e4] px-2 py-0.5 text-[0.68rem] font-semibold leading-5 text-[#237a4b]">
-            {badge}
-          </span>
-        ))}
-      </span>
+      {compact ? null : (
+        <span className="mt-2 flex flex-wrap gap-1.5">
+          {planQuotaBadges(plan).map((badge) => (
+            <span key={badge} className="rounded-full bg-[#d8f5e4] px-2 py-0.5 text-[0.68rem] font-semibold leading-5 text-[#237a4b]">
+              {badge}
+            </span>
+          ))}
+        </span>
+      )}
     </>
   );
 
@@ -1372,16 +1372,6 @@ function ApiProviderIcon({ provider, size = "md" }: { provider: { name: string; 
       <Database size={fallbackSize} />
     </span>
   );
-}
-
-function CountBadge({ children, tone }: { children: ReactNode; tone: "good" | "warn" | "neutral" }) {
-  const className = {
-    good: "bg-[#e8f3ec] text-[#2f7a4b]",
-    warn: "bg-[#fff7e8] text-[#7a541b]",
-    neutral: "bg-[#e4e9ea] text-[#2d3435]",
-  }[tone];
-
-  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>{children}</span>;
 }
 
 function EmptyState({ text }: { text: string }) {
