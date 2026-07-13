@@ -1,5 +1,10 @@
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
 import { readApiTransitLogoImage } from "@/lib/api-transit-logo-storage";
+import {
+  createPublicAssetCacheKey,
+  readPublicAssetCache,
+  writePublicAssetCache,
+} from "@/lib/cloudflare-public-asset-cache";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -8,6 +13,10 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const reference = searchParams.get("ref") || "";
+    const cacheKey = createPublicAssetCacheKey(request, reference);
+    const cachedResponse = await readPublicAssetCache(cacheKey);
+    if (cachedResponse) return cachedResponse;
+
     const logo = await readApiTransitLogoImage(reference);
     if (!logo) {
       return Response.json({ ok: false, message: "Logo 不存在。" }, { status: 404 });
@@ -21,7 +30,7 @@ export async function GET(request: Request) {
     });
     if (typeof logo.size === "number") headers.set("Content-Length", String(logo.size));
 
-    return new Response(logo.body, { headers });
+    return writePublicAssetCache(cacheKey, new Response(logo.body, { headers }));
   } catch (error) {
     logApiError("api transit logo read", error);
     return Response.json(

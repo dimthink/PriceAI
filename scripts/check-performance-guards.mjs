@@ -234,6 +234,8 @@ assert(/refreshTransitStationsSnapshot[\s\S]{0,500}readStationsFromSupabase\(\{\
 assert(/function\s+publicTransitRefreshReadSignal\(\):\s*AbortSignal\s*\{\s*return\s+AbortSignal\.timeout\(PUBLIC_TRANSIT_REFRESH_READ_TIMEOUT_MS\);\s*\}/.test(transitPublicText), "src/lib/api-transit-db.ts: API transit refresh signal must derive from PUBLIC_TRANSIT_REFRESH_READ_TIMEOUT_MS.");
 assert(/readRecentAvailabilitySampleRows\(\s*supabase,\s*stationIds,\s*sampleRowLimit,\s*signal\s*\)/.test(transitPublicText), "src/lib/api-transit-db.ts: API transit list recent sample reads must inherit the caller read signal.");
 assert(/readRecentAvailabilitySampleRows\([\s\S]{0,300}signal:\s*AbortSignal\s*=\s*publicTransitReadSignal\(\)/.test(transitPublicText), "src/lib/api-transit-db.ts: recent sample reads must accept a caller signal while defaulting normal pages to 2.5s.");
+assert(/TRANSIT_RECENT_AVAILABILITY_SAMPLE_LOOKBACK_MS\s*=\s*8\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(transitPublicText), "src/lib/api-transit-db.ts: recent availability samples must keep an 8 day lookback window.");
+assert(/readRecentAvailabilitySampleRows[\s\S]{0,1200}\.gte\("checked_at", since\)[\s\S]{0,900}\.gte\("checked_at", since\)/.test(transitPublicText), "src/lib/api-transit-db.ts: primary and fallback recent-sample reads must filter checked_at before sorting the growing table.");
 assert(/preferPublicStatusSamples[\s\S]{0,400}return undefined/.test(transitPublicText), "src/lib/api-transit-db.ts: public-monitor rows must not fall back to stale priceai_probe recent samples.");
 assert(/for\s*\(const lookupScope of getTransitRecentAvailabilitySampleLookupScopes\(standardModel, groupName\)\)[\s\S]{0,300}appendRecentAvailabilitySample/.test(transitPublicText), "src/lib/api-transit-db.ts: recent public samples must use the shared lookup scopes when populating aggregate keys.");
 assert(/pushScope\(normalizedStandardModel, normalizedGroupName\);[\s\S]{0,200}if \(normalizedGroupName\) pushScope\("", normalizedGroupName\);[\s\S]{0,200}if \(normalizedStandardModel && normalizedGroupName\) pushScope\(normalizedStandardModel, ""\);[\s\S]{0,200}if \(normalizedStandardModel \|\| normalizedGroupName\) pushScope\("", ""\);/.test(transitLogicText), "src/lib/api-transit.ts: recent sample lookup scopes must preserve exact, group-only, model-only, station aggregate fallback order.");
@@ -249,6 +251,25 @@ const transitAdminText = read("src/lib/api-transit-admin.ts");
 assert(/ADMIN_RUN_SELECT/.test(transitAdminText), "src/lib/api-transit-admin.ts: admin run lists must use an explicit field projection.");
 assert(!/select\(\s*["'`]\*,\s*api_transit_stations\(name\)["'`]\s*\)/.test(transitAdminText), "src/lib/api-transit-admin.ts: admin run lists must not select raw snapshots with *.");
 assert(/ADMIN_LATEST_RUN_SCAN_LIMIT/.test(transitAdminText), "src/lib/api-transit-admin.ts: latest-run lookup must keep a bounded scan limit.");
+
+const globalSponsorPlacementsText = read("src/components/GlobalSponsorPlacements.tsx");
+assert(/sponsorSettingsCacheFreshAgeMs\s*=\s*30\s*\*\s*60\s*\*\s*1000/.test(globalSponsorPlacementsText), "src/components/GlobalSponsorPlacements.tsx: valid sponsor settings should avoid a network refresh for 30 minutes.");
+assert(/cachedSettings\?\.isFresh[\s\S]{0,180}cancelled\s*=\s*true/.test(globalSponsorPlacementsText), "src/components/GlobalSponsorPlacements.tsx: fresh sponsor settings must skip the network request while preserving effect cleanup.");
+assert(/sponsorSettingsCacheMaxAgeMs\s*=\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(globalSponsorPlacementsText), "src/components/GlobalSponsorPlacements.tsx: stale sponsor settings must remain available as a seven-day last-known-good fallback.");
+
+const publicAssetCacheText = read("src/lib/cloudflare-public-asset-cache.ts");
+assert(/url\.search\s*=\s*["']["']/.test(publicAssetCacheText), "src/lib/cloudflare-public-asset-cache.ts: public asset cache keys must discard unrelated query parameters.");
+assert(/url\.searchParams\.set\(["']ref["'],\s*reference\)/.test(publicAssetCacheText), "src/lib/cloudflare-public-asset-cache.ts: public asset cache keys must retain only the validated R2 reference.");
+assert(/cache\.match\(cacheKey\)/.test(publicAssetCacheText), "src/lib/cloudflare-public-asset-cache.ts: public assets must read the regional Cloudflare Cache API before R2.");
+assert(/cache\.put\(cacheKey,\s*responseWithStatus\.clone\(\)\)/.test(publicAssetCacheText), "src/lib/cloudflare-public-asset-cache.ts: successful public asset responses must populate the regional Cloudflare Cache API.");
+for (const publicAssetRoute of [
+  "src/app/api/sponsor-assets/route.ts",
+  "src/app/api/api-transit/logo/route.ts",
+]) {
+  const text = read(publicAssetRoute);
+  assert(/readPublicAssetCache\(cacheKey\)/.test(text), `${publicAssetRoute}: public image reads must check the regional cache before R2.`);
+  assert(/writePublicAssetCache\(cacheKey,\s*new Response/.test(text), `${publicAssetRoute}: public image reads must cache successful R2 responses.`);
+}
 
 const probeText = read("scripts/probe-api-transit.mjs");
 assert(/api_transit_availability_samples/.test(probeText), "scripts/probe-api-transit.mjs: availability rollup must use structured sample rows.");

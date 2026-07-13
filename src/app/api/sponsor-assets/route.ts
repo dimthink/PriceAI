@@ -1,4 +1,9 @@
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
+import {
+  createPublicAssetCacheKey,
+  readPublicAssetCache,
+  writePublicAssetCache,
+} from "@/lib/cloudflare-public-asset-cache";
 import { readSponsorAssetImage } from "@/lib/sponsor-asset-storage";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +13,10 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const reference = searchParams.get("ref") || "";
+    const cacheKey = createPublicAssetCacheKey(request, reference);
+    const cachedResponse = await readPublicAssetCache(cacheKey);
+    if (cachedResponse) return cachedResponse;
+
     const asset = await readSponsorAssetImage(reference);
     if (!asset) {
       return Response.json({ ok: false, message: "赞助图片不存在。" }, { status: 404 });
@@ -21,7 +30,7 @@ export async function GET(request: Request) {
     });
     if (typeof asset.size === "number") headers.set("Content-Length", String(asset.size));
 
-    return new Response(asset.body, { headers });
+    return writePublicAssetCache(cacheKey, new Response(asset.body, { headers }));
   } catch (error) {
     logApiError("sponsor asset read", error);
     return Response.json(

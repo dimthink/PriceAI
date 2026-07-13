@@ -37,6 +37,7 @@ const TRANSIT_HISTORY_STATION_LIMIT = 320;
 const TRANSIT_RECENT_AVAILABILITY_SAMPLE_LIMIT = 60;
 const TRANSIT_RECENT_AVAILABILITY_SAMPLE_LIST_ROW_LIMIT = 6000;
 const TRANSIT_RECENT_AVAILABILITY_SAMPLE_DETAIL_ROW_LIMIT = 2400;
+const TRANSIT_RECENT_AVAILABILITY_SAMPLE_LOOKBACK_MS = 8 * 24 * 60 * 60 * 1000;
 const STATION_CORE_BASE_COLUMNS = [
   "id",
   "slug",
@@ -962,11 +963,13 @@ async function readRecentAvailabilitySampleRows(
 ): Promise<DbRow[]> {
   const ids = Array.from(new Set(stationIds.filter(Boolean)));
   if (!ids.length || rowLimit <= 0) return [];
+  const since = new Date(Date.now() - TRANSIT_RECENT_AVAILABILITY_SAMPLE_LOOKBACK_MS).toISOString();
 
   const query = () => client
     .from("api_transit_availability_samples")
     .select("station_id,scope,standard_model,group_name,ok,checked_at,source_type")
     .in("station_id", ids)
+    .gte("checked_at", since)
     .order("checked_at", { ascending: false })
     .limit(rowLimit)
     .abortSignal(signal);
@@ -978,6 +981,7 @@ async function readRecentAvailabilitySampleRows(
       .from("api_transit_availability_samples")
       .select("station_id,scope,standard_model,group_name,ok,checked_at")
       .in("station_id", ids)
+      .gte("checked_at", since)
       .order("checked_at", { ascending: false })
       .limit(rowLimit)
       .abortSignal(signal);

@@ -7,6 +7,7 @@ import { SPONSOR_PLACEMENT_KINDS, type SponsorSettingsSummary } from "@/lib/spon
 
 const sponsorSettingsCacheKey = "priceai.sponsor-settings.summary.v1";
 const sponsorSettingsCacheVersion = 1;
+const sponsorSettingsCacheFreshAgeMs = 30 * 60 * 1000;
 const sponsorSettingsCacheMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
 const sponsorCreativeStatuses = new Set(["draft", "live", "paused", "expired"]);
 const sponsorTones = new Set(["green", "blue", "amber"]);
@@ -38,16 +39,22 @@ export function GlobalSponsorPlacements({ children }: { children: ReactNode }) {
     if (!shouldFetchSponsorSettings) return;
 
     let cancelled = false;
-    const controller = new AbortController();
 
     const cachedSettings = readCachedSponsorSettings();
     if (cachedSettings) {
       queueMicrotask(() => {
         if (cancelled) return;
-        setSponsorSettings(cachedSettings);
+        setSponsorSettings(cachedSettings.settings);
         setHasKnownSponsorSettings(true);
       });
     }
+    if (cachedSettings?.isFresh) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const controller = new AbortController();
 
     void (async () => {
       try {
@@ -102,7 +109,7 @@ function parseSponsorSettingsResponse(payload: unknown): SponsorSettingsSummary 
   return isSponsorSettingsSummary(payload.settings) ? payload.settings : null;
 }
 
-function readCachedSponsorSettings(): SponsorSettingsSummary | null {
+function readCachedSponsorSettings(): { settings: SponsorSettingsSummary; isFresh: boolean } | null {
   if (typeof window === "undefined") return null;
 
   try {
@@ -120,7 +127,8 @@ function readCachedSponsorSettings(): SponsorSettingsSummary | null {
     }
 
     const savedAt = Date.parse(payload.savedAt);
-    if (!Number.isFinite(savedAt) || Date.now() - savedAt > sponsorSettingsCacheMaxAgeMs) {
+    const cacheAgeMs = Date.now() - savedAt;
+    if (!Number.isFinite(savedAt) || cacheAgeMs > sponsorSettingsCacheMaxAgeMs) {
       removeCachedSponsorSettings();
       return null;
     }
@@ -131,7 +139,10 @@ function readCachedSponsorSettings(): SponsorSettingsSummary | null {
       return null;
     }
 
-    return settings;
+    return {
+      settings,
+      isFresh: cacheAgeMs <= sponsorSettingsCacheFreshAgeMs,
+    };
   } catch {
     removeCachedSponsorSettings();
     return null;
