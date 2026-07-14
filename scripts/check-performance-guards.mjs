@@ -317,6 +317,10 @@ const transitSamplesMigration = read("supabase/migrations/20260618134500_api_tra
 assert(/create table if not exists api_transit_availability_samples/.test(transitSamplesMigration), "api transit availability sample migration must create the structured sample table.");
 assert(/checked_at desc/.test(transitSamplesMigration), "api transit availability sample migration must index station time lookups.");
 
+const transitCheckedTimeIndexMigration = read("supabase/migrations/20260713155000_api_transit_availability_checked_time_index.sql");
+assert(/api_transit_availability_samples_checked_time_idx/.test(transitCheckedTimeIndexMigration), "API transit recent-sample reads must keep the checked_at-first covering index.");
+assert(/include \(scope, standard_model, group_name, ok, source_type\)/.test(transitCheckedTimeIndexMigration), "API transit checked-time index must keep the fields needed for index-only recent-sample reads.");
+
 const transitRetentionMigration = read("supabase/migrations/20260714200000_api_transit_availability_rollups_retention.sql");
 assert(/create table if not exists public\.api_transit_availability_hourly_rollups/.test(transitRetentionMigration), "API transit retention must keep hourly availability rollups.");
 assert(/create table if not exists public\.api_transit_availability_daily_rollups/.test(transitRetentionMigration), "API transit retention must keep daily availability rollups.");
@@ -329,6 +333,20 @@ assert(/p_dry_run boolean default true/.test(transitRetentionMigration), "API tr
 assert(/refusing raw availability deletion/.test(transitRetentionMigration), "API transit retention must refuse raw deletion when hourly rollup coverage is incomplete.");
 assert(!/\nselect\s+public\.prune_api_transit_availability_retention\s*\(/i.test(transitRetentionMigration), "API transit retention migration must not execute destructive pruning while the migration is applied.");
 assert(!/vacuum\s+full|reindex/i.test(transitRetentionMigration), "API transit retention migration must not run table-rewriting maintenance during rollout.");
+
+const transitDetectionRetentionMigration = read("supabase/migrations/20260714213000_api_transit_detection_retention_infrastructure_snapshot.sql");
+assert(/prune_api_transit_detection_run_retention/.test(transitDetectionRetentionMigration), "API transit retention must include detection-run payload and metadata cleanup.");
+assert(/p_payload_retention_days integer default 14/.test(transitDetectionRetentionMigration), "Detection payload retention must default to 14 days.");
+assert(/p_run_retention_days integer default 30/.test(transitDetectionRetentionMigration), "Detection run metadata retention must default to 30 days.");
+assert(/p_batch_size integer default 5000/.test(transitDetectionRetentionMigration), "Detection retention must default to bounded 5,000-row batches.");
+assert(/p_dry_run boolean default true/.test(transitDetectionRetentionMigration), "Detection retention must default to preview-only mode.");
+assert(/not exists \([\s\S]{0,220}api_transit_availability_samples/.test(transitDetectionRetentionMigration), "Detection retention must refuse to delete runs that still own availability samples.");
+assert(/prune_api_transit_retention/.test(transitDetectionRetentionMigration), "API transit retention must expose one unified preview/apply entry point.");
+assert(/get_priceai_infrastructure_snapshot/.test(transitDetectionRetentionMigration), "Infrastructure admin must use a service-role-only database snapshot RPC.");
+assert(/'decision', 'keep'/.test(transitDetectionRetentionMigration), "Infrastructure snapshot must preserve the evidence-backed covering-index decision.");
+assert(!/drop\s+index[\s\S]{0,160}api_transit_availability_samples_checked_time_idx/i.test(transitDetectionRetentionMigration), "P2 must not drop the actively used availability covering index.");
+assert(!/\nselect\s+public\.prune_api_transit_(?:detection_run_)?retention\s*\(/i.test(transitDetectionRetentionMigration), "Detection retention migration must not execute destructive pruning while it is applied.");
+assert(!/vacuum\s+full|reindex/i.test(transitDetectionRetentionMigration), "Detection retention migration must not run table-rewriting maintenance during rollout.");
 
 const smokeText = read("scripts/smoke-cloudflare.mjs");
 assert(/SMOKE_FETCH_TIMEOUT_MS/.test(smokeText), "scripts/smoke-cloudflare.mjs: smoke checks must have a request timeout.");
