@@ -134,6 +134,9 @@ const UMAMI_EVENT_DEFINITIONS = [
     ],
   },
 ] as const;
+const UMAMI_MONITORING_PROPERTY_KEYS = new Set<UmamiPropertyKey>([
+  "purchase_link_click:source_id",
+]);
 const PRIMARY_COLLECTOR_NODE_IDS = new Set([
   "huoshan2-nonshop",
   "aliyun6-hangzhou-priceai",
@@ -2785,7 +2788,7 @@ async function readCollectionMonitoringBehaviorSummary(input: {
       endAt: window.endAt,
       message: propertyResult.errors.length > 0
         ? `部分 Umami 属性读取失败：${propertyResult.errors.slice(0, 3).join("；")}`
-        : "当前使用 Umami 事件属性值聚合统计。",
+        : "当前使用 Umami 购买外链 source_id 属性聚合统计。",
       events,
       totals: {
         trackedEventCount,
@@ -2926,6 +2929,11 @@ async function readUmamiPropertyValues(
   for (const definition of UMAMI_EVENT_DEFINITIONS) {
     for (const property of definition.properties) {
       const key: UmamiPropertyKey = `${definition.eventName}:${property.propertyName}`;
+      if (!UMAMI_MONITORING_PROPERTY_KEYS.has(key)) {
+        entries.push([key, []]);
+        continue;
+      }
+
       try {
         const payload = await fetchUmamiJson(config, authHeaders, `/api/websites/${config.websiteId}/event-data/values`, {
           startAt: String(window.startMs),
