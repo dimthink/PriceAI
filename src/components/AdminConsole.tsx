@@ -40,6 +40,7 @@ import type { ClipboardEvent, Dispatch, FormEvent, ReactNode, SetStateAction, UI
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiTransitAdminPanel, WholesaleAdminPanel, type ApiTransitAdminTab } from "@/components/ApiTransitAdminConsole";
 import { AdminShell, type AdminNavSection } from "@/components/admin/AdminShell";
+import { InfrastructureOverviewPanel } from "@/components/admin/InfrastructureOverviewPanel";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { formatBeijingDateTimeLocalValue, parseBeijingDateTimeLocalValue } from "@/lib/beijing-time";
 import { classifyOffer } from "@/lib/catalog";
@@ -262,6 +263,7 @@ const adminTabValues = [
   "wholesale",
   "sources",
   "manual",
+  "infrastructure",
   "logs",
 ] as const;
 type AdminTab = (typeof adminTabValues)[number];
@@ -1037,6 +1039,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         id: "system",
         label: "系统",
         items: [
+          { id: "infrastructure", label: "基础设施", count: null, icon: <Database size={15} />, description: "查看 Supabase 容量、留存候选、核心索引、Cloudflare 缓存和异常流量审计基线。" },
           { id: "security", label: "安全", count: null, icon: <KeyRound size={15} />, description: "修改后台密码并查看当前密码来源和安全状态。" },
           { id: "history", label: "操作历史", count: null, icon: <History size={15} />, description: "查看已批准和已拒绝的渠道提交处理记录。" },
         ],
@@ -3426,6 +3429,13 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   loading={loadingAction === "sponsor-settings"}
                   onSave={saveSponsorSettings}
                 />
+              </div>
+            )}
+
+            {/* Infrastructure tab */}
+            {activeTab === "infrastructure" && (
+              <div role="tabpanel" id="tabpanel-infrastructure">
+                <InfrastructureOverviewPanel />
               </div>
             )}
 

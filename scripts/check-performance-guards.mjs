@@ -99,6 +99,8 @@ assert(!/refreshPublicApiSnapshots/.test(crawlLogRouteText), "src/app/api/admin/
 const adminText = read("src/lib/admin.ts");
 assert(/upsertRawOfferConfirmations/.test(adminText), "src/lib/admin.ts: unchanged offers must write lightweight confirmation rows instead of refreshing raw_offers.");
 assert(/raw_offer_confirmations/.test(adminText), "src/lib/admin.ts: offer confirmation writes must use raw_offer_confirmations.");
+assert(/const changedRows = \[\];[\s\S]{0,700}isRawOfferRowUnchanged\(row, existingRow\)/.test(adminText), "src/lib/admin.ts: automated raw offer writes must compare content before writing the main table.");
+assert(/for \(const rowChunk of chunks\(changedRows, RAW_OFFER_WRITE_CHUNK_SIZE\)\)/.test(adminText), "src/lib/admin.ts: changed raw offers must use bounded batch upserts.");
 assert(/preserveExistingUnavailableStateForImplicitConfirmation/.test(adminText), "src/lib/admin.ts: implicit collector confirmations must not revive explicitly unavailable offers.");
 assert(!/UNCHANGED_OFFER_REFRESH_INTERVAL_MS/.test(adminText), "src/lib/admin.ts: unchanged confirmation timing must not be implemented by raw_offers refresh intervals.");
 assert(!/function\s+shouldRefreshUnchangedOffer/.test(adminText), "src/lib/admin.ts: unchanged offer confirmation must not depend on old raw_offers refresh logic.");
@@ -287,6 +289,24 @@ const infrastructureRuntimeProfileText = read("src/lib/infrastructure-runtime-pr
 assert(/regionalCacheMode:\s*["']short-lived["']/.test(infrastructureRuntimeProfileText), "src/lib/infrastructure-runtime-profile.ts: regional cache must stay short-lived until P3 review.");
 assert(/regionalCacheMaxAgeSeconds:\s*60/.test(infrastructureRuntimeProfileText), "src/lib/infrastructure-runtime-profile.ts: the admin workflow must describe the one-minute regional-cache bound.");
 assert(/cacheInterceptionEnabled:\s*false/.test(infrastructureRuntimeProfileText), "src/lib/infrastructure-runtime-profile.ts: cache interception must remain disabled during the regional-cache-only trial.");
+
+const infrastructureRouteText = read("src/app/api/admin/infrastructure/route.ts");
+assert(/requireAdminRequest\(request\)/.test(infrastructureRouteText), "src/app/api/admin/infrastructure/route.ts: infrastructure data must require an authenticated admin request.");
+assert(/getInfrastructureOverview/.test(infrastructureRouteText), "src/app/api/admin/infrastructure/route.ts: infrastructure route must use the centralized read-only overview.");
+assert(/private, no-store/.test(infrastructureRouteText), "src/app/api/admin/infrastructure/route.ts: infrastructure snapshots must not be cached publicly.");
+
+const infrastructureOverviewText = read("src/lib/infrastructure-overview.ts");
+assert(/get_priceai_infrastructure_snapshot/.test(infrastructureOverviewText), "src/lib/infrastructure-overview.ts: Supabase capacity data must come from the service-role snapshot RPC.");
+assert(/liveDataConnected:\s*false/.test(infrastructureOverviewText), "src/lib/infrastructure-overview.ts: dated Cloudflare audit evidence must not be presented as live analytics.");
+assert(/2026-07-14 Cloudflare 24h/.test(infrastructureOverviewText), "src/lib/infrastructure-overview.ts: non-live traffic evidence must keep an explicit observation date.");
+
+const infrastructurePanelText = read("src/components/admin/InfrastructureOverviewPanel.tsx");
+assert(/\/api\/admin\/infrastructure/.test(infrastructurePanelText), "src/components/admin/InfrastructureOverviewPanel.tsx: infrastructure panel must load the protected overview endpoint.");
+assert(/这里没有删除、封禁或修改配置按钮/.test(infrastructurePanelText), "src/components/admin/InfrastructureOverviewPanel.tsx: infrastructure workflow must remain read-only in P2.");
+
+const adminConsoleText = read("src/components/AdminConsole.tsx");
+assert(/["']infrastructure["']/.test(adminConsoleText), "src/components/AdminConsole.tsx: admin navigation must expose the infrastructure workflow.");
+assert(/<InfrastructureOverviewPanel\s*\/>/.test(adminConsoleText), "src/components/AdminConsole.tsx: infrastructure tab must render the dedicated panel.");
 
 const wranglerConfigText = read("wrangler.jsonc");
 assert(/"name"\s*:\s*"NEXT_CACHE_DO_QUEUE"/.test(wranglerConfigText), "wrangler.jsonc: the OpenNext revalidation queue must keep its durable object binding.");
