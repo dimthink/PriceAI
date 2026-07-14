@@ -279,6 +279,14 @@ for (const publicAssetRoute of [
 const openNextConfigText = read("open-next.config.ts");
 assert(/overrides\/queue\/do-queue/.test(openNextConfigText), "open-next.config.ts: production ISR revalidation must use the durable object queue override.");
 assert(/queue:\s*doQueue/.test(openNextConfigText), "open-next.config.ts: the durable object queue must be wired into the Cloudflare adapter config.");
+assert(/overrides\/incremental-cache\/regional-cache/.test(openNextConfigText), "open-next.config.ts: the R2 incremental cache must use the regional Cache API wrapper.");
+assert(/withRegionalCache\(r2IncrementalCache/.test(openNextConfigText), "open-next.config.ts: regional cache must wrap the existing R2 cache instead of replacing durable storage.");
+assert(/mode:\s*OPEN_NEXT_REGIONAL_CACHE_MODE/.test(openNextConfigText), "open-next.config.ts: regional cache mode must come from the admin-visible runtime profile.");
+
+const infrastructureRuntimeProfileText = read("src/lib/infrastructure-runtime-profile.ts");
+assert(/regionalCacheMode:\s*["']short-lived["']/.test(infrastructureRuntimeProfileText), "src/lib/infrastructure-runtime-profile.ts: regional cache must stay short-lived until P3 review.");
+assert(/regionalCacheMaxAgeSeconds:\s*60/.test(infrastructureRuntimeProfileText), "src/lib/infrastructure-runtime-profile.ts: the admin workflow must describe the one-minute regional-cache bound.");
+assert(/cacheInterceptionEnabled:\s*false/.test(infrastructureRuntimeProfileText), "src/lib/infrastructure-runtime-profile.ts: cache interception must remain disabled during the regional-cache-only trial.");
 
 const wranglerConfigText = read("wrangler.jsonc");
 assert(/"name"\s*:\s*"NEXT_CACHE_DO_QUEUE"/.test(wranglerConfigText), "wrangler.jsonc: the OpenNext revalidation queue must keep its durable object binding.");
