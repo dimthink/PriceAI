@@ -47,6 +47,29 @@ export function revalidatePublicOfferPaths(): string[] {
   return [...publicOfferPaths, "/products/[id]"];
 }
 
+export function revalidatePublicOfferPathsForProducts(
+  productIds: Array<string | null | undefined>,
+): string[] {
+  const paths = new Set<string>([
+    "/",
+    "/api/explorer",
+    "/api/offers",
+  ]);
+
+  for (const productId of productIds) {
+    const cleanId = productId?.trim();
+    if (!cleanId || cleanId.includes("/") || cleanId.includes("\\")) continue;
+    paths.add(`/products/${encodeURIComponent(cleanId)}`);
+    paths.add(`/api/products/${encodeURIComponent(cleanId)}/offers`);
+  }
+
+  for (const path of paths) {
+    revalidatePath(path);
+  }
+
+  return [...paths];
+}
+
 export function revalidateApiTransitPublicPaths(
   slugs: Array<string | null | undefined> = [],
 ): string[] {

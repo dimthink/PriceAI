@@ -1,8 +1,8 @@
 import { setRawOfferHidden } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
-import { clearPublicDataCache, listRawOffersByIds, markPublicApiSnapshotsDirty } from "@/lib/data";
+import { clearPublicOfferDataCacheForProducts, listRawOffersByIds, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminRequest } from "@/lib/env";
-import { prewarmPublicPaths, revalidatePublicOfferPaths } from "@/lib/public-revalidation";
+import { prewarmPublicPaths, revalidatePublicOfferPathsForProducts } from "@/lib/public-revalidation";
 import { after } from "next/server";
 import { z } from "zod";
 
@@ -19,10 +19,12 @@ export async function POST(request: Request) {
 
     const payload = schema.parse(await request.json());
     const result = await setRawOfferHidden(payload);
-    clearPublicDataCache();
     const affectedOffers = result.updatedOfferCount > 0 ? await listRawOffersByIds([payload.id]) : [];
     const affectedProductIds = Array.from(new Set(affectedOffers.map((offer) => offer.canonicalProductId).filter(isNonEmptyString)));
     const affectedSourceIds = Array.from(new Set(affectedOffers.map((offer) => offer.sourceId).filter(isNonEmptyString)));
+    if (result.updatedOfferCount > 0) {
+      clearPublicOfferDataCacheForProducts(affectedProductIds);
+    }
     const snapshotRefreshQueued = result.updatedOfferCount > 0
       ? await markPublicApiSnapshotsDirty("admin toggle offer", {
           productIds: affectedProductIds,
@@ -32,7 +34,7 @@ export async function POST(request: Request) {
           preferProductScope: affectedProductIds.length > 0,
         })
       : false;
-    const revalidatedPaths = result.updatedOfferCount > 0 ? revalidatePublicOfferPaths() : [];
+    const revalidatedPaths = result.updatedOfferCount > 0 ? revalidatePublicOfferPathsForProducts(affectedProductIds) : [];
 
     if (result.updatedOfferCount > 0) {
       after(async () => {

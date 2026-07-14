@@ -427,6 +427,36 @@ export function clearPublicDataCache(): void {
   productOfferFacetsCache.clear();
 }
 
+export function clearPublicOfferDataCacheForProducts(productIds: string[]): void {
+  const normalizedProductIds = new Set(productIds.map((id) => id.trim()).filter(Boolean));
+  const productIdList = [...normalizedProductIds];
+
+  publicOfferDataCache = null;
+  publicOfferDataPromise = null;
+  publicOffersCache = null;
+  publicOfferViewCache.clear();
+  explorerDataCache = null;
+  explorerDataPromise = null;
+
+  if (!normalizedProductIds.size) {
+    productOffersCache.clear();
+    productOfferFacetsCache.clear();
+    return;
+  }
+
+  for (const key of Array.from(productOffersCache.keys())) {
+    if (productIdList.some((id) => key.startsWith(`${id}:`))) {
+      productOffersCache.delete(key);
+    }
+  }
+
+  for (const key of Array.from(productOfferFacetsCache.keys())) {
+    if (productIdList.some((id) => key.startsWith(`facets:${id}:`))) {
+      productOfferFacetsCache.delete(key);
+    }
+  }
+}
+
 export async function markPublicApiSnapshotsDirty(
   reason: string,
   scope: PublicApiSnapshotDirtyScope = {},
