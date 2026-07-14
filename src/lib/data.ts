@@ -2762,7 +2762,7 @@ async function readCollectionMonitoringBehaviorSummary(input: {
 
   try {
     const authHeaders = await getUmamiAuthHeaders(config);
-    const eventTotals = await readUmamiEventTotals(config, authHeaders, window);
+    const eventTotals = new Map<string, number>();
     const propertyValues = await readUmamiPropertyValues(config, authHeaders, window);
     const events = buildUmamiBehaviorEvents(eventTotals, propertyValues);
     const sourceHeat = buildUmamiSourceHeatRows({
@@ -2782,7 +2782,7 @@ async function readCollectionMonitoringBehaviorSummary(input: {
       windowDays: UMAMI_MONITORING_WINDOW_DAYS,
       startAt: window.startAt,
       endAt: window.endAt,
-      message: null,
+      message: "当前使用 Umami 事件属性值聚合统计。",
       events,
       totals: {
         trackedEventCount,
@@ -2909,24 +2909,6 @@ function readUmamiToken(payload: unknown): string | null {
   return typeof token === "string" ? token : null;
 }
 
-async function readUmamiEventTotals(
-  config: UmamiMonitoringConfig,
-  authHeaders: Record<string, string>,
-  window: ReturnType<typeof collectionBehaviorWindow>,
-): Promise<Map<string, number>> {
-  const payload = await fetchUmamiJson(config, authHeaders, `/api/websites/${config.websiteId}/event-data/events`, {
-    startAt: String(window.startMs),
-    endAt: String(window.endMs),
-  });
-  const totals = new Map<string, number>();
-  for (const row of normalizeUmamiRows(payload)) {
-    const eventName = readUmamiText(row, ["eventName", "event_name", "event", "name", "x"]);
-    if (!eventName) continue;
-    totals.set(eventName, Math.max(totals.get(eventName) || 0, readUmamiCount(row)));
-  }
-  return totals;
-}
-
 async function readUmamiPropertyValues(
   config: UmamiMonitoringConfig,
   authHeaders: Record<string, string>,
@@ -2997,7 +2979,12 @@ function buildUmamiBehaviorEvents(
         topValues: values.slice(0, 5),
       };
     });
-    const propertyTotal = Math.max(0, ...properties.flatMap((property) => property.topValues.map((item) => item.count)));
+    const propertyTotal = Math.max(
+      0,
+      ...properties.map((property) =>
+        property.topValues.reduce((total, item) => total + item.count, 0),
+      ),
+    );
     const total = Math.max(eventTotals.get(definition.eventName) || 0, propertyTotal);
     const hasRequiredProperties = properties
       .filter((property) => property.required)
