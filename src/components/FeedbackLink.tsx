@@ -14,6 +14,7 @@ import Image from "next/image";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
+import { communityAssetDisplayUrl } from "@/lib/community-asset-url";
 import { useCommunitySettings } from "@/lib/community-settings-client";
 import type { CommunitySettingsSummary } from "@/lib/community-settings-shared";
 import { supportPagePath } from "@/lib/support";
@@ -199,6 +200,7 @@ export function QQGroupDialog({
   const settings = providedSettings || loadedSettings;
   const titleId = useId();
   const [copied, setCopied] = useState(false);
+  const qrCodeUrl = communityAssetDisplayUrl(settings.qqGroupQrCodeUrl) || settings.qqGroupQrCodeUrl;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -287,7 +289,7 @@ export function QQGroupDialog({
 
             <div className="rounded-lg border border-[#dfe4e5] bg-white p-2">
               <Image
-                src={settings.qqGroupQrCodeUrl}
+                src={qrCodeUrl}
                 alt={`PriceAI QQ 交流群二维码，群号 ${settings.qqGroupNumber}`}
                 width={1284}
                 height={2289}

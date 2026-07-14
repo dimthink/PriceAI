@@ -1,3 +1,5 @@
+import { isCommunityAssetReference } from "@/lib/community-asset-url";
+
 export type CommunitySettingsSummary = {
   configured: boolean;
   tableReady: boolean;
@@ -101,6 +103,7 @@ function cleanHttpUrl(value: unknown, fallback: string): string {
 function cleanHttpUrlOrPath(value: unknown, fallback: string): string {
   const text = cleanText(value, "", 2048);
   if (!text) return fallback;
+  if (isCommunityAssetReference(text)) return text;
   if (text.startsWith("/") && !text.startsWith("//")) return text;
   return cleanHttpUrl(text, fallback);
 }

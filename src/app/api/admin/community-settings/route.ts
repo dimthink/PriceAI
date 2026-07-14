@@ -4,12 +4,13 @@ import { clearAdminDataCache } from "@/lib/data";
 import { requireAdminRequest } from "@/lib/env";
 import { prewarmPublicPaths, revalidateCommunityPublicPaths } from "@/lib/public-revalidation";
 import { getCommunitySettingsSummary, updateCommunitySettings } from "@/lib/community-settings";
+import { isCommunityAssetReference } from "@/lib/community-asset-url";
 
 const httpUrlSchema = z.string().trim().max(2048).refine((value) => isHttpUrl(value), {
   message: "请输入有效的 http(s) 地址。",
 });
-const httpUrlOrPathSchema = z.string().trim().max(2048).refine((value) => isHttpUrl(value) || isRootRelativePath(value), {
-  message: "请输入有效的 http(s) 地址或站内路径。",
+const httpUrlOrPathSchema = z.string().trim().max(2048).refine((value) => isHttpUrl(value) || isRootRelativePath(value) || isCommunityAssetReference(value), {
+  message: "请输入有效的 http(s) 地址、站内路径或已上传图片引用。",
 });
 
 const patchSchema = z.object({

@@ -36,13 +36,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { Dispatch, FormEvent, ReactNode, SetStateAction, UIEvent } from "react";
+import type { ClipboardEvent, Dispatch, FormEvent, ReactNode, SetStateAction, UIEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiTransitAdminPanel, WholesaleAdminPanel, type ApiTransitAdminTab } from "@/components/ApiTransitAdminConsole";
 import { AdminShell, type AdminNavSection } from "@/components/admin/AdminShell";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { formatBeijingDateTimeLocalValue, parseBeijingDateTimeLocalValue } from "@/lib/beijing-time";
 import { classifyOffer } from "@/lib/catalog";
+import { communityAssetDisplayUrl } from "@/lib/community-asset-url";
 import { shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import {
   collectorKindLabel,
@@ -5458,14 +5459,7 @@ function CommunitySettingsPanel({
                 />
               </label>
             </div>
-            <label className="mt-3 block">
-              <span className="mb-1 block text-xs font-medium text-[#5a6061]">二维码图片</span>
-              <input
-                value={draft.qqGroupQrCodeUrl}
-                onChange={(event) => setDraft((current) => ({ ...current, qqGroupQrCodeUrl: event.target.value }))}
-                className={adminInputClassName}
-              />
-            </label>
+            <CommunityQrCodeImageField value={draft.qqGroupQrCodeUrl} setDraft={setDraft} />
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
               <a
                 href={draft.qqGroupUrl}
@@ -5524,6 +5518,116 @@ function CommunitySettingsPanel({
         </div>
       </form>
     </section>
+  );
+}
+
+function CommunityQrCodeImageField({
+  value,
+  setDraft,
+}: {
+  value: string;
+  setDraft: Dispatch<SetStateAction<CommunitySettings>>;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [tone, setTone] = useState<"muted" | "warn" | "danger">("muted");
+  const imageUrl = communityAssetDisplayUrl(value);
+
+  async function uploadImage(file: File | undefined) {
+    if (!file) return;
+    setUploading(true);
+    setMessage(null);
+    setTone("muted");
+
+    try {
+      const warning = validateCommunityQrImageBeforeUpload(file);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/admin/community-assets", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
+      if (!response.ok || !json.ok) {
+        throw new Error(json.message || "二维码图片上传失败。");
+      }
+
+      const nextUrl = String(json.asset?.url || "");
+      setDraft((current) => ({ ...current, qqGroupQrCodeUrl: nextUrl }));
+      setTone(warning ? "warn" : "muted");
+      setMessage(warning || "图片已上传，保存配置后前台生效。");
+    } catch (error) {
+      setTone("danger");
+      setMessage(error instanceof Error ? error.message : "二维码图片上传失败。");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLInputElement>) {
+    const file = getClipboardImageFile(event);
+    if (!file) return;
+    event.preventDefault();
+    void uploadImage(file);
+  }
+
+  const messageClassName = tone === "danger"
+    ? "text-[#9b3328]"
+    : tone === "warn"
+      ? "text-[#7a541b]"
+      : "text-[#8a9293]";
+
+  return (
+    <div className="mt-3">
+      <span className="mb-1 block text-xs font-medium text-[#5a6061]">二维码图片</span>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <input
+          value={value}
+          onChange={(event) => {
+            setDraft((current) => ({ ...current, qqGroupQrCodeUrl: event.target.value }));
+            setMessage(null);
+            setTone("muted");
+          }}
+          onPaste={handlePaste}
+          placeholder="可输入图片 URL，也可在这里粘贴图片"
+          className={adminInputClassName}
+        />
+        <label className="inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4]">
+          {uploading ? <Loader2 size={14} className="animate-spin" /> : <ImageUp size={14} />}
+          上传
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="sr-only"
+            disabled={uploading}
+            onChange={(event) => {
+              void uploadImage(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+        </label>
+      </div>
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 text-[11px] leading-5">
+          <p className={message ? messageClassName : "text-[#8a9293]"}>
+            {message || "支持 PNG、JPG、WebP，最多 2MB；也可以复制图片后聚焦输入框直接粘贴上传。"}
+          </p>
+          {imageUrl ? (
+            <a href={imageUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex font-semibold text-[#47657a] hover:text-[#2d3435]">
+              打开图片
+            </a>
+          ) : null}
+        </div>
+        {imageUrl ? (
+          <div className="h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-[#dfe4e5] bg-white p-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imageUrl} alt="QQ群二维码预览" className="h-full w-full rounded-md object-contain" />
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -6297,6 +6401,29 @@ function createSponsorCreativeId(kind: string, creatives: SponsorCreative[]): st
 function emptyToNull(value: string | null | undefined): string | null {
   const text = typeof value === "string" ? value.trim() : "";
   return text || null;
+}
+
+function validateCommunityQrImageBeforeUpload(file: File): string | null {
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    throw new Error("请上传 PNG、JPG 或 WebP 格式。");
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error("二维码图片不能超过 2MB。");
+  }
+  if (file.size < 8 * 1024) {
+    return "图片已上传，但文件较小；如果前台扫码不清晰，建议换一张更高清的二维码。";
+  }
+
+  return null;
+}
+
+function getClipboardImageFile(event: ClipboardEvent<HTMLInputElement>): File | undefined {
+  const fileFromList = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"));
+  if (fileFromList) return fileFromList;
+
+  return Array.from(event.clipboardData.items)
+    .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+    ?.getAsFile() || undefined;
 }
 
 async function validateSponsorImageBeforeUpload(file: File): Promise<string | null> {
