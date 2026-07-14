@@ -23,6 +23,7 @@
     "start": "node_modules/node/bin/node node_modules/next/dist/bin/next start",
     "lint": "node_modules/node/bin/node node_modules/eslint/bin/eslint.js",
     "collect:prices": "node scripts/collect-prices.mjs",
+    "rebalance:source-shards": "node scripts/rebalance-source-shards.mjs",
     "refresh:snapshots": "node scripts/refresh-public-api-snapshots.mjs",
     "collect:performance": "node scripts/analyze-collector-performance.mjs",
     "analyze:workers-tail": "node scripts/analyze-workers-tail.mjs",

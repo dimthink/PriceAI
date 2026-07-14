@@ -13,6 +13,16 @@ const FAMILY_HOSTS: Record<string, string[]> = {
   yunmao: ["catfk.com"],
   catfk: ["catfk.com"],
 };
+const SHARD_FAMILY_ALIASES: Record<string, string> = {
+  "liandong-shop": "ldxp",
+  ldxp: "ldxp",
+  "pay.ldxp.cn": "ldxp",
+  "ldxp.cn": "ldxp",
+  "yunmao-consignment": "yunmao",
+  yunmao: "yunmao",
+  catfk: "yunmao",
+  "catfk.com": "yunmao",
+};
 const ALL_SHOPAPI_FAMILIES = new Set(["all", "*", "shopapi", "shop-api"]);
 
 const querySchema = z.object({
@@ -105,11 +115,10 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
-    const selectedSources = (sources || [])
+    const candidateSources = (sources || [])
       .filter((source) => source.collection_method !== "public_json")
       .filter((source) => !excludedSourceIds.has(String(source.id)))
       .filter((source) => !sourceWithinCooldown(source.last_checked_at, generatedAt))
-      .filter((source) => sourceInShard(String(source.id), query.shardCount, query.shardIndex))
       .filter((source) => {
         const sourceUrl = String(source.entry_url || source.base_url || "");
         const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
@@ -117,7 +126,20 @@ export async function GET(request: Request) {
 
         const host = normalizeHostname(baseUrl || sourceUrl);
         return hostCandidates.includes(host);
-      })
+      });
+    const shardAssignments = await loadSourceShardAssignments(
+      candidateSources.map((source) => String(source.id)),
+      query.kind,
+      query.family,
+      query.shardCount,
+    );
+    const selectedSources = candidateSources
+      .filter((source) => sourceMatchesShard(
+        String(source.id),
+        query.shardCount,
+        query.shardIndex,
+        shardAssignments.get(String(source.id)),
+      ))
       .slice(0, query.limit);
 
     await markSourcesDispatched(selectedSources.map((source) => String(source.id)), generatedAt);
@@ -191,6 +213,7 @@ async function claimQueuedSourceTasks(input: {
   if (sourcesError) throw sourcesError;
 
   const sourceById = new Map((sources || []).map((source) => [String(source.id), source]));
+  const shardAssignments = await loadSourceShardAssignments(sourceIds, input.kind, input.family, input.shardCount);
   const tasks: Array<ReturnType<typeof sourceTaskFromRow> & {
     collectionJobId: string;
     collectionJobRequestedBy: string | null;
@@ -208,7 +231,7 @@ async function claimQueuedSourceTasks(input: {
     const source = sourceById.get(sourceId);
     if (!source || !source.enabled || source.collection_method === "public_json") continue;
     if (source.collector_kind !== input.kind) continue;
-    if (!sourceInShard(sourceId, input.shardCount, input.shardIndex)) continue;
+    if (!sourceMatchesShard(sourceId, input.shardCount, input.shardIndex, shardAssignments.get(sourceId))) continue;
 
     const sourceUrl = String(source.entry_url || source.base_url || "");
     const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
@@ -379,6 +402,63 @@ function sourceWithinCooldown(value: unknown, nowIso: string): boolean {
   return now - checkedAt < DEFAULT_COOLDOWN_MINUTES * 60 * 1000;
 }
 
+type SourceShardAssignment = {
+  shardIndex: number;
+  assignmentVersion: string;
+};
+
+async function loadSourceShardAssignments(
+  sourceIds: string[],
+  kind: string,
+  family: string,
+  shardCount: number,
+): Promise<Map<string, SourceShardAssignment>> {
+  const uniqueSourceIds = Array.from(new Set(sourceIds.filter(Boolean)));
+  const familyKey = shardAssignmentFamily(family);
+  const map = new Map<string, SourceShardAssignment>();
+  if (shardCount <= 1 || !familyKey || !uniqueSourceIds.length) return map;
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return map;
+
+  const { data, error } = await supabase
+    .from("source_shard_assignments")
+    .select("source_id,shard_index,assignment_version")
+    .eq("collector_kind", kind)
+    .eq("family", familyKey)
+    .eq("shard_count", shardCount)
+    .eq("active", true)
+    .in("source_id", uniqueSourceIds);
+
+  if (error) {
+    if (isMissingSourceShardAssignmentsError(error)) return map;
+    throw error;
+  }
+
+  for (const row of data || []) {
+    const sourceId = String(row.source_id || "");
+    const shardIndex = Number(row.shard_index);
+    if (!sourceId || !Number.isInteger(shardIndex) || shardIndex < 0 || shardIndex >= shardCount) continue;
+    map.set(sourceId, {
+      shardIndex,
+      assignmentVersion: String(row.assignment_version || ""),
+    });
+  }
+
+  return map;
+}
+
+function sourceMatchesShard(
+  sourceId: string,
+  shardCount: number,
+  shardIndex: number,
+  assignment?: SourceShardAssignment,
+): boolean {
+  if (shardCount <= 1) return true;
+  if (assignment) return assignment.shardIndex === shardIndex;
+  return sourceInShard(sourceId, shardCount, shardIndex);
+}
+
 function sourceInShard(sourceId: string, shardCount: number, shardIndex: number): boolean {
   if (shardCount <= 1) return true;
   return positiveHash(sourceId) % shardCount === shardIndex;
@@ -407,6 +487,13 @@ function familyHosts(value: string): string[] | null {
     .filter(Boolean);
 }
 
+function shardAssignmentFamily(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (ALL_SHOPAPI_FAMILIES.has(normalized)) return null;
+  if (SHARD_FAMILY_ALIASES[normalized]) return SHARD_FAMILY_ALIASES[normalized];
+  return normalizeHostname(normalized);
+}
+
 function deriveBaseUrl(value: string): string {
   try {
     const url = new URL(value);
@@ -427,4 +514,19 @@ function normalizeHostname(value: string): string {
 function truthyQueryFlag(value: string | undefined): boolean {
   if (value === undefined) return true;
   return /^(1|true|yes|on)$/i.test(value.trim());
+}
+
+function isMissingSourceShardAssignmentsError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const text = [
+    candidate.code,
+    candidate.message,
+    candidate.details,
+    candidate.hint,
+  ]
+    .map((value) => String(value || ""))
+    .join(" ");
+
+  return /source_shard_assignments/i.test(text) && /PGRST|42P01|not found|does not exist|schema cache/i.test(text);
 }

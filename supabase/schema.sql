@@ -222,6 +222,22 @@ create table if not exists collection_jobs (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists source_shard_assignments (
+  source_id text not null references sources(id) on delete cascade,
+  collector_kind text not null default 'shopApi',
+  family text not null,
+  shard_count integer not null check (shard_count between 1 and 32),
+  shard_index integer not null check (shard_index >= 0 and shard_index < shard_count),
+  weight numeric not null default 1,
+  weight_signals jsonb not null default '{}'::jsonb,
+  assignment_version text not null default 'manual',
+  active boolean not null default true,
+  assigned_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (source_id, collector_kind, family, shard_count)
+);
+
 create table if not exists collector_heartbeats (
   node_id text primary key,
   node_name text not null,
@@ -279,6 +295,11 @@ create index if not exists crawl_log_ingest_runs_source_started_at_idx
 create index if not exists collection_jobs_status_created_at_idx on collection_jobs(status, created_at desc);
 create index if not exists collection_jobs_source_status_idx on collection_jobs(source_id, status);
 create index if not exists collection_jobs_locked_until_idx on collection_jobs(locked_until);
+create index if not exists source_shard_assignments_lookup_idx
+  on source_shard_assignments(collector_kind, family, shard_count, shard_index)
+  where active = true;
+create index if not exists source_shard_assignments_assigned_at_idx
+  on source_shard_assignments(assigned_at desc);
 create index if not exists collector_heartbeats_last_seen_at_idx on collector_heartbeats(last_seen_at desc);
 create index if not exists collector_heartbeats_status_last_seen_at_idx on collector_heartbeats(status, last_seen_at desc);
 
@@ -1522,6 +1543,11 @@ create trigger collection_jobs_set_updated_at
 before update on collection_jobs
 for each row execute function set_updated_at();
 
+drop trigger if exists source_shard_assignments_set_updated_at on source_shard_assignments;
+create trigger source_shard_assignments_set_updated_at
+before update on source_shard_assignments
+for each row execute function set_updated_at();
+
 drop trigger if exists collector_heartbeats_set_updated_at on collector_heartbeats;
 create trigger collector_heartbeats_set_updated_at
 before update on collector_heartbeats
@@ -1538,6 +1564,7 @@ alter table offer_matches enable row level security;
 alter table crawl_runs enable row level security;
 alter table crawl_log_ingest_runs enable row level security;
 alter table collection_jobs enable row level security;
+alter table source_shard_assignments enable row level security;
 alter table collector_heartbeats enable row level security;
 
 create table if not exists channel_submissions (
