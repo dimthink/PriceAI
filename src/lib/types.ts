@@ -102,7 +102,7 @@ export type PublicRiskFeedback = {
   sourceCount?: number;
   scope: "offer" | "source" | "mixed";
   latestAt: string | null;
-  reasons?: Array<Extract<OfferFeedbackReason, "aftersales_shipping" | "fraud" | "bad_source">>;
+  reasons?: Array<Extract<OfferFeedbackReason, "description_mismatch" | "aftersales_shipping" | "fraud" | "bad_source">>;
   summaries?: string[];
   offerSummaries?: string[];
   sourceSummaries?: string[];
@@ -894,10 +894,10 @@ export type OfferFeedbackStatus = "pending" | "resolved" | "ignored";
 export type SiteFeedbackStatus = OfferFeedbackStatus;
 export const offerFeedbackReasonValues = [
   "wrong_price",
-  "description_mismatch",
   "item_removed",
   "stock_mismatch",
   "wrong_category",
+  "description_mismatch",
   "aftersales_shipping",
   "fraud",
   "bad_source",
@@ -1001,7 +1001,7 @@ export type OfferFeedbackRiskPrecheck = {
   canShowPublicly: boolean;
   riskLevel: "low" | "medium" | "high";
   riskScope: "offer" | "source" | "mixed";
-  riskCategory: Extract<OfferFeedbackReason, "aftersales_shipping" | "fraud" | "bad_source">;
+  riskCategory: Extract<OfferFeedbackReason, "description_mismatch" | "aftersales_shipping" | "fraud" | "bad_source">;
   confidence: number;
   abuseRisk: "low" | "medium" | "high";
   evidenceQuality: "none" | "low" | "medium" | "high";

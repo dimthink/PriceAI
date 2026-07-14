@@ -11,7 +11,19 @@ export const HIGH_RISK_FEEDBACK_REASONS: ReadonlySet<OfferFeedbackReason> = new 
   "fraud",
   "bad_source",
 ]);
+export const FEEDBACK_IMAGE_EVIDENCE_REQUIRED_REASONS: ReadonlySet<OfferFeedbackReason> = new Set([
+  "description_mismatch",
+  AFTERSALES_FEEDBACK_REASON,
+  "fraud",
+  "bad_source",
+]);
 export const FEEDBACK_EVIDENCE_REQUIRED_REASONS: ReadonlySet<OfferFeedbackReason> = new Set([
+  "description_mismatch",
+  AFTERSALES_FEEDBACK_REASON,
+  "fraud",
+  "bad_source",
+]);
+export const MODEL_PRECHECK_FEEDBACK_REASONS: ReadonlySet<OfferFeedbackReason> = new Set([
   "description_mismatch",
   AFTERSALES_FEEDBACK_REASON,
   "fraud",
@@ -31,7 +43,7 @@ export const OFFER_EXIT_NOTICE_MUTED_DATE_KEY = "priceai:offer-exit-notice-muted
 export const OFFER_HIGH_RISK_PRICE_THRESHOLD = 30;
 
 export type RiskPrecheckScope = "offer" | "source" | "mixed";
-export type RiskPrecheckCategory = "fraud" | "bad_source" | "aftersales_shipping";
+export type RiskPrecheckCategory = "description_mismatch" | "fraud" | "bad_source" | "aftersales_shipping";
 export type RiskPrecheckEvidenceQuality = "none" | "low" | "medium" | "high";
 export type RiskPrecheckAbuseRisk = "low" | "medium" | "high";
 export type PublicRiskPrecheck = {
@@ -75,7 +87,7 @@ export function feedbackRequiresImageEvidence(
   _userExpectedAction?: OfferFeedbackUserExpectedAction | string | null,
 ): boolean {
   void _userExpectedAction;
-  return HIGH_RISK_FEEDBACK_REASONS.has(reason as OfferFeedbackReason);
+  return FEEDBACK_IMAGE_EVIDENCE_REQUIRED_REASONS.has(reason as OfferFeedbackReason);
 }
 
 export function hasFeedbackImageEvidenceReference(values: readonly string[] | null | undefined): boolean {
@@ -286,7 +298,7 @@ function normalizeRiskLevel(value: unknown): PublicRiskPrecheck["riskLevel"] {
 }
 
 function normalizeRiskPrecheckCategory(value: unknown): RiskPrecheckCategory | null {
-  if (value === "fraud" || value === "bad_source" || value === AFTERSALES_FEEDBACK_REASON) return value;
+  if (value === "description_mismatch" || value === "fraud" || value === "bad_source" || value === AFTERSALES_FEEDBACK_REASON) return value;
   return null;
 }
 

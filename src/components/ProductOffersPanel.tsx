@@ -1451,7 +1451,8 @@ function OfferRiskDetailDialog({ offer, onClose }: { offer: RawOffer; onClose: (
   );
 }
 
-function riskFeedbackReasonLabel(reason: "aftersales_shipping" | "bad_source" | "fraud"): string {
+function riskFeedbackReasonLabel(reason: "description_mismatch" | "aftersales_shipping" | "bad_source" | "fraud"): string {
+  if (reason === "description_mismatch") return "标题党/商家描述误导";
   if (reason === "aftersales_shipping") return "售后/发货问题";
   if (reason === "bad_source") return "渠道不可信";
   return "疑似虚假/欺诈";
@@ -1830,6 +1831,11 @@ export function OfferFeedbackDialog({
   const requiresEvidence = needsHighRiskEvidence(reason, userExpectedAction);
   const requiresImageEvidence = needsHighRiskImageEvidence(reason, userExpectedAction);
   const requiresContact = feedbackRequiresContact(reason);
+  const requiresAftersalesFirstReminder =
+    reason === AFTERSALES_FEEDBACK_REASON ||
+    reason === "fraud" ||
+    reason === "bad_source";
+  const isDescriptionMismatchFeedback = reason === "description_mismatch";
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -1920,7 +1926,7 @@ export function OfferFeedbackDialog({
       return;
     }
     if (requiresImageEvidence && uploadedEvidence.length === 0) {
-      setMessage({ type: "error", text: "这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。" });
+      setMessage({ type: "error", text: isDescriptionMismatchFeedback ? "标题党或商家描述误导需要至少上传 1 张截图证据，方便判断哪里不一致。" : "这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。" });
       setLoading(false);
       return;
     }
@@ -2017,6 +2023,11 @@ export function OfferFeedbackDialog({
               ))}
             </select>
           </label>
+          {requiresAftersalesFirstReminder ? (
+            <div className="rounded-lg border border-[#f1d6a8] bg-[#fff7e8] px-3 py-2 text-xs leading-5 text-[#7a541b]">
+              提交前建议先联系商家售后和交易平台售后；如果处理无果，再把沟通记录、订单页或截图提交给 PriceAI 做渠道质量核验。
+            </div>
+          ) : null}
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-[#5a6061]">希望处理方式</span>
             <select
@@ -2050,7 +2061,7 @@ export function OfferFeedbackDialog({
               onPaste={handleEvidencePaste}
               rows={3}
               maxLength={1000}
-              placeholder={requiresImageEvidence ? "图片是必填；这里可补充订单页、聊天记录链接，或说明你看到的证据。" : "可粘贴截图、截图链接、订单页、聊天记录链接，或说明你看到的证据。"}
+              placeholder={requiresImageEvidence ? isDescriptionMismatchFeedback ? "截图是必填；这里说明标题承诺和实际描述、交付内容哪里不一致。" : "图片是必填；这里可补充订单页、聊天记录链接，或说明你看到的证据。" : "可粘贴截图、截图链接、订单页、聊天记录链接，或说明你看到的证据。"}
               className="w-full resize-y rounded-lg border border-[#adb3b4]/40 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#2d3435]"
             />
           </label>
@@ -2059,7 +2070,7 @@ export function OfferFeedbackDialog({
               <div>
                 <p className="text-xs font-semibold text-[#2d3435]">图片证据{requiresImageEvidence ? "（必填）" : ""}</p>
                 <p className="mt-1 text-xs leading-5 text-[#5a6061]">
-                  {requiresImageEvidence ? "高风险反馈至少上传 1 张图片；" : ""}
+                  {requiresImageEvidence ? isDescriptionMismatchFeedback ? "标题党或描述误导至少上传 1 张截图；" : "高风险反馈至少上传 1 张图片；" : ""}
                   支持 PNG、JPG、WebP，单张 4MB 内；电脑端也可以直接粘贴截图。
                 </p>
               </div>
@@ -2145,10 +2156,10 @@ export function OfferFeedbackDialog({
 
 const feedbackReasonOptions = [
   { value: "wrong_price", label: "价格不准" },
-  { value: "description_mismatch", label: "标题党 / 商家描述误导" },
   { value: "item_removed", label: "商品已下架" },
   { value: "stock_mismatch", label: "库存状态不准" },
   { value: "wrong_category", label: "分类错误" },
+  { value: "description_mismatch", label: "标题党 / 商家描述误导" },
   { value: AFTERSALES_FEEDBACK_REASON, label: "售后/发货问题" },
   { value: "fraud", label: "疑似虚假/欺诈" },
   { value: "bad_source", label: "渠道不可信" },

@@ -14,7 +14,7 @@ import {
   getPublicRequestErrorStatus,
   readJsonWithLimit,
 } from "@/lib/public-request";
-import { feedbackRequiresContact, HIGH_RISK_FEEDBACK_REASONS, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
+import { feedbackRequiresContact, MODEL_PRECHECK_FEEDBACK_REASONS, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import { offerFeedbackReasonValues } from "@/lib/types";
 
 const PUBLIC_OFFER_FEEDBACK_RATE_LIMIT_PER_HOUR = 20;
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
           mergeFeedbackSnapshotScope(snapshotScope, escalation.snapshotScope);
         }
 
-        if (HIGH_RISK_FEEDBACK_REASONS.has(payload.reason)) {
+        if (MODEL_PRECHECK_FEEDBACK_REASONS.has(payload.reason)) {
           const feedback = await runOfferFeedbackRiskPrecheck(result.id);
           clearPublicDataCache();
           await markPublicApiSnapshotsDirty("public feedback precheck", {

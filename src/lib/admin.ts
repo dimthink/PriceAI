@@ -17,8 +17,8 @@ import {
   feedbackRequiresEvidence,
   feedbackRequiresImageEvidence,
   hasFeedbackImageEvidenceReference,
-  HIGH_RISK_FEEDBACK_REASONS,
   inferSuggestedActionForFeedback,
+  MODEL_PRECHECK_FEEDBACK_REASONS,
 } from "./trust-risk";
 import {
   mergeRiskPrecheckResult,
@@ -1582,7 +1582,10 @@ function parseOfferFeedbackRiskPrecheck(value: unknown): OfferFeedbackRiskPreche
   if (!raw || typeof raw !== "object") return null;
   const item = raw as Record<string, unknown>;
   const status = item.status === "ready" || item.status === "skipped" || item.status === "failed" ? item.status : null;
-  const riskCategory = item.riskCategory === "fraud" || item.riskCategory === "bad_source" || item.riskCategory === "aftersales_shipping"
+  const riskCategory = item.riskCategory === "description_mismatch" ||
+    item.riskCategory === "fraud" ||
+    item.riskCategory === "bad_source" ||
+    item.riskCategory === "aftersales_shipping"
     ? item.riskCategory
     : null;
   if (!status || !riskCategory) return null;
@@ -2863,7 +2866,9 @@ export async function createOfferFeedback(input: {
   const hasEvidence = Boolean(evidenceText || evidenceUrls.length);
   const needsImageEvidence = feedbackRequiresImageEvidence(input.reason, userExpectedAction);
   if (needsImageEvidence && !hasFeedbackImageEvidenceReference(evidenceUrls)) {
-    throw new Error("这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。");
+    throw new Error(input.reason === "description_mismatch"
+      ? "标题党或商家描述误导需要至少上传 1 张截图证据，方便判断哪里不一致。"
+      : "这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。");
   }
   if (feedbackRequiresEvidence(input.reason, userExpectedAction) && !hasEvidence) {
     throw new Error("这类反馈需要提交图片、链接或较完整说明作为证据。");
@@ -2935,8 +2940,8 @@ export async function runOfferFeedbackRiskPrecheck(feedbackId: string): Promise<
   if (!row) throw new Error("反馈记录不存在。");
 
   const feedback = mapOfferFeedbackRow(row);
-  if (!HIGH_RISK_FEEDBACK_REASONS.has(feedback.reason)) {
-    throw new Error("低风险临时数据反馈不运行风险预审，请使用自动复核或创建重采。");
+  if (!MODEL_PRECHECK_FEEDBACK_REASONS.has(feedback.reason)) {
+    throw new Error("这类临时数据反馈不运行模型预审，请使用自动复核或创建重采。");
   }
 
   const result = await reviewRiskFeedback(toRiskFeedbackReviewInput(feedback));
@@ -3071,18 +3076,53 @@ function toRiskFeedbackReviewInput(feedback: OfferFeedback): RiskFeedbackReviewI
   };
 }
 
-export async function listOfferFeedback(status: OfferFeedbackStatus = "pending"): Promise<OfferFeedback[]> {
+type OfferFeedbackListOptions = {
+  status?: OfferFeedbackStatus;
+  query?: string | null;
+};
+
+export async function listOfferFeedback(statusOrOptions: OfferFeedbackStatus | OfferFeedbackListOptions = "pending"): Promise<OfferFeedback[]> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return [];
 
-  const { data, error } = await supabase
+  const options = typeof statusOrOptions === "string" ? { status: statusOrOptions } : statusOrOptions;
+  const status = options.status || "pending";
+  const search = toOfferFeedbackSearchPattern(options.query || "");
+
+  let query = supabase
     .from("offer_feedback")
     .select("*")
     .eq("status", status)
-    .order("created_at", { ascending: false })
-    .limit(300);
+    .order("created_at", { ascending: false });
+
+  if (search) {
+    query = query.or(
+      [
+        `source_name.ilike.${search}`,
+        `source_id.ilike.${search}`,
+        `source_title.ilike.${search}`,
+        `offer_url.ilike.${search}`,
+        `offer_id.ilike.${search}`,
+        `product_id.ilike.${search}`,
+        `product_slug.ilike.${search}`,
+        `product_name.ilike.${search}`,
+        `evidence_text.ilike.${search}`,
+        `notes.ilike.${search}`,
+        `contact.ilike.${search}`,
+        `reviewer_note.ilike.${search}`,
+      ].join(","),
+    );
+  }
+
+  const { data, error } = await query.limit(300);
   if (error) throw error;
   return (data || []).map(mapOfferFeedbackRow);
+}
+
+function toOfferFeedbackSearchPattern(value: string): string | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  return `%${normalized.replace(/[%,()]/g, " ").replace(/\s+/g, "%")}%`;
 }
 
 export async function updateOfferFeedbackStatus(input: {

@@ -4,7 +4,7 @@ import { readFeedbackEvidenceImage } from "@/lib/feedback-evidence";
 import { getRiskReviewRuntimeConfig, type RiskReviewRuntimeConfig } from "@/lib/risk-review-settings";
 import {
   AFTERSALES_FEEDBACK_REASON,
-  HIGH_RISK_FEEDBACK_REASONS,
+  MODEL_PRECHECK_FEEDBACK_REASONS,
   RISK_PRECHECK_PUBLIC_TTL_HOURS,
   countFeedbackImageEvidenceReferences,
   feedbackRequiresImageEvidence,
@@ -89,7 +89,7 @@ const MAX_MULTIMODAL_EVIDENCE_IMAGES = 4;
 const MAX_MULTIMODAL_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
 export function shouldRunRiskPrecheck(input: Pick<RiskFeedbackReviewInput, "reason" | "userExpectedAction" | "evidenceUrls">): boolean {
-  if (!HIGH_RISK_FEEDBACK_REASONS.has(input.reason)) return false;
+  if (!MODEL_PRECHECK_FEEDBACK_REASONS.has(input.reason)) return false;
   if (feedbackRequiresImageEvidence(input.reason, input.userExpectedAction)) {
     return countFeedbackImageEvidenceReferences(input.evidenceUrls) > 0;
   }
@@ -116,7 +116,7 @@ export function buildSkippedRiskPrecheck(
     evidenceQuality: evidenceQualityFromInput(input),
     publicSummary: "",
     privateReason: feedbackRequiresImageEvidence(input.reason, input.userExpectedAction) && countFeedbackImageEvidenceReferences(input.evidenceUrls) === 0
-      ? "高风险反馈缺少站内图片证据，不进入前台临时风险预警。"
+      ? "需要预审的反馈缺少站内图片证据，不进入前台临时风险预警。"
       : reason,
     expiresAt: null,
   };
@@ -126,7 +126,7 @@ export async function reviewRiskFeedback(input: RiskFeedbackReviewInput): Promis
   const config = await getRiskReviewRuntimeConfig();
 
   if (!shouldRunRiskPrecheck(input)) {
-    return buildSkippedRiskPrecheck(input, "非高风险反馈或缺少证据，不进入前台临时风险预警。", config);
+    return buildSkippedRiskPrecheck(input, "非模型预审类反馈或缺少证据，不进入前台临时风险预警。", config);
   }
 
   if (!config.apiKey) {
@@ -270,6 +270,7 @@ function riskReviewSystemPrompt(): string {
     "任务：根据用户反馈文字和图片证据，判断是否生成前台临时风险预警，并输出脱敏中文摘要。",
     "前台展示的是“用户反馈摘要”，不是平台最终判定。摘要必须以“有用户反馈”开头或保持同等语气。",
     "基础规则：只要可临时公开，优先生成商品/报价级提醒；商家级提醒只是额外升级，不要二选一。",
+    "分类规则：标题夸大、标题承诺和详情/实际交付不一致，使用 description_mismatch；售后、发货、退款、交付争议使用 aftersales_shipping；渠道来源、店铺可信度问题使用 bad_source；明确疑似虚假或欺诈使用 fraud。",
     "商品名要用短中文概括，例如“Gemini 成品号”“ChatGPT Plus 月卡”“iCloud 邮箱号”。禁止写“某特定商品”“某资源站”“渠道”等别扭词。",
     "商品级摘要格式建议：有用户反馈，购买「短商品名」后遇到……。购买前建议先向商家确认……。",
     "商家级摘要格式建议：有用户反馈，在该商家购买「短商品名」时遇到……。建议购买前先确认……。",
@@ -303,7 +304,7 @@ function buildRiskReviewPromptPayload(input: RiskFeedbackReviewInput, evidenceIm
     output_schema: {
       risk_level: "low | medium | high",
       risk_scope: "offer | mixed；基础商品级提醒请使用 offer，商品+商家级提醒请使用 mixed",
-      risk_category: "fraud | bad_source | aftersales_shipping",
+      risk_category: "description_mismatch | fraud | bad_source | aftersales_shipping",
       confidence: "0..1",
       abuse_risk: "low | medium | high；只表示这条反馈是否像恶意举报、广告、辱骂或同行攻击，不表示商品交易风险",
       evidence_quality: "none | low | medium | high；只表示用户证据质量",
@@ -401,6 +402,19 @@ function parseModelRiskReviewContent(content: string): ModelRiskReviewJson {
 function normalizeRiskCategory(value: unknown): RiskPrecheckCategory {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (
+      normalized === "description_mismatch" ||
+      normalized.includes("description") ||
+      normalized.includes("title") ||
+      normalized.includes("misleading") ||
+      normalized.includes("mismatch") ||
+      normalized.includes("标题") ||
+      normalized.includes("描述") ||
+      normalized.includes("误导") ||
+      normalized.includes("不符")
+    ) {
+      return "description_mismatch";
+    }
     if (normalized.includes("source") || normalized.includes("channel") || normalized.includes("seller") || normalized.includes("store")) {
       return "bad_source";
     }
@@ -415,6 +429,7 @@ function normalizeRiskCategory(value: unknown): RiskPrecheckCategory {
       return AFTERSALES_FEEDBACK_REASON;
     }
   }
+  if (value === "description_mismatch") return "description_mismatch";
   if (value === "bad_source") return "bad_source";
   if (value === AFTERSALES_FEEDBACK_REASON) return AFTERSALES_FEEDBACK_REASON;
   return "fraud";

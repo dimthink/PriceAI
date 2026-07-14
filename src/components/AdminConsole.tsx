@@ -336,7 +336,7 @@ const statusOptions: Array<[OfferStatus, string]> = [
 
 const OFFER_EMERGENCY_PAGE_SIZE = 50;
 
-type FeedbackWorkFilter = "all" | "precheck" | "transient" | "category" | "aftersales" | "high_risk" | "site";
+type FeedbackWorkFilter = "all" | "precheck" | "transient" | "category" | "aftersales" | "high_risk" | "other" | "site";
 type OfferFeedbackBucket = "transient" | "category" | "high_risk" | "aftersales" | "other";
 type OfferFeedbackVerdictTone = "success" | "info" | "warn" | "danger";
 type OfferFeedbackRiskPrecheckResult = NonNullable<OfferFeedback["riskPrecheck"]>;
@@ -429,6 +429,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [siteFeedback, setSiteFeedback] = useState<SiteFeedback[]>(data.pendingSiteFeedback || []);
   const [feedbackStatusFilter, setFeedbackStatusFilter] = useState<OfferFeedbackStatus>("pending");
   const [feedbackFilter, setFeedbackFilter] = useState<FeedbackWorkFilter>("all");
+  const [feedbackSearchQuery, setFeedbackSearchQuery] = useState("");
+  const [debouncedFeedbackSearchQuery, setDebouncedFeedbackSearchQuery] = useState("");
   const [pendingOfferFeedbackCount, setPendingOfferFeedbackCount] = useState((data.pendingOfferFeedback || []).length);
   const [pendingSiteFeedbackCount, setPendingSiteFeedbackCount] = useState((data.pendingSiteFeedback || []).length);
   const [selectedFeedbackIds, setSelectedFeedbackIds] = useState<Set<string>>(new Set());
@@ -552,6 +554,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const offerMaintenanceRef = useRef(offerMaintenance);
   const collectorRefreshRequestRef = useRef(0);
   const feedbackStatusFilterRef = useRef<OfferFeedbackStatus>("pending");
+  const feedbackSearchQueryRef = useRef("");
   const listRef = useRef<HTMLDivElement>(null);
 
   const reviewSubmissions = useMemo(
@@ -614,6 +617,10 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     () => filterOfferFeedbackByWorkFilter(offerFeedback, feedbackFilter, offerById),
     [feedbackFilter, offerById, offerFeedback],
   );
+  const filteredSiteFeedback = useMemo(
+    () => filterSiteFeedbackBySearch(siteFeedback, debouncedFeedbackSearchQuery),
+    [debouncedFeedbackSearchQuery, siteFeedback],
+  );
   const selectedOfferFeedback = useMemo(
     () => filteredOfferFeedback.filter((item) => selectedFeedbackIds.has(item.id)),
     [filteredOfferFeedback, selectedFeedbackIds],
@@ -635,8 +642,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     [offerById, selectedOfferFeedback],
   );
   const feedbackFilterCounts = useMemo(
-    () => getFeedbackWorkFilterCounts(offerFeedback, siteFeedback, offerById),
-    [offerById, offerFeedback, siteFeedback],
+    () => getFeedbackWorkFilterCounts(offerFeedback, filteredSiteFeedback, offerById),
+    [filteredSiteFeedback, offerById, offerFeedback],
   );
   const pendingFeedbackCount = pendingOfferFeedbackCount + pendingSiteFeedbackCount;
   useEffect(() => {
@@ -656,7 +663,14 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   useEffect(() => {
     setSelectedFeedbackIds(new Set());
     feedbackStatusFilterRef.current = feedbackStatusFilter;
-  }, [feedbackStatusFilter, feedbackFilter]);
+  }, [feedbackStatusFilter, feedbackFilter, debouncedFeedbackSearchQuery]);
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedFeedbackSearchQuery(feedbackSearchQuery.trim()), 250);
+    return () => clearTimeout(timeout);
+  }, [feedbackSearchQuery]);
+  useEffect(() => {
+    feedbackSearchQueryRef.current = debouncedFeedbackSearchQuery;
+  }, [debouncedFeedbackSearchQuery]);
   const apiModels = useMemo(
     (): ApiModelAdminData => ({
       ...data.apiModels,
@@ -1789,23 +1803,30 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     }
   }
 
-  const refreshOfferFeedback = useCallback(async (status: OfferFeedbackStatus = feedbackStatusFilter) => {
+  const refreshOfferFeedback = useCallback(async (
+    status: OfferFeedbackStatus = feedbackStatusFilter,
+    query: string = debouncedFeedbackSearchQuery,
+  ) => {
     try {
-      const response = await fetch(`/api/admin/feedback?status=${status}`, {
+      const params = new URLSearchParams({ status });
+      const cleanQuery = query.trim();
+      if (cleanQuery) params.set("q", cleanQuery);
+      const response = await fetch(`/api/admin/feedback?${params.toString()}`, {
         credentials: "include",
       });
       const json = await response.json().catch(() => ({ ok: false }));
       if (response.ok && json.ok) {
         if (status !== feedbackStatusFilterRef.current) return;
+        if (cleanQuery !== feedbackSearchQueryRef.current) return;
         const nextFeedback = json.feedback || [];
         setOfferFeedback(nextFeedback);
         setFeedbackRawOffers(json.offers || []);
-        if (status === "pending") setPendingOfferFeedbackCount(nextFeedback.length);
+        if (status === "pending" && !cleanQuery) setPendingOfferFeedbackCount(nextFeedback.length);
       }
     } catch {
       /* ignore */
     }
-  }, [feedbackStatusFilter]);
+  }, [debouncedFeedbackSearchQuery, feedbackStatusFilter]);
 
   const refreshSiteFeedback = useCallback(async (status: SiteFeedbackStatus = feedbackStatusFilter) => {
     try {
@@ -1826,9 +1847,9 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
 
   useEffect(() => {
     if (activeTab !== "feedback") return;
-    void refreshOfferFeedback(feedbackStatusFilter);
+    void refreshOfferFeedback(feedbackStatusFilter, debouncedFeedbackSearchQuery);
     void refreshSiteFeedback(feedbackStatusFilter);
-  }, [activeTab, feedbackStatusFilter, refreshOfferFeedback, refreshSiteFeedback]);
+  }, [activeTab, debouncedFeedbackSearchQuery, feedbackStatusFilter, refreshOfferFeedback, refreshSiteFeedback]);
 
   async function updateFeedbackStatus(feedback: OfferFeedback, status: OfferFeedbackStatus, reviewerNote?: string) {
     setLoadingAction(`feedback-${status}-${feedback.id}`);
@@ -3251,7 +3272,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         type="button"
                         onClick={() => {
                           void refreshSiteFeedback(feedbackStatusFilter);
-                          void refreshOfferFeedback(feedbackStatusFilter);
+                          void refreshOfferFeedback(feedbackStatusFilter, debouncedFeedbackSearchQuery);
                         }}
                         className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4]"
                       >
@@ -3319,7 +3340,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                           feedbackStatusFilterRef.current = item.value;
                           setFeedbackStatusFilter(item.value);
                           void refreshSiteFeedback(item.value);
-                          void refreshOfferFeedback(item.value);
+                          void refreshOfferFeedback(item.value, debouncedFeedbackSearchQuery);
                         }}
                         className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${
                           feedbackStatusFilter === item.value
@@ -3330,6 +3351,34 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         {item.label}
                       </button>
                     ))}
+                  </div>
+
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="relative min-w-[240px] flex-1 lg:max-w-xl">
+                      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#adb3b4]" />
+                      <input
+                        value={feedbackSearchQuery}
+                        onChange={(event) => setFeedbackSearchQuery(event.target.value)}
+                        placeholder="搜索店铺、商品链接、报价 ID、标题、证据关键词"
+                        aria-label="搜索报价反馈"
+                        className="h-9 w-full rounded-lg border border-[#adb3b4]/30 bg-white pl-9 pr-9 text-sm outline-none transition-colors focus:border-[#2d3435]"
+                      />
+                      {feedbackSearchQuery ? (
+                        <button
+                          type="button"
+                          onClick={() => setFeedbackSearchQuery("")}
+                          aria-label="清空反馈搜索"
+                          className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-[#adb3b4] transition hover:bg-[#f2f4f4] hover:text-[#2d3435]"
+                        >
+                          <X size={13} />
+                        </button>
+                      ) : null}
+                    </div>
+                    {debouncedFeedbackSearchQuery ? (
+                      <p className="text-xs text-[#5a6061]">
+                        已按关键词筛选：{offerFeedback.length} 条报价举报、{filteredSiteFeedback.length} 条站点意见
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -3353,7 +3402,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#adb3b4]">
                     <span>当前状态：{feedbackStatusLabel(feedbackStatusFilter)}</span>
-                    <span>{siteFeedback.length} 条站点意见</span>
+                    <span>{filteredSiteFeedback.length} 条站点意见</span>
                     <span>{offerFeedback.length} 条报价举报</span>
                     {feedbackStatusFilter === "pending" ? <span>已选 {selectedFeedbackIds.size} 条</span> : null}
                   </div>
@@ -3366,7 +3415,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       <h3 className="text-sm font-semibold text-[#202829]">站点意见</h3>
                     </div>
                     <SiteFeedbackList
-                      feedback={siteFeedback}
+                      feedback={filteredSiteFeedback}
                       statusFilter={feedbackStatusFilter}
                       loadingAction={loadingAction}
                       rowFeedback={rowFeedback}
@@ -9841,6 +9890,7 @@ const feedbackWorkFilters: Array<{ value: FeedbackWorkFilter; label: string }> =
   { value: "category", label: "分类问题" },
   { value: "aftersales", label: "售后/发货" },
   { value: "high_risk", label: "商家质量/高风险" },
+  { value: "other", label: "其他问题" },
   { value: "site", label: "站点意见" },
 ];
 
@@ -9900,7 +9950,8 @@ function offerFeedbackReasonSummary(feedback: OfferFeedback[]): string {
 }
 
 function canRunFeedbackRiskPrecheck(feedback: OfferFeedback): boolean {
-  return feedback.reason === "fraud" ||
+  return feedback.reason === "description_mismatch" ||
+    feedback.reason === "fraud" ||
     feedback.reason === "bad_source" ||
     feedback.reason === "aftersales_shipping";
 }
@@ -9920,7 +9971,24 @@ function filterOfferFeedbackByWorkFilter(
     if (filter === "category") return bucket === "category";
     if (filter === "aftersales") return bucket === "aftersales";
     if (filter === "high_risk") return bucket === "high_risk";
+    if (filter === "other") return bucket === "other";
     return true;
+  });
+}
+
+function filterSiteFeedbackBySearch(feedback: SiteFeedback[], query: string): SiteFeedback[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return feedback;
+  return feedback.filter((item) => {
+    const haystack = [
+      item.type,
+      item.message,
+      item.contact || "",
+      item.pageUrl || "",
+      item.reviewerNote || "",
+      item.submitterIp || "",
+    ].join(" ").toLowerCase();
+    return haystack.includes(normalized);
   });
 }
 
@@ -9936,6 +10004,7 @@ function getFeedbackWorkFilterCounts(
     category: offerFeedback.filter((item) => getOfferFeedbackBucket(item) === "category").length,
     aftersales: offerFeedback.filter((item) => getOfferFeedbackBucket(item) === "aftersales").length,
     high_risk: offerFeedback.filter((item) => getOfferFeedbackBucket(item) === "high_risk").length,
+    other: offerFeedback.filter((item) => getOfferFeedbackBucket(item) === "other").length,
     site: siteFeedback.length,
   };
 }

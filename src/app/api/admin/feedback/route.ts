@@ -17,6 +17,7 @@ import {
 import { z } from "zod";
 
 const statusSchema = z.enum(["pending", "resolved", "ignored"]);
+const querySchema = z.string().trim().max(200).catch("");
 const verificationStatusSchema = z.enum([
   "not_needed",
   "pending",
@@ -52,6 +53,7 @@ export async function GET(request: Request) {
     await requireAdminRequest(request);
     const { searchParams } = new URL(request.url);
     const status = statusSchema.catch("pending").parse(searchParams.get("status") || "pending");
+    const query = querySchema.parse(searchParams.get("q") || "");
     if (status === "pending") {
       const closeup = await closePendingTransientOfferFeedback({ limit: 300 });
       const escalation = await runPendingTransientFeedbackEscalations({ limit: 300 });
@@ -61,7 +63,7 @@ export async function GET(request: Request) {
         await markPublicApiSnapshotsDirty("admin feedback reconciliation", snapshotScope);
       }
     }
-    const feedback = await listOfferFeedback(status);
+    const feedback = await listOfferFeedback({ status, query });
     const offers = await listRawOffersByIds(
       feedback
         .map((item) => item.offerId)

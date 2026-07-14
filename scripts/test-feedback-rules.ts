@@ -5,6 +5,7 @@ import {
   feedbackRequiresEvidence,
   feedbackRequiresImageEvidence,
   inferSuggestedActionForFeedback,
+  MODEL_PRECHECK_FEEDBACK_REASONS,
   shouldCreateFeedbackVerification,
 } from "../src/lib/trust-risk.js";
 import type { OfferFeedbackReason } from "../src/lib/types.js";
@@ -25,10 +26,11 @@ for (const reason of optionalEvidenceReasons) {
 }
 
 assertEqual(feedbackRequiresEvidence("description_mismatch", "unsure"), true, "description_mismatch should require evidence");
-assertEqual(feedbackRequiresImageEvidence("description_mismatch", "unsure"), false, "description_mismatch should not require image evidence");
+assertEqual(feedbackRequiresImageEvidence("description_mismatch", "unsure"), true, "description_mismatch should require image evidence");
 assertEqual(feedbackRequiresContact("description_mismatch"), false, "description_mismatch should not require contact");
 assertEqual(inferSuggestedActionForFeedback("description_mismatch"), "todo", "description_mismatch should go to manual review");
 assertEqual(shouldCreateFeedbackVerification("description_mismatch", "标题党", "商品页截图"), false, "description_mismatch should not enter transient verification");
+assertEqual(MODEL_PRECHECK_FEEDBACK_REASONS.has("description_mismatch"), true, "description_mismatch should support risk precheck");
 assertEqual(
   buildInitialFeedbackVerificationResult({ reason: "description_mismatch", evidenceText: "商品标题和实际权益不一致" }),
   null,
@@ -45,6 +47,7 @@ for (const reason of highRiskReasons) {
   assertEqual(feedbackRequiresEvidence(reason, "unsure"), true, `${reason} should require evidence`);
   assertEqual(feedbackRequiresImageEvidence(reason, "unsure"), true, `${reason} should require image evidence`);
   assertEqual(feedbackRequiresContact(reason), true, `${reason} should require contact`);
+  assertEqual(MODEL_PRECHECK_FEEDBACK_REASONS.has(reason), true, `${reason} should support risk precheck`);
 }
 
 assertEqual(inferSuggestedActionForFeedback("wrong_price"), "recollect", "wrong_price should still suggest recollection");
