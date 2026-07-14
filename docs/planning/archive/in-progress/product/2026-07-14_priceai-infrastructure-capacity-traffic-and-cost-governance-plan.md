@@ -1,7 +1,7 @@
 # PriceAI 基础设施容量、异常流量与成本治理产品规划
 
 生成时间：2026-07-14
-状态：P2 本地实现完成，待生产确认
+状态：P2 已生产发布，进入 P3 24 小时观察
 适用范围：Supabase 数据库容量与写入、Cloudflare Workers / WAF / Cache、R2、Observability、后台 24 小时运营监测
 关联规划：[工程质量与可维护性规划](2026-07-10_priceai-engineering-quality-and-maintainability-plan.md)、[后台管理左侧导航与工作流拆分规划](2026-07-12_admin-console-left-nav-workflow-split-plan.md)、[Umami 数据监测与采集分层规划](2026-07-14_umami-data-monitoring-and-collection-tiering-plan.md)
 
@@ -336,13 +336,13 @@ Cloudflare：
 
 目标：从写入和缓存结构上降低长期成本。
 
-1. `[本地完成]` `raw_offers` 采集主链路已按内容变化分流，仅对 `changedRows` 做有界批量 upsert；无变化记录写入轻量 `raw_offer_confirmations`。人工下架、恢复、修复脚本仍保留直接更新语义，并新增 performance guard 防止主链路回退。
-2. `[本地完成]` Availability 与 Detection Runs 已形成统一 service-role retention 入口：Availability 为 8 / 90 / 365 天，Detection Runs 为 14 / 30 天；默认 dry-run、每批 5,000 行，migration 不自动执行清理。
-3. `[本地完成]` covering index 审查结论为保留：约 280 MB，但已有约 10.7k 次扫描和约 10.28M 元组读取，仍是多站点最近样本查询的核心 checked-at-first covering index；后台快照继续显示大小和命中，performance guard 禁止误删。
-4. `[本地完成]` OpenNext 已采用 `short-lived` regional cache 包裹现有 R2 incremental cache，最多复用 60 秒；R2 仍是持久缓存层，本轮没有同时启用 cache interception。
-5. `[本地完成]` 后台新增「系统 -> 基础设施」只读工作流，展示 Supabase 容量、留存候选、索引结论、Cloudflare 缓存配置和 2026-07-14 异常流量审计基线。Cloudflare 24h 实时 Analytics 仍明确标记为未接入，不使用伪实时数据。
+1. `[已上线]` `raw_offers` 采集主链路已按内容变化分流，仅对 `changedRows` 做有界批量 upsert；无变化记录写入轻量 `raw_offer_confirmations`。人工下架、恢复、修复脚本仍保留直接更新语义，并新增 performance guard 防止主链路回退。
+2. `[已上线，未清理]` Availability 与 Detection Runs 已形成统一 service-role retention 入口：Availability 为 8 / 90 / 365 天，Detection Runs 为 14 / 30 天；默认 dry-run、每批 5,000 行，migration 不自动执行清理。
+3. `[已上线]` covering index 审查结论为保留：生产快照约 303.7 MB、11,980 次扫描和约 11.72M 元组读取，仍是多站点最近样本查询的核心 checked-at-first covering index；后台快照继续显示大小和命中，performance guard 禁止误删。
+4. `[已上线]` OpenNext 已采用 `short-lived` regional cache 包裹现有 R2 incremental cache，最多复用 60 秒；R2 仍是持久缓存层，本轮没有同时启用 cache interception。
+5. `[已上线]` 后台新增「系统 -> 基础设施」只读工作流，展示 Supabase 容量、留存候选、索引结论、Cloudflare 缓存配置和 2026-07-14 异常流量审计基线。Cloudflare 24h 实时 Analytics 仍明确标记为未接入，不使用伪实时数据。
 
-P2 当前状态是“本地完成、待生产确认”，不是“生产已生效”。应用发布、Supabase GitHub Integration 应用 migration、Cloudflare 规则和任何数据清理都尚未执行。
+P2 已于 2026-07-14 发布生产并通过 Supabase Preview、生产 RPC、Cloudflare/OpenNext workflow 和业务 smoke。Retention apply、WAF、Rate Limiting、日志采样和 R2 Storage Class / lifecycle 仍未执行。
 
 ### P3：复盘和扩大范围
 
@@ -433,10 +433,11 @@ P0-P2 的本地实现已经完成，下一步进入生产确认门：
 | 2026-07-14 | P0 证据、基线和安全护栏 | 已完成 | [Cloudflare 24 小时流量归因基线](2026-07-14_priceai-cloudflare-24h-traffic-attribution-baseline.md)、[Supabase 留存与安全清理批次策略](2026-07-14_priceai-supabase-retention-and-cleanup-batch-strategy.md)；全程只读，没有清理数据、修改 WAF、调整缓存或日志采样 | 确认 availability 原始留存采用 8 天还是 14 天；确认后进入 rollup / retention migration 和 Cloudflare 观察规则设计 |
 | 2026-07-14 | P1 设计收敛 | 已完成 | 核对现有单 IP Block、全站型 Rate Limiting、Free 计划配额；阅读 Next.js 16.2.9 prefetch/cache 文档与 OpenNext 1.19.11 caching 说明 | 先实现 DO Queue 与 prefetch 收敛；再实现 rollup / dry-run retention migration；生产规则和数据删除继续保留确认门 |
 | 2026-07-14 | P1 第一批应用侧实现 | 已完成 | commit `46bddfb`；DO Queue、主导航意图预取、长列表 `prefetch={false}`、performance guard；lint/typecheck/Cloudflare build/wrangler dry-run 通过 | 暂不部署；与 retention migration 分开提交，生产变更统一在确认后发布 |
-| 2026-07-14 | P1 rollup / retention 实现 | 本地完成，待 Preview | commit `429de65`；新增小时 / 日汇总和默认 dry-run 的 5,000 行批次函数；一次性 PostgreSQL 18 验证迁移、汇总、删除和“缺少 rollup 拒绝删除”均符合预期 | 生产应用 migration、31 天回填和首批删除前单独确认 |
-| 2026-07-14 | P2 Detection Runs retention 与基础设施快照 | 本地完成，待 Preview | commit `ff7a68a`；14 / 30 天分层留存、统一 retention RPC、service-role 容量快照、covering index 保留护栏；一次性 PostgreSQL 18 验证 dry-run、批次清空、引用保护和匿名拒绝调用通过 | 等 Supabase GitHub Integration 应用 migration；不自动清理数据 |
-| 2026-07-14 | P2 regional cache 试点 | 本地完成，待发布 | commit `623034d`；R2 incremental cache 外层增加 `short-lived` regional cache，60 秒上限；cache interception 保持关闭；performance guard 与 typecheck 通过 | 发布后观察 R2 Class B、Worker CPU、缓存命中和跨区域陈旧窗口 |
-| 2026-07-14 | P2 后台基础设施工作流 | 本地完成，待发布 | commit `b642c43`；受保护 API、Supabase 容量与 retention 候选、covering index 统计、Cloudflare 配置和带日期异常流量基线；lint/typecheck/OpenNext build、本地登录、桌面与 390px 视觉验收通过 | Cloudflare 实时 Analytics 仍需后续只读凭据；当前界面无删除、封禁或配置写入按钮 |
+| 2026-07-14 | P1 rollup / retention 实现 | migration 已上线，未回填/清理 | commit `429de65`；新增小时 / 日汇总和默认 dry-run 的 5,000 行批次函数；一次性 PostgreSQL 18 验证迁移、汇总、删除和“缺少 rollup 拒绝删除”均符合预期 | 31 天回填和首批删除前单独确认 |
+| 2026-07-14 | P2 Detection Runs retention 与基础设施快照 | migration 已上线，未清理 | commit `ff7a68a`；14 / 30 天分层留存、统一 retention RPC、service-role 容量快照、covering index 保留护栏；生产快照 RPC 已验证 | 不自动清理数据；先观察候选增长和复盘需求 |
+| 2026-07-14 | P2 regional cache 试点 | 已发布，待观察 | commit `623034d`；R2 incremental cache 外层增加 `short-lived` regional cache，60 秒上限；cache interception 保持关闭；生产中转详情 `x-nextjs-cache: HIT` | 观察 R2 Class B、Worker CPU、缓存命中和跨区域陈旧窗口 |
+| 2026-07-14 | P2 后台基础设施工作流 | 已发布 | commit `b642c43`；受保护 API、Supabase 容量与 retention 候选、covering index 统计、Cloudflare 配置和带日期异常流量基线；生产 API `200` | Cloudflare 实时 Analytics 仍需后续只读凭据；当前界面无删除、封禁或配置写入按钮 |
+| 2026-07-14 | P0-P2 生产发布 | 已完成，进入观察期 | `main` 推送至 `9f8ff27`；Supabase Preview 成功；生产快照 RPC 已可用；Cloudflare Actions run `29335476824` 成功；生产 smoke、后台基础设施 API、Cloudflare/OpenNext 响应头通过 | 保存新的完整 24 小时窗口；不执行 retention apply、WAF、Rate Limiting 或日志采样修改 |
 
 ## 18. P2 改动影响、优点与缺点
 

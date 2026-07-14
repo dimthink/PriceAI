@@ -64,7 +64,7 @@
 | P1 官方 API 模块维护 | 已收尾，规划中 | 需求已变更为静态/手动维护方案；价格数据、免费渠道、后台可编辑和候选池已落地；公开路径迁移为 `/official-api` | 不再以候选解析器和自动采集作为 P1/P2 待办；下一步可做 `/official-api/status` 目录页 |
 | P2 卡网渠道与分类体系优化 | 进行中 | 粗分类方向已定，虚拟卡归入其他，其他拆接码/虚拟卡/其他工具账号/其他；仍有错分反馈 | 按真实错分样本继续修规则或引入半自动大模型归类 |
 | P3 SEO / GEO 获取路径内容 | 进行中 | ChatGPT 平台页、ChatGPT 获取方式指南、卡网可信度指南、价格层解释指南、官方自助订阅指南系列和 README SEO 入口已阶段完成 | 继续做非 ChatGPT 平台页、API 指南和真实监测闭环 |
-| P4 基础设施和成本优化 | P2 本地实现完成，待生产确认 | 24 小时基线、DO Queue / prefetch 收敛、Availability 8/90/365、Detection Runs 14/30、covering index 保留审查、60 秒 regional cache 和后台基础设施工作流均已本地完成；共 5 个独立实施提交 | 生产 WAF / Rate Limiting、日志采样、应用部署、migration 应用与删除数据均未执行；先确认 Supabase Preview 和 Cloudflare 发布，再观察完整 24 小时窗口；见[基础设施容量、异常流量与成本治理规划](archive/in-progress/product/2026-07-14_priceai-infrastructure-capacity-traffic-and-cost-governance-plan.md) |
+| P4 基础设施和成本优化 | P2 已生产发布，进入 24 小时观察 | DO Queue、预取收敛、Availability 8/90/365、Detection Runs 14/30、covering index 保留、60 秒 regional cache 和后台基础设施工作流已上线；Supabase Preview、生产 RPC、Cloudflare Actions `29335476824` 和 smoke 均通过 | 保存新的完整 24 小时基线；生产 WAF / Rate Limiting、日志采样和 retention apply 仍未执行；见[基础设施容量、异常流量与成本治理规划](archive/in-progress/product/2026-07-14_priceai-infrastructure-capacity-traffic-and-cost-governance-plan.md)与[排障确认参考](archive/in-progress/product/2026-07-14_priceai-infrastructure-change-impact-and-troubleshooting-reference.md) |
 | P5 中转 API 评估（历史口径） | 已进入产品主线，原暂停口径失效 | 中转 API 已具备站点榜、模型比较、详情、公开资料和检测入口；原规划中对灰色来源、担保和风险披露的限制仍然有效 | 后续以双雷达产品规划为准重编阶段，不再把中转 API 视为等待评估的外围模块 |
 
 ### 4.2 官方订阅地区价

@@ -1,6 +1,7 @@
 # PriceAI 基础设施改动影响与排障确认参考
 
 生成时间：2026-07-14
+当前状态：P0-P2 已生产发布，进入 24 小时观察期
 适用范围：P0-P2 基础设施、Supabase retention、Cloudflare/OpenNext 缓存、预取、日志与后台总览
 关联规划：[基础设施容量、异常流量与成本治理规划](2026-07-14_priceai-infrastructure-capacity-traffic-and-cost-governance-plan.md)
 
@@ -120,12 +121,29 @@ P0 全程只读，不修改生产流量、缓存、数据库和安全规则。
 
 ## 7. 发布证据
 
-发布完成后记录：
-
 - release branch：`main`
 - work commits：`46bddfb`、`429de65`、`ff7a68a`、`623034d`、`b642c43`、`b824b08`
-- 优缺点参考文档 commit：待提交
-- GitHub push：待执行
-- Supabase GitHub Integration：待确认
-- Cloudflare/OpenNext workflow：待执行
-- 生产验证：待执行
+- 优缺点参考文档 commit：`9f8ff27`
+- GitHub push：`3fac196..9f8ff27 main -> main`，成功
+- Supabase GitHub Integration / Preview：成功，[check run](https://github.com/dimthink/PriceAI/runs/87092990837)
+- Production schema：`get_priceai_infrastructure_snapshot()` 已可用；默认 `dryRun=true`、批次 `5000`
+- 生产只读快照：数据库约 `1.40 GB`；Availability raw 候选 `453,022`；Detection payload 候选 `17,365`；未执行删除
+- covering index：约 `303.7 MB`、`11,980` 次扫描、约 `11.72M` 元组读取；继续保留
+- Cloudflare/OpenNext workflow：成功，[Actions run 29335476824](https://github.com/dimthink/PriceAI/actions/runs/29335476824)，部署 head `9f8ff27`
+- 生产接口：`/api/health`、`/api/explorer`、`/api/offers?limit=30`、`/api/products/chatgpt-plus/offers?limit=30`、14 个 API 中转详情均通过 smoke
+- 平台证据：`server: cloudflare`、`x-opennext: 1`；中转详情 `x-nextjs-cache: HIT`
+- 后台证据：生产 `/api/admin/infrastructure` 返回 `200`，数据库快照可用，regional cache 显示 `short-lived / 60s`
+- 未执行动作：Availability / Detection 清理、WAF、Rate Limiting、日志采样、R2 Storage Class / lifecycle 均未修改
+
+## 8. 发布后观察计划
+
+发布后至少保存一个完整 24 小时窗口，再与 P0 基线比较：
+
+1. `_rsc` 请求量与占比。
+2. Workers Requests、CPU 和 Worker -> Supabase 子请求。
+3. R2 Class B、Class A、存储量和热门路径。
+4. Supabase Disk 日增长、Availability raw 候选增长速度和 Detection payload 增长速度。
+5. stale revalidation error 数量和 Durable Object Queue 状态。
+6. 主导航与长列表真实点击导航耗时。
+
+在观察窗口结束前，不根据几分钟或单小时波动决定回滚，也不开始生产数据清理。
