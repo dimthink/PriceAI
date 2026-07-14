@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Suspense } from "react";
-import { GlobalGuideFooter } from "@/components/GlobalGuideFooter";
 import { GlobalSponsorPlacements } from "@/components/GlobalSponsorPlacements";
+import { GlobalSiteFooter } from "@/components/GlobalSiteFooter";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import { QQGroupAutoPrompt } from "@/components/QQGroupAutoPrompt";
 import { SiteNoticePrompt } from "@/components/SiteNoticePrompt";
@@ -76,8 +76,8 @@ export default function RootLayout({
         <Script id="priceai-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <GlobalSponsorPlacements>
           {children}
+          <GlobalSiteFooter />
         </GlobalSponsorPlacements>
-        <GlobalGuideFooter />
         <SiteNoticePrompt />
         <SupportNudgePrompt />
         <Suspense fallback={null}>
