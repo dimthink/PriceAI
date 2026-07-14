@@ -40,7 +40,7 @@ import {
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import { hasMoreProductOfferPage, mergeProductOfferPages } from "@/lib/product-offer-pagination";
-import type { MerchantCollectorFilter, RawOffer } from "@/lib/types";
+import type { MerchantCollectorFilter, OfferFeedbackReason, OfferFeedbackUserExpectedAction, RawOffer } from "@/lib/types";
 import { formatCurrency, formatDateMinute, formatRelativeTime } from "@/lib/utils";
 
 type ProductOffersResponse = {
@@ -1812,8 +1812,8 @@ export function OfferFeedbackDialog({
   offer: RawOffer;
   onClose: () => void;
 }) {
-  const [reason, setReason] = useState("wrong_price");
-  const [userExpectedAction, setUserExpectedAction] = useState("recheck");
+  const [reason, setReason] = useState<OfferFeedbackReason | "">("");
+  const [userExpectedAction, setUserExpectedAction] = useState<OfferFeedbackUserExpectedAction>("unsure");
   const [notes, setNotes] = useState("");
   const [evidenceText, setEvidenceText] = useState("");
   const [uploadedEvidence, setUploadedEvidence] = useState<UploadedFeedbackEvidence[]>([]);
@@ -1914,6 +1914,11 @@ export function OfferFeedbackDialog({
     setLoading(true);
     setMessage(null);
 
+    if (!reason) {
+      setMessage({ type: "error", text: "请先选择问题类型。" });
+      setLoading(false);
+      return;
+    }
     if (requiresImageEvidence && uploadedEvidence.length === 0) {
       setMessage({ type: "error", text: "这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。" });
       setLoading(false);
@@ -1999,12 +2004,14 @@ export function OfferFeedbackDialog({
 
         <form onSubmit={submit} className="mt-4 space-y-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-[#5a6061]">问题类型</span>
+            <span className="mb-1 block text-xs font-medium text-[#5a6061]">问题类型（必选）</span>
             <select
               value={reason}
-              onChange={(event) => setReason(event.target.value)}
+              onChange={(event) => setReason(event.target.value as OfferFeedbackReason | "")}
+              required
               className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
             >
+              <option value="" disabled>请选择问题类型</option>
               {feedbackReasonOptions.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -2014,7 +2021,7 @@ export function OfferFeedbackDialog({
             <span className="mb-1 block text-xs font-medium text-[#5a6061]">希望处理方式</span>
             <select
               value={userExpectedAction}
-              onChange={(event) => setUserExpectedAction(event.target.value)}
+              onChange={(event) => setUserExpectedAction(event.target.value as OfferFeedbackUserExpectedAction)}
               className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
             >
               {expectedActionOptions.map((option) => (
@@ -2138,7 +2145,7 @@ export function OfferFeedbackDialog({
 
 const feedbackReasonOptions = [
   { value: "wrong_price", label: "价格不准" },
-  { value: "description_mismatch", label: "商品描述/实际不符" },
+  { value: "description_mismatch", label: "标题党 / 商家描述误导" },
   { value: "item_removed", label: "商品已下架" },
   { value: "stock_mismatch", label: "库存状态不准" },
   { value: "wrong_category", label: "分类错误" },
@@ -2149,10 +2156,10 @@ const feedbackReasonOptions = [
 ];
 
 const expectedActionOptions = [
+  { value: "unsure", label: "交给管理员判断" },
   { value: "recheck", label: "请重新核查" },
   { value: "hide_offer", label: "建议下架这条报价" },
   { value: "hide_source", label: "建议下架整个渠道" },
-  { value: "unsure", label: "不确定，交给管理员判断" },
 ];
 
 function extractEvidenceUrls(value: string): string[] {

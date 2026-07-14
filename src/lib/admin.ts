@@ -1618,7 +1618,7 @@ function parseOfferFeedbackRiskPrecheck(value: unknown): OfferFeedbackRiskPreche
 function normalizeOfferFeedbackUserExpectedAction(value: unknown): OfferFeedbackUserExpectedAction {
   return value === "hide_offer" || value === "hide_source" || value === "unsure" || value === "recheck"
     ? value
-    : "recheck";
+    : "unsure";
 }
 
 function normalizeOfferFeedbackSuggestedAction(value: unknown, reason: OfferFeedbackReason): OfferFeedbackSuggestedAction {

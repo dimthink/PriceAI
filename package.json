@@ -34,6 +34,7 @@
     "import:api-transit:sub2api": "node scripts/import-sub2api-api-transit.mjs",
     "probe:api-transit": "node scripts/probe-api-transit.mjs",
     "test:api-transit": "node scripts/run-ts-test.mjs scripts/test-api-transit-sorting.ts && node scripts/test-api-transit.mjs && node scripts/test-api-transit-probe.mjs",
+    "test:feedback": "node scripts/run-ts-test.mjs scripts/test-feedback-rules.ts",
     "test:product-offer-pagination": "node scripts/run-ts-test.mjs scripts/test-product-offer-pagination.ts",
     "collect:worker": "node scripts/collect-worker.mjs",
     "import:api-models": "node scripts/import-api-models.mjs",

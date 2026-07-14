@@ -113,7 +113,7 @@ export async function POST(request: Request) {
       offerSourceUpdatedAt: payload.offerSourceUpdatedAt || null,
       offerLastSeenAt: payload.offerLastSeenAt || null,
       reason: payload.reason,
-      userExpectedAction: payload.userExpectedAction || "recheck",
+      userExpectedAction: payload.userExpectedAction || "unsure",
       evidenceText: payload.evidenceText || null,
       evidenceUrls: payload.evidenceUrls || [],
       notes: payload.notes || null,

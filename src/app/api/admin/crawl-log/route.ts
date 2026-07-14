@@ -522,23 +522,6 @@ function feedbackRecollectionOutcome(
     };
   }
 
-  const snapshotTitle = String(feedback.source_title || "").trim();
-  const currentTitle = String(offer.source_title || "").trim();
-  if (reason === "description_mismatch" && snapshotTitle && currentTitle && snapshotTitle !== currentTitle) {
-    return {
-      feedbackStatus: "resolved",
-      verificationStatus: "auto_fixed",
-      verificationResult: "offer_changed",
-      message: `来源「${input.sourceName}」重采完成后，商品描述已更新，自动标记已处理。`,
-      details: {
-        ...baseDetails,
-        outcome: "description_changed",
-        snapshotTitle,
-        currentTitle,
-      },
-    };
-  }
-
   return {
     feedbackStatus: "pending",
     verificationStatus: "manual_review",

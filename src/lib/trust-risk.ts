@@ -11,9 +11,11 @@ export const HIGH_RISK_FEEDBACK_REASONS: ReadonlySet<OfferFeedbackReason> = new 
   "fraud",
   "bad_source",
 ]);
-export const FEEDBACK_EVIDENCE_REQUIRED_ACTIONS: ReadonlySet<OfferFeedbackUserExpectedAction> = new Set([
-  "hide_offer",
-  "hide_source",
+export const FEEDBACK_EVIDENCE_REQUIRED_REASONS: ReadonlySet<OfferFeedbackReason> = new Set([
+  "description_mismatch",
+  AFTERSALES_FEEDBACK_REASON,
+  "fraud",
+  "bad_source",
 ]);
 export const LOW_RISK_VERIFICATION_REASONS: ReadonlySet<OfferFeedbackReason> = new Set([
   "item_removed",
@@ -62,17 +64,18 @@ export const RISK_PRECHECK_PUBLIC_TTL_HOURS = 72;
 
 export function feedbackRequiresEvidence(
   reason: OfferFeedbackReason | string,
-  userExpectedAction?: OfferFeedbackUserExpectedAction | string | null,
+  _userExpectedAction?: OfferFeedbackUserExpectedAction | string | null,
 ): boolean {
-  return HIGH_RISK_FEEDBACK_REASONS.has(reason as OfferFeedbackReason) ||
-    FEEDBACK_EVIDENCE_REQUIRED_ACTIONS.has(userExpectedAction as OfferFeedbackUserExpectedAction);
+  void _userExpectedAction;
+  return FEEDBACK_EVIDENCE_REQUIRED_REASONS.has(reason as OfferFeedbackReason);
 }
 
 export function feedbackRequiresImageEvidence(
   reason: OfferFeedbackReason | string,
-  userExpectedAction?: OfferFeedbackUserExpectedAction | string | null,
+  _userExpectedAction?: OfferFeedbackUserExpectedAction | string | null,
 ): boolean {
-  return feedbackRequiresEvidence(reason, userExpectedAction);
+  void _userExpectedAction;
+  return HIGH_RISK_FEEDBACK_REASONS.has(reason as OfferFeedbackReason);
 }
 
 export function hasFeedbackImageEvidenceReference(values: readonly string[] | null | undefined): boolean {
@@ -102,7 +105,7 @@ export function feedbackRequiresContact(reason: OfferFeedbackReason | string): b
 }
 
 export function inferSuggestedActionForFeedback(reason: OfferFeedbackReason): OfferFeedbackSuggestedAction {
-  if (reason === "wrong_price" || reason === "description_mismatch" || reason === "stock_mismatch") return "recollect";
+  if (reason === "wrong_price" || reason === "stock_mismatch") return "recollect";
   if (reason === "item_removed") return "hide_offer";
   if (reason === "fraud") return "hide_offer";
   if (reason === "bad_source") return "hide_source";
@@ -118,13 +121,13 @@ export function shouldCreateFeedbackVerification(
 ): boolean {
   if (LOW_RISK_VERIFICATION_REASONS.has(reason)) return true;
 
-  if (reason !== "wrong_price" && reason !== "description_mismatch" && reason !== "other") return false;
+  if (reason !== "wrong_price" && reason !== "other") return false;
   const text = `${notes || ""} ${evidenceText || ""}`.toLowerCase();
   return /已下架|下架|无法下单|不能下单|不能购买|无法购买|链接打不开|404|失效|无货|缺货/.test(text);
 }
 
 function shouldTrackFeedbackRecollection(reason: OfferFeedbackReason): boolean {
-  return reason === "wrong_price" || reason === "description_mismatch";
+  return reason === "wrong_price";
 }
 
 export function buildInitialFeedbackVerificationResult(input: {
@@ -138,16 +141,13 @@ export function buildInitialFeedbackVerificationResult(input: {
   if (!shouldVerifyLink && !shouldTrackFeedbackRecollection(input.reason)) return null;
 
   if (!shouldVerifyLink && shouldTrackFeedbackRecollection(input.reason)) {
-    const isPrice = input.reason === "wrong_price";
     return {
       verificationStatus: "pending",
       verificationResult: null,
       verifiedAt: null,
-      verificationMessage: isPrice
-        ? "已进入价格待重采队列；默认不跑链接下架核验。"
-        : "已进入描述待重采队列；默认不跑链接下架核验。",
+      verificationMessage: "已进入价格待重采队列；默认不跑链接下架核验。",
       verificationReason: input.reason,
-      verificationIntent: isPrice ? "price_recollection" : "description_recollection",
+      verificationIntent: "price_recollection",
       createdCollectionJobId: null,
       currentOfferStatus: input.offerStatus || null,
       queuedAt: input.createdAt || new Date().toISOString(),

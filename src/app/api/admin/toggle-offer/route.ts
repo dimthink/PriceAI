@@ -1,7 +1,9 @@
 import { setRawOfferHidden } from "@/lib/admin";
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
-import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
+import { clearPublicDataCache, listRawOffersByIds, markPublicApiSnapshotsDirty } from "@/lib/data";
 import { requireAdminRequest } from "@/lib/env";
+import { prewarmPublicPaths, revalidatePublicOfferPaths } from "@/lib/public-revalidation";
+import { after } from "next/server";
 import { z } from "zod";
 
 const schema = z.object({
@@ -18,11 +20,27 @@ export async function POST(request: Request) {
     const payload = schema.parse(await request.json());
     const result = await setRawOfferHidden(payload);
     clearPublicDataCache();
+    const affectedOffers = result.updatedOfferCount > 0 ? await listRawOffersByIds([payload.id]) : [];
+    const affectedProductIds = Array.from(new Set(affectedOffers.map((offer) => offer.canonicalProductId).filter(isNonEmptyString)));
+    const affectedSourceIds = Array.from(new Set(affectedOffers.map((offer) => offer.sourceId).filter(isNonEmptyString)));
     const snapshotRefreshQueued = result.updatedOfferCount > 0
-      ? await markPublicApiSnapshotsDirty("admin toggle offer", { offerIds: [payload.id] })
+      ? await markPublicApiSnapshotsDirty("admin toggle offer", {
+          productIds: affectedProductIds,
+          offerIds: [payload.id],
+          sourceIds: affectedSourceIds,
+          global: false,
+          preferProductScope: affectedProductIds.length > 0,
+        })
       : false;
+    const revalidatedPaths = result.updatedOfferCount > 0 ? revalidatePublicOfferPaths() : [];
 
-    return Response.json({ ok: true, ...result, snapshotRefreshQueued });
+    if (result.updatedOfferCount > 0) {
+      after(async () => {
+        await prewarmPublicPaths(request, publicOfferTogglePrewarmPaths(affectedProductIds));
+      });
+    }
+
+    return Response.json({ ok: true, ...result, snapshotRefreshQueued, revalidatedPaths });
   } catch (error) {
     logApiError("admin toggle offer", error);
     return Response.json(
@@ -30,4 +48,23 @@ export async function POST(request: Request) {
       { status: error instanceof z.ZodError ? 400 : 500 },
     );
   }
+}
+
+function publicOfferTogglePrewarmPaths(productIds: string[]): string[] {
+  const paths = new Set<string>([
+    "/",
+    "/api/explorer",
+    "/api/offers?limit=30",
+  ]);
+
+  for (const productId of productIds) {
+    paths.add(`/products/${encodeURIComponent(productId)}`);
+    paths.add(`/api/products/${encodeURIComponent(productId)}/offers?limit=30`);
+  }
+
+  return [...paths];
+}
+
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return Boolean(value?.trim());
 }

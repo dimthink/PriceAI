@@ -16,7 +16,6 @@ const FEEDBACK_RECHECK_FETCH_TIMEOUT_MS = 8_000;
 const FEEDBACK_RECHECK_MAX_HTML_BYTES = 128 * 1024;
 const TRANSIENT_FEEDBACK_REASONS: ReadonlySet<OfferFeedbackReason> = new Set([
   "wrong_price",
-  "description_mismatch",
   "item_removed",
   "stock_mismatch",
 ]);
@@ -562,18 +561,6 @@ function buildFeedbackCloseupOutcome(
         result: "offer_changed",
         message: `当前库存状态已从「${snapshotStatus}」变为「${currentStatus}」，自动标记该反馈已处理。`,
         details: { ...baseDetails, outcome: "status_changed", snapshotStatus },
-      };
-    }
-  }
-
-  if (reason === "description_mismatch") {
-    const snapshotTitle = stringValue(feedback.source_title);
-    const currentTitle = stringValue(offer.source_title);
-    if (snapshotTitle && currentTitle && snapshotTitle !== currentTitle) {
-      return {
-        result: "offer_changed",
-        message: "当前原始商品描述已更新，自动标记该反馈已处理。",
-        details: { ...baseDetails, outcome: "description_changed", snapshotTitle, currentTitle },
       };
     }
   }

@@ -28,6 +28,8 @@ try {
           outDir,
           module: "NodeNext",
           moduleResolution: "NodeNext",
+          types: ["node"],
+          typeRoots: [path.join(repoRoot, "node_modules", "@types")],
           incremental: false,
           tsBuildInfoFile: path.join(tempDir, "tsconfig.tsbuildinfo"),
         },

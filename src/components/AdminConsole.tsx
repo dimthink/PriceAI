@@ -2306,7 +2306,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       showRowFeedback(feedback.id, "error", "这条反馈没有关联报价 ID。");
       return;
     }
-    const confirmed = window.confirm(`确定停用这条报价吗？停用后不会被普通采集自动恢复，适合标题党、商品描述不符等明确不应展示的报价。\n${feedback.sourceTitle || feedback.offerUrl || feedback.offerId}`);
+    const confirmed = window.confirm(`确定停用这条报价吗？停用后不会被普通采集自动恢复，适合标题党、商家描述误导等明确不应展示的报价。\n${feedback.sourceTitle || feedback.offerUrl || feedback.offerId}`);
     if (!confirmed) return;
 
     setLoadingAction(`feedback-disable-offer-${feedback.id}`);
@@ -9830,17 +9830,16 @@ const feedbackWorkFilters: Array<{ value: FeedbackWorkFilter; label: string }> =
   { value: "transient", label: "临时数据" },
   { value: "category", label: "分类问题" },
   { value: "aftersales", label: "售后/发货" },
-  { value: "high_risk", label: "高风险" },
+  { value: "high_risk", label: "商家质量/高风险" },
   { value: "site", label: "站点意见" },
 ];
 
 function getOfferFeedbackBucket(feedback: OfferFeedback): OfferFeedbackBucket {
   if (feedback.reason === "aftersales_shipping") return "aftersales";
   if (feedback.reason === "wrong_category") return "category";
-  if (feedback.reason === "fraud" || feedback.reason === "bad_source") return "high_risk";
+  if (feedback.reason === "description_mismatch" || feedback.reason === "fraud" || feedback.reason === "bad_source") return "high_risk";
   if (
     feedback.reason === "wrong_price" ||
-    feedback.reason === "description_mismatch" ||
     feedback.reason === "stock_mismatch" ||
     feedback.reason === "item_removed"
   ) {
@@ -9951,6 +9950,15 @@ function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer
     };
   }
 
+  if (feedback.reason === "description_mismatch") {
+    return {
+      label: "商家质量待审",
+      description: "用户反馈标题党或商家描述误导，需要结合证据和原链接人工判断；不再按标题重采变化自动收口。",
+      tone: "warn",
+      batchSafe: false,
+    };
+  }
+
   if (bucket === "high_risk") {
     return {
       label: "人工核验",
@@ -10015,23 +10023,6 @@ function getOfferFeedbackVerdict(feedback: OfferFeedback, currentOffer: RawOffer
     };
   }
 
-  if (feedback.reason === "description_mismatch") {
-    if (feedback.sourceTitle && currentOffer.sourceTitle && feedback.sourceTitle.trim() !== currentOffer.sourceTitle.trim()) {
-      return {
-        label: "描述已更新",
-        description: "当前原始商品名已经不同于用户反馈时的快照，通常表示后续采集已修正，可批量标记已处理。",
-        tone: "success",
-        batchSafe: true,
-      };
-    }
-    return {
-      label: "建议重采",
-      description: "用户反馈商品描述和实际不符，建议先重采或打开原链接确认，不要按错价直接处理。",
-      tone: "warn",
-      batchSafe: false,
-    };
-  }
-
   if (feedback.reason === "item_removed") {
     if (isUnavailableOfferForFeedback(currentOffer)) {
       return {
@@ -10083,7 +10074,7 @@ function feedbackStatusClass(value: OfferFeedbackStatus): string {
 function feedbackReasonLabel(value: OfferFeedback["reason"]): string {
   const labels: Record<OfferFeedback["reason"], string> = {
     wrong_price: "价格不准",
-    description_mismatch: "描述不符",
+    description_mismatch: "标题党/商家描述误导",
     item_removed: "商品已下架",
     stock_mismatch: "库存不准",
     aftersales_shipping: "售后/发货",
@@ -10096,8 +10087,8 @@ function feedbackReasonLabel(value: OfferFeedback["reason"]): string {
 }
 
 function feedbackReasonClass(value: OfferFeedback["reason"]): string {
-  if (value === "fraud" || value === "bad_source" || value === "aftersales_shipping") return "bg-[#fbe9e7] text-[#9b3328]";
-  if (value === "wrong_price" || value === "description_mismatch" || value === "stock_mismatch" || value === "item_removed") return "bg-[#fff7e8] text-[#7a541b]";
+  if (value === "fraud" || value === "bad_source" || value === "aftersales_shipping" || value === "description_mismatch") return "bg-[#fbe9e7] text-[#9b3328]";
+  if (value === "wrong_price" || value === "stock_mismatch" || value === "item_removed") return "bg-[#fff7e8] text-[#7a541b]";
   if (value === "wrong_category") return "bg-[#eef3f8] text-[#47657a]";
   return "bg-[#f2f4f4] text-[#5a6061]";
 }
