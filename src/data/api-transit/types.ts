@@ -97,10 +97,14 @@ export interface TransitMultiplierHistoryPoint {
 export type TransitStandardModel =
   | "Claude Fable 5"
   | "Claude Sonnet 5"
+  | "Claude Sonnet 4.5"
   | "Claude Sonnet 4.6"
+  | "Claude Haiku 4.5"
+  | "Claude Opus 4.5"
   | "Claude Opus 4.6"
   | "Claude Opus 4.7"
   | "Claude Opus 4.8"
+  | "Codex Compact"
   | "GPT 5.6 Sol"
   | "GPT 5.6 Terra"
   | "GPT 5.6 Luna"
@@ -109,7 +113,10 @@ export type TransitStandardModel =
   | "GPT 5.4 Mini"
   | "Gemini 3.5 Flash"
   | "Gemini 3.1 Pro"
+  | "Grok 4.20"
+  | "Grok 4.3"
   | "Grok 4.5"
+  | "Grok Build"
   | "Composer 2.5"
   | "GLM-5.2"
   | "GLM-5.1"
@@ -278,10 +285,14 @@ export const TRANSIT_INVOICE_SUPPORT_LABELS: Record<TransitInvoiceSupport, strin
 export const TRANSIT_STANDARD_MODELS = [
   "Claude Fable 5",
   "Claude Sonnet 5",
+  "Claude Sonnet 4.5",
   "Claude Sonnet 4.6",
+  "Claude Haiku 4.5",
+  "Claude Opus 4.5",
   "Claude Opus 4.6",
   "Claude Opus 4.7",
   "Claude Opus 4.8",
+  "Codex Compact",
   "GPT 5.6 Sol",
   "GPT 5.6 Terra",
   "GPT 5.6 Luna",
@@ -290,7 +301,10 @@ export const TRANSIT_STANDARD_MODELS = [
   "GPT 5.4 Mini",
   "Gemini 3.5 Flash",
   "Gemini 3.1 Pro",
+  "Grok 4.20",
+  "Grok 4.3",
   "Grok 4.5",
+  "Grok Build",
   "Composer 2.5",
   "GLM-5.2",
   "GLM-5.1",
@@ -315,10 +329,14 @@ export const TRANSIT_STANDARD_MODELS = [
 export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, TransitModelFamily> = {
   "Claude Fable 5": "claude",
   "Claude Sonnet 5": "claude",
+  "Claude Sonnet 4.5": "claude",
   "Claude Sonnet 4.6": "claude",
+  "Claude Haiku 4.5": "claude",
+  "Claude Opus 4.5": "claude",
   "Claude Opus 4.6": "claude",
   "Claude Opus 4.7": "claude",
   "Claude Opus 4.8": "claude",
+  "Codex Compact": "gpt",
   "GPT 5.6 Sol": "gpt",
   "GPT 5.6 Terra": "gpt",
   "GPT 5.6 Luna": "gpt",
@@ -327,7 +345,10 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
   "GPT 5.4 Mini": "gpt",
   "Gemini 3.5 Flash": "gemini",
   "Gemini 3.1 Pro": "gemini",
+  "Grok 4.20": "grok",
+  "Grok 4.3": "grok",
   "Grok 4.5": "grok",
+  "Grok Build": "grok",
   "Composer 2.5": "grok",
   "GLM-5.2": "glm",
   "GLM-5.1": "glm",
@@ -352,10 +373,14 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
 export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, TransitModelModality> = {
   "Claude Fable 5": "text",
   "Claude Sonnet 5": "text",
+  "Claude Sonnet 4.5": "text",
   "Claude Sonnet 4.6": "text",
+  "Claude Haiku 4.5": "text",
+  "Claude Opus 4.5": "text",
   "Claude Opus 4.6": "text",
   "Claude Opus 4.7": "text",
   "Claude Opus 4.8": "text",
+  "Codex Compact": "text",
   "GPT 5.6 Sol": "text",
   "GPT 5.6 Terra": "text",
   "GPT 5.6 Luna": "text",
@@ -364,7 +389,10 @@ export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, Trans
   "GPT 5.4 Mini": "text",
   "Gemini 3.5 Flash": "text",
   "Gemini 3.1 Pro": "text",
+  "Grok 4.20": "text",
+  "Grok 4.3": "text",
   "Grok 4.5": "text",
+  "Grok Build": "text",
   "Composer 2.5": "text",
   "GLM-5.2": "text",
   "GLM-5.1": "text",

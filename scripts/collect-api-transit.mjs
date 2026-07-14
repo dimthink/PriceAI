@@ -26,6 +26,7 @@ const ONEHOP_PUBLIC_MODEL_COLLECTORS = new Set(["onehop_public_models"]);
 const APINODE_PUBLIC_SITE_INFO_COLLECTORS = new Set(["apinode_public_site_info", "sub2api_public_site_info"]);
 const ZIVV_MODEL_HUB_COLLECTORS = new Set(["zivv_model_hub"]);
 const AI_TRANSIT_SNAPSHOT_COLLECTORS = new Set(["ai_transit_snapshot"]);
+const MAX_PUBLIC_AVAILABILITY_SAMPLE_COUNT = 60;
 const SOURCE_SKIPPED = Symbol("source_skipped");
 const AVAILABILITY_SOURCES = {
   publicStatus: {
@@ -49,10 +50,14 @@ const STALE_UNKNOWN_AVAILABILITY_NOTE_PATTERN = /PriceAI API Key 探测|PriceAI 
 const officialTransitPrices = {
   "Claude Fable 5": { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, imageOutput: null, currency: "USD" },
   "Claude Sonnet 5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, imageOutput: null, currency: "USD" },
+  "Claude Sonnet 4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, imageOutput: null, currency: "USD" },
   "Claude Sonnet 4.6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, imageOutput: null, currency: "USD" },
+  "Claude Haiku 4.5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25, imageOutput: null, currency: "USD" },
+  "Claude Opus 4.5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "Claude Opus 4.6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "Claude Opus 4.7": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "Claude Opus 4.8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
+  "Codex Compact": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "GPT 5.6 Sol": { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "GPT 5.6 Terra": { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125, imageOutput: null, currency: "USD" },
   "GPT 5.6 Luna": { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25, imageOutput: null, currency: "USD" },
@@ -61,7 +66,10 @@ const officialTransitPrices = {
   "GPT 5.4 Mini": { input: 0.75, output: 4.5, cacheRead: 0.075, cacheWrite: 0.075, imageOutput: null, currency: "USD" },
   "Gemini 3.5 Flash": { input: 1.5, output: 9, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Gemini 3.1 Pro": { input: 2, output: 12, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
+  "Grok 4.20": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
+  "Grok 4.3": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Grok 4.5": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
+  "Grok Build": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Composer 2.5": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "GLM-5.2": { input: 8, output: 28, cacheRead: 2, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "GLM-5.1": { input: 6, output: 24, cacheRead: 1.3, cacheWrite: null, imageOutput: null, currency: "CNY" },
@@ -85,10 +93,14 @@ const officialTransitPrices = {
 const modelFamilyByStandard = {
   "Claude Fable 5": "claude",
   "Claude Sonnet 5": "claude",
+  "Claude Sonnet 4.5": "claude",
   "Claude Sonnet 4.6": "claude",
+  "Claude Haiku 4.5": "claude",
+  "Claude Opus 4.5": "claude",
   "Claude Opus 4.6": "claude",
   "Claude Opus 4.7": "claude",
   "Claude Opus 4.8": "claude",
+  "Codex Compact": "gpt",
   "GPT 5.6 Sol": "gpt",
   "GPT 5.6 Terra": "gpt",
   "GPT 5.6 Luna": "gpt",
@@ -97,7 +109,10 @@ const modelFamilyByStandard = {
   "GPT 5.4 Mini": "gpt",
   "Gemini 3.5 Flash": "gemini",
   "Gemini 3.1 Pro": "gemini",
+  "Grok 4.20": "grok",
+  "Grok 4.3": "grok",
   "Grok 4.5": "grok",
+  "Grok Build": "grok",
   "Composer 2.5": "grok",
   "GLM-5.2": "glm",
   "GLM-5.1": "glm",
@@ -720,7 +735,7 @@ function parseAiTransitSnapshotPayload(source, payload, collectedAt) {
       meta: { generated_at: generatedAt },
       collectionError,
       minimumTopUp: numberValue(payload?.billing?.minimum_top_up),
-      availability: summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilitySamples, generatedAt, source),
+      availability: summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilitySamples, generatedAt, source, payload),
     }),
     offers: deduped,
     availabilitySamples,
@@ -1026,8 +1041,8 @@ function aiTransitAvailabilityFromMonitoringItem(item, standard, generatedAt, so
   const rateValue = numberValue(item?.availability_7d);
   const rate = rateValue === null ? null : percentValueToRate(rateValue);
   const lastCheckedAt = stringOrNull(item?.last_checked_at) || generatedAt;
-  const timeline = Array.isArray(item?.timeline) ? item.timeline : [];
-  const sampleCount = explicitAvailabilitySampleCount(item) ?? timeline.length;
+  const timeline = Array.isArray(item?.timeline) ? recentPublicAvailabilityTimeline(item.timeline) : [];
+  const sampleCount = cappedPublicAvailabilitySampleCount(explicitAvailabilitySampleCount(item) ?? timeline.length);
   const firstCheckedAt = earliestTimestampFromValues([
     ...timeline.map((point) => stringOrNull(point?.checked_at)),
     lastCheckedAt,
@@ -1050,7 +1065,7 @@ function aiTransitAvailabilitySamples(source, payload, collectedAt) {
     const rawGroupName = stringOrNull(item?.name);
     const groupName = rawGroupName ? normalizeSourceGroupName(source, rawGroupName) : null;
     const standard = standardizeModelName(item?.primary_model || groupName || "");
-    const timeline = Array.isArray(item?.timeline) ? item.timeline : [];
+    const timeline = Array.isArray(item?.timeline) ? recentPublicAvailabilityTimeline(item.timeline) : [];
     timeline.forEach((point, index) => {
       const sampleInput = {
         stationId: source.id,
@@ -1096,7 +1111,9 @@ function applyAiTransitTimelineAvailability(offers, availabilitySamples) {
     if (!samples?.length) continue;
     const times = samples.map((sample) => stringOrNull(sample.checked_at)).filter(Boolean).sort();
     const okSamples = samples.filter((sample) => sample.ok).length;
-    offer.availability_seven_day_samples = samples.length;
+    if (!Number.isFinite(offer.availability_seven_day_samples) || offer.availability_seven_day_samples <= 0) {
+      offer.availability_seven_day_samples = samples.length;
+    }
     offer.availability_first_checked_at = times[0] || offer.availability_first_checked_at;
     offer.availability_last_checked_at = times.at(-1) || offer.availability_last_checked_at;
     offer.availability_latest_latency_ms = offer.availability_latest_latency_ms ?? latestLatencyFromSamples(samples);
@@ -1108,7 +1125,7 @@ function applyAiTransitTimelineAvailability(offers, availabilitySamples) {
   }
 }
 
-function summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilitySamples, generatedAt, source) {
+function summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilitySamples, generatedAt, source, payload = null) {
   const availabilityValues = Array.from(availabilityByKey.values()).filter((item) => item.rate !== null);
   const stationSamples = (availabilitySamples || []).filter((sample) => sample.scope !== "offer");
   const summarySamples = stationSamples.length ? stationSamples : (availabilitySamples || []);
@@ -1127,9 +1144,11 @@ function summarizeAiTransitSnapshotAvailability(availabilityByKey, availabilityS
   const okSamples = summarySamples.filter((sample) => sample.ok).length;
   const sampleRate = summarySamples.length ? okSamples / summarySamples.length : null;
   const valueRate = weightedAvailabilityValueRate(availabilityValues);
+  const monitoringSamples = explicitAiTransitMonitoringSampleCount(payload);
+  const availabilityValueSamples = explicitAvailabilityValueSampleCount(availabilityValues);
   return {
     rate: valueRate ?? sampleRate,
-    samples: summarySamples.length || availabilityValues.length,
+    samples: monitoringSamples || cappedPublicAvailabilitySampleCount(summarySamples.length) || availabilityValueSamples || availabilityValues.length,
     firstCheckedAt: sampleTimes[0] || availabilityValues.map((item) => item.firstCheckedAt).filter(Boolean).sort().at(0) || null,
     lastCheckedAt: sampleTimes.at(-1) || availabilityValues.map((item) => item.lastCheckedAt).filter(Boolean).sort().at(-1) || generatedAt,
     latestLatencyMs:
@@ -1151,8 +1170,53 @@ function weightedAvailabilityValueRate(availabilityValues) {
   return round(values.reduce((sum, item) => sum + item.rate * Math.max(1, item.samples || 0), 0) / totalSamples, 6);
 }
 
+function explicitAvailabilityValueSampleCount(availabilityValues) {
+  return cappedPublicAvailabilitySampleCount(
+    (availabilityValues || []).reduce((total, item) => total + Math.max(0, integerValue(item?.samples) || 0), 0),
+  );
+}
+
+function explicitAiTransitMonitoringSampleCount(payload) {
+  const monitoring = Array.isArray(payload?.monitoring) ? payload.monitoring : [];
+  let topLevelSamples = 0;
+  let hasTopLevelSamples = false;
+  for (const item of monitoring) {
+    const samples = explicitAvailabilitySampleCount(item);
+    if (samples === null) continue;
+    hasTopLevelSamples = true;
+    topLevelSamples += Math.max(0, samples);
+  }
+  if (hasTopLevelSamples) return cappedPublicAvailabilitySampleCount(topLevelSamples);
+
+  return cappedPublicAvailabilitySampleCount(monitoring.reduce((total, item) => {
+    const models = Array.isArray(item?.models) ? item.models : [];
+    return total + models.reduce((modelTotal, model) => {
+      const samples = explicitAvailabilitySampleCount(model);
+      return modelTotal + Math.max(0, samples || 0);
+    }, 0);
+  }, 0));
+}
+
 function explicitAvailabilitySampleCount(item) {
   return integerValue(item?.sample_count_7d ?? item?.samples_7d ?? item?.check_count_7d ?? item?.checks_7d);
+}
+
+function cappedPublicAvailabilitySampleCount(value) {
+  const count = integerValue(value);
+  if (count === null || count <= 0) return 0;
+  return Math.min(count, MAX_PUBLIC_AVAILABILITY_SAMPLE_COUNT);
+}
+
+function recentPublicAvailabilityTimeline(timeline) {
+  return [...(timeline || [])]
+    .sort((left, right) => {
+      const leftParsed = new Date(stringOrNull(left?.checked_at) || 0).getTime();
+      const rightParsed = new Date(stringOrNull(right?.checked_at) || 0).getTime();
+      const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
+      const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
+      return leftTime - rightTime;
+    })
+    .slice(-MAX_PUBLIC_AVAILABILITY_SAMPLE_COUNT);
 }
 
 function latestLatencyFromAvailabilityValues(values) {
@@ -2607,6 +2671,13 @@ function standardizeModelName(name) {
     return "Nano Banana Pro";
   }
   if (
+    value.includes("gemini-3.1-flash-lite-image") ||
+    value.includes("gemini-3-1-flash-lite-image") ||
+    value.includes("gemini 3.1 flash lite image")
+  ) {
+    return "Nano Banana Lite";
+  }
+  if (
     value.includes("gemini-3.1-flash-image") ||
     value.includes("gemini-3-1-flash-image") ||
     value.includes("gemini 3.1 flash image")
@@ -2655,19 +2726,29 @@ function standardizeModelName(name) {
     return null;
   }
 
+  if (value.includes("claude") && value.includes("haiku")) {
+    if (hasExplicitModelVersion(value, "haiku", "4.5")) return "Claude Haiku 4.5";
+    return null;
+  }
+
   if (value.includes("claude") && value.includes("sonnet")) {
     if (hasExplicitModelVersion(value, "sonnet", "5")) return "Claude Sonnet 5";
     if (hasExplicitModelVersion(value, "sonnet", "4.6")) return "Claude Sonnet 4.6";
+    if (hasExplicitModelVersion(value, "sonnet", "4.5")) return "Claude Sonnet 4.5";
     return null;
   }
   if (value.includes("claude") && value.includes("opus")) {
     if (hasExplicitModelVersion(value, "opus", "4.8")) return "Claude Opus 4.8";
     if (hasExplicitModelVersion(value, "opus", "4.7")) return "Claude Opus 4.7";
     if (hasExplicitModelVersion(value, "opus", "4.6")) return "Claude Opus 4.6";
+    if (hasExplicitModelVersion(value, "opus", "4.5")) return "Claude Opus 4.5";
     return null;
   }
 
   if (value.includes("gpt") || value.includes("codex") || value.includes("openai")) {
+    if (value.includes("codex-auto-review") || value.includes("codex-compact") || value.includes("codex compact")) {
+      return "Codex Compact";
+    }
     if (hasExplicitGptVariant(value, "5.6", "sol")) return "GPT 5.6 Sol";
     if (hasExplicitGptVariant(value, "5.6", "terra")) return "GPT 5.6 Terra";
     if (hasExplicitGptVariant(value, "5.6", "luna")) return "GPT 5.6 Luna";
@@ -2680,6 +2761,9 @@ function standardizeModelName(name) {
   }
 
   if (value.includes("grok")) {
+    if (value.includes("grok-build") || value.includes("grok build")) return "Grok Build";
+    if (value.includes("4.20") || value.includes("4-20") || value.includes("4_20")) return "Grok 4.20";
+    if (value.includes("4.3") || value.includes("4-3") || value.includes("4_3")) return "Grok 4.3";
     if (value.includes("4.5") || value.includes("4-5") || value.includes("4_5")) return "Grok 4.5";
   }
 

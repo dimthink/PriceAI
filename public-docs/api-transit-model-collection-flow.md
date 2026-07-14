@@ -24,10 +24,10 @@
 
 | 模型族 | 已纳入标准模型 | 公开接口可识别的常见别名 |
 | --- | --- | --- |
-| ChatGPT / OpenAI | `GPT 5.5`、`GPT 5.4` | `gpt-5.5`、`gpt-5-5`、`gpt-5.4`、`gpt-5-4`；会排除 `mini/nano` 变体，避免误归。 |
-| Claude | `Claude Fable 5`、`Claude Sonnet 5`、`Claude Sonnet 4.6`、`Claude Opus 4.6/4.7/4.8` | `claude-fable-5`、`claude-sonnet-5`、`claude-sonnet-4.6`、`claude-opus-4.8` 等显式版本。 |
+| ChatGPT / OpenAI | `GPT 5.6 Sol/Terra/Luna`、`GPT 5.5`、`GPT 5.4`、`GPT 5.4 Mini`、`Codex Compact` | `gpt-5.6-*`、`gpt-5.5`、`gpt-5.4`、`gpt-5.4-mini`、`codex-auto-review`；仍排除无法明确归类的 `mini/nano` 变体，避免误归。 |
+| Claude | `Claude Fable 5`、`Claude Sonnet 5`、`Claude Sonnet 4.5/4.6`、`Claude Haiku 4.5`、`Claude Opus 4.5/4.6/4.7/4.8` | `claude-fable-5`、`claude-sonnet-5`、`claude-sonnet-4.5/4.6`、`claude-haiku-4.5`、`claude-opus-4.5/4.6/4.7/4.8` 等显式版本。 |
 | Gemini | `Gemini 3.5 Flash`、`Gemini 3.1 Pro` | `gemini-3.5-flash`、`gemini-3.1-pro-preview`。 |
-| Grok | `Grok 4.5`、`Composer 2.5`、`Grok Image`、`Grok Video` | `grok-4.5`、`grok-4.5-latest`、`composer-2.5`、`grok-imagine-image`、`grok-imagine-video`。Grok 图片/视频模型的主品牌归属是 Grok，同时也会被图片生成/视频生成能力筛选命中。 |
+| Grok | `Grok 4.20`、`Grok 4.3`、`Grok 4.5`、`Grok Build`、`Composer 2.5`、`Grok Image`、`Grok Video` | `grok-4.20-*`、`grok-4.3-*`、`grok-4.5`、`grok-build-*`、`composer-2.5`、`grok-imagine-image`、`grok-imagine-video`。Grok 图片/视频模型的主品牌归属是 Grok，同时也会被图片生成/视频生成能力筛选命中。 |
 | GLM | `GLM-5.2`、`GLM-5.1` | `glm-5.2`、`glm-5-2`、`zhipu/glm-5.1`。 |
 | DeepSeek | `DeepSeek V4 Flash`、`DeepSeek V4 Pro` | `deepseek-v4-flash`、`deepseek-v4-pro`。 |
 | 图片生成 | `GPT Image 2`、`Grok Image`、`Nano Banana Pro`、`Nano Banana 2`、`Nano Banana`、`Nano Banana Lite` | `gpt-image-2`、`grok-imagine-image`、`grok-image`、`gemini-3-pro-image-preview`、`gemini-3.1-flash-image-preview`、`gemini-2.5-flash-image`、`nano-banana-*`。 |

@@ -7,9 +7,11 @@ import { __test } from "./collect-api-transit.mjs";
 const transitSourceConfig = JSON.parse(readFileSync(new URL("../config/api-transit-sources.json", import.meta.url), "utf8"));
 const configuredRtocSource = transitSourceConfig.find((source) => source.id === "ai-rtoc-cc");
 assert.ok(configuredRtocSource, "RTOC AI must stay in API transit public collection sources.");
-assert.equal(configuredRtocSource.collectorKind, "new_api_pricing");
+assert.equal(configuredRtocSource.collectorKind, "ai_transit_snapshot");
+assert.equal(configuredRtocSource.pricingUrl, "https://ai.rtoc.cc/.well-known/ai-transit.json");
+assert.equal(configuredRtocSource.pricingEndpointUrl, "https://api.rtoc.cc/api/public/transit/v1/snapshot");
 assert.equal(configuredRtocSource.monitorUrl, "https://ai.rtoc.cc/pricing");
-assert.equal(configuredRtocSource.monitorEndpointUrl, "https://api.rtoc.cc/api/perf-metrics/summary?period=24");
+assert.equal("monitorEndpointUrl" in configuredRtocSource, false);
 const configuredAiTransitSnapshotSource = transitSourceConfig.find((source) => source.id === "sub-dimension-cc-cd");
 assert.ok(configuredAiTransitSnapshotSource, "Sub2API ai-transit snapshot test station must stay in collection sources.");
 assert.equal(configuredAiTransitSnapshotSource.collectorKind, "ai_transit_snapshot");
@@ -511,8 +513,12 @@ assert.equal(__test.standardizeModelName("claude-sonnet-5-0"), "Claude Sonnet 5"
 assert.equal(__test.standardizeModelName("anthropic/claude-fable-5"), "Claude Fable 5");
 assert.equal(__test.standardizeModelName("Claude Fable 5"), "Claude Fable 5");
 assert.equal(__test.standardizeModelName("claude-fable-5-0"), "Claude Fable 5");
+assert.equal(__test.standardizeModelName("claude-haiku-4-5-20251001"), "Claude Haiku 4.5");
+assert.equal(__test.standardizeModelName("claude-opus-4-5-20251101"), "Claude Opus 4.5");
+assert.equal(__test.standardizeModelName("claude-sonnet-4-5-20250929-thinking"), "Claude Sonnet 4.5");
 assert.equal(__test.standardizeModelName("openai/gpt-image-2"), "GPT Image 2");
 assert.equal(__test.standardizeModelName("google/gemini-3-pro-image-preview"), "Nano Banana Pro");
+assert.equal(__test.standardizeModelName("google/gemini-3.1-flash-lite-image"), "Nano Banana Lite");
 assert.equal(__test.standardizeModelName("google/gemini-3.1-flash-image-preview"), "Nano Banana 2");
 assert.equal(__test.standardizeModelName("google/gemini-2.5-flash-image"), "Nano Banana");
 assert.equal(__test.standardizeModelName("google/nano-banana-pro"), "Nano Banana Pro");
@@ -521,6 +527,10 @@ assert.equal(__test.standardizeModelName("google/nano-banana"), "Nano Banana");
 assert.equal(__test.standardizeModelName("google/nano-banana-lite"), "Nano Banana Lite");
 assert.equal(__test.standardizeModelName("openai/sora-2-pro"), "Sora 2 Pro");
 assert.equal(__test.standardizeModelName("openai/sora-2"), "Sora 2");
+assert.equal(__test.standardizeModelName("codex-auto-review"), "Codex Compact");
+assert.equal(__test.standardizeModelName("grok-4.20-multi-agent-xhigh"), "Grok 4.20");
+assert.equal(__test.standardizeModelName("grok-4.3-medium"), "Grok 4.3");
+assert.equal(__test.standardizeModelName("grok-build-console"), "Grok Build");
 assert.equal(__test.standardizeModelName("xai/grok-4.5-latest"), "Grok 4.5");
 assert.equal(__test.standardizeModelName("xai/composer-2.5"), "Composer 2.5");
 assert.equal(__test.standardizeModelName("xai/grok-composer-2.5-fast"), "Composer 2.5");
@@ -536,7 +546,6 @@ assert.equal(__test.standardizeModelName("volcengine/video-ds-2.0"), "Seedance 2
 assert.equal(__test.standardizeModelName("bytedance/seedance-2.0"), "Seedance 2.0");
 assert.equal(__test.standardizeModelName("kling/kling-2.5-turbo"), "Kling 2.5 Turbo");
 assert.equal(__test.standardizeModelName("claude-3-5-sonnet-20241022"), null);
-assert.equal(__test.standardizeModelName("claude-sonnet-4-5-20250929-thinking"), null);
 assert.equal(__test.standardizeModelName("openai/gpt-5.6"), "GPT 5.6 Sol");
 assert.equal(__test.standardizeModelName("openai/gpt-5.6-sol"), "GPT 5.6 Sol");
 assert.equal(__test.standardizeModelName("openai/gpt-5.6-terra"), "GPT 5.6 Terra");
@@ -609,9 +618,16 @@ assert.equal(fixedOffersByModel.get("Grok Image").model_multiplier, 0.03);
 assert.equal(fixedOffersByModel.get("Grok Video").family, "grok");
 assert.equal(fixedOffersByModel.get("Grok Video").model_multiplier, 0.12);
 
-const rtocSource = configuredRtocSource;
-const rtocParsed = __test.parsePricingPayload(
-  rtocSource,
+const legacyNewApiPerformanceSource = {
+  ...configuredRtocSource,
+  collectorKind: "new_api_pricing",
+  pricingUrl: "https://ai.rtoc.cc/pricing",
+  pricingEndpointUrl: "https://api.rtoc.cc/api/pricing",
+  monitorUrl: "https://ai.rtoc.cc/pricing",
+  monitorEndpointUrl: "https://api.rtoc.cc/api/perf-metrics/summary?period=24",
+};
+const legacyNewApiParsed = __test.parsePricingPayload(
+  legacyNewApiPerformanceSource,
   {
     data: [
       {
@@ -636,8 +652,8 @@ const rtocParsed = __test.parsePricingPayload(
   "2026-07-02T14:00:00.000Z",
 );
 __test.applyNewApiPerformanceSummaryAvailability(
-  rtocSource,
-  rtocParsed,
+  legacyNewApiPerformanceSource,
+  legacyNewApiParsed,
   {
     data: {
       models: [
@@ -660,15 +676,197 @@ __test.applyNewApiPerformanceSummaryAvailability(
   },
   "2026-07-02T14:00:00.000Z",
 );
-const rtocGptOffer = rtocParsed.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "GPT");
-assert.equal(rtocGptOffer.availability_seven_day_rate, 0.9761);
-assert.equal(rtocGptOffer.availability_seven_day_samples, 3);
-assert.equal(rtocGptOffer.availability_source_type, "public_status");
-assert.equal(rtocGptOffer.availability_source_url, "https://ai.rtoc.cc/pricing");
-assert.match(rtocGptOffer.availability_note, /performance summary 近 24 小时/);
-assert.equal(rtocParsed.station.availability_seven_day_rate, 0.9744);
-assert.equal(rtocParsed.station.availability_seven_day_samples, 6);
-assert.match(rtocParsed.station.availability_note, /2 个标准模型/);
+const legacyNewApiGptOffer = legacyNewApiParsed.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "GPT");
+assert.equal(legacyNewApiGptOffer.availability_seven_day_rate, 0.9761);
+assert.equal(legacyNewApiGptOffer.availability_seven_day_samples, 3);
+assert.equal(legacyNewApiGptOffer.availability_source_type, "public_status");
+assert.equal(legacyNewApiGptOffer.availability_source_url, "https://ai.rtoc.cc/pricing");
+assert.match(legacyNewApiGptOffer.availability_note, /performance summary 近 24 小时/);
+assert.equal(legacyNewApiParsed.station.availability_seven_day_rate, 0.9744);
+assert.equal(legacyNewApiParsed.station.availability_seven_day_samples, 6);
+assert.match(legacyNewApiParsed.station.availability_note, /2 个标准模型/);
+
+const rtocSnapshotParsed = __test.parsePricingPayload(
+  configuredRtocSource,
+  {
+    schema_version: "ai-transit.v1",
+    system: "new_api",
+    generated_at: "2026-07-14T04:31:44Z",
+    billing: {
+      recharge_ratio: "1:1",
+      minimum_top_up: 10,
+    },
+    groups: [
+      {
+        name: "GPT",
+        platform: "openai",
+        rate_multiplier: 0.03,
+        cache_usage: {
+          last_7d: {
+            input_tokens: 1000,
+            cache_creation_tokens: 500,
+            cache_read_tokens: 8500,
+            cache_hit_rate: 85,
+          },
+        },
+        models: [
+          {
+            standard_model: "codex-auto-review",
+            raw_model: "codex-auto-review",
+            price: {
+              input_usd_per_token: 0.000001,
+              output_usd_per_token: 0.000006,
+            },
+          },
+          {
+            standard_model: "gpt-5.6-luna",
+            raw_model: "gpt-5.6-luna",
+            price: {
+              input_usd_per_token: 0.000001,
+              output_usd_per_token: 0.000006,
+              cache_read_usd_per_token: 0.0000001,
+              cache_write_usd_per_token: 0.00000125,
+            },
+          },
+        ],
+      },
+      {
+        name: "Kiro",
+        platform: "anthropic",
+        rate_multiplier: 0.22,
+        models: [
+          {
+            standard_model: "claude-haiku-4-5-20251001",
+            raw_model: "claude-haiku-4-5-20251001",
+            price: {
+              input_usd_per_token: 0.000001,
+              output_usd_per_token: 0.000005,
+              cache_read_usd_per_token: 0.0000001,
+              cache_write_usd_per_token: 0.00000125,
+            },
+          },
+        ],
+      },
+      {
+        name: "claude",
+        platform: "anthropic",
+        rate_multiplier: 0.8,
+        models: [
+          {
+            standard_model: "claude-sonnet-4-5-20250929",
+            raw_model: "claude-sonnet-4-5-20250929",
+            price: {
+              input_usd_per_token: 0.000003,
+              output_usd_per_token: 0.000015,
+              cache_read_usd_per_token: 0.0000003,
+              cache_write_usd_per_token: 0.00000375,
+            },
+          },
+          {
+            standard_model: "claude-opus-4-5-20251101",
+            raw_model: "claude-opus-4-5-20251101",
+            price: {
+              input_usd_per_token: 0.000005,
+              output_usd_per_token: 0.000025,
+              cache_read_usd_per_token: 0.0000005,
+              cache_write_usd_per_token: 0.00000625,
+            },
+          },
+        ],
+      },
+      {
+        name: "生图",
+        platform: "google",
+        rate_multiplier: 1,
+        models: [
+          {
+            standard_model: "gemini-3.1-flash-lite-image",
+            raw_model: "gemini-3.1-flash-lite-image",
+            price: {
+              image_output_usd_per_token: 0.03,
+            },
+          },
+        ],
+      },
+      {
+        name: "福利分组",
+        platform: "xai",
+        rate_multiplier: 0.1,
+        models: [
+          {
+            standard_model: "grok-4.20-multi-agent-xhigh",
+            raw_model: "grok-4.20-multi-agent-xhigh",
+            price: {
+              input_usd_per_token: null,
+              output_usd_per_token: null,
+              cache_read_usd_per_token: null,
+              cache_write_usd_per_token: null,
+            },
+          },
+          {
+            standard_model: "grok-4.3-medium",
+            raw_model: "grok-4.3-medium",
+            price: {
+              input_usd_per_token: null,
+              output_usd_per_token: null,
+              cache_read_usd_per_token: null,
+              cache_write_usd_per_token: null,
+            },
+          },
+          {
+            standard_model: "grok-build-console",
+            raw_model: "grok-build-console",
+            price: {
+              input_usd_per_token: null,
+              output_usd_per_token: null,
+              cache_read_usd_per_token: null,
+              cache_write_usd_per_token: null,
+            },
+          },
+        ],
+      },
+    ],
+    monitoring: [
+      {
+        name: "GPT",
+        primary_model: "gpt-5.6-luna",
+        primary_status: "operational",
+        availability_7d: 98.86,
+        sample_count_7d: 270717,
+        latest_latency_ms: 14789,
+        avg_latency_7d_ms: 23298,
+        last_checked_at: "2026-07-14T04:31:44Z",
+      },
+      {
+        name: "福利分组",
+        primary_model: "grok-4.20-multi-agent-xhigh",
+        primary_status: "degraded",
+        availability_7d: 93.5,
+        sample_count_7d: 35141,
+        latest_latency_ms: 5020,
+        avg_latency_7d_ms: 8510,
+        last_checked_at: "2026-07-14T04:31:44Z",
+      },
+    ],
+  },
+  "2026-07-14T04:35:00.000Z",
+);
+assert.equal(rtocSnapshotParsed.station.collector_kind, "ai_transit_snapshot");
+assert.equal(rtocSnapshotParsed.station.station_system, "new_api");
+assert.equal(rtocSnapshotParsed.station.pricing_endpoint_url, "https://api.rtoc.cc/api/public/transit/v1/snapshot");
+assert.equal(rtocSnapshotParsed.station.availability_seven_day_samples, 60);
+assert.equal(rtocSnapshotParsed.offers.length, 9);
+assert.ok(rtocSnapshotParsed.offers.some((offer) => offer.standard_model === "Codex Compact" && offer.group_name === "GPT"));
+assert.ok(rtocSnapshotParsed.offers.some((offer) => offer.standard_model === "Claude Haiku 4.5" && offer.group_name === "Kiro"));
+assert.ok(rtocSnapshotParsed.offers.some((offer) => offer.standard_model === "Claude Sonnet 4.5" && offer.group_name === "claude"));
+assert.ok(rtocSnapshotParsed.offers.some((offer) => offer.standard_model === "Claude Opus 4.5" && offer.group_name === "claude"));
+assert.ok(rtocSnapshotParsed.offers.some((offer) => offer.standard_model === "Nano Banana Lite" && offer.group_name === "生图"));
+assert.ok(rtocSnapshotParsed.offers.some((offer) => offer.standard_model === "Grok 4.20" && offer.group_name === "福利分组" && offer.cache_read_price === null));
+const rtocLunaOffer = rtocSnapshotParsed.offers.find((offer) => offer.standard_model === "GPT 5.6 Luna" && offer.group_name === "GPT");
+assert.equal(rtocLunaOffer.cache_read_price, 0.03);
+assert.equal(rtocLunaOffer.cache_write_price, 0.03);
+assert.equal(rtocLunaOffer.cache_hit_rate, 0.85);
+assert.equal(rtocLunaOffer.availability_seven_day_samples, 60);
 
 const apinodePayload = {
   code: 0,
@@ -844,6 +1042,7 @@ const aiTransitSnapshot = __test.parsePricingPayload(
         primary_model: "gpt-5.5",
         primary_status: "operational",
         availability_7d: 96.5,
+        sample_count_7d: 42,
         latest_latency_ms: 1985,
         last_checked_at: "2026-07-05T08:35:59.000Z",
         timeline: [
@@ -868,7 +1067,7 @@ assert.equal(aiTransitGpt.cache_read_price, 0.1);
 assert.equal(aiTransitGpt.cache_hit_rate, 0.88);
 assert.equal(aiTransitGpt.cache_hit_sample_tokens, 10000);
 assert.equal(aiTransitGpt.availability_seven_day_rate, 0.965);
-assert.equal(aiTransitGpt.availability_seven_day_samples, 2);
+assert.equal(aiTransitGpt.availability_seven_day_samples, 42);
 assert.equal(aiTransitGpt.availability_latest_latency_ms, 1985);
 assert.equal(aiTransitGpt.availability_avg_latency_7d_ms, 1005);
 assert.equal(aiTransitGpt.availability_source_type, "public_status");
@@ -877,9 +1076,63 @@ assert.equal(aiTransitImage.family, "image");
 assert.equal(aiTransitImage.image_output_price, 1);
 assert.equal(aiTransitSnapshot.availabilitySamples.length, 4);
 assert.equal(aiTransitSnapshot.station.availability_seven_day_rate, 0.965);
-assert.equal(aiTransitSnapshot.station.availability_seven_day_samples, 2);
+assert.equal(aiTransitSnapshot.station.availability_seven_day_samples, 42);
 assert.equal(aiTransitSnapshot.station.availability_latest_latency_ms, 1985);
 assert.equal(aiTransitSnapshot.station.availability_avg_latency_7d_ms, 1005);
+
+const longAiTransitTimeline = Array.from({ length: 63 }, (_, index) => ({
+  status: index === 40 ? "error" : "operational",
+  latency_ms: 1000 + index,
+  checked_at: new Date(Date.UTC(2026, 6, 5, 7, index, 0)).toISOString(),
+}));
+const longAiTransitSnapshot = __test.parsePricingPayload(
+  configuredAiTransitSnapshotSource,
+  {
+    schema_version: "ai-transit.v1",
+    system: "sub2api",
+    generated_at: "2026-07-05T09:00:00.000Z",
+    billing: {
+      recharge_ratio: "1 CNY = 1 USD balance",
+    },
+    groups: [
+      {
+        name: "gpt free号池",
+        platform: "openai",
+        rate_multiplier: 0.1,
+        models: [
+          {
+            standard_model: "gpt-5.5",
+            raw_model: "gpt-5.5",
+            price: {
+              input_usd_per_token: 0.000005,
+              output_usd_per_token: 0.00003,
+            },
+          },
+        ],
+      },
+    ],
+    monitoring: [
+      {
+        name: "gpt free号池",
+        primary_model: "gpt-5.5",
+        primary_status: "operational",
+        availability_7d: 98.3333,
+        latest_latency_ms: 1062,
+        last_checked_at: "2026-07-05T08:02:00.000Z",
+        timeline: longAiTransitTimeline,
+      },
+    ],
+  },
+  "2026-07-05T09:00:00.000Z",
+);
+const longAiTransitStationSamples = longAiTransitSnapshot.availabilitySamples.filter((sample) => sample.scope === "station");
+const longAiTransitOffer = longAiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT 5.5");
+assert.equal(longAiTransitSnapshot.availabilitySamples.length, 120);
+assert.equal(longAiTransitStationSamples.length, 60);
+assert.equal(longAiTransitStationSamples[0].checked_at, longAiTransitTimeline[3].checked_at);
+assert.equal(longAiTransitStationSamples.at(-1).checked_at, longAiTransitTimeline.at(-1).checked_at);
+assert.equal(longAiTransitOffer.availability_seven_day_samples, 60);
+assert.equal(longAiTransitSnapshot.station.availability_seven_day_samples, 60);
 
 const aiTransitGroupRateSnapshot = __test.parsePricingPayload(
   configuredApinodeSource,

@@ -458,24 +458,22 @@
     "name": "RTOC AI",
     "websiteUrl": "https://ai.rtoc.cc/",
     "apiBaseUrl": "https://api.rtoc.cc/v1",
-    "pricingUrl": "https://ai.rtoc.cc/pricing",
-    "pricingEndpointUrl": "https://api.rtoc.cc/api/pricing",
+    "pricingUrl": "https://ai.rtoc.cc/.well-known/ai-transit.json",
+    "pricingEndpointUrl": "https://api.rtoc.cc/api/public/transit/v1/snapshot",
     "monitorUrl": "https://ai.rtoc.cc/pricing",
-    "monitorEndpointUrl": "https://api.rtoc.cc/api/perf-metrics/summary?period=24",
-    "collectorKind": "new_api_pricing",
+    "collectorKind": "ai_transit_snapshot",
     "stationSystem": "new_api",
     "channelTypes": ["undisclosed"],
     "accountPools": ["undisclosed"],
     "riskLabels": ["undisclosed_upstream", "pending_feedback"],
-    "summary": "公开前端为 New API，前端包和 /api/status 均指向服务端 https://api.rtoc.cc；公开 /api/pricing 可读取模型与分组倍率，公开 performance summary 可读取近 24 小时模型成功率。价格和公开稳定性可纳入定时采集，真实扣费仍需测试 Key 或人工样本补充。",
+    "summary": "公开前端为 New API，已提供 ai-transit.v1 发现文件和标准快照；PriceAI 通过标准快照抓取分组倍率、模型价格、缓存口径和公开 7 日监测，真实扣费仍需测试 Key 或人工样本补充。",
     "strengths": [
-      "公开 /api/pricing 返回 New API 价格结构，包含 46 个模型和 GPT、GPT Pro、Kiro、Claude、生图等分组倍率。",
-      "/api/perf-metrics/summary 公开返回模型维度近 24 小时成功率、平均延迟和 TPS。",
+      "公开 /.well-known/ai-transit.json 可发现结构化快照，/api/public/transit/v1/snapshot 返回 New API 分组、模型价格、缓存价格和公开监测。",
+      "标准快照包含 GPT、Kiro、Claude、生图、福利分组等分组倍率，以及 7 日监测样本数、延迟和缓存命中统计。",
       "/api/status 公开返回 server_address 与 frontend_address，可确认前后端域名映射。"
     ],
     "cautions": [
-      "/api/ratio_config 未启用，分组倍率以 /api/pricing 返回的 group_ratio 为准。",
-      "/api/perf-metrics/summary 是站点公开监测口径，不等同于 PriceAI API Key 实测。",
+      "公开监测来自站点标准快照，不等同于 PriceAI API Key 实测。",
       "/v1/models 需要 API Key，当前公开稳定性不能替代真实扣费核验。"
     ],
     "verificationEvents": [

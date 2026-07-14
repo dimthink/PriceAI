@@ -155,14 +155,21 @@ function getTransitModelPriority(model: TransitModelPrice["standardModel"]): num
   if (model === "GPT 5.5") return 505;
   if (model === "GPT 5.4") return 504;
   if (model === "GPT 5.4 Mini") return 503.5;
+  if (model === "Codex Compact") return 503.2;
+  if (model === "Grok 4.20") return 503.12;
+  if (model === "Grok 4.3") return 503.15;
   if (model === "Grok 4.5") return 503;
+  if (model === "Grok Build") return 502.5;
   if (model === "Composer 2.5") return 502;
   if (model === "Claude Fable 5") return 510;
   if (model === "Claude Sonnet 5") return 500;
   if (model === "Claude Opus 4.8") return 408;
   if (model === "Claude Opus 4.7") return 407;
   if (model === "Claude Opus 4.6") return 406;
+  if (model === "Claude Opus 4.5") return 405;
   if (model === "Claude Sonnet 4.6") return 306;
+  if (model === "Claude Sonnet 4.5") return 305;
+  if (model === "Claude Haiku 4.5") return 304;
   if (model === "Gemini 3.5 Flash") return 335;
   if (model === "Gemini 3.1 Pro") return 331;
   if (model === "GLM-5.2") return 252;
@@ -188,6 +195,7 @@ const geminiPricingUrl = "https://ai.google.dev/gemini-api/docs/pricing";
 const geminiImageGenerationUrl = "https://ai.google.dev/gemini-api/docs/image-generation";
 const geminiModelDocsUrl = "https://ai.google.dev/gemini-api/docs/models";
 const xaiGrok45DocsUrl = "https://docs.x.ai/developers/models/grok-4.5";
+const xaiModelsDocsUrl = "https://docs.x.ai/developers/models";
 const xaiComposerNewsUrl = "https://x.ai/news/composer-2-5";
 const xaiImageDocsUrl = "https://docs.x.ai/developers/models/grok-imagine-image";
 const xaiVideoDocsUrl = "https://docs.x.ai/developers/models/grok-imagine-video";
@@ -237,11 +245,41 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     sourceLabel: "Anthropic API",
     sourceUrl: anthropicPricingUrl,
   },
+  "Claude Sonnet 4.5": {
+    input: 3,
+    output: 15,
+    cacheWrite: 3.75,
+    cacheRead: 0.3,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "Anthropic API",
+    sourceUrl: anthropicPricingUrl,
+  },
   "Claude Sonnet 4.6": {
     input: 3,
     output: 15,
     cacheWrite: 3.75,
     cacheRead: 0.3,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "Anthropic API",
+    sourceUrl: anthropicPricingUrl,
+  },
+  "Claude Haiku 4.5": {
+    input: 1,
+    output: 5,
+    cacheWrite: 1.25,
+    cacheRead: 0.1,
+    imageOutput: null,
+    currency: "USD",
+    sourceLabel: "Anthropic API",
+    sourceUrl: anthropicPricingUrl,
+  },
+  "Claude Opus 4.5": {
+    input: 5,
+    output: 25,
+    cacheWrite: 6.25,
+    cacheRead: 0.5,
     imageOutput: null,
     currency: "USD",
     sourceLabel: "Anthropic API",
@@ -337,6 +375,7 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     sourceLabel: "OpenAI API",
     sourceUrl: openAiPricingUrl,
   },
+  "Codex Compact": unpricedOfficialModel("OpenAI API", openAiPricingUrl),
   "Gemini 3.5 Flash": {
     input: 1.5,
     output: 9,
@@ -357,7 +396,10 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     sourceLabel: "Google Gemini API",
     sourceUrl: geminiPricingUrl,
   },
+  "Grok 4.20": unpricedOfficialModel("xAI API", xaiModelsDocsUrl),
+  "Grok 4.3": unpricedOfficialModel("xAI API", xaiModelsDocsUrl),
   "Grok 4.5": unpricedOfficialModel("xAI API", xaiGrok45DocsUrl),
+  "Grok Build": unpricedOfficialModel("Grok Build", xaiModelsDocsUrl),
   "Composer 2.5": unpricedOfficialModel("Grok Build", xaiComposerNewsUrl),
   "GLM-5.2": {
     input: 8,
