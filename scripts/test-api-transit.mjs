@@ -438,6 +438,56 @@ const preservedManualStationSummary = __test.mergeStationForRefresh(
 );
 assert.equal(preservedManualStationSummary.summary, "站长已补充人工说明，保留该说明。");
 
+const preservedManualStationLabels = __test.mergeStationForRefresh(
+  {
+    id: "manual-labels",
+    auto_publish: true,
+    published: true,
+    collection_status: "success",
+    channel_types: ["first_party_pool", "reverse_engineered"],
+    account_pools: ["plus", "kiro"],
+    risk_labels: ["insufficient_samples", "third_party_aggregate"],
+    created_at: "new",
+  },
+  {
+    id: "manual-labels",
+    published: true,
+    channel_types: [],
+    account_pools: [],
+    risk_labels: [],
+    created_at: "old",
+  },
+  {},
+);
+assert.deepEqual(preservedManualStationLabels.channel_types, []);
+assert.deepEqual(preservedManualStationLabels.account_pools, []);
+assert.deepEqual(preservedManualStationLabels.risk_labels, []);
+
+const preservedNonEmptyManualStationLabels = __test.mergeStationForRefresh(
+  {
+    id: "manual-non-empty-labels",
+    auto_publish: true,
+    published: true,
+    collection_status: "success",
+    channel_types: ["first_party_pool", "reverse_engineered"],
+    account_pools: ["plus", "kiro"],
+    risk_labels: ["insufficient_samples", "third_party_aggregate"],
+    created_at: "new",
+  },
+  {
+    id: "manual-non-empty-labels",
+    published: true,
+    channel_types: ["official_api"],
+    account_pools: ["official_api"],
+    risk_labels: ["reseller"],
+    created_at: "old",
+  },
+  {},
+);
+assert.deepEqual(preservedNonEmptyManualStationLabels.channel_types, ["official_api"]);
+assert.deepEqual(preservedNonEmptyManualStationLabels.account_pools, ["official_api"]);
+assert.deepEqual(preservedNonEmptyManualStationLabels.risk_labels, ["reseller"]);
+
 const failedRefreshPreservesPublishedStationState = __test.mergeStationForRefresh(
   {
     id: "wawazz-xyz",

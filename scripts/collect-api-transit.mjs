@@ -3250,6 +3250,9 @@ async function readExistingStations(supabase, stationIds) {
     "station_system",
     "operator_type",
     "invoice_support",
+    "channel_types",
+    "account_pools",
+    "risk_labels",
     "summary",
     "payment_methods",
     "minimum_top_up",
@@ -3322,6 +3325,9 @@ function mergeStationForRefresh(station, existing, options) {
     station_system: keepConfiguredValue(existing.station_system, station.station_system),
     operator_type: keepConfiguredValue(existing.operator_type, station.operator_type),
     invoice_support: keepConfiguredValue(existing.invoice_support, station.invoice_support),
+    channel_types: keepConfiguredList(existing.channel_types, station.channel_types),
+    account_pools: keepConfiguredList(existing.account_pools, station.account_pools),
+    risk_labels: keepConfiguredList(existing.risk_labels, station.risk_labels),
     summary: shouldReplaceStaleStationSummary(existing.summary, station) ? station.summary : existing.summary || station.summary,
     payment_methods: Array.isArray(existing.payment_methods) ? existing.payment_methods : station.payment_methods,
     minimum_top_up: existing.minimum_top_up ?? station.minimum_top_up,
@@ -3414,6 +3420,10 @@ function unknownAvailabilityNote(note, fallbackNote) {
 
 function keepConfiguredValue(existingValue, incomingValue) {
   return existingValue && existingValue !== "unknown" ? existingValue : incomingValue;
+}
+
+function keepConfiguredList(existingValue, incomingValue) {
+  return Array.isArray(existingValue) ? existingValue : incomingValue;
 }
 
 function normalizeConfiguredValue(value, fallback) {

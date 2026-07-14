@@ -9,7 +9,9 @@ import {
   getTransitRecentAvailabilitySampleLookupScopes,
   getTransitAvailabilityRollupPrices,
   getTransitModelSummaries,
+  getNormalizedSourceTags,
   getTransitPriceAvailabilitySourceMeta,
+  getTransitReviewTags,
   getTransitStationRankingBreakdowns,
   normalizedTransitCommercialOfferDisclosure,
   getRechargeCoefficientFromRatio,
@@ -725,6 +727,43 @@ assertEqual(
   normalizedTransitCommercialOfferDisclosure("特殊活动说明：仅限老用户。"),
   "特殊活动说明：仅限老用户。",
 );
+
+const blankNewApiSourceStation = station({
+  id: "blank-new-api-source",
+  name: "Blank New API Source",
+  claudeRate: 1,
+  availabilityRate: 1,
+  availabilitySamples: 1,
+});
+blankNewApiSourceStation.collectorKind = "new_api";
+blankNewApiSourceStation.channelTypes = [];
+blankNewApiSourceStation.accountPools = [];
+blankNewApiSourceStation.riskLabels = [];
+assertDeepEqual(getNormalizedSourceTags(blankNewApiSourceStation), []);
+assertDeepEqual(getTransitReviewTags(blankNewApiSourceStation), []);
+
+const explicitUndisclosedSourceStation = station({
+  id: "explicit-undisclosed-source",
+  name: "Explicit Undisclosed Source",
+  claudeRate: 1,
+  availabilityRate: 1,
+  availabilitySamples: 1,
+});
+explicitUndisclosedSourceStation.channelTypes = ["undisclosed"];
+assertDeepEqual(getNormalizedSourceTags(explicitUndisclosedSourceStation), [
+  { id: "channel-undisclosed", label: "未披露", tone: "warn" },
+]);
+
+const accountPoolOnlySourceStation = station({
+  id: "account-pool-only-source",
+  name: "Account Pool Only Source",
+  claudeRate: 1,
+  availabilityRate: 1,
+  availabilitySamples: 1,
+});
+accountPoolOnlySourceStation.channelTypes = [];
+accountPoolOnlySourceStation.accountPools = ["kiro"];
+assertDeepEqual(getNormalizedSourceTags(accountPoolOnlySourceStation), []);
 
 console.log("api transit sorting test passed");
 

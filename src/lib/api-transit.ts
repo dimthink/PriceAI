@@ -1164,7 +1164,7 @@ export function getTransitOperatorType(station: TransitStation): TransitOperator
 export function getNormalizedSourceTags(
   station: TransitStation
 ): { id: string; label: string; tone: "neutral" | "warn" }[] {
-  const channelTypes = getEffectiveTransitChannelTypes(station);
+  const channelTypes = getExplicitTransitChannelTypes(station);
   const primary = sourceChannelPriority.filter((type) => channelTypes.includes(type));
   const tags = primary.map((type) => ({
     id: `channel-${type}`,
@@ -1172,21 +1172,14 @@ export function getNormalizedSourceTags(
     tone: type === "undisclosed" ? "warn" as const : "neutral" as const,
   }));
 
-  if (getTransitStationSystem(station) === "new_api") {
-    tags.unshift({ id: "system-new-api", label: "第三方聚合", tone: "warn" });
-  }
-
   return dedupeTags(tags);
 }
 
 export function getTransitReviewTags(
   station: TransitStation
 ): { id: string; label: string; tone: "warn" | "danger" | "neutral" }[] {
-  const disclosed = getEffectiveTransitChannelTypes(station).some((type) => type !== "undisclosed");
   const tags: { id: string; label: string; tone: "warn" | "danger" | "neutral" }[] = [];
 
-  if (!disclosed) tags.push({ id: "undisclosed", label: "未披露", tone: "warn" });
-  if (getTransitStationSystem(station) === "new_api") tags.push({ id: "third-party-aggregate", label: "第三方聚合待验真", tone: "warn" });
   if (station.feedback.pendingCount > 0) tags.push({ id: "pending-feedback", label: "反馈待核验", tone: "warn" });
   if (station.riskLabels.includes("reseller")) tags.push({ id: "reseller", label: "二级分销", tone: "warn" });
   if (station.riskLabels.includes("third_party_aggregate")) tags.push({ id: "third-party-risk", label: "渠道来源需复核", tone: "warn" });
@@ -1195,17 +1188,11 @@ export function getTransitReviewTags(
 }
 
 export function getEffectiveTransitChannelTypes(station: TransitStation): TransitChannelType[] {
-  const inferred: TransitChannelType[] = [];
-  if (station.accountPools.some((pool) => pool === "plus" || pool === "pro" || pool === "max" || pool === "team")) {
-    inferred.push("first_party_pool");
-  }
-  if (station.accountPools.includes("kiro")) {
-    inferred.push("reverse_engineered");
-  }
+  return getExplicitTransitChannelTypes(station);
+}
 
-  const explicit = station.channelTypes.filter((type) => type !== "undisclosed");
-  const merged = dedupeValues([...explicit, ...inferred]);
-  return merged.length ? merged : ["undisclosed"];
+function getExplicitTransitChannelTypes(station: TransitStation): TransitChannelType[] {
+  return sourceChannelPriority.filter((type) => station.channelTypes.includes(type));
 }
 
 export function getActiveTransitCommercialOffers(
@@ -1321,10 +1308,6 @@ function dedupeTags<T extends { id: string; label: string }>(items: T[]): T[] {
     seen.add(key);
     return true;
   });
-}
-
-function dedupeValues<T extends string>(items: T[]): T[] {
-  return Array.from(new Set(items));
 }
 
 export const TRANSIT_RANKING_WEIGHTS = {
