@@ -1135,15 +1135,16 @@ function OfferTable({
   return (
     <section className="mt-6 hidden overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15 md:block">
       <div className="overflow-x-auto">
-        <table className="min-w-[1120px] w-full table-fixed border-collapse text-left text-sm">
+        <table className="min-w-[1200px] w-full table-fixed border-collapse text-left text-sm">
           <colgroup>
             <col className="w-[112px]" />
             <col className="w-[240px]" />
             <col />
             <col className="w-[118px]" />
             <col className="w-[112px]" />
-            <col className="w-[108px]" />
-            <col className="w-[168px]" />
+            <col className="w-[118px]" />
+            <col className="w-[130px]" />
+            <col className="w-[64px]" />
           </colgroup>
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
@@ -1154,6 +1155,7 @@ function OfferTable({
               <TableHead>更新时间</TableHead>
               <TableHead className="text-center">风险</TableHead>
               <TableHead className="text-center">操作</TableHead>
+              <TableHead className="text-center">反馈</TableHead>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#edf0f1]">
@@ -1204,13 +1206,10 @@ function OfferTable({
                     <OfferRiskCell offer={offer} />
                   </td>
                   <td className="px-3 py-3 text-center">
-                    <OfferActions
-                      offer={offer}
-                      available={available}
-                      onFeedback={onFeedback}
-                      onRequestPurchase={onRequestPurchase}
-                      compact
-                    />
+                    <OfferLink offer={offer} available={available} compact onRequestPurchase={onRequestPurchase} />
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <OfferFeedbackButton offer={offer} onFeedback={onFeedback} compact />
                   </td>
                 </tr>
               );
@@ -1346,7 +1345,7 @@ function OfferRiskButton({ offer, compact = false }: { offer: RawOffer; compact?
         onClick={() => setOpen(true)}
         title="查看风险详情"
         aria-label={`查看${label}详情`}
-        className={`inline-flex shrink-0 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-semibold ring-1 transition ${
+        className={`inline-flex shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-2.5 text-xs font-semibold ring-1 transition ${
           compact ? "h-7" : "h-8"
         } ${
           sourceOnly
