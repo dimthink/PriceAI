@@ -63,6 +63,8 @@
   },
   "vars": {
     "CRON_PUBLIC_BASE_URL": "https://priceai.cc",
+    "UMAMI_API_BASE_URL": "https://umami.dimthink.com",
+    "UMAMI_WEBSITE_ID": "ded26a4f-77c4-45ed-86ef-774b0fed0ef6",
     "NEXT_PUBLIC_UMAMI_SCRIPT_URL": "https://umami.dimthink.com/script.js",
     "NEXT_PUBLIC_UMAMI_WEBSITE_ID": "ded26a4f-77c4-45ed-86ef-774b0fed0ef6",
     "NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS": "priceai.cc,www.priceai.cc"
