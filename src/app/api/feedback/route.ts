@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { after } from "next/server";
 import { createOfferFeedback, runOfferFeedbackRiskPrecheck } from "@/lib/admin";
+import { getCurrentUser } from "@/lib/auth";
+import { noStoreCacheHeaders } from "@/lib/cache-headers";
 import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
 import {
   closePendingTransientOfferFeedback,
@@ -14,14 +16,17 @@ import {
   getPublicRequestErrorStatus,
   readJsonWithLimit,
 } from "@/lib/public-request";
-import { feedbackRequiresContact, MODEL_PRECHECK_FEEDBACK_REASONS, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
+import { feedbackRequiresContact, HIGH_RISK_FEEDBACK_REASONS, MODEL_PRECHECK_FEEDBACK_REASONS, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import { offerFeedbackReasonValues } from "@/lib/types";
 
 const PUBLIC_OFFER_FEEDBACK_RATE_LIMIT_PER_HOUR = 20;
 const reasonSchema = z.enum(offerFeedbackReasonValues);
 const userExpectedActionSchema = z.enum(["recheck", "hide_offer", "hide_source", "unsure"]);
+const feedbackScopeSchema = z.enum(["offer", "merchant"]);
 
 const schema = z.object({
+  feedbackScope: feedbackScopeSchema.default("offer"),
+  publicConsent: z.boolean().optional(),
   productId: z.string().max(200).nullable().optional(),
   productSlug: z.string().max(200).nullable().optional(),
   productName: z.string().max(200).nullable().optional(),
@@ -68,7 +73,7 @@ function getErrorStatus(error: unknown, message: string): number {
   const publicRequestStatus = getPublicRequestErrorStatus(error);
   if (publicRequestStatus) return publicRequestStatus;
   if (error instanceof z.ZodError) return 400;
-  if (message.includes("刚刚被反馈过")) return 409;
+  if (message.includes("刚刚被反馈过") || message.includes("商家问题刚刚")) return 409;
   if (message.includes("反馈过于频繁")) return 429;
   if (message.includes("需要提交") || message.includes("需要至少上传")) return 400;
   if (message.includes("需要留下")) return 400;
@@ -85,9 +90,18 @@ export async function POST(request: Request) {
     });
 
     const payload = schema.parse(await readJsonWithLimit(request));
+    const feedbackScope = payload.feedbackScope;
 
     if (payload.website) {
       return Response.json({ ok: true });
+    }
+
+    const user = await getCurrentUser();
+    if (HIGH_RISK_FEEDBACK_REASONS.has(payload.reason) && !user) {
+      return Response.json(
+        { ok: false, code: "auth_required", message: "这类反馈可能影响公开展示和商家声誉，需要登录后提交。" },
+        { status: 401, headers: noStoreCacheHeaders() },
+      );
     }
 
     if (feedbackRequiresContact(payload.reason) && !payload.contact?.trim()) {
@@ -98,6 +112,8 @@ export async function POST(request: Request) {
     }
 
     const result = await createOfferFeedback({
+      feedbackScope,
+      publicStatus: payload.publicConsent === false ? "not_public" : undefined,
       productId: payload.productId || null,
       productSlug: payload.productSlug || null,
       productName: payload.productName || null,
@@ -119,6 +135,9 @@ export async function POST(request: Request) {
       notes: payload.notes || null,
       contact: payload.contact || null,
       submitterIp,
+      userId: user?.id || null,
+      userEmail: user?.email || null,
+      userDisplayName: user?.displayName || null,
     });
 
     after(async () => {
@@ -132,7 +151,7 @@ export async function POST(request: Request) {
           mergeFeedbackSnapshotScope(snapshotScope, escalation.snapshotScope);
         }
 
-        if (MODEL_PRECHECK_FEEDBACK_REASONS.has(payload.reason)) {
+        if (MODEL_PRECHECK_FEEDBACK_REASONS.has(payload.reason) && payload.publicConsent !== false) {
           const feedback = await runOfferFeedbackRiskPrecheck(result.id);
           clearPublicDataCache();
           await markPublicApiSnapshotsDirty("public feedback precheck", {

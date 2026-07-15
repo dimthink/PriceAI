@@ -4671,8 +4671,8 @@ function OfferFeedbackList({
     return (
       <EmptyState
         icon={<Flag size={32} className="text-[#adb3b4]" />}
-        title={historyView ? `暂无${feedbackStatusLabel(statusFilter)}报价举报` : "暂无待处理反馈"}
-        description={historyView ? "这里会保留已处理和已忽略的报价举报记录。" : "用户在商品详情页提交的问题会出现在这里。"}
+        title={historyView ? `暂无${feedbackStatusLabel(statusFilter)}报价/商家反馈` : "暂无待处理反馈"}
+        description={historyView ? "这里会保留已处理、已忽略和用户撤销的反馈记录。" : "用户在商品详情页和卡网商家页提交的问题会出现在这里。"}
       />
     );
   }
@@ -4780,6 +4780,12 @@ function OfferFeedbackList({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${feedbackStatusClass(item.status)}`}>
                     {feedbackStatusLabel(item.status)}
+                  </span>
+                  <span className="rounded-full bg-[#eef3f8] px-2 py-0.5 text-xs font-semibold text-[#47657a]">
+                    {item.feedbackScope === "merchant" ? "商家反馈" : "报价反馈"}
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${feedbackPublicStatusClass(item.publicStatus)}`}>
+                    {feedbackPublicStatusLabel(item.publicStatus)}
                   </span>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${feedbackReasonClass(item.reason)}`}>
                     {feedbackReasonLabel(item.reason)}
@@ -4908,6 +4914,11 @@ function OfferFeedbackList({
                 {item.notes ? (
                   <p className="mt-2 rounded-lg bg-[#fff7e8] px-3 py-2 text-xs leading-5 text-[#7a541b]">
                     {item.notes}
+                  </p>
+                ) : null}
+                {item.withdrawReason ? (
+                  <p className="mt-2 rounded-lg bg-[#e8f3ec] px-3 py-2 text-xs leading-5 text-[#2f7a4b]">
+                    用户撤销：{item.withdrawReason}
                   </p>
                 ) : null}
                 {hasEvidence ? (
@@ -9916,7 +9927,11 @@ function groupOfferFeedbackForDisplay(
 
   for (const item of feedback) {
     const offer = item.offerId ? offerById.get(item.offerId) || null : null;
-    const key = item.offerId ? `offer:${item.offerId}` : `feedback:${item.id}`;
+    const key = item.offerId
+      ? `offer:${item.offerId}`
+      : item.feedbackScope === "merchant" && item.sourceId
+        ? `merchant:${item.sourceId}`
+        : `feedback:${item.id}`;
     const existing = groups.get(key);
     if (existing) {
       existing.items.push(item);
@@ -10148,6 +10163,19 @@ function feedbackStatusClass(value: OfferFeedbackStatus): string {
   if (value === "resolved") return "bg-[#e8f3ec] text-[#2f7a4b]";
   if (value === "ignored") return "bg-[#f2f4f4] text-[#5a6061]";
   return "bg-[#fff7e8] text-[#7a541b]";
+}
+
+function feedbackPublicStatusLabel(value: OfferFeedback["publicStatus"]): string {
+  if (value === "pending_review") return "可公开待核验";
+  if (value === "public") return "允许公开摘要";
+  if (value === "withdrawn") return "用户已撤销";
+  return "不公开";
+}
+
+function feedbackPublicStatusClass(value: OfferFeedback["publicStatus"]): string {
+  if (value === "withdrawn") return "bg-[#e8f3ec] text-[#2f7a4b]";
+  if (value === "pending_review" || value === "public") return "bg-[#fff7e8] text-[#7a541b]";
+  return "bg-[#f2f4f4] text-[#5a6061]";
 }
 
 function feedbackReasonLabel(value: OfferFeedback["reason"]): string {

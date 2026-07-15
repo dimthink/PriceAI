@@ -2,13 +2,17 @@
 
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { ExternalLink, Handshake, HeartHandshake, Info, Menu, MessageCircle, X } from "lucide-react";
+import { CircleUserRound, ExternalLink, Handshake, HeartHandshake, Info, LogIn, LogOut, Menu, MessageCircle, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
+import { AuthButton } from "@/components/AuthButton";
 import { FeedbackDialog, FeedbackLink, GitHubLink, QQGroupDialog, QQGroupLink, TelegramLink } from "@/components/FeedbackLink";
 import { IntentPrefetchLink } from "@/components/IntentPrefetchLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import type { AccountUser } from "@/lib/account-client";
+import { useAccountUser } from "@/lib/account-client";
+import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 import { useCommunitySettings } from "@/lib/community-settings-client";
 import type { CommunitySettingsSummary } from "@/lib/community-settings-shared";
 import { supportPagePath } from "@/lib/support";
@@ -47,6 +51,7 @@ export function SiteHeader({
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [qqGroupOpen, setQqGroupOpen] = useState(false);
   const communitySettings = useCommunitySettings();
+  const { user: accountUser, loaded: accountLoaded } = useAccountUser();
 
   return (
     <header>
@@ -113,6 +118,7 @@ export function SiteHeader({
           <QQGroupLink compact labelFrom={compactActionLabelFrom} />
           <TelegramLink compact labelFrom={compactActionLabelFrom} />
           <GitHubLink compact labelFrom={compactActionLabelFrom} />
+          <AuthButton compact labelFrom={compactActionLabelFrom} user={accountUser} loaded={accountLoaded} />
         </div>
       </div>
 
@@ -122,6 +128,8 @@ export function SiteHeader({
           aboutActive={aboutActive}
           supportActive={supportActive}
           wholesaleActive={wholesaleActive}
+          accountUser={accountUser}
+          accountLoaded={accountLoaded}
           onClose={() => setMobileDrawerOpen(false)}
           onFeedback={() => {
             setMobileDrawerOpen(false);
@@ -145,6 +153,8 @@ function MobileModuleDrawer({
   aboutActive,
   supportActive,
   wholesaleActive,
+  accountUser,
+  accountLoaded,
   onClose,
   onFeedback,
   onQQGroup,
@@ -154,6 +164,8 @@ function MobileModuleDrawer({
   aboutActive: boolean;
   supportActive: boolean;
   wholesaleActive: boolean;
+  accountUser: AccountUser | null;
+  accountLoaded: boolean;
   onClose: () => void;
   onFeedback: () => void;
   onQQGroup: () => void;
@@ -253,6 +265,7 @@ function MobileModuleDrawer({
               </span>
               {aboutActive ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" aria-hidden="true" /> : null}
             </IntentPrefetchLink>
+            <MobileAccountLinks user={accountUser} loaded={accountLoaded} onClose={onClose} />
             <IntentPrefetchLink
               href={supportPagePath}
               onClick={onClose}
@@ -325,5 +338,63 @@ function MobileModuleDrawer({
       </aside>
     </div>,
     document.body,
+  );
+}
+
+function MobileAccountLinks({
+  user,
+  loaded,
+  onClose,
+}: {
+  user: AccountUser | null;
+  loaded: boolean;
+  onClose: () => void;
+}) {
+  const rowClassName =
+    "flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-body)] transition hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35";
+
+  if (!loaded) {
+    return (
+      <div className="flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold text-[var(--color-text-soft)]" aria-live="polite">
+        <span className="inline-flex items-center gap-3">
+          <CircleUserRound size={17} />
+          读取账户状态
+        </span>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <a href={buildGoogleAuthHref(getBrowserAuthNextPath())} onClick={onClose} className={rowClassName}>
+        <span className="inline-flex items-center gap-3">
+          <LogIn size={17} />
+          登录
+        </span>
+      </a>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="truncate px-3 pb-1 pt-1 text-xs font-semibold text-[var(--color-text-soft)]">{user.email || user.displayName || "已登录"}</p>
+      <IntentPrefetchLink href="/account" onClick={onClose} className={rowClassName}>
+        <span className="inline-flex items-center gap-3">
+          <UserRound size={17} />
+          账户中心
+        </span>
+      </IntentPrefetchLink>
+      <form action="/auth/signout" method="post">
+        <button
+          type="submit"
+          className="flex h-11 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-semibold text-[#7a2f28] transition hover:bg-[#fbe9e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b3328]/25"
+        >
+          <span className="inline-flex items-center gap-3">
+            <LogOut size={17} />
+            退出登录
+          </span>
+        </button>
+      </form>
+    </div>
   );
 }

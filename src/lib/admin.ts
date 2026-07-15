@@ -17,6 +17,7 @@ import {
   feedbackRequiresEvidence,
   feedbackRequiresImageEvidence,
   hasFeedbackImageEvidenceReference,
+  HIGH_RISK_FEEDBACK_REASONS,
   inferSuggestedActionForFeedback,
   MODEL_PRECHECK_FEEDBACK_REASONS,
 } from "./trust-risk";
@@ -31,8 +32,10 @@ import type {
   CollectorKind,
   OfferInput,
   OfferFeedback,
+  OfferFeedbackPublicStatus,
   OfferFeedbackReason,
   OfferFeedbackRiskPrecheck,
+  OfferFeedbackScope,
   OfferFeedbackSuggestedAction,
   OfferFeedbackStatus,
   OfferFeedbackUserExpectedAction,
@@ -1564,6 +1567,7 @@ function mapOfferFeedbackRow(row: Record<string, unknown>): OfferFeedback {
 
   return {
     id: String(row.id),
+    feedbackScope: normalizeOfferFeedbackScope(row.feedback_scope),
     productId: row.product_id ? String(row.product_id) : null,
     productSlug: row.product_slug ? String(row.product_slug) : null,
     productName: row.product_name ? String(row.product_name) : null,
@@ -1593,11 +1597,28 @@ function mapOfferFeedbackRow(row: Record<string, unknown>): OfferFeedback {
     notes: row.notes ? String(row.notes) : null,
     contact: row.contact ? String(row.contact) : null,
     status: String(row.status || "pending") as OfferFeedbackStatus,
+    publicStatus: normalizeOfferFeedbackPublicStatus(row.public_status),
+    withdrawnAt: row.withdrawn_at ? String(row.withdrawn_at) : null,
+    withdrawReason: row.withdraw_reason ? String(row.withdraw_reason) : null,
     reviewerNote: row.reviewer_note ? String(row.reviewer_note) : null,
     submitterIp: row.submitter_ip ? String(row.submitter_ip) : null,
+    userId: row.user_id ? String(row.user_id) : null,
+    userEmail: row.user_email ? String(row.user_email) : null,
+    userDisplayName: row.user_display_name ? String(row.user_display_name) : null,
     createdAt: String(row.created_at || new Date().toISOString()),
     reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
   };
+}
+
+function normalizeOfferFeedbackScope(value: unknown): OfferFeedbackScope {
+  return value === "merchant" ? "merchant" : "offer";
+}
+
+function normalizeOfferFeedbackPublicStatus(value: unknown): OfferFeedbackPublicStatus {
+  if (value === "pending_review" || value === "public" || value === "withdrawn" || value === "not_public") {
+    return value;
+  }
+  return "not_public";
 }
 
 function parseOfferFeedbackRiskPrecheck(value: unknown): OfferFeedbackRiskPrecheck | null {
@@ -2828,6 +2849,8 @@ export async function createSubmission(input: {
 }
 
 export async function createOfferFeedback(input: {
+  feedbackScope?: OfferFeedbackScope | null;
+  publicStatus?: OfferFeedbackPublicStatus | null;
   productId?: string | null;
   productSlug?: string | null;
   productName?: string | null;
@@ -2850,6 +2873,9 @@ export async function createOfferFeedback(input: {
   notes?: string | null;
   contact?: string | null;
   submitterIp?: string | null;
+  userId?: string | null;
+  userEmail?: string | null;
+  userDisplayName?: string | null;
   rateLimitPerHour?: number;
 }): Promise<{ id: string; status: "pending" }> {
   const supabase = getSupabaseServerClient();
@@ -2872,6 +2898,20 @@ export async function createOfferFeedback(input: {
     }
   }
 
+  if (!input.offerId && input.sourceId) {
+    const { data: dupRows } = await supabase
+      .from("offer_feedback")
+      .select("id")
+      .eq("feedback_scope", input.feedbackScope === "merchant" ? "merchant" : "offer")
+      .eq("source_id", input.sourceId)
+      .eq("reason", input.reason)
+      .gte("created_at", fiveMinAgo)
+      .limit(1);
+    if (dupRows && dupRows.length) {
+      throw new Error("这个商家问题刚刚被反馈过，请稍后再试。");
+    }
+  }
+
   if (ip) {
     const rateLimitPerHour = input.rateLimitPerHour ?? 10;
     const { count } = await supabase
@@ -2884,7 +2924,8 @@ export async function createOfferFeedback(input: {
     }
   }
 
-  const id = stableId("offer-feedback", input.offerId || "", input.reason, ip || "", Date.now().toString());
+  const feedbackScope = input.feedbackScope === "merchant" ? "merchant" : "offer";
+  const id = stableId(`${feedbackScope}-feedback`, input.offerId || input.sourceId || "", input.reason, ip || "", Date.now().toString());
   const userExpectedAction = normalizeOfferFeedbackUserExpectedAction(input.userExpectedAction);
   const evidenceText = input.evidenceText?.trim() || null;
   const evidenceUrls = sanitizeFeedbackEvidenceUrls(input.evidenceUrls || []);
@@ -2917,8 +2958,10 @@ export async function createOfferFeedback(input: {
   const suggestedAction = input.suggestedAction
     ? normalizeOfferFeedbackSuggestedAction(input.suggestedAction, input.reason)
     : inferOfferFeedbackSuggestedAction(input.reason);
+  const publicStatus = input.publicStatus || (HIGH_RISK_FEEDBACK_REASONS.has(input.reason) ? "pending_review" : "not_public");
   const { error } = await supabase.from("offer_feedback").insert({
     id,
+    feedback_scope: feedbackScope,
     product_id: input.productId || null,
     product_slug: input.productSlug || null,
     product_name: input.productName || null,
@@ -2944,7 +2987,11 @@ export async function createOfferFeedback(input: {
     notes: input.notes?.trim() || null,
     contact: input.contact?.trim() || null,
     status: "pending",
+    public_status: publicStatus,
     submitter_ip: ip,
+    user_id: input.userId || null,
+    user_email: input.userEmail || null,
+    user_display_name: input.userDisplayName || null,
   });
   if (error) throw error;
 
@@ -3044,6 +3091,7 @@ export async function updateOfferFeedbackRiskPrecheckVisibility(input: {
         ...current,
         riskPrecheck: nextRiskPrecheck,
       },
+      public_status: input.mode === "hide_public" ? "not_public" : "pending_review",
       verification_status: "manual_review",
       verification_message: input.mode === "hide_public"
         ? "已人工撤销前台风险提示，反馈记录保留。"
@@ -3165,6 +3213,7 @@ export async function updateOfferFeedbackStatus(input: {
       status: input.status,
       reviewer_note: input.reviewerNote?.trim() || null,
       reviewed_at: reviewedAt,
+      ...(input.status === "ignored" ? { public_status: "not_public" } : {}),
     })
     .eq("id", input.id)
     .select("*")

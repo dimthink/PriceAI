@@ -905,6 +905,12 @@ export type SubmissionStatus = "pending" | "approved" | "rejected";
 
 export type OfferFeedbackStatus = "pending" | "resolved" | "ignored";
 export type SiteFeedbackStatus = OfferFeedbackStatus;
+export type OfferFeedbackScope = "offer" | "merchant";
+export type OfferFeedbackPublicStatus =
+  | "not_public"
+  | "pending_review"
+  | "public"
+  | "withdrawn";
 export const offerFeedbackReasonValues = [
   "wrong_price",
   "item_removed",
@@ -971,6 +977,7 @@ export type ChannelSubmission = {
 
 export type OfferFeedback = {
   id: string;
+  feedbackScope: OfferFeedbackScope;
   productId: string | null;
   productSlug: string | null;
   productName: string | null;
@@ -1000,10 +1007,50 @@ export type OfferFeedback = {
   notes: string | null;
   contact: string | null;
   status: OfferFeedbackStatus;
+  publicStatus: OfferFeedbackPublicStatus;
+  withdrawnAt: string | null;
+  withdrawReason: string | null;
   reviewerNote: string | null;
   submitterIp: string | null;
+  userId: string | null;
+  userEmail: string | null;
+  userDisplayName: string | null;
   createdAt: string;
   reviewedAt: string | null;
+};
+
+export type FeedbackFollowup = {
+  id: string;
+  feedbackId: string;
+  userId: string | null;
+  role: "user" | "admin";
+  message: string;
+  evidenceUrls: string[];
+  createdAt: string;
+};
+
+export type TransitDetectorJobStatus = "queued" | "running" | "done" | "error";
+
+export type TransitDetectorJob = {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  protocol: string;
+  baseUrl: string | null;
+  targetModel: string;
+  intensity: string;
+  includeLongContext: boolean;
+  upstreamType: string | null;
+  status: TransitDetectorJobStatus;
+  detectorJobId: string | null;
+  statusUrl: string | null;
+  resultUrl: string | null;
+  jsonUrl: string | null;
+  imageUrl: string | null;
+  errorMessage: string | null;
+  submittedAt: string;
+  completedAt: string | null;
+  updatedAt: string;
 };
 
 export type OfferFeedbackRiskPrecheck = {

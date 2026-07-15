@@ -1,6 +1,7 @@
 "use client";
 
 import Script from "next/script";
+import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clock3,
@@ -47,6 +48,9 @@ interface DetectorValidationError {
 }
 
 interface DetectorStatusPayload {
+  ok?: boolean;
+  code?: string;
+  message?: string;
   job_id?: string;
   status?: "queued" | "running" | "done" | "error";
   status_url?: string;
@@ -59,6 +63,7 @@ interface DetectorClientProps {
   serviceUrl?: string;
   stations?: DetectorStationOption[];
   turnstileSiteKey?: string;
+  loginHref?: string;
 }
 
 interface PresetModel {
@@ -172,13 +177,6 @@ const protocolHints: Record<DetectorProtocol, string> = {
   gemini: "generateContent 或 Gemini 兼容接口",
 };
 
-const detectorProtocolEndpoints: Record<DetectorProtocol, string> = {
-  openai_chat: "openai-chat",
-  openai_responses: "openai-responses",
-  claude: "claude",
-  gemini: "gemini",
-};
-
 const intensityOptions: IntensityOption[] = [
   { value: "quick", label: "快速", hint: "协议、模型名、基础响应", inputTokens: 2000, outputTokens: 700, requests: 2 },
   { value: "standard", label: "标准", hint: "能力指纹和计费口径", inputTokens: 9000, outputTokens: 3500, requests: 5 },
@@ -206,7 +204,7 @@ const upstreamOptions: Array<{ value: UpstreamType; label: string; detail: strin
   { value: "mixed_pool", label: "混合线路", detail: "需要多次采样，不同请求可能命中不同上游。" },
 ];
 
-export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstileSiteKey = "" }: DetectorClientProps) {
+export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstileSiteKey = "", loginHref = "/auth/google?next=%2Fapi-transit%2Fdetector" }: DetectorClientProps) {
   const runIdRef = useRef(0);
   const activeLocalIdRef = useRef<string | null>(null);
   const restoredPollingIdsRef = useRef<Set<string>>(new Set());
@@ -232,6 +230,8 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileError, setTurnstileError] = useState("");
   const [forcePreflight, setForcePreflight] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoaded, setAuthLoaded] = useState(false);
 
   const normalizedServiceUrl = serviceUrl.trim().replace(/\/$/, "");
   const normalizedTurnstileSiteKey = turnstileSiteKey.trim();
@@ -247,11 +247,32 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   const costEstimate = buildCostEstimate(activeCostProfile, effectiveStandardModel, selectedPreset.priceNote);
   const activeDetection = taskStatus === "queued" || taskStatus === "running";
   const canSubmit =
+    authLoaded &&
+    isAuthenticated &&
     serviceConnected &&
     Boolean(baseUrl.trim() && apiKey.trim() && model.trim()) &&
     (!turnstileEnabled || Boolean(turnstileToken)) &&
     !activeDetection;
   const apiKeyPreview = apiKey ? maskSecretPreview(apiKey) : "未填入";
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/me", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!cancelled) setIsAuthenticated(Boolean(payload?.user));
+      })
+      .catch(() => {
+        if (!cancelled) setIsAuthenticated(false);
+      })
+      .finally(() => {
+        if (!cancelled) setAuthLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const summaryText = useMemo(() => {
     if (!results.length) return "暂无检测记录";
@@ -405,7 +426,9 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   }, []);
 
   const pollDetectorJob = useCallback(async (statusUrl: string, runId: number, localId: string) => {
-    const statusEndpoint = statusUrl.startsWith("http") ? statusUrl : `${normalizedServiceUrl}${statusUrl}`;
+    const statusEndpoint = statusUrl.startsWith("http") || statusUrl.startsWith("/api/")
+      ? statusUrl
+      : `${normalizedServiceUrl}${statusUrl}`;
 
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await sleep(attempt < 3 ? 1000 : 2500);
@@ -459,6 +482,10 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!isAuthenticated) {
+      setTaskStatus("error");
+      return;
+    }
     if (turnstileEnabled && !turnstileToken) {
       setTurnstileError("请先完成人机校验。");
       return;
@@ -494,26 +521,20 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
     setTaskStatus("queued");
 
     try {
-      const payload = new FormData();
-      payload.set("base_url", baseUrl.trim());
-      payload.set("api_key", apiKey.trim());
-      payload.set("model", model.trim());
-      payload.set("mode", backendModeForIntensity(intensity));
-      if (forcePreflight) {
-        payload.set("force", "1");
-      }
-      if (turnstileEnabled) {
-        payload.set("turnstile_token", turnstileToken);
-      }
-      if (protocol !== "gemini") {
-        payload.set("include_long_context", effectiveIncludeLongContext ? "true" : "false");
-        payload.set("include_long_context_extreme", "false");
-      }
-
-      const detectorProtocol = detectorProtocolEndpoints[protocol];
-      const response = await fetch(`${normalizedServiceUrl}/api/detect/${detectorProtocol}`, {
+      const response = await fetch("/api/api-transit/detector/submit", {
         method: "POST",
-        body: payload,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          protocol,
+          baseUrl: baseUrl.trim(),
+          apiKey: apiKey.trim(),
+          model: model.trim(),
+          mode: backendModeForIntensity(intensity),
+          includeLongContext: effectiveIncludeLongContext,
+          turnstileToken: turnstileEnabled ? turnstileToken : undefined,
+          upstreamType: upstream,
+          force: forcePreflight,
+        }),
       });
       const data = (await response.json().catch(() => ({}))) as DetectorStatusPayload;
       if (!response.ok) {
@@ -614,7 +635,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
             <div>
               <h2 className="text-lg font-semibold text-[#202829]">接口配置</h2>
               <p className="mt-1 text-sm leading-6 text-[#5a6061]">
-                填入中转站 API 地址和临时 Key，选择一个预置模型后开始检测。
+                填入中转站 API 地址和临时 Key，选择一个预置模型后开始检测。提交检测需要登录。
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -708,6 +729,11 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
           {forcePreflight ? (
             <div className="rounded-lg bg-[#eef7f4] px-4 py-3 text-xs leading-5 text-[#315f49] ring-1 ring-[#45bf78]/25">
               本次会跳过模型可用性预探测，直接进入完整检测。适合中转站对短探测请求误拦截的情况；如果模型确实不可用，检测结果里仍会保留失败证据。
+            </div>
+          ) : null}
+          {authLoaded && !isAuthenticated ? (
+            <div className="rounded-lg bg-[#eef3f8] px-4 py-3 text-xs leading-5 text-[#47657a] ring-1 ring-[#b7ccdc]/30">
+              模型检测会消耗 Key 和检测服务资源，需要登录后发起。公开检测说明和已公开报告仍可直接查看。
             </div>
           ) : null}
 
@@ -881,14 +907,33 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
                   )}
                 </div>
               ) : null}
-              <button
-                type="submit"
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#202829] px-5 text-sm font-semibold text-white transition hover:bg-[#2d3435] disabled:cursor-not-allowed disabled:bg-[#adb3b4]"
-                disabled={!canSubmit}
-              >
-                <Play className="h-4 w-4" />
-                {submitLabel(taskStatus, serviceConnected, turnstileEnabled && !turnstileToken, forcePreflight)}
-              </button>
+              {isAuthenticated ? (
+                <button
+                  type="submit"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#202829] px-5 text-sm font-semibold text-white transition hover:bg-[#2d3435] disabled:cursor-not-allowed disabled:bg-[#adb3b4]"
+                  disabled={!canSubmit}
+                >
+                  <Play className="h-4 w-4" />
+                  {submitLabel(taskStatus, serviceConnected, turnstileEnabled && !turnstileToken, forcePreflight)}
+                </button>
+              ) : authLoaded ? (
+                <Link
+                  href={loginHref}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#202829] px-5 text-sm font-semibold text-white transition hover:bg-[#2d3435]"
+                >
+                  <Play className="h-4 w-4" />
+                  登录后开始检测
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[#adb3b4] px-5 text-sm font-semibold text-white"
+                  disabled
+                >
+                  <Play className="h-4 w-4" />
+                  读取登录状态
+                </button>
+              )}
             </div>
           </div>
         </form>
@@ -1155,7 +1200,8 @@ function buildDetectorClientError(data: DetectorStatusPayload, status: number): 
 
   const detailText = stringValue(detail);
   const errorText = isRecord(data.error) ? stringValue(data.error.message) : stringValue(data.error);
-  const message = detailText || errorText;
+  const messageText = stringValue(data.message);
+  const message = detailText || errorText || messageText;
 
   if (status === 403 && message.toLowerCase().includes("human verification")) {
     return new DetectorClientError("人机校验未通过，请重新验证后再提交。", { code: "turnstile_failed" });

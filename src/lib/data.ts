@@ -5089,7 +5089,7 @@ async function listPublicRiskFeedbackSummary(): Promise<PublicRiskFeedbackSummar
 
   const { data, error } = await supabase
     .from("offer_feedback")
-    .select("id,offer_id,source_id,ai_review_result,created_at")
+    .select("id,offer_id,source_id,ai_review_result,public_status,created_at")
     .not("ai_review_result", "is", null)
     .neq("status", "ignored")
     .order("created_at", { ascending: false })
@@ -5118,7 +5118,7 @@ async function listPublicRiskFeedbackSummaryForOffers(offers: RawOffer[]): Promi
   if (offerIds.length) {
     const { data, error } = await supabase
       .from("offer_feedback")
-      .select("id,offer_id,source_id,ai_review_result,created_at")
+      .select("id,offer_id,source_id,ai_review_result,public_status,created_at")
       .not("ai_review_result", "is", null)
       .neq("status", "ignored")
       .in("offer_id", offerIds)
@@ -5136,7 +5136,7 @@ async function listPublicRiskFeedbackSummaryForOffers(offers: RawOffer[]): Promi
   if (sourceIds.length) {
     const { data, error } = await supabase
       .from("offer_feedback")
-      .select("id,offer_id,source_id,ai_review_result,created_at")
+      .select("id,offer_id,source_id,ai_review_result,public_status,created_at")
       .not("ai_review_result", "is", null)
       .neq("status", "ignored")
       .in("source_id", sourceIds)
@@ -5171,6 +5171,8 @@ function buildPublicRiskFeedbackSummaryFromRows(rows: Array<Record<string, unkno
   const summary = emptyPublicRiskFeedbackSummary();
 
   for (const row of rows) {
+    const publicStatus = typeof row.public_status === "string" ? row.public_status : "pending_review";
+    if (publicStatus === "not_public" || publicStatus === "withdrawn") continue;
     const offerId = typeof row.offer_id === "string" ? row.offer_id : null;
     const sourceId = typeof row.source_id === "string" ? row.source_id : null;
     const createdAt = typeof row.created_at === "string" ? row.created_at : null;

@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { AlertTriangle, ExternalLink, Filter, Flag, ImageUp, Loader2, ShieldAlert, Trash2, X } from "lucide-react";
 import { type ChangeEvent, type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CommunityPrompt } from "@/components/FeedbackLink";
 import { MobileFilterSheet } from "@/components/ComparisonUi";
 import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
+import { buildGoogleAuthHref } from "@/lib/auth-paths";
 import { isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
@@ -40,7 +42,7 @@ import {
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import { hasMoreProductOfferPage, mergeProductOfferPages } from "@/lib/product-offer-pagination";
-import type { MerchantCollectorFilter, OfferFeedbackReason, OfferFeedbackUserExpectedAction, RawOffer } from "@/lib/types";
+import type { MerchantCollectorFilter, OfferFeedbackReason, OfferFeedbackUserExpectedAction, PublicMerchantSummary, RawOffer } from "@/lib/types";
 import { formatCurrency, formatDateMinute, formatRelativeTime } from "@/lib/utils";
 
 type ProductOffersResponse = {
@@ -1950,6 +1952,7 @@ export function OfferFeedbackDialog({
   const [loading, setLoading] = useState(false);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const titleId = "offer-feedback-dialog-title";
   const hasEvidence =
@@ -2044,6 +2047,7 @@ export function OfferFeedbackDialog({
     event.preventDefault();
     setLoading(true);
     setMessage(null);
+    setAuthRequired(false);
 
     if (!reason) {
       setMessage({ type: "error", text: "请先选择问题类型。" });
@@ -2100,6 +2104,7 @@ export function OfferFeedbackDialog({
       });
       const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
       if (!response.ok || !json.ok) {
+        if (json.code === "auth_required") setAuthRequired(true);
         throw new Error(json.message || "反馈提交失败。");
       }
       setMessage({ type: "success", text: "已收到反馈，我会在后台审核处理。" });
@@ -2108,6 +2113,11 @@ export function OfferFeedbackDialog({
     } finally {
       setLoading(false);
     }
+  }
+
+  function buildLoginHref() {
+    const next = typeof window === "undefined" ? `/products/${productSlug}` : `${window.location.pathname}${window.location.search}`;
+    return buildGoogleAuthHref(next);
   }
 
   return (
@@ -2266,7 +2276,15 @@ export function OfferFeedbackDialog({
             <div className={`rounded-lg px-3 py-2 text-sm ${
               message.type === "success" ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-[#fbe9e7] text-[#9b3328]"
             }`}>
-              {message.text}
+              <p>{message.text}</p>
+              {authRequired && message.type === "error" ? (
+                <Link
+                  href={buildLoginHref()}
+                  className="mt-2 inline-flex h-8 items-center justify-center rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-white transition hover:bg-[#202829]"
+                >
+                  登录后提交
+                </Link>
+              ) : null}
             </div>
           ) : null}
           <button
@@ -2275,6 +2293,371 @@ export function OfferFeedbackDialog({
             className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#2d3435] px-4 text-sm font-semibold text-white transition hover:bg-[#202829] disabled:opacity-60"
           >
             {message?.type === "success" ? "已提交" : loading ? "提交中..." : uploadingEvidence ? "图片上传中..." : "提交反馈"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export function MerchantFeedbackDialog({
+  merchant,
+  onClose,
+}: {
+  merchant: PublicMerchantSummary;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState(AFTERSALES_FEEDBACK_REASON);
+  const [purchaseStage, setPurchaseStage] = useState("purchased_issue");
+  const [userExpectedAction, setUserExpectedAction] = useState("unsure");
+  const [notes, setNotes] = useState("");
+  const [evidenceText, setEvidenceText] = useState("");
+  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedFeedbackEvidence[]>([]);
+  const [contact, setContact] = useState("");
+  const [publicConsent, setPublicConsent] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const titleId = "merchant-feedback-dialog-title";
+  const hasEvidence =
+    uploadedEvidence.length > 0 ||
+    extractEvidenceUrls(evidenceText).length > 0 ||
+    evidenceText.trim().length >= 8;
+  const requiresEvidence = needsHighRiskEvidence(reason, userExpectedAction);
+  const requiresImageEvidence = needsHighRiskImageEvidence(reason, userExpectedAction);
+  const requiresContact = feedbackRequiresContact(reason);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  const uploadEvidenceFiles = useCallback(async (files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    if (!imageFiles.length) return;
+
+    const availableSlots = FEEDBACK_EVIDENCE_MAX_IMAGES - uploadedEvidence.length;
+    if (availableSlots <= 0) {
+      setMessage({ type: "error", text: "最多上传 5 张图片证据。" });
+      return;
+    }
+
+    setUploadingEvidence(true);
+    setMessage(null);
+
+    try {
+      const nextEvidence: UploadedFeedbackEvidence[] = [];
+      for (const file of imageFiles.slice(0, availableSlots)) {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("website", "");
+
+        const response = await fetch("/api/feedback/evidence", {
+          method: "POST",
+          body: formData,
+        });
+        const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
+        if (!response.ok || !json.ok) {
+          throw new Error(json.message || "图片上传失败。");
+        }
+
+        nextEvidence.push({
+          url: String(json.evidence.url),
+          name: String(json.evidence.name || file.name || "图片证据"),
+          mimeType: String(json.evidence.mimeType || file.type),
+          size: Number(json.evidence.size || file.size),
+        });
+      }
+
+      setUploadedEvidence((current) => [...current, ...nextEvidence].slice(0, FEEDBACK_EVIDENCE_MAX_IMAGES));
+      if (imageFiles.length > availableSlots) {
+        setMessage({ type: "error", text: "最多上传 5 张图片，超出的图片没有上传。" });
+      }
+    } catch (currentError) {
+      setMessage({ type: "error", text: currentError instanceof Error ? currentError.message : "图片上传失败。" });
+    } finally {
+      setUploadingEvidence(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, [uploadedEvidence.length]);
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    void uploadEvidenceFiles(Array.from(event.target.files || []));
+  }
+
+  function handleEvidencePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file && file.type.startsWith("image/")));
+    if (!files.length) return;
+
+    void uploadEvidenceFiles(files);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage(null);
+    setAuthRequired(false);
+
+    if (requiresImageEvidence && uploadedEvidence.length === 0) {
+      setMessage({ type: "error", text: "这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。" });
+      setLoading(false);
+      return;
+    }
+    if (requiresEvidence && !hasEvidence) {
+      setMessage({ type: "error", text: "这类反馈需要补充证据，方便后台判断是否处理。" });
+      setLoading(false);
+      return;
+    }
+    if (requiresContact && !contact.trim()) {
+      setMessage({ type: "error", text: "这类反馈需要留下 QQ、微信或 Telegram，方便后台核验和追问证据。" });
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const evidenceUrls = [
+        ...extractEvidenceUrls(evidenceText),
+        ...uploadedEvidence.map((item) => item.url),
+      ];
+      const merchantUrl = usableFeedbackUrl(merchant.shopUrl || merchant.entryUrl);
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          feedbackScope: "merchant",
+          publicConsent,
+          productId: null,
+          productSlug: null,
+          productName: merchant.representativeProduct || null,
+          offerId: null,
+          sourceId: merchant.sourceId || null,
+          sourceName: merchant.name || merchant.sourceName,
+          sourceTitle: merchant.representativeOfferTitle || `商家反馈：${merchant.name}`,
+          offerUrl: merchantUrl,
+          offerPrice: merchant.representativePrice ?? null,
+          offerCurrency: merchant.representativeCurrency || null,
+          offerStatus: null,
+          reason,
+          userExpectedAction,
+          evidenceText: evidenceText || null,
+          evidenceUrls,
+          notes: buildMerchantFeedbackNotes({ purchaseStage, notes, publicConsent }),
+          contact: contact.trim() || null,
+          website: "",
+        }),
+      });
+      const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
+      if (!response.ok || !json.ok) {
+        if (json.code === "auth_required") setAuthRequired(true);
+        throw new Error(json.message || "商家反馈提交失败。");
+      }
+      setMessage({ type: "success", text: "已收到商家反馈，后台会先核验再决定是否进入前台摘要。" });
+    } catch (currentError) {
+      setMessage({ type: "error", text: currentError instanceof Error ? currentError.message : "商家反馈提交失败。" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function buildLoginHref() {
+    const next = typeof window === "undefined" ? "/channels?scope=merchants" : `${window.location.pathname}${window.location.search}`;
+    return buildGoogleAuthHref(next);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#202829]/35 px-4 py-4 sm:items-center">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-5 shadow-[0_24px_80px_rgba(32,40,41,0.22)]"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 id={titleId} className="font-serif text-xl font-semibold text-[#202829]">反馈商家问题</h3>
+            <p className="mt-1 line-clamp-2 text-sm leading-6 text-[#5a6061]">{merchant.name}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭商家反馈弹窗"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#adb3b4]/25 text-[#5a6061] transition hover:bg-[#f2f4f4]"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <form onSubmit={submit} className="mt-4 space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[#5a6061]">接触阶段</span>
+            <select
+              value={purchaseStage}
+              onChange={(event) => setPurchaseStage(event.target.value)}
+              className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
+            >
+              {merchantPurchaseStageOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[#5a6061]">问题类型</span>
+            <select
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
+            >
+              {merchantFeedbackReasonOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[#5a6061]">希望处理方式</span>
+            <select
+              value={userExpectedAction}
+              onChange={(event) => setUserExpectedAction(event.target.value)}
+              className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
+            >
+              {merchantExpectedActionOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[#5a6061]">补充说明</span>
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              rows={3}
+              maxLength={420}
+              placeholder="例如：付款后发货延迟，已联系售后但暂未处理；或商品页面描述与实际交付不一致。"
+              className="w-full resize-y rounded-lg border border-[#adb3b4]/40 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#2d3435]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[#5a6061]">
+              证据链接或说明{requiresEvidence ? "（必填）" : "（可选）"}
+            </span>
+            <textarea
+              value={evidenceText}
+              onChange={(event) => setEvidenceText(event.target.value)}
+              onPaste={handleEvidencePaste}
+              rows={3}
+              maxLength={1000}
+              placeholder={requiresImageEvidence ? "图片是必填；这里可补充订单页、聊天记录链接，或说明你看到的证据。" : "可粘贴订单页、聊天记录链接，或说明你看到的证据。"}
+              className="w-full resize-y rounded-lg border border-[#adb3b4]/40 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#2d3435]"
+            />
+          </label>
+          <div className="rounded-lg border border-[#adb3b4]/25 bg-[#f7f9f9] px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold text-[#2d3435]">图片证据{requiresImageEvidence ? "（必填）" : ""}</p>
+                <p className="mt-1 text-xs leading-5 text-[#5a6061]">
+                  {requiresImageEvidence ? "高风险反馈至少上传 1 张图片；" : ""}
+                  支持 PNG、JPG、WebP，单张 4MB 内。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingEvidence || uploadedEvidence.length >= FEEDBACK_EVIDENCE_MAX_IMAGES}
+                className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-white px-3 text-xs font-semibold text-[#2d3435] ring-1 ring-[#adb3b4]/30 transition hover:bg-[#eef1f1] disabled:opacity-60"
+              >
+                {uploadingEvidence ? <Loader2 size={14} className="animate-spin" /> : <ImageUp size={14} />}
+                上传图片
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                multiple
+                className="hidden"
+                onChange={handleFileInputChange}
+              />
+            </div>
+            {uploadedEvidence.length ? (
+              <div className="mt-3 grid gap-2">
+                {uploadedEvidence.map((item) => (
+                  <div key={item.url} className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-xs text-[#5a6061] ring-1 ring-[#adb3b4]/20">
+                    <span className="min-w-0 truncate">
+                      {item.name} · {formatFileSize(item.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setUploadedEvidence((current) => current.filter((evidence) => evidence.url !== item.url))}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#7a8587] transition hover:bg-[#f2f4f4] hover:text-[#9b3328]"
+                      aria-label={`移除图片证据 ${item.name}`}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <label className="hidden">
+            Website
+            <input tabIndex={-1} autoComplete="off" name="website" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[#5a6061]">
+              联系方式{requiresContact ? "（必填）" : "（可选）"}
+            </span>
+            <input
+              value={contact}
+              onChange={(event) => setContact(event.target.value)}
+              maxLength={200}
+              required={requiresContact}
+              placeholder="QQ / 微信 / Telegram，任选一种，便于及时联系"
+              className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
+            />
+          </label>
+          <label className="flex items-start gap-2 rounded-lg border border-[#adb3b4]/20 bg-[#f7f9f9] px-3 py-2 text-xs leading-5 text-[#5a6061]">
+            <input
+              type="checkbox"
+              checked={publicConsent}
+              onChange={(event) => setPublicConsent(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-[#adb3b4]"
+            />
+            <span>如果后台核验通过，允许 PriceAI 用脱敏摘要作为前台风险提示；你后续可以在“我的反馈”里撤销。</span>
+          </label>
+          {message ? (
+            <div className={`rounded-lg px-3 py-2 text-sm ${
+              message.type === "success" ? "bg-[#e8f3ec] text-[#2f7a4b]" : "bg-[#fbe9e7] text-[#9b3328]"
+            }`}>
+              <p>{message.text}</p>
+              {authRequired && message.type === "error" ? (
+                <Link
+                  href={buildLoginHref()}
+                  className="mt-2 inline-flex h-8 items-center justify-center rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-white transition hover:bg-[#202829]"
+                >
+                  登录后提交
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+          <button
+            type="submit"
+            disabled={loading || uploadingEvidence || message?.type === "success"}
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#2d3435] px-4 text-sm font-semibold text-white transition hover:bg-[#202829] disabled:opacity-60"
+          >
+            {message?.type === "success" ? "已提交" : loading ? "提交中..." : uploadingEvidence ? "图片上传中..." : "提交商家反馈"}
           </button>
         </form>
       </div>
@@ -2294,12 +2677,63 @@ const feedbackReasonOptions = [
   { value: "other", label: "其他问题（以上都不符合）" },
 ];
 
+const merchantFeedbackReasonOptions = [
+  { value: AFTERSALES_FEEDBACK_REASON, label: "售后/发货问题" },
+  { value: "description_mismatch", label: "商品/套餐描述不符" },
+  { value: "stock_mismatch", label: "店铺库存状态不准" },
+  { value: "fraud", label: "疑似虚假/欺诈" },
+  { value: "bad_source", label: "商家/渠道不可信" },
+  { value: "other", label: "其他问题" },
+];
+
+const merchantPurchaseStageOptions = [
+  { value: "before_purchase", label: "购买前咨询" },
+  { value: "purchased_pending", label: "已付款，等待发货/交付" },
+  { value: "purchased_issue", label: "已购买，交付或售后有问题" },
+  { value: "resolved", label: "曾有问题，现已协商解决" },
+  { value: "other", label: "其他阶段" },
+];
+
+const merchantExpectedActionOptions = [
+  { value: "unsure", label: "先由后台判断" },
+  { value: "recheck", label: "请重新核查该商家" },
+  { value: "hide_source", label: "建议暂停展示该商家" },
+];
+
 const expectedActionOptions = [
   { value: "unsure", label: "交给管理员判断" },
   { value: "recheck", label: "请重新核查" },
   { value: "hide_offer", label: "建议下架这条报价" },
   { value: "hide_source", label: "建议下架整个渠道" },
 ];
+
+function buildMerchantFeedbackNotes({
+  purchaseStage,
+  notes,
+  publicConsent,
+}: {
+  purchaseStage: string;
+  notes: string;
+  publicConsent: boolean;
+}): string {
+  const stageLabel = merchantPurchaseStageOptions.find((option) => option.value === purchaseStage)?.label || "其他阶段";
+  return [
+    `接触阶段：${stageLabel}`,
+    `允许脱敏公开：${publicConsent ? "是" : "否"}`,
+    notes.trim() ? `说明：${notes.trim()}` : null,
+  ].filter(Boolean).join("\n").slice(0, 500);
+}
+
+function usableFeedbackUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.toString();
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 function extractEvidenceUrls(value: string): string[] {
   const matches = value.match(/https?:\/\/[^\s"'<>，。；、]+/g) || [];
