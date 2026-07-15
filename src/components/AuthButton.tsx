@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CircleUserRound, LogOut, UserRoundPlus } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { CircleUserRound, UserRoundPlus } from "lucide-react";
 import type { AccountUser } from "@/lib/account-client";
 import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 
@@ -60,33 +59,6 @@ export function AuthButton({
   user: AccountUser | null;
   loaded: boolean;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuId = useId();
-
-  useEffect(() => {
-    if (!menuOpen) return;
-
-    function handlePointerDown(event: MouseEvent) {
-      const target = event.target;
-      if (target instanceof Node && menuRef.current && !menuRef.current.contains(target)) {
-        setMenuOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenuOpen(false);
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [menuOpen]);
-
   const labelClassName = getLabelClassName(compact, labelFrom);
   const baseClassName = `inline-flex shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:-translate-y-0.5 hover:bg-[#f5f7f7] hover:text-[#202829] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/45 ${
     compact ? getCompactButtonClassName(labelFrom) : "h-10 gap-2 px-3"
@@ -111,46 +83,9 @@ export function AuthButton({
   }
 
   return (
-    <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        className={baseClassName}
-        aria-label="打开账户菜单"
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        aria-controls={menuId}
-        onClick={() => setMenuOpen((open) => !open)}
-      >
-        <AccountMark user={user} size={16} />
-        <span className={labelClassName}>账户</span>
-      </button>
-      {menuOpen ? (
-        <div
-          id={menuId}
-          role="menu"
-          className="absolute right-0 top-[calc(100%+0.35rem)] z-30 w-56 rounded-lg bg-white p-2 opacity-100 shadow-[0_18px_50px_rgba(32,40,41,0.14)] ring-1 ring-[#adb3b4]/20"
-        >
-          <p className="truncate px-2 py-2 text-xs font-semibold text-[#5a6061]">{user.email || user.displayName || "已登录"}</p>
-          <Link
-            href="/account"
-            role="menuitem"
-            onClick={() => setMenuOpen(false)}
-            className="block rounded-md px-2 py-2 text-sm font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/35"
-          >
-            账户中心
-          </Link>
-          <form action="/auth/signout" method="post" className="mt-1 border-t border-[#edf0f1] pt-1">
-            <button
-              type="submit"
-              role="menuitem"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-semibold text-[#7a2f28] transition hover:bg-[#fbe9e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b3328]/25"
-            >
-              <LogOut size={15} />
-              退出登录
-            </button>
-          </form>
-        </div>
-      ) : null}
-    </div>
+    <Link href="/account" className={baseClassName} aria-label="账户中心">
+      <AccountMark user={user} size={16} />
+      <span className={labelClassName}>账户中心</span>
+    </Link>
   );
 }

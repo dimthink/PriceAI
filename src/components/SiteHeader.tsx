@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { CircleUserRound, ExternalLink, Handshake, HeartHandshake, LogIn, LogOut, Menu, MessageCircle, UserRound, X } from "lucide-react";
+import { CircleUserRound, ExternalLink, Handshake, HeartHandshake, LogIn, Menu, MessageCircle, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
@@ -356,25 +356,11 @@ function MobileAccountLinks({
   }
 
   return (
-    <div className="space-y-1">
-      <p className="truncate px-3 pb-1 pt-1 text-xs font-semibold text-[var(--color-text-soft)]">{user.email || user.displayName || "已登录"}</p>
-      <IntentPrefetchLink href="/account" onClick={onClose} className={rowClassName}>
-        <span className="inline-flex items-center gap-3">
-          <UserRound size={17} />
-          账户中心
-        </span>
-      </IntentPrefetchLink>
-      <form action="/auth/signout" method="post">
-        <button
-          type="submit"
-          className="flex h-11 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-semibold text-[#7a2f28] transition hover:bg-[#fbe9e7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9b3328]/25"
-        >
-          <span className="inline-flex items-center gap-3">
-            <LogOut size={17} />
-            退出登录
-          </span>
-        </button>
-      </form>
-    </div>
+    <IntentPrefetchLink href="/account" onClick={onClose} className={rowClassName}>
+      <span className="inline-flex items-center gap-3">
+        <UserRound size={17} />
+        账户中心
+      </span>
+    </IntentPrefetchLink>
   );
 }
