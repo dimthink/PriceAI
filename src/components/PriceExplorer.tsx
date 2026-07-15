@@ -25,7 +25,9 @@ import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
 import { GuidePromptStrip } from "@/components/GuidePromptStrip";
 import { MerchantFeedbackDialog, OfferActions, OfferFeedbackButton, OfferFeedbackDialog, OfferLink } from "@/components/ProductOffersPanel";
 import { SiteHeader } from "@/components/SiteHeader";
+import { clearFeedbackResumeRequest, getFeedbackResumeRequest } from "@/lib/feedback-draft";
 import { listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
+import { saveCurrentListScrollPosition, useListScrollRestoration } from "@/lib/list-scroll-restoration";
 import {
   compareProductDisplayOrder,
   isAvailable,
@@ -173,6 +175,7 @@ export function PriceExplorer({
   initialState?: ExplorerInitialState;
   restoreStateFromUrl?: boolean;
 }) {
+  useListScrollRestoration();
   const initialExplorerData = newestGeneratedDataset(data, explorerMemoryCache) ?? EMPTY_EXPLORER_DATA;
   const [explorerData, setExplorerData] = useState<ExplorerData>(
     initialExplorerData,
@@ -392,12 +395,34 @@ export function PriceExplorer({
     ],
   );
   const visibleOfferResponse = showingOffers && offerQueryString === "" ? offerResponse ?? initialOffers : offerResponse;
-  const platformOffers = visibleOfferResponse?.rows ?? [];
+  const platformOffers = useMemo(() => visibleOfferResponse?.rows ?? [], [visibleOfferResponse]);
   const visibleMerchantResponse = showingMerchants && merchantQueryString === "" ? merchantResponse ?? initialMerchants : merchantResponse;
-  const merchantRows = visibleMerchantResponse?.rows ?? [];
+  const merchantRows = useMemo(() => visibleMerchantResponse?.rows ?? [], [visibleMerchantResponse]);
   const resultCount = showingMerchants ? visibleMerchantResponse?.total ?? 0 : showingOffers ? visibleOfferResponse?.total ?? 0 : products.length;
   const hasMoreOffers = showingOffers && Boolean(visibleOfferResponse) && platformOffers.length < (visibleOfferResponse?.total ?? 0);
   const hasMoreMerchants = showingMerchants && Boolean(visibleMerchantResponse) && merchantRows.length < (visibleMerchantResponse?.total ?? 0);
+
+  useEffect(() => {
+    if (feedbackRow || feedbackMerchant) return;
+    const resume = getFeedbackResumeRequest();
+    if (!resume) return;
+    if (resume.kind === "offer") {
+      const matchedRow = platformOffers.find((row) => row.offer.id === resume.id);
+      if (!matchedRow) return;
+      const frameId = window.requestAnimationFrame(() => {
+        setFeedbackRow(matchedRow);
+        clearFeedbackResumeRequest();
+      });
+      return () => window.cancelAnimationFrame(frameId);
+    }
+    const matchedMerchant = merchantRows.find((merchant) => merchant.id === resume.id);
+    if (!matchedMerchant) return;
+    const frameId = window.requestAnimationFrame(() => {
+      setFeedbackMerchant(matchedMerchant);
+      clearFeedbackResumeRequest();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [feedbackMerchant, feedbackRow, merchantRows, platformOffers]);
 
   useEffect(() => {
     activeOfferQueryRef.current = offerQueryString;
@@ -2432,6 +2457,7 @@ function listDetailClickHandler(
     onOpen();
     if (!shouldHandleListDetailClick(event)) return;
     event.preventDefault();
+    saveCurrentListScrollPosition();
     window.location.assign(listDetailNavigationHref(path, returnQuery, extraParams));
   };
 }

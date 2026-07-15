@@ -15,6 +15,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import type { TransitStandardModel } from "@/data/api-transit/types";
+import { useAccountUser } from "@/lib/account-client";
 import { getOfficialTransitModelPrice } from "@/lib/api-transit";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
@@ -57,6 +58,7 @@ interface DetectorStatusPayload {
   result_url?: string;
   report_url?: string;
   local_job_id?: string;
+  retryable?: boolean;
   error?: string | DetectorErrorDetail;
   detail?: string | DetectorErrorDetail | DetectorValidationError[];
 }
@@ -232,13 +234,14 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileError, setTurnstileError] = useState("");
   const [forcePreflight, setForcePreflight] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authLoaded, setAuthLoaded] = useState(false);
+  const { user: accountUser, loaded: authLoaded } = useAccountUser();
 
   const normalizedServiceUrl = serviceUrl.trim().replace(/\/$/, "");
   const normalizedTurnstileSiteKey = turnstileSiteKey.trim();
   const serviceConnected = Boolean(normalizedServiceUrl);
   const turnstileEnabled = Boolean(normalizedTurnstileSiteKey);
+  const isAuthenticated = Boolean(accountUser);
+  const turnstileRequired = turnstileEnabled && authLoaded && isAuthenticated;
   const selectedPreset = presetModels.find((item) => item.id === selectedModelId) ?? defaultPreset;
   const selectedIntensity = intensityOptions.find((item) => item.value === intensity) ?? intensityOptions[1];
   const effectiveIncludeLongContext = protocol !== "gemini" && includeLongContext;
@@ -253,28 +256,9 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
     isAuthenticated &&
     serviceConnected &&
     Boolean(baseUrl.trim() && apiKey.trim() && model.trim()) &&
-    (!turnstileEnabled || Boolean(turnstileToken)) &&
+    (!turnstileRequired || Boolean(turnstileToken)) &&
     !activeDetection;
   const apiKeyPreview = apiKey ? maskSecretPreview(apiKey) : "未填入";
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/account/me", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((payload) => {
-        if (!cancelled) setIsAuthenticated(Boolean(payload?.user));
-      })
-      .catch(() => {
-        if (!cancelled) setIsAuthenticated(false);
-      })
-      .finally(() => {
-        if (!cancelled) setAuthLoaded(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const summaryText = useMemo(() => {
     if (!results.length) return "暂无检测记录";
@@ -361,7 +345,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   }, [normalizedTurnstileSiteKey]);
 
   useEffect(() => {
-    if (!turnstileEnabled || turnstileScriptReady) return;
+    if (!turnstileRequired || turnstileScriptReady) return;
 
     const startedAt = Date.now();
     const timerId = window.setInterval(() => {
@@ -378,10 +362,10 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
     }, 200);
 
     return () => window.clearInterval(timerId);
-  }, [turnstileEnabled, turnstileScriptReady]);
+  }, [turnstileRequired, turnstileScriptReady]);
 
   useEffect(() => {
-    if (!turnstileEnabled || !turnstileScriptReady) return;
+    if (!turnstileRequired || !turnstileScriptReady) return;
     if (turnstileWidgetIdRef.current) return;
 
     const startedAt = Date.now();
@@ -408,7 +392,17 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
         turnstilePollTimerRef.current = null;
       }
     };
-  }, [handleTurnstileReady, turnstileEnabled, turnstileScriptReady]);
+  }, [handleTurnstileReady, turnstileRequired, turnstileScriptReady]);
+
+  useEffect(() => {
+    if (turnstileRequired) return;
+    turnstileWidgetIdRef.current = null;
+    const frameId = window.requestAnimationFrame(() => {
+      setTurnstileToken("");
+      setTurnstileError("");
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [turnstileRequired]);
 
   function resetTurnstile() {
     if (!turnstileEnabled) return;
@@ -428,16 +422,22 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   }, []);
 
   const pollDetectorJob = useCallback(async (statusUrl: string, runId: number, localId: string) => {
-    const statusEndpoint = statusUrl.startsWith("http") || statusUrl.startsWith("/api/")
-      ? statusUrl
-      : `${normalizedServiceUrl}${statusUrl}`;
+    const statusEndpoint = normalizeLocalDetectorStatusEndpoint(statusUrl);
 
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      await sleep(attempt < 3 ? 1000 : 2500);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const visibleDelay = attempt < 3 ? 1000 : attempt < 10 ? 2500 : 5000;
+      await sleep(document.hidden ? Math.max(visibleDelay, 15_000) : visibleDelay);
       if (runIdRef.current !== runId) return;
 
-      const response = await fetch(statusEndpoint, { cache: "no-store" });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12_000);
+      const response = await fetch(statusEndpoint, { cache: "no-store", signal: controller.signal })
+        .finally(() => window.clearTimeout(timeout));
       const data = (await response.json().catch(() => ({}))) as DetectorStatusPayload;
+      if (!response.ok && data.retryable) {
+        updateResult(localId, { message: data.message || "检测服务暂时不可达，正在降低频率重试。" });
+        continue;
+      }
       if (!response.ok) {
         throw buildDetectorClientError(data, response.status);
       }
@@ -469,11 +469,11 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
     }
 
     throw new Error("检测等待超时，稍后可用任务编号查询报告。");
-  }, [normalizedServiceUrl, updateResult]);
+  }, [updateResult]);
 
   function handleForcePreflightRetry(item: DetectionResult) {
     setForcePreflight(true);
-    if (turnstileEnabled && !turnstileToken) {
+    if (turnstileRequired && !turnstileToken) {
       setTurnstileError("请重新完成人机校验后点击“跳过预探测检测”。");
     }
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -488,13 +488,14 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
       setTaskStatus("error");
       return;
     }
-    if (turnstileEnabled && !turnstileToken) {
+    if (turnstileRequired && !turnstileToken) {
       setTurnstileError("请先完成人机校验。");
       return;
     }
 
     const nextRunId = runIdRef.current + 1;
-    const localId = `${nextRunId}-${selectedModelId}`;
+    const requestId = crypto.randomUUID();
+    const localId = requestId;
     const submittedAt = new Date().toLocaleString("zh-CN", { hour12: false });
     runIdRef.current = nextRunId;
 
@@ -533,9 +534,10 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
           model: model.trim(),
           mode: backendModeForIntensity(intensity),
           includeLongContext: effectiveIncludeLongContext,
-          turnstileToken: turnstileEnabled ? turnstileToken : undefined,
+          turnstileToken: turnstileRequired ? turnstileToken : undefined,
           upstreamType: upstream,
           force: forcePreflight,
+          requestId,
         }),
       });
       const data = (await response.json().catch(() => ({}))) as DetectorStatusPayload;
@@ -618,7 +620,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
 
   return (
     <div className="space-y-5">
-      {turnstileEnabled ? (
+      {turnstileRequired ? (
         <Script
           id="priceai-turnstile"
           src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
@@ -894,7 +896,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-              {turnstileEnabled ? (
+              {turnstileRequired ? (
                 <div className="min-w-[300px]">
                   <div ref={turnstileRef} className="min-h-[65px]" />
                   {turnstileError ? (
@@ -917,7 +919,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
                   disabled={!canSubmit}
                 >
                   <Play className="h-4 w-4" />
-                  {submitLabel(taskStatus, serviceConnected, turnstileEnabled && !turnstileToken, forcePreflight)}
+                  {submitLabel(taskStatus, serviceConnected, turnstileRequired && !turnstileToken, forcePreflight)}
                 </button>
               ) : authLoaded ? (
                 <Link
@@ -1033,6 +1035,14 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
       </section>
     </div>
   );
+}
+
+function normalizeLocalDetectorStatusEndpoint(value: string): string {
+  const url = new URL(value, window.location.origin);
+  if (url.origin !== window.location.origin || !url.pathname.startsWith("/api/api-transit/detector/status/")) {
+    throw new Error("本机检测记录包含不受信任的状态地址，请重新发起检测。");
+  }
+  return `${url.pathname}${url.search}`;
 }
 
 function sleep(ms: number) {

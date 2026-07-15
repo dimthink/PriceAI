@@ -82,14 +82,21 @@ export async function verifyAdminSessionToken(token: string | null | undefined):
 
 export async function verifyAdminPassword(value: string | null | undefined): Promise<boolean> {
   if (!value) return false;
-  const stored = await readStoredAdminPasswordSettings().catch(() => null);
-  if (stored?.settings) {
-    const settings = parseStoredAdminPasswordSettings(stored.settings);
-    if (settings && verifyPasswordHash(value, settings)) return true;
-  }
+  try {
+    const stored = await readStoredAdminPasswordSettings();
+    const settings = parseStoredAdminPasswordSettings(stored?.settings);
+    if (settings) {
+      return verifyPasswordHash(value, settings) || verifyBreakGlassPassword(value);
+    }
 
-  const envPassword = getRuntimeEnv("ADMIN_PASSWORD");
-  return Boolean(envPassword && timingSafeEqual(value, envPassword));
+    const bootstrapPassword = getRuntimeEnv("ADMIN_PASSWORD");
+    return Boolean(
+      (bootstrapPassword && timingSafeEqual(value, bootstrapPassword)) ||
+      verifyBreakGlassPassword(value)
+    );
+  } catch {
+    return verifyBreakGlassPassword(value);
+  }
 }
 
 export async function requireAdminRequest(request: Request): Promise<void> {
@@ -158,6 +165,7 @@ export async function updateAdminPassword(input: {
 
 export async function getAdminPasswordStatus(): Promise<AdminPasswordStatus> {
   const envConfigured = Boolean(getRuntimeEnv("ADMIN_PASSWORD"));
+  const breakGlassEnabled = isBreakGlassEnabled();
   try {
     const row = await readStoredAdminPasswordSettings();
     const parsed = parseStoredAdminPasswordSettings(row?.settings);
@@ -168,26 +176,34 @@ export async function getAdminPasswordStatus(): Promise<AdminPasswordStatus> {
         source: "database",
         minLength: MIN_ADMIN_PASSWORD_LENGTH,
         updatedAt: cleanText(row?.updated_at) || cleanText(parsed.updatedAt),
-        message: envConfigured ? "当前使用后台覆盖密码；环境变量密码保留为兜底入口。" : null,
+        message: breakGlassEnabled
+          ? "数据库密码已生效；旧 ADMIN_PASSWORD 不再参与认证，独立 break-glass 已启用。"
+          : "数据库密码已生效；旧 ADMIN_PASSWORD 不再参与认证。",
       };
     }
 
     return {
-      configured: envConfigured,
+      configured: envConfigured || breakGlassEnabled,
       tableReady: true,
-      source: envConfigured ? "environment" : "unconfigured",
+      source: envConfigured || breakGlassEnabled ? "environment" : "unconfigured",
       minLength: MIN_ADMIN_PASSWORD_LENGTH,
       updatedAt: null,
-      message: envConfigured ? "当前使用环境变量 ADMIN_PASSWORD，可在后台保存覆盖密码。" : "尚未配置后台密码。",
+      message: envConfigured
+        ? "当前使用 ADMIN_PASSWORD 作为首次初始化密码；保存数据库密码后它会自动失效。"
+        : breakGlassEnabled
+          ? "数据库密码尚未配置，当前仅允许独立 break-glass 登录。"
+          : "尚未配置后台密码。",
     };
   } catch (error) {
     return {
-      configured: envConfigured,
+      configured: breakGlassEnabled,
       tableReady: false,
-      source: envConfigured ? "environment" : "unconfigured",
+      source: breakGlassEnabled ? "environment" : "unconfigured",
       minLength: MIN_ADMIN_PASSWORD_LENGTH,
       updatedAt: null,
-      message: `后台密码配置表暂不可用：${errorMessage(error)}`,
+      message: breakGlassEnabled
+        ? `后台密码配置表暂不可用，当前仅允许独立 break-glass：${errorMessage(error)}`
+        : `后台密码配置表暂不可用，已拒绝使用旧 ADMIN_PASSWORD：${errorMessage(error)}`,
     };
   }
 }
@@ -239,6 +255,17 @@ function getAdminSessionSecret(
   if (fallback) return fallback;
   if (!throwOnMissingSecret) return null;
   throw new Error("ADMIN_SESSION_SECRET is not configured.");
+}
+
+function isBreakGlassEnabled(): boolean {
+  return getRuntimeEnv("ADMIN_BREAK_GLASS_ENABLED")?.trim().toLowerCase() === "true" &&
+    Boolean(getRuntimeEnv("ADMIN_BREAK_GLASS_PASSWORD"));
+}
+
+function verifyBreakGlassPassword(value: string): boolean {
+  if (!isBreakGlassEnabled()) return false;
+  const password = getRuntimeEnv("ADMIN_BREAK_GLASS_PASSWORD");
+  return Boolean(password && timingSafeEqual(value, password));
 }
 
 async function readStoredAdminPasswordSettings(): Promise<AdminPasswordRow | null> {

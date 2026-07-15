@@ -10,8 +10,8 @@ type HeaderActionLabelFrom = "sm" | "2xl" | "never";
 function getCompactButtonClassName(labelFrom: HeaderActionLabelFrom) {
   if (labelFrom === "never") return "h-10 w-10 gap-0 px-0";
   return labelFrom === "2xl"
-    ? "h-9 w-9 gap-0 px-0 2xl:h-10 2xl:w-auto 2xl:gap-2 2xl:px-3"
-    : "h-9 w-9 gap-0 px-0 sm:h-10 sm:w-auto sm:gap-2 sm:px-3";
+    ? "h-9 w-9 gap-0 px-0 2xl:h-10 2xl:w-auto 2xl:min-w-[7rem] 2xl:gap-2 2xl:px-3"
+    : "h-9 w-9 gap-0 px-0 sm:h-10 sm:w-auto sm:min-w-[7rem] sm:gap-2 sm:px-3";
 }
 
 function getLabelClassName(compact: boolean, labelFrom: HeaderActionLabelFrom) {
@@ -61,7 +61,7 @@ export function AuthButton({
 }) {
   const labelClassName = getLabelClassName(compact, labelFrom);
   const baseClassName = `inline-flex shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-[#2d3435] shadow-[0_10px_30px_rgba(45,52,53,0.06)] ring-1 ring-[#adb3b4]/25 transition hover:-translate-y-0.5 hover:bg-[#f5f7f7] hover:text-[#202829] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#45bf78]/45 ${
-    compact ? getCompactButtonClassName(labelFrom) : "h-10 gap-2 px-3"
+    compact ? getCompactButtonClassName(labelFrom) : "h-10 min-w-[7rem] gap-2 px-3"
   }`;
 
   if (!loaded) {

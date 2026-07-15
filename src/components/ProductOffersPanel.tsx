@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ExternalLink, Filter, Flag, ImageUp, Loader2, ShieldAlert, Trash2, X } from "lucide-react";
-import { type ChangeEvent, type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AlertTriangle, ExternalLink, Filter, Flag, ShieldAlert, X } from "lucide-react";
+import { type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CommunityPrompt } from "@/components/FeedbackLink";
+import { FeedbackEvidenceUploader } from "@/components/FeedbackEvidenceUploader";
 import { MobileFilterSheet } from "@/components/ComparisonUi";
 import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
 import { buildGoogleAuthHref } from "@/lib/auth-paths";
+import { useAccountUser } from "@/lib/account-client";
 import { isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
@@ -30,6 +32,7 @@ import {
 } from "@/lib/offer-filter-tags";
 import {
   AFTERSALES_FEEDBACK_REASON,
+  HIGH_RISK_FEEDBACK_REASONS,
   OFFER_EXIT_NOTICE_MUTED_DATE_KEY,
   OFFER_HIGH_RISK_PRICE_THRESHOLD,
   feedbackRequiresContact,
@@ -39,9 +42,19 @@ import {
   isHighRiskOutboundOffer,
   isShopApiOffer,
 } from "@/lib/trust-risk";
+import {
+  buildFeedbackResumePath,
+  clearFeedbackDraft,
+  clearFeedbackResumeRequest,
+  getFeedbackResumeRequest,
+  readFeedbackDraft,
+  writeFeedbackDraft,
+} from "@/lib/feedback-draft";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import { hasMoreProductOfferPage, mergeProductOfferPages } from "@/lib/product-offer-pagination";
+import { useDialogFocus } from "@/lib/use-dialog-focus";
+import { useFeedbackEvidenceUpload } from "@/lib/use-feedback-evidence-upload";
 import type { MerchantCollectorFilter, OfferFeedbackReason, OfferFeedbackUserExpectedAction, PublicMerchantSummary, RawOffer } from "@/lib/types";
 import { formatCurrency, formatDateMinute, formatRelativeTime } from "@/lib/utils";
 
@@ -63,13 +76,6 @@ const PRODUCT_OFFERS_MEMORY_CACHE_LIMIT = 40;
 const FEEDBACK_EVIDENCE_MAX_IMAGES = 5;
 const INVENTORY_NUMBER_FORMATTER = new Intl.NumberFormat("zh-CN");
 const productOffersMemoryCache = new Map<string, ProductOffersResponse>();
-
-type UploadedFeedbackEvidence = {
-  url: string;
-  name: string;
-  mimeType: string;
-  size: number;
-};
 
 export function ProductOffersPanel({
   productId,
@@ -286,7 +292,20 @@ export function ProductOffersPanel({
     () => purchaseTermsMockEnabled ? withPurchaseTermsMock(activeData) : activeData,
     [activeData, purchaseTermsMockEnabled],
   );
-  const offers = visibleData?.offers ?? [];
+  const offers = useMemo(() => visibleData?.offers ?? [], [visibleData]);
+
+  useEffect(() => {
+    if (feedbackOffer || !offers.length) return;
+    const resume = getFeedbackResumeRequest();
+    if (resume?.kind !== "offer") return;
+    const matchedOffer = offers.find((offer) => offer.id === resume.id);
+    if (!matchedOffer) return;
+    const frameId = window.requestAnimationFrame(() => {
+      setFeedbackOffer(matchedOffer);
+      clearFeedbackResumeRequest();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [feedbackOffer, offers]);
   const total = visibleData?.total ?? (selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all") ? 0 : initialCount);
   const filterFacets = productOfferFilterFacets(
     activeData?.filterFacets,
@@ -1947,91 +1966,51 @@ export function OfferFeedbackDialog({
   const [userExpectedAction, setUserExpectedAction] = useState<OfferFeedbackUserExpectedAction>("unsure");
   const [notes, setNotes] = useState("");
   const [evidenceText, setEvidenceText] = useState("");
-  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedFeedbackEvidence[]>([]);
   const [contact, setContact] = useState("");
   const [loading, setLoading] = useState(false);
-  const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { user: accountUser, loaded: accountLoaded } = useAccountUser();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleId = "offer-feedback-dialog-title";
+  const requiresEvidence = needsHighRiskEvidence(reason, userExpectedAction);
+  const requiresImageEvidence = needsHighRiskImageEvidence(reason, userExpectedAction);
+  const requiresContact = feedbackRequiresContact(reason);
+  const requiresLogin = reason ? HIGH_RISK_FEEDBACK_REASONS.has(reason) : false;
+  const supportEscalationReminder = feedbackSupportEscalationReminder(reason);
+  const isDescriptionMismatchFeedback = reason === "description_mismatch";
+  const evidenceUpload = useFeedbackEvidenceUpload({
+    canUpload: Boolean(accountUser),
+    maxImages: FEEDBACK_EVIDENCE_MAX_IMAGES,
+    onAuthRequired: () => {
+      setAuthRequired(true);
+      setMessage({ type: "error", text: "登录后才能上传图片证据；低风险文字纠错仍可匿名提交。" });
+    },
+    onError: (text) => setMessage({ type: "error", text }),
+  });
+  const uploadedEvidence = evidenceUpload.uploaded;
+  const uploadingEvidence = evidenceUpload.uploading;
   const hasEvidence =
     uploadedEvidence.length > 0 ||
     extractEvidenceUrls(evidenceText).length > 0 ||
     evidenceText.trim().length >= 8;
-  const requiresEvidence = needsHighRiskEvidence(reason, userExpectedAction);
-  const requiresImageEvidence = needsHighRiskImageEvidence(reason, userExpectedAction);
-  const requiresContact = feedbackRequiresContact(reason);
-  const supportEscalationReminder = feedbackSupportEscalationReminder(reason);
-  const isDescriptionMismatchFeedback = reason === "description_mismatch";
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
-
-  const uploadEvidenceFiles = useCallback(async (files: File[]) => {
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    if (!imageFiles.length) return;
-
-    const availableSlots = FEEDBACK_EVIDENCE_MAX_IMAGES - uploadedEvidence.length;
-    if (availableSlots <= 0) {
-      setMessage({ type: "error", text: "最多上传 5 张图片证据。" });
-      return;
-    }
-
-    setUploadingEvidence(true);
-    setMessage(null);
-
-    try {
-      const nextEvidence: UploadedFeedbackEvidence[] = [];
-      for (const file of imageFiles.slice(0, availableSlots)) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("website", "");
-
-        const response = await fetch("/api/feedback/evidence", {
-          method: "POST",
-          body: formData,
-        });
-        const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
-        if (!response.ok || !json.ok) {
-          throw new Error(json.message || "图片上传失败。");
-        }
-
-        nextEvidence.push({
-          url: String(json.evidence.url),
-          name: String(json.evidence.name || file.name || "图片证据"),
-          mimeType: String(json.evidence.mimeType || file.type),
-          size: Number(json.evidence.size || file.size),
-        });
+    const draft = readFeedbackDraft("offer", offer.id);
+    if (!draft) return;
+    const frameId = window.requestAnimationFrame(() => {
+      if (typeof draft.reason === "string" && feedbackReasonOptions.some((option) => option.value === draft.reason)) {
+        setReason(draft.reason as OfferFeedbackReason);
       }
-
-      setUploadedEvidence((current) => [...current, ...nextEvidence].slice(0, FEEDBACK_EVIDENCE_MAX_IMAGES));
-      if (imageFiles.length > availableSlots) {
-        setMessage({ type: "error", text: "最多上传 5 张图片，超出的图片没有上传。" });
+      if (typeof draft.userExpectedAction === "string" && expectedActionOptions.some((option) => option.value === draft.userExpectedAction)) {
+        setUserExpectedAction(draft.userExpectedAction as OfferFeedbackUserExpectedAction);
       }
-    } catch (currentError) {
-      setMessage({ type: "error", text: currentError instanceof Error ? currentError.message : "图片上传失败。" });
-    } finally {
-      setUploadingEvidence(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, [uploadedEvidence.length]);
+      if (typeof draft.notes === "string") setNotes(draft.notes.slice(0, 500));
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [offer.id]);
 
-  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
-    void uploadEvidenceFiles(Array.from(event.target.files || []));
-  }
+  useDialogFocus({ dialogRef, onClose });
 
   function handleEvidencePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     const files = Array.from(event.clipboardData.items)
@@ -2040,7 +2019,7 @@ export function OfferFeedbackDialog({
       .filter((file): file is File => Boolean(file && file.type.startsWith("image/")));
     if (!files.length) return;
 
-    void uploadEvidenceFiles(files);
+    void evidenceUpload.uploadFiles(files);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -2051,6 +2030,13 @@ export function OfferFeedbackDialog({
 
     if (!reason) {
       setMessage({ type: "error", text: "请先选择问题类型。" });
+      setLoading(false);
+      return;
+    }
+    if (requiresLogin && !accountUser) {
+      persistOfferDraft();
+      setAuthRequired(true);
+      setMessage({ type: "error", text: "这类反馈会影响公开展示或商家声誉，需要先登录。草稿内容已暂存在当前标签页。" });
       setLoading(false);
       return;
     }
@@ -2108,6 +2094,8 @@ export function OfferFeedbackDialog({
         throw new Error(json.message || "反馈提交失败。");
       }
       setMessage({ type: "success", text: "已收到反馈，我会在后台审核处理。" });
+      clearFeedbackDraft("offer", offer.id);
+      evidenceUpload.clear();
     } catch (currentError) {
       setMessage({ type: "error", text: currentError instanceof Error ? currentError.message : "反馈提交失败。" });
     } finally {
@@ -2116,16 +2104,21 @@ export function OfferFeedbackDialog({
   }
 
   function buildLoginHref() {
-    const next = typeof window === "undefined" ? `/products/${productSlug}` : `${window.location.pathname}${window.location.search}`;
-    return buildGoogleAuthHref(next);
+    return buildGoogleAuthHref(buildFeedbackResumePath("offer", offer.id));
+  }
+
+  function persistOfferDraft() {
+    writeFeedbackDraft("offer", offer.id, { reason, userExpectedAction, notes });
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#202829]/35 px-4 py-4 sm:items-center">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-5 shadow-[0_24px_80px_rgba(32,40,41,0.22)]"
       >
         <div className="flex items-start justify-between gap-3">
@@ -2158,6 +2151,18 @@ export function OfferFeedbackDialog({
               ))}
             </select>
           </label>
+          {requiresLogin && accountLoaded && !accountUser ? (
+            <div className="rounded-lg border border-[#f1d6a8] bg-[#fff7e8] px-3 py-2 text-xs leading-5 text-[#7a541b]">
+              <p>这类反馈需要登录后提交。登录后会回到当前页面并恢复问题类型、处理方式和补充说明。</p>
+              <Link
+                href={buildLoginHref()}
+                onClick={persistOfferDraft}
+                className="mt-2 inline-flex h-8 items-center justify-center rounded-full bg-[#2d3435] px-3 font-semibold text-white"
+              >
+                登录后继续
+              </Link>
+            </div>
+          ) : null}
           {supportEscalationReminder ? (
             <div className="rounded-lg border border-[#f1d6a8] bg-[#fff7e8] px-3 py-2 text-xs leading-5 text-[#7a541b]">
               <p className="font-semibold text-[#6f4917]">{supportEscalationReminder.title}</p>
@@ -2203,53 +2208,20 @@ export function OfferFeedbackDialog({
               className="w-full resize-y rounded-lg border border-[#adb3b4]/40 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#2d3435]"
             />
           </label>
-          <div className="rounded-lg border border-[#adb3b4]/25 bg-[#f7f9f9] px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold text-[#2d3435]">图片证据{requiresImageEvidence ? "（必填）" : ""}</p>
-                <p className="mt-1 text-xs leading-5 text-[#5a6061]">
-                  {requiresImageEvidence ? isDescriptionMismatchFeedback ? "标题党或描述误导至少上传 1 张截图；" : "高风险反馈至少上传 1 张图片；" : ""}
-                  支持 PNG、JPG、WebP，单张 4MB 内；电脑端也可以直接粘贴截图。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingEvidence || uploadedEvidence.length >= FEEDBACK_EVIDENCE_MAX_IMAGES}
-                className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-white px-3 text-xs font-semibold text-[#2d3435] ring-1 ring-[#adb3b4]/30 transition hover:bg-[#eef1f1] disabled:opacity-60"
-              >
-                {uploadingEvidence ? <Loader2 size={14} className="animate-spin" /> : <ImageUp size={14} />}
-                上传图片
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                className="hidden"
-                onChange={handleFileInputChange}
-              />
-            </div>
-            {uploadedEvidence.length ? (
-              <div className="mt-3 grid gap-2">
-                {uploadedEvidence.map((item) => (
-                  <div key={item.url} className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-xs text-[#5a6061] ring-1 ring-[#adb3b4]/20">
-                    <span className="min-w-0 truncate">
-                      {item.name} · {formatFileSize(item.size)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setUploadedEvidence((current) => current.filter((evidence) => evidence.url !== item.url))}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#7a8587] transition hover:bg-[#f2f4f4] hover:text-[#9b3328]"
-                      aria-label={`移除图片证据 ${item.name}`}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <FeedbackEvidenceUploader
+            accountLoaded={accountLoaded}
+            canUpload={Boolean(accountUser)}
+            description={`${requiresImageEvidence ? isDescriptionMismatchFeedback ? "标题党或描述误导至少上传 1 张截图；" : "高风险反馈至少上传 1 张图片；" : ""}支持 PNG、JPG、WebP，单张 4MB 内；电脑端也可以直接粘贴截图。`}
+            failed={evidenceUpload.failed}
+            maxImages={FEEDBACK_EVIDENCE_MAX_IMAGES}
+            onRemoveFailed={evidenceUpload.removeFailed}
+            onRemoveUploaded={(reference) => void evidenceUpload.removeUploaded(reference)}
+            onRetryFailed={(id) => void evidenceUpload.retryFailed(id)}
+            onUpload={(files) => void evidenceUpload.uploadFiles(files)}
+            required={requiresImageEvidence}
+            uploaded={uploadedEvidence}
+            uploading={uploadingEvidence}
+          />
           <label className="hidden">
             Website
             <input tabIndex={-1} autoComplete="off" name="website" />
@@ -2280,6 +2252,7 @@ export function OfferFeedbackDialog({
               {authRequired && message.type === "error" ? (
                 <Link
                   href={buildLoginHref()}
+                  onClick={persistOfferDraft}
                   className="mt-2 inline-flex h-8 items-center justify-center rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-white transition hover:bg-[#202829]"
                 >
                   登录后提交
@@ -2312,90 +2285,47 @@ export function MerchantFeedbackDialog({
   const [userExpectedAction, setUserExpectedAction] = useState("unsure");
   const [notes, setNotes] = useState("");
   const [evidenceText, setEvidenceText] = useState("");
-  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedFeedbackEvidence[]>([]);
   const [contact, setContact] = useState("");
   const [publicConsent, setPublicConsent] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { user: merchantAccountUser, loaded: merchantAccountLoaded } = useAccountUser();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleId = "merchant-feedback-dialog-title";
+  const requiresEvidence = needsHighRiskEvidence(reason, userExpectedAction);
+  const requiresImageEvidence = needsHighRiskImageEvidence(reason, userExpectedAction);
+  const requiresContact = feedbackRequiresContact(reason);
+  const evidenceUpload = useFeedbackEvidenceUpload({
+    canUpload: Boolean(merchantAccountUser),
+    maxImages: FEEDBACK_EVIDENCE_MAX_IMAGES,
+    onAuthRequired: () => {
+      setAuthRequired(true);
+      setMessage({ type: "error", text: "登录后才能上传商家反馈的图片证据。" });
+    },
+    onError: (text) => setMessage({ type: "error", text }),
+  });
+  const uploadedEvidence = evidenceUpload.uploaded;
+  const uploadingEvidence = evidenceUpload.uploading;
   const hasEvidence =
     uploadedEvidence.length > 0 ||
     extractEvidenceUrls(evidenceText).length > 0 ||
     evidenceText.trim().length >= 8;
-  const requiresEvidence = needsHighRiskEvidence(reason, userExpectedAction);
-  const requiresImageEvidence = needsHighRiskImageEvidence(reason, userExpectedAction);
-  const requiresContact = feedbackRequiresContact(reason);
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
+    const draft = readFeedbackDraft("merchant", merchant.id);
+    if (!draft) return;
+    const frameId = window.requestAnimationFrame(() => {
+      if (typeof draft.reason === "string" && merchantFeedbackReasonOptions.some((option) => option.value === draft.reason)) setReason(draft.reason);
+      if (typeof draft.purchaseStage === "string" && merchantPurchaseStageOptions.some((option) => option.value === draft.purchaseStage)) setPurchaseStage(draft.purchaseStage);
+      if (typeof draft.userExpectedAction === "string" && merchantExpectedActionOptions.some((option) => option.value === draft.userExpectedAction)) setUserExpectedAction(draft.userExpectedAction);
+      if (typeof draft.notes === "string") setNotes(draft.notes.slice(0, 420));
+      if (typeof draft.publicConsent === "boolean") setPublicConsent(draft.publicConsent);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [merchant.id]);
 
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
-
-  const uploadEvidenceFiles = useCallback(async (files: File[]) => {
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    if (!imageFiles.length) return;
-
-    const availableSlots = FEEDBACK_EVIDENCE_MAX_IMAGES - uploadedEvidence.length;
-    if (availableSlots <= 0) {
-      setMessage({ type: "error", text: "最多上传 5 张图片证据。" });
-      return;
-    }
-
-    setUploadingEvidence(true);
-    setMessage(null);
-
-    try {
-      const nextEvidence: UploadedFeedbackEvidence[] = [];
-      for (const file of imageFiles.slice(0, availableSlots)) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("website", "");
-
-        const response = await fetch("/api/feedback/evidence", {
-          method: "POST",
-          body: formData,
-        });
-        const json = await response.json().catch(() => ({ ok: false, message: response.statusText }));
-        if (!response.ok || !json.ok) {
-          throw new Error(json.message || "图片上传失败。");
-        }
-
-        nextEvidence.push({
-          url: String(json.evidence.url),
-          name: String(json.evidence.name || file.name || "图片证据"),
-          mimeType: String(json.evidence.mimeType || file.type),
-          size: Number(json.evidence.size || file.size),
-        });
-      }
-
-      setUploadedEvidence((current) => [...current, ...nextEvidence].slice(0, FEEDBACK_EVIDENCE_MAX_IMAGES));
-      if (imageFiles.length > availableSlots) {
-        setMessage({ type: "error", text: "最多上传 5 张图片，超出的图片没有上传。" });
-      }
-    } catch (currentError) {
-      setMessage({ type: "error", text: currentError instanceof Error ? currentError.message : "图片上传失败。" });
-    } finally {
-      setUploadingEvidence(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, [uploadedEvidence.length]);
-
-  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
-    void uploadEvidenceFiles(Array.from(event.target.files || []));
-  }
+  useDialogFocus({ dialogRef, onClose });
 
   function handleEvidencePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     const files = Array.from(event.clipboardData.items)
@@ -2404,7 +2334,7 @@ export function MerchantFeedbackDialog({
       .filter((file): file is File => Boolean(file && file.type.startsWith("image/")));
     if (!files.length) return;
 
-    void uploadEvidenceFiles(files);
+    void evidenceUpload.uploadFiles(files);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -2412,6 +2342,14 @@ export function MerchantFeedbackDialog({
     setLoading(true);
     setMessage(null);
     setAuthRequired(false);
+
+    if (!merchantAccountUser) {
+      persistMerchantDraft();
+      setAuthRequired(true);
+      setMessage({ type: "error", text: "商家反馈需要登录后提交。草稿内容已暂存在当前标签页。" });
+      setLoading(false);
+      return;
+    }
 
     if (requiresImageEvidence && uploadedEvidence.length === 0) {
       setMessage({ type: "error", text: "这类高风险反馈需要至少上传 1 张图片证据，文字或链接只能作为补充。" });
@@ -2467,6 +2405,8 @@ export function MerchantFeedbackDialog({
         throw new Error(json.message || "商家反馈提交失败。");
       }
       setMessage({ type: "success", text: "已收到商家反馈，后台会先核验再决定是否进入前台摘要。" });
+      clearFeedbackDraft("merchant", merchant.id);
+      evidenceUpload.clear();
     } catch (currentError) {
       setMessage({ type: "error", text: currentError instanceof Error ? currentError.message : "商家反馈提交失败。" });
     } finally {
@@ -2475,16 +2415,27 @@ export function MerchantFeedbackDialog({
   }
 
   function buildLoginHref() {
-    const next = typeof window === "undefined" ? "/channels?scope=merchants" : `${window.location.pathname}${window.location.search}`;
-    return buildGoogleAuthHref(next);
+    return buildGoogleAuthHref(buildFeedbackResumePath("merchant", merchant.id));
+  }
+
+  function persistMerchantDraft() {
+    writeFeedbackDraft("merchant", merchant.id, {
+      reason,
+      purchaseStage,
+      userExpectedAction,
+      notes,
+      publicConsent,
+    });
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#202829]/35 px-4 py-4 sm:items-center">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-5 shadow-[0_24px_80px_rgba(32,40,41,0.22)]"
       >
         <div className="flex items-start justify-between gap-3">
@@ -2503,6 +2454,18 @@ export function MerchantFeedbackDialog({
         </div>
 
         <form onSubmit={submit} className="mt-4 space-y-3">
+          {merchantAccountLoaded && !merchantAccountUser ? (
+            <div className="rounded-lg border border-[#f1d6a8] bg-[#fff7e8] px-3 py-2 text-xs leading-5 text-[#7a541b]">
+              <p>商家反馈会进入账户记录并可能影响商家公开信号，需要先登录。登录后会恢复当前非敏感草稿。</p>
+              <Link
+                href={buildLoginHref()}
+                onClick={persistMerchantDraft}
+                className="mt-2 inline-flex h-8 items-center justify-center rounded-full bg-[#2d3435] px-3 font-semibold text-white"
+              >
+                登录后继续
+              </Link>
+            </div>
+          ) : null}
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-[#5a6061]">接触阶段</span>
             <select
@@ -2564,53 +2527,20 @@ export function MerchantFeedbackDialog({
               className="w-full resize-y rounded-lg border border-[#adb3b4]/40 bg-white px-3 py-2 text-sm outline-none transition focus:border-[#2d3435]"
             />
           </label>
-          <div className="rounded-lg border border-[#adb3b4]/25 bg-[#f7f9f9] px-3 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold text-[#2d3435]">图片证据{requiresImageEvidence ? "（必填）" : ""}</p>
-                <p className="mt-1 text-xs leading-5 text-[#5a6061]">
-                  {requiresImageEvidence ? "高风险反馈至少上传 1 张图片；" : ""}
-                  支持 PNG、JPG、WebP，单张 4MB 内。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingEvidence || uploadedEvidence.length >= FEEDBACK_EVIDENCE_MAX_IMAGES}
-                className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-white px-3 text-xs font-semibold text-[#2d3435] ring-1 ring-[#adb3b4]/30 transition hover:bg-[#eef1f1] disabled:opacity-60"
-              >
-                {uploadingEvidence ? <Loader2 size={14} className="animate-spin" /> : <ImageUp size={14} />}
-                上传图片
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                className="hidden"
-                onChange={handleFileInputChange}
-              />
-            </div>
-            {uploadedEvidence.length ? (
-              <div className="mt-3 grid gap-2">
-                {uploadedEvidence.map((item) => (
-                  <div key={item.url} className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 text-xs text-[#5a6061] ring-1 ring-[#adb3b4]/20">
-                    <span className="min-w-0 truncate">
-                      {item.name} · {formatFileSize(item.size)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setUploadedEvidence((current) => current.filter((evidence) => evidence.url !== item.url))}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#7a8587] transition hover:bg-[#f2f4f4] hover:text-[#9b3328]"
-                      aria-label={`移除图片证据 ${item.name}`}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <FeedbackEvidenceUploader
+            accountLoaded={merchantAccountLoaded}
+            canUpload={Boolean(merchantAccountUser)}
+            description={`${requiresImageEvidence ? "高风险反馈至少上传 1 张图片；" : ""}支持 PNG、JPG、WebP，单张 4MB 内。`}
+            failed={evidenceUpload.failed}
+            maxImages={FEEDBACK_EVIDENCE_MAX_IMAGES}
+            onRemoveFailed={evidenceUpload.removeFailed}
+            onRemoveUploaded={(reference) => void evidenceUpload.removeUploaded(reference)}
+            onRetryFailed={(id) => void evidenceUpload.retryFailed(id)}
+            onUpload={(files) => void evidenceUpload.uploadFiles(files)}
+            required={requiresImageEvidence}
+            uploaded={uploadedEvidence}
+            uploading={uploadingEvidence}
+          />
           <label className="hidden">
             Website
             <input tabIndex={-1} autoComplete="off" name="website" />
@@ -2645,6 +2575,7 @@ export function MerchantFeedbackDialog({
               {authRequired && message.type === "error" ? (
                 <Link
                   href={buildLoginHref()}
+                  onClick={persistMerchantDraft}
                   className="mt-2 inline-flex h-8 items-center justify-center rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-white transition hover:bg-[#202829]"
                 >
                   登录后提交
@@ -2784,12 +2715,6 @@ function feedbackSupportEscalationReminder(
     };
   }
   return null;
-}
-
-function formatFileSize(size: number): string {
-  if (!Number.isFinite(size) || size <= 0) return "未知大小";
-  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)}MB`;
-  return `${Math.max(1, Math.round(size / 1024))}KB`;
 }
 
 function isOfferAvailable(offer: RawOffer): boolean {

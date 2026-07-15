@@ -41,12 +41,14 @@ import type { ClipboardEvent, Dispatch, FormEvent, ReactNode, SetStateAction, UI
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiTransitAdminPanel, WholesaleAdminPanel, type ApiTransitAdminTab } from "@/components/ApiTransitAdminConsole";
 import { AdminShell, type AdminNavSection } from "@/components/admin/AdminShell";
+import { AdminPasswordPanel, type AdminPasswordDraft, type AdminPasswordStatus } from "@/components/admin/AdminPasswordPanel";
 import { AdminUsersPanel } from "@/components/admin/AdminUsersPanel";
 import { InfrastructureOverviewPanel } from "@/components/admin/InfrastructureOverviewPanel";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { formatBeijingDateTimeLocalValue, parseBeijingDateTimeLocalValue } from "@/lib/beijing-time";
 import { classifyOffer } from "@/lib/catalog";
 import { communityAssetDisplayUrl } from "@/lib/community-asset-url";
+import { safeExternalHttpUrl } from "@/lib/external-url";
 import { shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import {
   collectorKindLabel,
@@ -131,7 +133,6 @@ type SponsorSettings = AdminSummary["sponsorSettings"];
 type CommunitySettings = AdminSummary["communitySettings"];
 type SponsorPlacementKind = keyof SponsorSettings["placements"];
 type SponsorPlacementConfig = SponsorSettings["placements"][SponsorPlacementKind];
-type PasswordStatus = AdminSummary["passwordStatus"];
 type CollectorHealthData = AdminSummary["collectorHealth"];
 type CollectionMonitoringData = AdminSummary["collectionMonitoring"];
 type CollectorHealthSourceRow = CollectorHealthData["sources"][number];
@@ -144,11 +145,8 @@ type ApiModelEditablePayload = Record<string, unknown> & {
   target: ApiModelEditableTarget;
   id: string;
 };
-type PasswordDraft = {
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-};
+type PasswordStatus = AdminPasswordStatus;
+type PasswordDraft = AdminPasswordDraft;
 type BadgeTone = "default" | "info" | "warn" | "success" | "danger" | "muted";
 type CollectorStatusState = Pick<
   AdminCollectorStatus,
@@ -5561,98 +5559,6 @@ function RiskReviewSettingsPanel({
   );
 }
 
-function AdminPasswordPanel({
-  status,
-  draft,
-  loading,
-  onDraftChange,
-  onSubmit,
-}: {
-  status: PasswordStatus;
-  draft: PasswordDraft;
-  loading: boolean;
-  onDraftChange: Dispatch<SetStateAction<PasswordDraft>>;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <KeyRound size={15} className="text-[#5a6061]" />
-            <h3 className="text-sm font-semibold text-[#202829]">后台密码</h3>
-            <Badge tone={adminPasswordStatusTone(status)}>
-              {status.configured ? "已配置" : "未配置"}
-            </Badge>
-            <Badge tone={adminPasswordSourceTone(status.source)}>
-              来源：{adminPasswordSourceLabel(status.source)}
-            </Badge>
-          </div>
-          <p className="mt-1 max-w-[78ch] text-xs leading-5 text-[#5a6061]">
-            新密码会加盐哈希后保存；保存成功后旧后台会话失效，当前会话自动续签。
-          </p>
-          {status.message ? <p className="mt-1 text-xs text-[#7a541b]">{status.message}</p> : null}
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8a9293]">
-          <span>最短：{status.minLength} 位</span>
-          {status.updatedAt ? <span>更新：{formatRelativeTime(status.updatedAt)}</span> : <span>尚未在后台保存</span>}
-        </div>
-      </div>
-
-      <form className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_minmax(180px,1fr)_auto]" onSubmit={onSubmit}>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[#5a6061]">当前密码</span>
-          <input
-            value={draft.currentPassword}
-            onChange={(event) => onDraftChange((prev) => ({ ...prev, currentPassword: event.target.value }))}
-            type="password"
-            autoComplete="current-password"
-            className={adminInputClassName}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[#5a6061]">新密码</span>
-          <input
-            value={draft.newPassword}
-            onChange={(event) => onDraftChange((prev) => ({ ...prev, newPassword: event.target.value }))}
-            type="password"
-            autoComplete="new-password"
-            minLength={status.minLength}
-            className={adminInputClassName}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[#5a6061]">确认新密码</span>
-          <input
-            value={draft.confirmPassword}
-            onChange={(event) => onDraftChange((prev) => ({ ...prev, confirmPassword: event.target.value }))}
-            type="password"
-            autoComplete="new-password"
-            minLength={status.minLength}
-            className={adminInputClassName}
-          />
-        </label>
-        <div className="flex items-end">
-          <button
-            type="submit"
-            disabled={loading || !status.configured}
-            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-[#2d3435] px-4 text-xs font-medium text-white transition-colors hover:bg-[#202829] disabled:opacity-60 lg:w-auto"
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            保存
-          </button>
-        </div>
-      </form>
-
-      <div className="mt-4 grid gap-2 rounded-lg bg-[#f2f4f4] p-3 text-xs leading-5 text-[#5a6061] md:grid-cols-3">
-        <span>新密码至少包含字母、数字、符号中的两类。</span>
-        <span>环境变量 ADMIN_PASSWORD 可作为兜底入口。</span>
-        <span>采集任务继续使用 CRON_SECRET，不依赖后台密码。</span>
-      </div>
-    </section>
-  );
-}
-
 function CommunitySettingsPanel({
   settings,
   loading,
@@ -6512,23 +6418,6 @@ function riskReviewSettingSourceLabel(value: RiskReviewSettings["source"]): stri
   return "未配置";
 }
 
-function adminPasswordSourceLabel(value: PasswordStatus["source"]): string {
-  if (value === "database") return "后台配置";
-  if (value === "environment") return "环境变量";
-  return "未配置";
-}
-
-function adminPasswordSourceTone(value: PasswordStatus["source"]): BadgeTone {
-  if (value === "database") return "success";
-  if (value === "environment") return "info";
-  return "danger";
-}
-
-function adminPasswordStatusTone(status: PasswordStatus): BadgeTone {
-  if (!status.configured) return "danger";
-  return status.tableReady ? "success" : "warn";
-}
-
 function buildSponsorSettingsPayload(settings: SponsorSettings) {
   const placements = Object.fromEntries(
     Object.entries(settings.placements).map(([kind, placement]) => [kind, {
@@ -6781,9 +6670,14 @@ function FeedbackEvidenceLink({ url }: { url: string }) {
     );
   }
 
+  const href = safeExternalHttpUrl(url);
+  if (!href) {
+    return <span className="break-all text-xs text-[#8a9293]">无效或不受支持的证据链接</span>;
+  }
+
   return (
     <a
-      href={url}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex max-w-full items-center gap-1 break-all text-[#47657a] hover:text-[#2d3435]"

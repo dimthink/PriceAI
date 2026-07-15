@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
+import { DetectorReportShareControl } from "@/components/DetectorReportShareControl";
 import { getCurrentUser } from "@/lib/auth";
 import { buildGoogleAuthHref } from "@/lib/auth-paths";
 import { listUserDetectorJobs } from "@/lib/account";
@@ -33,7 +34,7 @@ export default async function AccountDetectorReportsPage() {
           <div>
             <p className="text-sm font-semibold text-[#5a6061]">账户中心</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-normal text-[#202829]">我的检测</h1>
-            <p className="mt-2 text-sm leading-6 text-[#5a6061]">模型检测任务会绑定到当前账号，公开报告仍可分享给未登录用户查看。</p>
+            <p className="mt-2 text-sm leading-6 text-[#5a6061]">模型检测任务会绑定到当前账号，报告默认仅你和后台可见。</p>
           </div>
           <Link href="/api-transit/detector" className="inline-flex h-10 items-center justify-center rounded-lg bg-[#202829] px-4 text-sm font-semibold text-white transition hover:bg-[#2d3435]">
             发起检测
@@ -78,11 +79,14 @@ export default async function AccountDetectorReportsPage() {
                         <td className="px-5 py-4 whitespace-nowrap text-[#5a6061]">{formatDate(job.submittedAt)}</td>
                         <td className="px-5 py-4 text-right">
                           {reportHref && job.status === "done" ? (
-                            <div className="flex justify-end gap-2">
-                              <Link href={reportHref} className="inline-flex h-9 items-center rounded-full bg-[#202829] px-4 text-xs font-semibold text-white">
-                                打开报告
-                              </Link>
-                            </div>
+                            <>
+                              <div className="flex justify-end gap-2">
+                                <Link href={reportHref} className="inline-flex h-9 items-center rounded-full bg-[#202829] px-4 text-xs font-semibold text-white">
+                                  打开报告
+                                </Link>
+                              </div>
+                              <DetectorReportShareControl jobId={job.id} />
+                            </>
                           ) : (
                             <span className="text-xs text-[#7a8284]">暂无报告</span>
                           )}
@@ -114,6 +118,7 @@ function protocolLabel(value: string) {
 
 function detectorStatusLabel(value: TransitDetectorJob["status"]) {
   if (value === "done") return "已完成";
+  if (value === "timed_out") return "已超时";
   if (value === "error") return "失败";
   if (value === "running") return "运行中";
   return "排队中";

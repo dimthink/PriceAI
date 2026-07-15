@@ -2,6 +2,7 @@
 
 import { type FormEvent, type ReactNode, useState } from "react";
 import { CheckCircle2, Loader2, RotateCcw, Send } from "lucide-react";
+import { safeExternalHttpUrl } from "@/lib/external-url";
 import type { FeedbackFollowup, OfferFeedback } from "@/lib/types";
 
 export function AccountFeedbackDetailClient({
@@ -132,9 +133,7 @@ export function AccountFeedbackDetailClient({
               {currentFeedback.evidenceUrls.length ? (
                 <div className="mt-2 space-y-1.5">
                   {currentFeedback.evidenceUrls.map((url) => (
-                    <a key={url} href={url.startsWith("http") ? url : undefined} target="_blank" rel="noreferrer" className="block break-all text-xs text-[#47657a]">
-                      {url}
-                    </a>
+                    <ExternalEvidenceLink key={url} url={url} />
                   ))}
                 </div>
               ) : null}
@@ -234,7 +233,7 @@ export function AccountFeedbackDetailClient({
                 {item.evidenceUrls.length ? (
                   <div className="mt-2 space-y-1">
                     {item.evidenceUrls.map((url) => (
-                      <a key={url} href={url} target="_blank" rel="noreferrer" className="block break-all text-xs text-[#47657a]">{url}</a>
+                      <ExternalEvidenceLink key={url} url={url} />
                     ))}
                   </div>
                 ) : null}
@@ -246,6 +245,18 @@ export function AccountFeedbackDetailClient({
         )}
       </section>
     </div>
+  );
+}
+
+function ExternalEvidenceLink({ url }: { url: string }) {
+  const href = safeExternalHttpUrl(url);
+  if (!href) {
+    return <span className="block break-all text-xs text-[#8a9293]">无效或不受支持的证据链接</span>;
+  }
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="block break-all text-xs text-[#47657a]">
+      {url}
+    </a>
   );
 }
 

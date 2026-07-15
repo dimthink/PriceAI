@@ -33,5 +33,10 @@ export default async function LoginPage({
 
 function loginErrorMessage(error?: string): string {
   if (error === "auth_config") return "登录服务尚未配置，请稍后再试。";
+  if (error === "oauth_cancelled") return "你已取消 Google 登录，当前页面和数据没有发生变化。";
+  if (error === "oauth_provider_failed") return "Google 没有完成授权，请返回原页面或重新登录。";
+  if (error === "callback_missing_code") return "登录回调缺少授权信息，请重新发起登录。";
+  if (error === "callback_exchange_failed") return "授权信息已失效或已被使用，请重新登录。";
+  if (error === "callback_network_failed") return "登录服务暂时无法连接，请检查网络后重试。";
   return "Google 登录启动失败，请稍后再试。";
 }

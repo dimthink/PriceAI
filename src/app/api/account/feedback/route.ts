@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { accountApiErrorResponse } from "@/lib/account-api-errors";
 import { noStoreCacheHeaders } from "@/lib/cache-headers";
 import { createUserFeedbackFollowup, feedbackFollowupSchema, listUserOfferFeedback } from "@/lib/account";
+import { isSameOriginMutation, sameOriginRequiredResponse } from "@/lib/request-origin";
 
 const postSchema = feedbackFollowupSchema.extend({
   feedbackId: z.string().trim().min(1).max(200),
@@ -15,14 +17,12 @@ export async function GET() {
     const feedback = await listUserOfferFeedback(user.id);
     return Response.json({ ok: true, feedback }, { headers: noStoreCacheHeaders() });
   } catch (error) {
-    return Response.json(
-      { ok: false, message: error instanceof Error ? error.message : "读取反馈失败。" },
-      { status: 500, headers: noStoreCacheHeaders() },
-    );
+    return accountApiErrorResponse(error, "读取反馈失败。");
   }
 }
 
 export async function POST(request: Request) {
+  if (!isSameOriginMutation(request)) return sameOriginRequiredResponse();
   const user = await getCurrentUser();
   if (!user) return authRequiredResponse();
 
@@ -36,7 +36,6 @@ export async function POST(request: Request) {
     });
     return Response.json({ ok: true, followup }, { headers: noStoreCacheHeaders() });
   } catch (error) {
-    const message = error instanceof z.ZodError ? error.issues[0]?.message || "补充内容格式不正确。" : error instanceof Error ? error.message : "补充反馈失败。";
-    return Response.json({ ok: false, message }, { status: 400, headers: noStoreCacheHeaders() });
+    return accountApiErrorResponse(error, "补充反馈失败。");
   }
 }

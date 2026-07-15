@@ -1,6 +1,7 @@
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
 import { noStoreCacheHeaders } from "@/lib/cache-headers";
 import { getUserOfferFeedback, listUserFeedbackFollowups } from "@/lib/account";
+import { accountApiErrorResponse } from "@/lib/account-api-errors";
 
 export async function GET(
   _request: Request,
@@ -21,9 +22,6 @@ export async function GET(
     const followups = await listUserFeedbackFollowups(user.id, feedbackId);
     return Response.json({ ok: true, feedback, followups }, { headers: noStoreCacheHeaders() });
   } catch (error) {
-    return Response.json(
-      { ok: false, message: error instanceof Error ? error.message : "读取反馈失败。" },
-      { status: 500, headers: noStoreCacheHeaders() },
-    );
+    return accountApiErrorResponse(error, "读取反馈失败。");
   }
 }

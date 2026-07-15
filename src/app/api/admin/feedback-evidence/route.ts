@@ -17,9 +17,11 @@ export async function GET(request: Request) {
     }
 
     const headers = new Headers({
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": "private, no-store, max-age=0",
       "Content-Type": evidence.contentType,
       "Content-Disposition": "inline",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "X-Content-Type-Options": "nosniff",
     });
     if (typeof evidence.size === "number") headers.set("Content-Length", String(evidence.size));
 

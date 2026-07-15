@@ -4,16 +4,16 @@ import { RouteErrorState } from "@/components/RouteErrorState";
 
 export default function ApiModelsError({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
   return (
     <RouteErrorState
       activeSection="api"
       error={error}
-      reset={reset}
+      reset={unstable_retry}
       title="官方 API 数据加载遇到问题"
       description="可以重试当前模型页，或先回到首页继续查看订阅和 API 入口。"
     />

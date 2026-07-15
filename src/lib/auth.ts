@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import type { User } from "@supabase/supabase-js";
+import { getAuthCookieOptions, getAuthCookieWriteOptions } from "@/lib/auth-cookie-options";
 import { noStoreCacheHeaders } from "@/lib/cache-headers";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 import { getSupabaseServerClient } from "@/lib/supabase";
@@ -27,6 +28,7 @@ export async function createSupabaseAuthServerClient() {
 
   const cookieStore = await cookies();
   return createServerClient(config.url, config.anonKey, {
+    cookieOptions: getAuthCookieOptions(),
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -34,7 +36,7 @@ export async function createSupabaseAuthServerClient() {
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value, options }) => {
           try {
-            cookieStore.set(name, value, options);
+            cookieStore.set(name, value, getAuthCookieWriteOptions(name, options));
           } catch {
             // Server Components can read auth cookies but cannot refresh them.
           }

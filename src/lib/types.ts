@@ -1137,7 +1137,7 @@ export type AdminUserDetail = {
   followups: FeedbackFollowup[];
 };
 
-export type TransitDetectorJobStatus = "queued" | "running" | "done" | "error";
+export type TransitDetectorJobStatus = "queued" | "running" | "done" | "error" | "timed_out";
 
 export type TransitDetectorJob = {
   id: string;
@@ -1156,6 +1156,9 @@ export type TransitDetectorJob = {
   jsonUrl: string | null;
   imageUrl: string | null;
   errorMessage: string | null;
+  leaseExpiresAt: string | null;
+  lastHeartbeatAt: string | null;
+  attemptCount: number;
   submittedAt: string;
   completedAt: string | null;
   updatedAt: string;

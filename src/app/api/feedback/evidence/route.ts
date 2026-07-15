@@ -1,26 +1,52 @@
 import { logApiError, safeApiErrorMessage } from "@/lib/api-errors";
-import { FEEDBACK_EVIDENCE_MAX_IMAGES, uploadFeedbackEvidenceImage } from "@/lib/feedback-evidence";
+import { getCurrentUser } from "@/lib/auth";
 import {
-  assertContentLengthWithinLimit,
-  getPublicClientFingerprint,
+  consumeFeedbackEvidenceUploadQuota,
+  deleteFeedbackEvidenceDraft,
+  FEEDBACK_EVIDENCE_MAX_IMAGES,
+  uploadFeedbackEvidenceImage,
+} from "@/lib/feedback-evidence";
+import {
   getPublicRequestErrorStatus,
   PUBLIC_FORM_BODY_MAX_BYTES,
+  readFormDataWithLimit,
 } from "@/lib/public-request";
+import { isSameOriginMutation, sameOriginRequiredResponse } from "@/lib/request-origin";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const RATE_LIMIT_MAX_UPLOADS = 30;
-const uploadCounters = new Map<string, { count: number; resetAt: number }>();
 
 export async function POST(request: Request) {
-  try {
-    assertContentLengthWithinLimit(request, PUBLIC_FORM_BODY_MAX_BYTES, "图片上传内容");
-    const clientIp = getPublicClientFingerprint(request);
-    checkUploadRateLimit(clientIp);
+  if (!isSameOriginMutation(request)) return sameOriginRequiredResponse();
+  const user = await getCurrentUser();
+  if (!user) {
+    return Response.json(
+      { ok: false, code: "auth_required", message: "登录后才能上传图片证据；低风险文字纠错仍可匿名提交。" },
+      { status: 401, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
+  }
 
-    const formData = await request.formData();
+  try {
+    const quota = await consumeFeedbackEvidenceUploadQuota({
+      userId: user.id,
+      maxUploads: RATE_LIMIT_MAX_UPLOADS,
+    });
+    if (!quota.allowed) {
+      return Response.json(
+        { ok: false, code: "rate_limited", message: "图片上传过于频繁，请稍后再试。" },
+        {
+          status: 429,
+          headers: {
+            "Cache-Control": "no-store, max-age=0",
+            "Retry-After": String(Math.max(1, quota.retryAfterSeconds)),
+          },
+        },
+      );
+    }
+
+    const formData = await readFormDataWithLimit(request, PUBLIC_FORM_BODY_MAX_BYTES);
     if (formData.get("website")) {
       return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
@@ -30,7 +56,9 @@ export async function POST(request: Request) {
       return Response.json({ ok: false, message: "缺少图片文件。" }, { status: 400 });
     }
 
-    const evidence = await uploadFeedbackEvidenceImage(file);
+    const draftId = String(formData.get("draftId") || "").trim();
+
+    const evidence = await uploadFeedbackEvidenceImage(file, { userId: user.id, draftId });
     return Response.json(
       {
         ok: true,
@@ -59,27 +87,30 @@ export async function POST(request: Request) {
   }
 }
 
-function checkUploadRateLimit(key: string): void {
-  const now = Date.now();
-  const current = uploadCounters.get(key);
-
-  if (!current || current.resetAt <= now) {
-    uploadCounters.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    pruneUploadCounters(now);
-    return;
+export async function DELETE(request: Request) {
+  if (!isSameOriginMutation(request)) return sameOriginRequiredResponse();
+  const user = await getCurrentUser();
+  if (!user) {
+    return Response.json(
+      { ok: false, code: "auth_required", message: "登录后才能删除图片证据草稿。" },
+      { status: 401, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
   }
 
-  if (current.count >= RATE_LIMIT_MAX_UPLOADS) {
-    throw new Error("图片上传过于频繁，请稍后再试。");
-  }
-
-  current.count += 1;
-}
-
-function pruneUploadCounters(now: number): void {
-  if (uploadCounters.size <= 1000) return;
-  for (const [key, value] of uploadCounters) {
-    if (value.resetAt <= now) uploadCounters.delete(key);
+  try {
+    const body = await request.json().catch(() => null) as { reference?: unknown } | null;
+    const reference = typeof body?.reference === "string" ? body.reference.trim() : "";
+    if (!reference) {
+      return Response.json({ ok: false, message: "缺少图片证据引用。" }, { status: 400 });
+    }
+    await deleteFeedbackEvidenceDraft(reference, user.id);
+    return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+  } catch (error) {
+    logApiError("feedback evidence delete", error);
+    return Response.json(
+      { ok: false, message: safeApiErrorMessage(error, "图片证据删除失败，请稍后再试。") },
+      { status: getErrorStatus(error), headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
   }
 }
 
@@ -87,6 +118,7 @@ function getErrorStatus(error: unknown): number {
   const publicRequestStatus = getPublicRequestErrorStatus(error);
   if (publicRequestStatus) return publicRequestStatus;
   if (!(error instanceof Error)) return 500;
+  if (/登录/.test(error.message)) return 401;
   if (/缺少|无效|不支持|超过|过于频繁/.test(error.message)) return 400;
   if (/尚未配置|暂不可用/.test(error.message)) return 503;
   return 500;

@@ -5,6 +5,7 @@ import {
   closePendingTransientOfferFeedback,
   runPendingTransientFeedbackEscalations,
 } from "@/lib/feedback-auto-verification";
+import { cleanupExpiredFeedbackEvidenceDrafts } from "@/lib/feedback-evidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,12 @@ export async function POST(request: Request) {
   try {
     const closeup = await closePendingTransientOfferFeedback({ limit });
     const escalation = await runPendingTransientFeedbackEscalations({ limit });
+    const evidenceCleanup = await cleanupExpiredFeedbackEvidenceDrafts(Math.min(limit, 200)).catch((error) => ({
+      candidates: 0,
+      deleted: 0,
+      failed: 0,
+      error: error instanceof Error ? error.message : "图片草稿清理失败。",
+    }));
     const snapshotScope = mergeSnapshotScopes(closeup.snapshotScope, escalation.snapshotScope);
     const snapshotRefreshQueued = snapshotScope
       ? await markPublicApiSnapshotsDirty("cron feedback closeup", snapshotScope)
@@ -39,6 +46,7 @@ export async function POST(request: Request) {
       limit,
       closeup,
       escalation,
+      evidenceCleanup,
       snapshotRefreshQueued,
     });
   } catch (error) {

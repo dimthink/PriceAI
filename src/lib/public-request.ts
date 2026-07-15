@@ -37,6 +37,50 @@ export async function readJsonWithLimit<T = unknown>(
   }
 }
 
+export async function readFormDataWithLimit(
+  request: Request,
+  maxBytes = PUBLIC_FORM_BODY_MAX_BYTES,
+): Promise<FormData> {
+  assertContentLengthWithinLimit(request, maxBytes, "上传内容");
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
+    throw new PublicRequestError("上传内容必须使用 multipart/form-data。", 400);
+  }
+  if (!request.body) throw new PublicRequestError("上传内容为空。", 400);
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new PublicRequestError("上传内容过大，请删减后再试。", 413);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return await new Response(body, { headers: { "Content-Type": contentType } }).formData();
+  } catch {
+    throw new PublicRequestError("上传内容无法解析。", 400);
+  }
+}
+
 export function assertContentLengthWithinLimit(
   request: Request,
   maxBytes: number,
