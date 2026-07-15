@@ -241,7 +241,7 @@ function getRequiredSupabase(): SupabaseClient {
   return supabase;
 }
 
-function mapAccountOfferFeedbackRow(row: Record<string, unknown>): OfferFeedback {
+export function mapAccountOfferFeedbackRow(row: Record<string, unknown>): OfferFeedback {
   return {
     id: String(row.id),
     feedbackScope: row.feedback_scope === "merchant" ? "merchant" : "offer",
@@ -294,7 +294,7 @@ function normalizeFeedbackPublicStatus(value: unknown): OfferFeedback["publicSta
   return "not_public";
 }
 
-function mapFeedbackFollowupRow(row: Record<string, unknown>): FeedbackFollowup {
+export function mapFeedbackFollowupRow(row: Record<string, unknown>): FeedbackFollowup {
   return {
     id: String(row.id),
     feedbackId: String(row.feedback_id),
@@ -306,7 +306,7 @@ function mapFeedbackFollowupRow(row: Record<string, unknown>): FeedbackFollowup 
   };
 }
 
-function mapDetectorJobRow(row: Record<string, unknown>): TransitDetectorJob {
+export function mapDetectorJobRow(row: Record<string, unknown>): TransitDetectorJob {
   return {
     id: String(row.id),
     userId: String(row.user_id),

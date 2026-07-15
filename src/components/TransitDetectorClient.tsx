@@ -55,6 +55,8 @@ interface DetectorStatusPayload {
   status?: "queued" | "running" | "done" | "error";
   status_url?: string;
   result_url?: string;
+  report_url?: string;
+  local_job_id?: string;
   error?: string | DetectorErrorDetail;
   detail?: string | DetectorErrorDetail | DetectorValidationError[];
 }
@@ -441,7 +443,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
       }
 
       if (data.status === "done") {
-        const nextResultUrl = data.job_id ? buildPriceAiDetectorReportHref(data.job_id) : "";
+        const nextResultUrl = data.report_url || (data.local_job_id ? buildPriceAiDetectorReportHref(data.local_job_id) : "");
         if (runIdRef.current !== runId) return;
         setTaskStatus("done");
         updateResult(localId, {
@@ -549,6 +551,7 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
       updateResult(localId, {
         jobId: data.job_id,
         statusUrl: data.status_url,
+        resultUrl: data.report_url,
         status: "running",
         message: "检测运行中，通常需要 30 到 90 秒。",
       });

@@ -25,8 +25,6 @@ export default async function AccountDetectorReportsPage() {
     errorMessage = error instanceof Error ? error.message : "读取检测记录失败。";
   }
 
-  const detectorServiceUrl = process.env.NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL?.trim().replace(/\/$/, "") || "";
-
   return (
     <main className="min-h-screen bg-[#f7f9f9]">
       <SiteHeader activeSection="transit" />
@@ -62,8 +60,7 @@ export default async function AccountDetectorReportsPage() {
                 </thead>
                 <tbody className="divide-y divide-[#edf0f1]">
                   {jobs.map((job) => {
-                    const reportHref = job.detectorJobId ? buildPriceAiDetectorReportHref(job.detectorJobId) : "";
-                    const jsonHref = buildDetectorJsonHref(detectorServiceUrl, job.jsonUrl);
+                    const reportHref = buildPriceAiDetectorReportHref(job.id);
                     return (
                       <tr key={job.id}>
                         <td className="px-5 py-4">
@@ -82,11 +79,6 @@ export default async function AccountDetectorReportsPage() {
                         <td className="px-5 py-4 text-right">
                           {reportHref && job.status === "done" ? (
                             <div className="flex justify-end gap-2">
-                              {jsonHref ? (
-                                <a href={jsonHref} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-full bg-[#f2f4f4] px-3 text-xs font-semibold text-[#2d3435]">
-                                  JSON
-                                </a>
-                              ) : null}
                               <Link href={reportHref} className="inline-flex h-9 items-center rounded-full bg-[#202829] px-4 text-xs font-semibold text-white">
                                 打开报告
                               </Link>
@@ -125,15 +117,6 @@ function detectorStatusLabel(value: TransitDetectorJob["status"]) {
   if (value === "error") return "失败";
   if (value === "running") return "运行中";
   return "排队中";
-}
-
-function buildDetectorJsonHref(detectorServiceUrl: string, jsonUrl: string | null) {
-  if (!jsonUrl) return "";
-  if (/^https?:\/\//i.test(jsonUrl)) return jsonUrl;
-  if (!detectorServiceUrl) return "";
-  const baseUrl = detectorServiceUrl.replace(/\/$/, "");
-  const path = jsonUrl.startsWith("/") ? jsonUrl : `/${jsonUrl}`;
-  return `${baseUrl}${path}`;
 }
 
 function formatDate(value: string) {

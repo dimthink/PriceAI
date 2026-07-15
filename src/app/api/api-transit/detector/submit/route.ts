@@ -117,9 +117,11 @@ export async function POST(request: Request) {
       {
         ok: true,
         localJobId,
+        local_job_id: localJobId,
         job_id: data.job_id,
         status: data.status || "queued",
         status_url: `/api/api-transit/detector/status/${encodeURIComponent(localJobId)}`,
+        report_url: `/api-transit/detector/reports/${encodeURIComponent(localJobId)}`,
       },
       { headers: noStoreCacheHeaders() },
     );

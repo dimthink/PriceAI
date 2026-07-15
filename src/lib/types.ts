@@ -1029,6 +1029,51 @@ export type FeedbackFollowup = {
   createdAt: string;
 };
 
+export type PublicUserProfile = {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  provider: string;
+  lastSignInAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminUserMetrics = {
+  totalUsers: number;
+  newUsers24h: number;
+  feedbackUsers: number;
+  detectorUsers: number;
+  openFeedbackUsers: number;
+  activeDetectorJobs: number;
+};
+
+export type AdminUserSummary = PublicUserProfile & {
+  feedbackCount: number;
+  openFeedbackCount: number;
+  withdrawnFeedbackCount: number;
+  detectorJobCount: number;
+  completedDetectorJobCount: number;
+  failedDetectorJobCount: number;
+  lastActivityAt: string | null;
+};
+
+export type AdminUserListResult = {
+  users: AdminUserSummary[];
+  metrics: AdminUserMetrics;
+  total: number;
+  query: string;
+};
+
+export type AdminUserDetail = {
+  profile: PublicUserProfile;
+  summary: AdminUserSummary;
+  feedback: OfferFeedback[];
+  detectorJobs: TransitDetectorJob[];
+  followups: FeedbackFollowup[];
+};
+
 export type TransitDetectorJobStatus = "queued" | "running" | "done" | "error";
 
 export type TransitDetectorJob = {

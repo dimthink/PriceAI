@@ -47,7 +47,15 @@ export async function GET(_request: Request, context: RouteContext<"/api/api-tra
     errorMessage: payload.error || null,
   });
 
-  return Response.json({ ok: true, ...payload }, { headers: noStoreCacheHeaders() });
+  return Response.json(
+    {
+      ok: true,
+      ...payload,
+      local_job_id: jobId,
+      report_url: `/api-transit/detector/reports/${encodeURIComponent(jobId)}`,
+    },
+    { headers: noStoreCacheHeaders() },
+  );
 }
 
 type DetectorStatusResponse = {

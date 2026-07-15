@@ -33,6 +33,7 @@ import {
   ArrowUp,
   TerminalSquare,
   X,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -40,6 +41,7 @@ import type { ClipboardEvent, Dispatch, FormEvent, ReactNode, SetStateAction, UI
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiTransitAdminPanel, WholesaleAdminPanel, type ApiTransitAdminTab } from "@/components/ApiTransitAdminConsole";
 import { AdminShell, type AdminNavSection } from "@/components/admin/AdminShell";
+import { AdminUsersPanel } from "@/components/admin/AdminUsersPanel";
 import { InfrastructureOverviewPanel } from "@/components/admin/InfrastructureOverviewPanel";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { formatBeijingDateTimeLocalValue, parseBeijingDateTimeLocalValue } from "@/lib/beijing-time";
@@ -277,6 +279,7 @@ type ApiModelProbeResult = {
 const adminTabValues = [
   "review",
   "todo",
+  "users",
   "feedback",
   "community",
   "sponsors",
@@ -1067,6 +1070,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         items: [
           { id: "review", label: "渠道提交", count: reviewSubmissions.length, icon: <Inbox size={15} />, description: "处理用户提交的新渠道，支持试采集、通过、转待办和拒绝。" },
           { id: "feedback", label: "反馈处理", count: pendingFeedbackCount, icon: <Flag size={15} />, description: "处理报价举报和站点意见，沉淀核验结果与临时处置。" },
+          { id: "users", label: "用户管理", count: null, icon: <Users size={15} />, description: "查看登录用户、反馈、检测记录和账户沟通闭环。" },
           { id: "community", label: "社群入口", count: activeCommunityChannelCount(communitySettings) || null, icon: <MessageCircle size={15} />, description: "配置 QQ 群、加群二维码和 Telegram 入口。" },
           { id: "sponsors", label: "赞助审核", count: sponsorSettings.enabled ? activeSponsorPlacementCount(sponsorSettings) || null : null, icon: <Megaphone size={15} />, description: "管理赞助素材、披露文案和前台展示状态。" },
         ],
@@ -1934,6 +1938,33 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     } else {
       showRowFeedback(feedback.id, "error", result.message || "处理反馈失败。");
     }
+  }
+
+  async function requestFeedbackFollowup(feedback: OfferFeedback) {
+    if (!feedback.userId) {
+      showRowFeedback(feedback.id, "error", "这条反馈没有绑定登录用户，不能通过账户中心沟通。");
+      return;
+    }
+
+    const message = window.prompt(
+      "给用户发送补充说明，用户会在「我的反馈」详情里看到。",
+      "请补充更多证据或说明，方便 PriceAI 继续核验这条反馈。",
+    );
+    if (!message?.trim()) return;
+
+    setLoadingAction(`feedback-followup-${feedback.id}`);
+    const result = await requestWithMethod("/api/admin/feedback-followups", "POST", password, {
+      feedbackId: feedback.id,
+      message,
+    });
+    setLoadingAction(null);
+
+    if (result.ok) {
+      showRowFeedback(feedback.id, "success", "已发送补充说明，用户可在反馈详情里查看。");
+      return;
+    }
+
+    showRowFeedback(feedback.id, "error", result.message || "发送补充说明失败。");
   }
 
   async function updateFeedbackVerification(
@@ -3331,6 +3362,13 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
             )}
 
             {/* Feedback tab */}
+            {activeTab === "users" && (
+              <div role="tabpanel" id="tabpanel-users">
+                <AdminUsersPanel />
+              </div>
+            )}
+
+            {/* Feedback tab */}
             {activeTab === "feedback" && (
               <div role="tabpanel" id="tabpanel-feedback">
                 <RiskReviewSettingsPanel
@@ -3530,6 +3568,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                       onRiskPrecheck={runFeedbackRiskPrecheck}
                       onRiskVisibility={updateFeedbackRiskVisibility}
                       onUpdateVerification={updateFeedbackVerification}
+                      onRequestFollowup={requestFeedbackFollowup}
                       onResolve={(item) => updateFeedbackStatus(item, "resolved", "已人工确认处理")}
                       onIgnore={(item) => updateFeedbackStatus(item, "ignored", "已忽略")}
                     />
@@ -4755,6 +4794,7 @@ function OfferFeedbackList({
   onRiskPrecheck,
   onRiskVisibility,
   onUpdateVerification,
+  onRequestFollowup,
   onResolve,
   onIgnore,
 }: {
@@ -4780,6 +4820,7 @@ function OfferFeedbackList({
     verificationResult: OfferFeedback["verificationResult"],
     verificationMessage: string,
   ) => void;
+  onRequestFollowup: (feedback: OfferFeedback) => void;
   onResolve: (feedback: OfferFeedback) => void;
   onIgnore: (feedback: OfferFeedback) => void;
 }) {
@@ -4829,6 +4870,7 @@ function OfferFeedbackList({
         const riskHideLoading = loadingAction === `feedback-risk-visibility-hide_public-${item.id}`;
         const riskExpandLoading = loadingAction === `feedback-risk-visibility-expand_source-${item.id}`;
         const verificationLoading = loadingAction === `feedback-verification-${item.id}`;
+        const followupLoading = loadingAction === `feedback-followup-${item.id}`;
         const resolveLoading = loadingAction === `feedback-resolved-${item.id}`;
         const ignoreLoading = loadingAction === `feedback-ignored-${item.id}`;
         const rowState = rowFeedback?.id === item.id ? rowFeedback : null;
@@ -5186,6 +5228,16 @@ function OfferFeedbackList({
                       转人工
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    disabled={!item.userId || followupLoading}
+                    onClick={() => onRequestFollowup(item)}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#47657a]/20 bg-white px-3 text-xs font-medium text-[#47657a] transition-colors hover:bg-[#eef3f8] disabled:opacity-60"
+                    title={item.userId ? "向用户发送补充说明" : "匿名反馈不能通过账户中心沟通"}
+                  >
+                    {followupLoading ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
+                    请求补充
+                  </button>
                   <button
                     type="button"
                     disabled={resolveLoading}
