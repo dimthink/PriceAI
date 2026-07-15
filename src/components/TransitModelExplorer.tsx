@@ -14,6 +14,9 @@ import { TransitAvailabilityStrip } from "@/components/TransitAvailabilityStrip"
 import { TransitModelIcon } from "@/components/TransitModelIcon";
 import { TransitPriceBreakdown } from "@/components/TransitPriceBreakdown";
 import { TransitViewTabs } from "@/components/TransitViewTabs";
+import { useDebouncedValue } from "@/lib/client-hooks";
+import { shouldHandleListDetailClick } from "@/lib/list-return";
+import { saveCurrentListScrollPosition, useListScrollRestoration } from "@/lib/list-scroll-restoration";
 import { formatDateMinute } from "@/lib/utils";
 import type { TransitModelFamily, TransitStation } from "@/data/api-transit/types";
 import {
@@ -64,11 +67,12 @@ interface Props {
 }
 
 export default function TransitModelExplorer({ stations }: Props) {
-  const router = useRouter();
+  useListScrollRestoration();
   const searchParams = useSearchParams();
   const [urlReady, setUrlReady] = useState(false);
   const family = coerceFamily(searchParams.get("family") ?? searchParams.get("model"));
   const [query, setQuery] = useState(searchParams.get("q") || "");
+  const debouncedQuery = useDebouncedValue(query, 250);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setUrlReady(true), 60);
@@ -80,11 +84,16 @@ export default function TransitModelExplorer({ stations }: Props) {
 
     const params = new URLSearchParams();
     if (family !== "all") params.set("family", family);
-    if (query) params.set("q", query);
+    if (debouncedQuery) params.set("q", debouncedQuery);
     const qs = params.toString();
 
-    router.replace(qs ? `/api-transit/models?${qs}` : "/api-transit/models", { scroll: false });
-  }, [family, query, router, urlReady]);
+    const nextUrl = qs ? `/api-transit/models?${qs}` : "/api-transit/models";
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+    if (currentUrl === nextUrl) return;
+
+    window.history.replaceState(null, "", nextUrl);
+  }, [debouncedQuery, family, urlReady]);
 
   const modelSummaries = useMemo(() => {
     const summaries = getTransitModelSummaries(stations, family);
@@ -396,6 +405,7 @@ function ModelExpandedEntryRow({ entry }: { entry: TransitModelPriceEntry }) {
   const stationHref = `/api-transit/${entry.station.slug}`;
 
   function navigateToStation() {
+    saveCurrentListScrollPosition();
     router.push(stationHref);
   }
 
@@ -417,7 +427,10 @@ function ModelExpandedEntryRow({ entry }: { entry: TransitModelPriceEntry }) {
       <td className="min-w-0 px-3 py-3">
         <Link
           href={stationHref}
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (shouldHandleListDetailClick(event)) saveCurrentListScrollPosition();
+          }}
           className="block truncate font-semibold text-[#202829] transition-colors hover:text-[#2f7a4b]"
         >
           {entry.station.name}
@@ -614,6 +627,7 @@ function ModelMobileExpandedPanel({ summary, stationId }: { summary: TransitMode
   const router = useRouter();
 
   function navigateToStation(slug: string) {
+    saveCurrentListScrollPosition();
     router.push(`/api-transit/${slug}`);
   }
 

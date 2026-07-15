@@ -15,7 +15,9 @@ import {
 import { TransitAvailabilityStrip } from "@/components/TransitAvailabilityStrip";
 import { TransitStationSystemIcon } from "@/components/TransitStationSystemIcon";
 import { TransitViewTabs } from "@/components/TransitViewTabs";
-import { listDetailNavigationHref } from "@/lib/list-return";
+import { useDebouncedValue } from "@/lib/client-hooks";
+import { listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
+import { saveCurrentListScrollPosition, useListScrollRestoration } from "@/lib/list-scroll-restoration";
 import { formatDateMinute, formatDateShortMinute } from "@/lib/utils";
 import type {
   TransitAccountPool,
@@ -119,11 +121,13 @@ interface Props {
 }
 
 export default function TransitStationExplorer({ stations, rankingReferenceAt }: Props) {
+  useListScrollRestoration();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [urlReady, setUrlReady] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [search, setSearch] = useState(searchParams.get("q") || "");
+  const debouncedSearch = useDebouncedValue(search, 250);
   const rawModelParam = searchParams.get("model");
   const modelFilter = coerceParam(
     rawModelParam,
@@ -156,7 +160,7 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
     if (!urlReady) return;
 
     const params = new URLSearchParams();
-    if (search) params.set("q", search);
+    if (debouncedSearch) params.set("q", debouncedSearch);
     if (modelFilter !== "all") params.set("model", modelFilter);
     if (familyFilter !== "all") params.set("family", familyFilter);
     if (channelFilter !== "all") params.set("channel", channelFilter);
@@ -164,8 +168,13 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
     if (sortBy !== "overall") params.set("sort", sortBy);
 
     const query = params.toString();
-    router.replace(query ? `/api-transit?${query}` : "/api-transit", { scroll: false });
-  }, [channelFilter, familyFilter, modelFilter, poolFilter, router, search, sortBy, urlReady]);
+    const nextUrl = query ? `/api-transit?${query}` : "/api-transit";
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+    if (currentUrl === nextUrl) return;
+
+    window.history.replaceState(null, "", nextUrl);
+  }, [channelFilter, debouncedSearch, familyFilter, modelFilter, poolFilter, sortBy, urlReady]);
 
   const filtered = useMemo(() => {
     let result = [...stations];
@@ -236,6 +245,7 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
 
   const navigateToStation = useCallback(
     (href: string) => {
+      saveCurrentListScrollPosition();
       router.push(href);
     },
     [router]
@@ -643,7 +653,10 @@ function StationRow({
         <Link
           href={href}
           prefetch={false}
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (shouldHandleListDetailClick(event)) saveCurrentListScrollPosition();
+          }}
           onFocus={onWarm}
           onMouseEnter={onWarm}
           className="inline-flex h-9 min-w-[76px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
