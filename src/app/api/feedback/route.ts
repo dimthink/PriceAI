@@ -9,7 +9,11 @@ import {
   runOfferFeedbackAutoVerification,
   runOfferFeedbackMultiFeedbackEscalation,
 } from "@/lib/feedback-auto-verification";
-import { isFeedbackEvidenceReference } from "@/lib/feedback-evidence";
+import {
+  assertFeedbackEvidenceOwnership,
+  bindFeedbackEvidenceReferences,
+  isFeedbackEvidenceReference,
+} from "@/lib/feedback-evidence";
 import {
   checkPublicWriteRateLimit,
   getPublicClientFingerprint,
@@ -18,6 +22,7 @@ import {
 } from "@/lib/public-request";
 import { feedbackRequiresContact, HIGH_RISK_FEEDBACK_REASONS, MODEL_PRECHECK_FEEDBACK_REASONS, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import { offerFeedbackReasonValues } from "@/lib/types";
+import { getSupabaseServerClient } from "@/lib/supabase";
 
 const PUBLIC_OFFER_FEEDBACK_RATE_LIMIT_PER_HOUR = 20;
 const reasonSchema = z.enum(offerFeedbackReasonValues);
@@ -97,12 +102,21 @@ export async function POST(request: Request) {
     }
 
     const user = await getCurrentUser();
-    if (HIGH_RISK_FEEDBACK_REASONS.has(payload.reason) && !user) {
+    if ((feedbackScope === "merchant" || HIGH_RISK_FEEDBACK_REASONS.has(payload.reason)) && !user) {
       return Response.json(
         { ok: false, code: "auth_required", message: "这类反馈可能影响公开展示和商家声誉，需要登录后提交。" },
         { status: 401, headers: noStoreCacheHeaders() },
       );
     }
+    const evidenceUrls = payload.evidenceUrls || [];
+    const hasManagedEvidence = evidenceUrls.some((value) => value.startsWith("r2://feedback-evidence/feedback-drafts/"));
+    if (hasManagedEvidence && !user) {
+      return Response.json(
+        { ok: false, code: "auth_required", message: "登录后才能提交已上传的图片证据。" },
+        { status: 401, headers: noStoreCacheHeaders() },
+      );
+    }
+    if (user) await assertFeedbackEvidenceOwnership(evidenceUrls, user.id);
 
     if (feedbackRequiresContact(payload.reason) && !payload.contact?.trim()) {
       return Response.json(
@@ -111,7 +125,9 @@ export async function POST(request: Request) {
       );
     }
 
+    const feedbackId = crypto.randomUUID();
     const result = await createOfferFeedback({
+      id: feedbackId,
       feedbackScope,
       publicStatus: payload.publicConsent === false ? "not_public" : undefined,
       productId: payload.productId || null,
@@ -131,7 +147,7 @@ export async function POST(request: Request) {
       reason: payload.reason,
       userExpectedAction: payload.userExpectedAction || "unsure",
       evidenceText: payload.evidenceText || null,
-      evidenceUrls: payload.evidenceUrls || [],
+      evidenceUrls,
       notes: payload.notes || null,
       contact: payload.contact || null,
       submitterIp,
@@ -139,6 +155,15 @@ export async function POST(request: Request) {
       userEmail: user?.email || null,
       userDisplayName: user?.displayName || null,
     });
+
+    if (user && hasManagedEvidence) {
+      try {
+        await bindFeedbackEvidenceReferences({ references: evidenceUrls, userId: user.id, feedbackId: result.id });
+      } catch (bindError) {
+        await getSupabaseServerClient()?.from("offer_feedback").delete().eq("id", result.id);
+        throw bindError;
+      }
+    }
 
     after(async () => {
       try {

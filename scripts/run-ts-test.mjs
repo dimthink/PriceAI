@@ -57,7 +57,14 @@ try {
   await rewriteAliases(compiledEntry);
   await rewriteAliases(path.join(outDir, "src", "lib", "api-transit.js"));
 
-  const run = spawnSync(process.execPath, [compiledEntry], { cwd: repoRoot, stdio: "inherit" });
+  const nodePath = [path.join(repoRoot, "node_modules"), process.env.NODE_PATH]
+    .filter(Boolean)
+    .join(path.delimiter);
+  const run = spawnSync(process.execPath, [compiledEntry], {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: { ...process.env, NODE_PATH: nodePath },
+  });
   process.exitCode = run.status || 0;
 } finally {
   await rm(tempDir, { recursive: true, force: true });

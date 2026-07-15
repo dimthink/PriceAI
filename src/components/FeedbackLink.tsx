@@ -12,12 +12,13 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { communityAssetDisplayUrl } from "@/lib/community-asset-url";
 import { useCommunitySettings } from "@/lib/community-settings-client";
 import type { CommunitySettingsSummary } from "@/lib/community-settings-shared";
 import { supportPagePath } from "@/lib/support";
+import { useDialogFocus } from "@/lib/use-dialog-focus";
 
 const githubUrl = "https://github.com/physics-dimension/PriceAI";
 
@@ -199,17 +200,11 @@ export function QQGroupDialog({
   const loadedSettings = useCommunitySettings();
   const settings = providedSettings || loadedSettings;
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const [copied, setCopied] = useState(false);
   const qrCodeUrl = communityAssetDisplayUrl(settings.qqGroupQrCodeUrl) || settings.qqGroupQrCodeUrl;
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  useDialogFocus({ dialogRef, onClose });
 
   async function copyGroupNumber() {
     try {
@@ -225,10 +220,12 @@ export function QQGroupDialog({
 
   return createPortal(
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-[110] overflow-y-auto bg-[#202829]/35 px-3 py-4 backdrop-blur-sm sm:px-5 sm:py-8"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      tabIndex={-1}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -445,6 +442,7 @@ export function FeedbackDialog({
   typeOptions = feedbackTypes,
 }: FeedbackDialogProps) {
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const [type, setType] = useState<FeedbackType>(initialType);
   const [selectedTypeId, setSelectedTypeId] = useState(() => getInitialFeedbackOptionId(typeOptions, initialType));
   const [message, setMessage] = useState("");
@@ -454,14 +452,7 @@ export function FeedbackDialog({
   const [result, setResult] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const selectedOption = typeOptions.find((option) => feedbackOptionKey(option) === selectedTypeId);
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  useDialogFocus({ dialogRef, onClose });
 
   async function submitFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -502,10 +493,12 @@ export function FeedbackDialog({
 
   return createPortal(
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-[100] overflow-y-auto bg-[#202829]/35 px-3 py-4 backdrop-blur-sm sm:px-5 sm:py-8"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      tabIndex={-1}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}

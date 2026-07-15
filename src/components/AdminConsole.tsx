@@ -41,12 +41,14 @@ import type { ClipboardEvent, Dispatch, FormEvent, ReactNode, SetStateAction, UI
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiTransitAdminPanel, WholesaleAdminPanel, type ApiTransitAdminTab } from "@/components/ApiTransitAdminConsole";
 import { AdminShell, type AdminNavSection } from "@/components/admin/AdminShell";
+import { AdminPasswordPanel, type AdminPasswordDraft, type AdminPasswordStatus } from "@/components/admin/AdminPasswordPanel";
 import { AdminUsersPanel } from "@/components/admin/AdminUsersPanel";
 import { InfrastructureOverviewPanel } from "@/components/admin/InfrastructureOverviewPanel";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { formatBeijingDateTimeLocalValue, parseBeijingDateTimeLocalValue } from "@/lib/beijing-time";
 import { classifyOffer } from "@/lib/catalog";
 import { communityAssetDisplayUrl } from "@/lib/community-asset-url";
+import { safeExternalHttpUrl } from "@/lib/external-url";
 import { shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import {
   collectorKindLabel,
@@ -80,6 +82,9 @@ import type {
   SiteFeedbackStatus,
   Source,
   SourceOfferStats,
+  SourceQualityQueueKind,
+  SourceQualitySource,
+  SourceQualitySummary,
 } from "@/lib/types";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -128,7 +133,6 @@ type SponsorSettings = AdminSummary["sponsorSettings"];
 type CommunitySettings = AdminSummary["communitySettings"];
 type SponsorPlacementKind = keyof SponsorSettings["placements"];
 type SponsorPlacementConfig = SponsorSettings["placements"][SponsorPlacementKind];
-type PasswordStatus = AdminSummary["passwordStatus"];
 type CollectorHealthData = AdminSummary["collectorHealth"];
 type CollectionMonitoringData = AdminSummary["collectionMonitoring"];
 type CollectorHealthSourceRow = CollectorHealthData["sources"][number];
@@ -141,11 +145,8 @@ type ApiModelEditablePayload = Record<string, unknown> & {
   target: ApiModelEditableTarget;
   id: string;
 };
-type PasswordDraft = {
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-};
+type PasswordStatus = AdminPasswordStatus;
+type PasswordDraft = AdminPasswordDraft;
 type BadgeTone = "default" | "info" | "warn" | "success" | "danger" | "muted";
 type CollectorStatusState = Pick<
   AdminCollectorStatus,
@@ -331,11 +332,13 @@ type SourceGroup = {
 
 type SourceStatusFilter = "all" | "normal" | "issue" | "disabled" | "needs_collector";
 type SourceOfferFilter = "all" | "zero" | "small" | "medium" | "large";
-type SourceSortMode = "offers_desc" | "issue_first" | "stale_first" | "hidden_desc" | "name";
+type SourceQualityFilter = "all" | SourceQualityQueueKind;
+type SourceSortMode = "offers_desc" | "quality_action" | "issue_first" | "stale_first" | "hidden_desc" | "name";
 type SourceRiskFlag = "high_volume" | "hidden_many" | "collector_failures" | "issue" | "stale_success";
 
 type SourceFilters = {
   query: string;
+  quality: SourceQualityFilter;
   status: SourceStatusFilter;
   offerBand: SourceOfferFilter;
   sort: SourceSortMode;
@@ -533,6 +536,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const [activeSourceGroupKey, setActiveSourceGroupKey] = useState<string | null>(null);
   const [sourceFilters, setSourceFilters] = useState<SourceFilters>({
     query: "",
+    quality: "all",
     status: "all",
     offerBand: "all",
     sort: "offers_desc",
@@ -995,6 +999,10 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
     () => new Map((data.sourceOfferStats || []).map((stats) => [stats.sourceId, stats])),
     [data.sourceOfferStats],
   );
+  const sourceQualityById = useMemo(
+    () => new Map((data.sourceQuality.sources || []).map((summary) => [summary.sourceId, summary])),
+    [data.sourceQuality.sources],
+  );
   const offerCountBySource = useMemo(() => {
     const map = new Map<string, number>();
     for (const source of sources) {
@@ -1019,9 +1027,9 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   const filteredSourceRows = useMemo(
     () =>
       activeSourceGroup
-        ? filterAndSortSources(activeSourceGroup.sources, sourceFilters, sourceStatsById, offerCountBySource)
-        : filterAndSortSources(sources, sourceFilters, sourceStatsById, offerCountBySource),
-    [activeSourceGroup, offerCountBySource, sourceFilters, sourceStatsById, sources],
+        ? filterAndSortSources(activeSourceGroup.sources, sourceFilters, sourceStatsById, offerCountBySource, sourceQualityById)
+        : filterAndSortSources(sources, sourceFilters, sourceStatsById, offerCountBySource, sourceQualityById),
+    [activeSourceGroup, offerCountBySource, sourceFilters, sourceQualityById, sourceStatsById, sources],
   );
   useEffect(() => {
     if (!activeSourceGroupKey) return;
@@ -3901,6 +3909,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                     filters={sourceFilters}
                     offerCountBySource={offerCountBySource}
                     sourceStatsById={sourceStatsById}
+                    sourceQuality={data.sourceQuality}
+                    sourceQualityById={sourceQualityById}
                     loadingAction={loadingAction}
                     feedback={rowFeedback}
                     selectedIds={selectedSourceIds}
@@ -5549,98 +5559,6 @@ function RiskReviewSettingsPanel({
   );
 }
 
-function AdminPasswordPanel({
-  status,
-  draft,
-  loading,
-  onDraftChange,
-  onSubmit,
-}: {
-  status: PasswordStatus;
-  draft: PasswordDraft;
-  loading: boolean;
-  onDraftChange: Dispatch<SetStateAction<PasswordDraft>>;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <KeyRound size={15} className="text-[#5a6061]" />
-            <h3 className="text-sm font-semibold text-[#202829]">后台密码</h3>
-            <Badge tone={adminPasswordStatusTone(status)}>
-              {status.configured ? "已配置" : "未配置"}
-            </Badge>
-            <Badge tone={adminPasswordSourceTone(status.source)}>
-              来源：{adminPasswordSourceLabel(status.source)}
-            </Badge>
-          </div>
-          <p className="mt-1 max-w-[78ch] text-xs leading-5 text-[#5a6061]">
-            新密码会加盐哈希后保存；保存成功后旧后台会话失效，当前会话自动续签。
-          </p>
-          {status.message ? <p className="mt-1 text-xs text-[#7a541b]">{status.message}</p> : null}
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8a9293]">
-          <span>最短：{status.minLength} 位</span>
-          {status.updatedAt ? <span>更新：{formatRelativeTime(status.updatedAt)}</span> : <span>尚未在后台保存</span>}
-        </div>
-      </div>
-
-      <form className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_minmax(180px,1fr)_auto]" onSubmit={onSubmit}>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[#5a6061]">当前密码</span>
-          <input
-            value={draft.currentPassword}
-            onChange={(event) => onDraftChange((prev) => ({ ...prev, currentPassword: event.target.value }))}
-            type="password"
-            autoComplete="current-password"
-            className={adminInputClassName}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[#5a6061]">新密码</span>
-          <input
-            value={draft.newPassword}
-            onChange={(event) => onDraftChange((prev) => ({ ...prev, newPassword: event.target.value }))}
-            type="password"
-            autoComplete="new-password"
-            minLength={status.minLength}
-            className={adminInputClassName}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[#5a6061]">确认新密码</span>
-          <input
-            value={draft.confirmPassword}
-            onChange={(event) => onDraftChange((prev) => ({ ...prev, confirmPassword: event.target.value }))}
-            type="password"
-            autoComplete="new-password"
-            minLength={status.minLength}
-            className={adminInputClassName}
-          />
-        </label>
-        <div className="flex items-end">
-          <button
-            type="submit"
-            disabled={loading || !status.configured}
-            className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-[#2d3435] px-4 text-xs font-medium text-white transition-colors hover:bg-[#202829] disabled:opacity-60 lg:w-auto"
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            保存
-          </button>
-        </div>
-      </form>
-
-      <div className="mt-4 grid gap-2 rounded-lg bg-[#f2f4f4] p-3 text-xs leading-5 text-[#5a6061] md:grid-cols-3">
-        <span>新密码至少包含字母、数字、符号中的两类。</span>
-        <span>环境变量 ADMIN_PASSWORD 可作为兜底入口。</span>
-        <span>采集任务继续使用 CRON_SECRET，不依赖后台密码。</span>
-      </div>
-    </section>
-  );
-}
-
 function CommunitySettingsPanel({
   settings,
   loading,
@@ -6500,23 +6418,6 @@ function riskReviewSettingSourceLabel(value: RiskReviewSettings["source"]): stri
   return "未配置";
 }
 
-function adminPasswordSourceLabel(value: PasswordStatus["source"]): string {
-  if (value === "database") return "后台配置";
-  if (value === "environment") return "环境变量";
-  return "未配置";
-}
-
-function adminPasswordSourceTone(value: PasswordStatus["source"]): BadgeTone {
-  if (value === "database") return "success";
-  if (value === "environment") return "info";
-  return "danger";
-}
-
-function adminPasswordStatusTone(status: PasswordStatus): BadgeTone {
-  if (!status.configured) return "danger";
-  return status.tableReady ? "success" : "warn";
-}
-
 function buildSponsorSettingsPayload(settings: SponsorSettings) {
   const placements = Object.fromEntries(
     Object.entries(settings.placements).map(([kind, placement]) => [kind, {
@@ -6769,9 +6670,14 @@ function FeedbackEvidenceLink({ url }: { url: string }) {
     );
   }
 
+  const href = safeExternalHttpUrl(url);
+  if (!href) {
+    return <span className="break-all text-xs text-[#8a9293]">无效或不受支持的证据链接</span>;
+  }
+
   return (
     <a
-      href={url}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex max-w-full items-center gap-1 break-all text-[#47657a] hover:text-[#2d3435]"
@@ -7001,6 +6907,8 @@ function SourceTable({
   filters,
   offerCountBySource,
   sourceStatsById,
+  sourceQuality,
+  sourceQualityById,
   loadingAction,
   feedback,
   selectedIds,
@@ -7021,6 +6929,8 @@ function SourceTable({
   filters: SourceFilters;
   offerCountBySource: Map<string, number>;
   sourceStatsById: Map<string, SourceOfferStats>;
+  sourceQuality: SourceQualitySummary;
+  sourceQualityById: Map<string, SourceQualitySource>;
   loadingAction: string | null;
   feedback: RowFeedback | null;
   selectedIds: Set<string>;
@@ -7046,6 +6956,10 @@ function SourceTable({
   const currentSourceCount = activeGroup?.sources.length ?? totalStats.sourceCount;
   const currentVisibleOfferCount = activeGroup?.totalVisibleOffers ?? totalStats.visibleOfferCount;
   const currentRiskCount = activeGroup?.riskCount ?? totalStats.riskCount;
+  const activeQualityLabel =
+    filters.quality === "all"
+      ? "全部分队"
+      : sourceQuality.segments.find((segment) => segment.kind === filters.quality)?.label || "全部分队";
 
   return (
     <div className="overflow-hidden rounded-lg border border-[#adb3b4]/20">
@@ -7056,7 +6970,10 @@ function SourceTable({
               <h3 className="text-base font-semibold text-[#202829]">{currentGroupLabel}</h3>
               <span className="rounded-full bg-[#f2f4f4] px-2.5 py-1 text-xs font-medium text-[#5a6061]">{currentSourceCount} 个渠道</span>
               <span className="rounded-full bg-[#e4e9ea] px-2.5 py-1 text-xs font-medium text-[#2d3435]">报价 {currentVisibleOfferCount}</span>
-              {currentRiskCount ? <span className="rounded-full bg-[#fff7e8] px-2.5 py-1 text-xs font-medium text-[#7a541b]">疑似低质量 {currentRiskCount}</span> : null}
+              <span className="rounded-full bg-[#eef3f8] px-2.5 py-1 text-xs font-medium text-[#47657a]">
+                {activeQualityLabel} {filteredSources.length}
+              </span>
+              {currentRiskCount ? <span className="rounded-full bg-[#fff7e8] px-2.5 py-1 text-xs font-medium text-[#7a541b]">风险标记 {currentRiskCount}</span> : null}
             </div>
           </div>
           <div className="text-xs text-[#adb3b4]">
@@ -7099,7 +7016,37 @@ function SourceTable({
           ))}
         </div>
 
-        <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(220px,1fr)_150px_150px_170px_auto_auto] lg:items-center">
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-pressed={filters.quality === "all"}
+            onClick={() => onFiltersChange((prev) => ({ ...prev, quality: "all" }))}
+            className={sourceQualityFilterClass(filters.quality === "all")}
+          >
+            全部分队
+            <span className={filters.quality === "all" ? "text-white/70" : "text-[#adb3b4]"}>{sourceQuality.sourceCount}</span>
+          </button>
+          {sourceQuality.segments
+            .filter((segment) => segment.count > 0)
+            .map((segment) => (
+              <button
+                key={segment.kind}
+                type="button"
+                title={segment.description}
+                aria-pressed={filters.quality === segment.kind}
+                onClick={() => onFiltersChange((prev) => ({ ...prev, quality: segment.kind }))}
+                className={sourceQualityFilterClass(filters.quality === segment.kind, segment.kind)}
+              >
+                {segment.label}
+                <span className={filters.quality === segment.kind ? "text-white/70" : "text-[#adb3b4]"}>{segment.count}</span>
+                {segment.purchaseClicks ? (
+                  <span className={filters.quality === segment.kind ? "text-white/60" : "text-[#47657a]"}>点击 {segment.purchaseClicks}</span>
+                ) : null}
+              </button>
+            ))}
+        </div>
+
+        <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(220px,1fr)_150px_150px_150px_170px_auto_auto] lg:items-center">
           <label className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-sm">
             <Search size={15} className="shrink-0 text-[#adb3b4]" />
             <input
@@ -7109,6 +7056,16 @@ function SourceTable({
               className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[#adb3b4]"
             />
           </label>
+          <select
+            value={filters.quality}
+            onChange={(event) => onFiltersChange((prev) => ({ ...prev, quality: event.target.value as SourceQualityFilter }))}
+            className="h-10 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-sm text-[#2d3435] outline-none"
+          >
+            <option value="all">全部分队</option>
+            {sourceQuality.segments.map((segment) => (
+              <option key={segment.kind} value={segment.kind}>{segment.label}</option>
+            ))}
+          </select>
           <select
             value={filters.status}
             onChange={(event) => onFiltersChange((prev) => ({ ...prev, status: event.target.value as SourceStatusFilter }))}
@@ -7137,6 +7094,7 @@ function SourceTable({
             className="h-10 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-sm text-[#2d3435] outline-none"
           >
             <option value="offers_desc">报价数从高到低</option>
+            <option value="quality_action">分队处理优先</option>
             <option value="issue_first">异常优先</option>
             <option value="stale_first">最久未成功优先</option>
             <option value="hidden_desc">下架数从高到低</option>
@@ -7151,11 +7109,11 @@ function SourceTable({
                 : "border border-[#adb3b4]/30 bg-white text-[#5a6061] hover:bg-[#f2f4f4]"
             }`}
           >
-            疑似低质量
+            风险标记
           </button>
           <button
             type="button"
-            onClick={() => onFiltersChange({ query: "", status: "all", offerBand: "all", sort: "offers_desc", riskOnly: false })}
+            onClick={() => onFiltersChange({ query: "", quality: "all", status: "all", offerBand: "all", sort: "offers_desc", riskOnly: false })}
             className="inline-flex h-10 items-center justify-center rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-sm font-medium text-[#5a6061] transition-colors hover:bg-[#f2f4f4]"
           >
             重置
@@ -7165,7 +7123,7 @@ function SourceTable({
 
       <div className="hidden grid-cols-[28px_1fr_70px_110px_110px_150px_240px] gap-3 border-b border-[#adb3b4]/20 bg-[#f2f4f4] px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#5a6061] md:grid">
         <span />
-        <span>来源</span>
+        <span>来源 / 分队</span>
         <span>报价</span>
         <span>采集方式</span>
         <span>健康</span>
@@ -7179,6 +7137,7 @@ function SourceTable({
             source={source}
             offerCount={offerCountBySource.get(source.id) || 0}
             stats={sourceStatsById.get(source.id)}
+            quality={sourceQualityById.get(source.id)}
             riskLabels={sourceRiskFlags(source, sourceStatsById, offerCountBySource).map(sourceRiskFlagLabel)}
             loading={loadingAction === `collect-source-${source.id}` || loadingAction === "batch-collect-sources"}
             toggleLoading={loadingAction === `toggle-source-${source.id}`}
@@ -7209,6 +7168,7 @@ function SourceTableRow({
   source,
   offerCount,
   stats,
+  quality,
   riskLabels,
   loading,
   toggleLoading,
@@ -7229,6 +7189,7 @@ function SourceTableRow({
   source: Source;
   offerCount: number;
   stats?: SourceOfferStats;
+  quality?: SourceQualitySource;
   riskLabels: string[];
   loading: boolean;
   toggleLoading: boolean;
@@ -7253,6 +7214,7 @@ function SourceTableRow({
   const canHttpRetry = source.enabled && displayMethod === "http" && !needsCollector;
   const hasIssue = sourceHasIssue(source);
   const disabledReason = sourceDisableReasonText(source);
+  const qualityEvidence = sourceQualityEvidenceText(quality);
 
   return (
     <div className={`px-3 py-3 transition-colors ${selected ? "bg-[#e8f3ec]/30" : "bg-white"}`}>
@@ -7272,7 +7234,10 @@ function SourceTableRow({
           {selected && <Check size={12} strokeWidth={3} />}
         </button>
         <div className="min-w-0">
-          <p className="font-medium text-[#2d3435]">{source.name}</p>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className="font-medium text-[#2d3435]">{source.name}</p>
+            {quality ? <Badge tone={quality.tone}>{quality.label}</Badge> : null}
+          </div>
           <a
             href={source.entryUrl}
             target="_blank"
@@ -7281,6 +7246,16 @@ function SourceTableRow({
           >
             {source.entryUrl}
           </a>
+          {quality ? (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs leading-5 text-[#5a6061]">
+              {quality.reasons.slice(0, 2).map((reason) => (
+                <span key={reason} className="rounded-full bg-[#f2f4f4] px-2 py-0.5">
+                  {reason}
+                </span>
+              ))}
+              {qualityEvidence ? <span className="text-[#adb3b4]">{qualityEvidence}</span> : null}
+            </div>
+          ) : null}
           {disabledReason ? (
             <p className="mt-1 rounded-md bg-[#fff7e8] px-2 py-1 text-xs leading-5 text-[#7a541b]">
               停用原因：{disabledReason}
@@ -7308,6 +7283,12 @@ function SourceTableRow({
           ) : null}
           {stats?.hiddenCount && stats.hiddenCount !== stats.manuallyHiddenCount ? (
             <span className="mt-0.5 block text-xs font-normal text-[#adb3b4]">隐藏 {stats.hiddenCount}</span>
+          ) : null}
+          {quality?.evidence.sampleFrontRankOfferCount ? (
+            <span className="mt-0.5 block text-xs font-normal text-[#2f7a4b]">样本前列 {quality.evidence.sampleFrontRankOfferCount}</span>
+          ) : null}
+          {quality?.evidence.purchaseClicks ? (
+            <span className="mt-0.5 block text-xs font-normal text-[#47657a]">点击 {quality.evidence.purchaseClicks}</span>
           ) : null}
         </span>
         <span className="text-xs leading-5 text-[#5a6061]">
@@ -7414,6 +7395,44 @@ function SourceTableRow({
       ) : null}
     </div>
   );
+}
+
+const SOURCE_QUALITY_ACTION_ORDER: SourceQualityQueueKind[] = [
+  "disable_candidate",
+  "low_quality_candidate",
+  "duplicate_or_no_advantage",
+  "downfrequency_candidate",
+  "collection_environment_issue",
+  "needs_review",
+  "valuable_lead",
+  "priority_keep",
+];
+
+function sourceQualityFilterClass(active: boolean, kind?: SourceQualityQueueKind): string {
+  if (active) return "inline-flex h-8 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-white transition-colors";
+  const tone = sourceQualityToneForKind(kind);
+  if (tone === "success") return "inline-flex h-8 items-center gap-1.5 rounded-full bg-[#e8f3ec] px-3 text-xs font-semibold text-[#2f7a4b] transition-colors hover:bg-[#dbece1]";
+  if (tone === "info") return "inline-flex h-8 items-center gap-1.5 rounded-full bg-[#eef3f8] px-3 text-xs font-semibold text-[#47657a] transition-colors hover:bg-[#e1ebf3]";
+  if (tone === "warn") return "inline-flex h-8 items-center gap-1.5 rounded-full bg-[#fff7e8] px-3 text-xs font-semibold text-[#7a541b] transition-colors hover:bg-[#ffefcf]";
+  if (tone === "danger") return "inline-flex h-8 items-center gap-1.5 rounded-full bg-[#fbe9e7] px-3 text-xs font-semibold text-[#9b3328] transition-colors hover:bg-[#f7d8d4]";
+  return "inline-flex h-8 items-center gap-1.5 rounded-full bg-[#f2f4f4] px-3 text-xs font-semibold text-[#5a6061] transition-colors hover:bg-[#e4e9ea]";
+}
+
+function sourceQualityToneForKind(kind?: SourceQualityQueueKind): BadgeTone {
+  if (kind === "priority_keep") return "success";
+  if (kind === "valuable_lead" || kind === "collection_environment_issue") return "info";
+  if (kind === "downfrequency_candidate" || kind === "duplicate_or_no_advantage") return "warn";
+  if (kind === "low_quality_candidate" || kind === "disable_candidate") return "danger";
+  return "muted";
+}
+
+function sourceQualityEvidenceText(quality?: SourceQualitySource): string | null {
+  if (!quality) return null;
+  const parts: string[] = [];
+  if (quality.evidence.sampleFrontRankOfferCount) parts.push(`样本前列 ${quality.evidence.sampleFrontRankOfferCount}`);
+  if (quality.evidence.purchaseClicks) parts.push(`点击 ${quality.evidence.purchaseClicks}`);
+  if (quality.evidence.lastSuccessAt) parts.push(`确认 ${formatRelativeTime(quality.evidence.lastSuccessAt)}`);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 function OfficialPricesAdminPanel({
@@ -11677,6 +11696,7 @@ function filterAndSortSources(
   filters: SourceFilters,
   sourceStatsById: Map<string, SourceOfferStats>,
   offerCountBySource: Map<string, number>,
+  sourceQualityById: Map<string, SourceQualitySource>,
 ): Source[] {
   const query = filters.query.trim().toLowerCase();
   return sources
@@ -11685,12 +11705,13 @@ function filterAndSortSources(
         const searchable = `${source.name} ${source.entryUrl} ${source.baseUrl || ""} ${source.id} ${collectorKindLabel(resolvedCollectorKind(source) || "auto")}`.toLowerCase();
         if (!searchable.includes(query)) return false;
       }
+      if (filters.quality !== "all" && sourceQualityById.get(source.id)?.kind !== filters.quality) return false;
       if (!sourceMatchesStatusFilter(source, filters.status)) return false;
       if (!sourceMatchesOfferFilter(sourceVisibleOfferCount(source, sourceStatsById, offerCountBySource), filters.offerBand)) return false;
       if (filters.riskOnly && !sourceRiskFlags(source, sourceStatsById, offerCountBySource).length) return false;
       return true;
     })
-    .sort((a, b) => compareSourcesByFilter(a, b, filters.sort, sourceStatsById, offerCountBySource));
+    .sort((a, b) => compareSourcesByFilter(a, b, filters.sort, sourceStatsById, offerCountBySource, sourceQualityById));
 }
 
 function sourceMatchesStatusFilter(source: Source, status: SourceStatusFilter): boolean {
@@ -11717,7 +11738,15 @@ function compareSourcesByFilter(
   sort: SourceSortMode,
   sourceStatsById: Map<string, SourceOfferStats>,
   offerCountBySource: Map<string, number>,
+  sourceQualityById: Map<string, SourceQualitySource>,
 ): number {
+  if (sort === "quality_action") {
+    const qualityDelta = sourceQualityActionRank(sourceQualityById.get(a.id)) - sourceQualityActionRank(sourceQualityById.get(b.id));
+    if (qualityDelta) return qualityDelta;
+    const scoreDelta = (sourceQualityById.get(b.id)?.score || 0) - (sourceQualityById.get(a.id)?.score || 0);
+    if (scoreDelta) return scoreDelta;
+  }
+
   if (sort === "offers_desc") {
     const offerDelta = sourceVisibleOfferCount(b, sourceStatsById, offerCountBySource) - sourceVisibleOfferCount(a, sourceStatsById, offerCountBySource);
     if (offerDelta) return offerDelta;
@@ -11740,6 +11769,12 @@ function compareSourcesByFilter(
   }
 
   return sourceSortKey(a).localeCompare(sourceSortKey(b), "zh-CN");
+}
+
+function sourceQualityActionRank(quality?: SourceQualitySource): number {
+  if (!quality) return SOURCE_QUALITY_ACTION_ORDER.length + 1;
+  const index = SOURCE_QUALITY_ACTION_ORDER.indexOf(quality.kind);
+  return index >= 0 ? index : SOURCE_QUALITY_ACTION_ORDER.length;
 }
 
 function groupSources(sources: Source[]): SourceGroup[] {

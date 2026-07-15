@@ -1,13 +1,15 @@
-import { z } from "zod";
 import { authRequiredResponse, getCurrentUser } from "@/lib/auth";
+import { accountApiErrorResponse } from "@/lib/account-api-errors";
 import { noStoreCacheHeaders } from "@/lib/cache-headers";
 import { feedbackWithdrawSchema, withdrawUserOfferFeedback } from "@/lib/account";
 import { clearPublicDataCache, markPublicApiSnapshotsDirty } from "@/lib/data";
+import { isSameOriginMutation, sameOriginRequiredResponse } from "@/lib/request-origin";
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ feedbackId: string }> },
 ) {
+  if (!isSameOriginMutation(request)) return sameOriginRequiredResponse();
   const user = await getCurrentUser();
   if (!user) return authRequiredResponse();
 
@@ -28,12 +30,7 @@ export async function POST(
 
     return Response.json({ ok: true, feedback }, { headers: noStoreCacheHeaders() });
   } catch (error) {
-    const message = error instanceof z.ZodError
-      ? error.issues[0]?.message || "撤销内容格式不正确。"
-      : error instanceof Error
-        ? error.message
-        : "撤销反馈失败。";
-    return Response.json({ ok: false, message }, { status: 400, headers: noStoreCacheHeaders() });
+    return accountApiErrorResponse(error, "撤销反馈失败。");
   }
 }
 

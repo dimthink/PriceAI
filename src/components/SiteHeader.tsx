@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { CircleUserRound, ExternalLink, Handshake, HeartHandshake, LogIn, Menu, MessageCircle, UserRound, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
 import { AuthButton } from "@/components/AuthButton";
@@ -16,6 +16,7 @@ import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 import { useCommunitySettings } from "@/lib/community-settings-client";
 import type { CommunitySettingsSummary } from "@/lib/community-settings-shared";
 import { supportPagePath } from "@/lib/support";
+import { useDialogFocus } from "@/lib/use-dialog-focus";
 
 const navItems = [
   { key: "channels", href: "/channels", label: "卡网订阅", mobileLabel: "卡网", match: (pathname: string) => pathname.startsWith("/channels") || pathname.startsWith("/products") },
@@ -167,14 +168,8 @@ function MobileModuleDrawer({
   onQQGroup: () => void;
   communitySettings: CommunitySettingsSummary;
 }) {
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useDialogFocus({ dialogRef, onClose });
 
   return createPortal(
     <div
@@ -185,10 +180,12 @@ function MobileModuleDrawer({
       }}
     >
       <aside
+        ref={dialogRef}
         className="flex h-full w-[min(80vw,312px)] flex-col bg-[var(--color-panel)] px-3 py-4 shadow-[var(--shadow-floating)] ring-1 ring-[var(--color-border-soft)]"
         role="dialog"
         aria-modal="true"
         aria-label="模块导航"
+        tabIndex={-1}
       >
         <div className="mb-4 flex items-center justify-between gap-3 px-1">
           <IntentPrefetchLink href={homeHref} aria-label="PriceAI 首页" className="min-w-0 shrink-0" onClick={onClose}>

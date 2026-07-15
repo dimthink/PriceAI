@@ -4,10 +4,10 @@ import { RouteErrorState } from "@/components/RouteErrorState";
 
 export default function ErrorPage({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
-  return <RouteErrorState activeSection="home" error={error} reset={reset} />;
+  return <RouteErrorState activeSection="home" error={error} reset={unstable_retry} />;
 }

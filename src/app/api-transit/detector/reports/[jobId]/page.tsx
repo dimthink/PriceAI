@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Suspense } from "react";
 import { getTransitModelFamilyOptions } from "@/lib/api-transit";
 import { getCurrentUser } from "@/lib/auth";
 import { ADMIN_SESSION_COOKIE, verifyAdminSessionToken } from "@/lib/env";
@@ -10,14 +9,14 @@ import {
   getDetectorServiceUrl,
   toDetectorReportView,
 } from "@/lib/transit-detector-report";
-import { JsonLd } from "@/components/JsonLd";
-import { SiteHeader } from "@/components/SiteHeader";
+import { DetectorReportShell } from "@/components/DetectorReportShell";
 import { TransitDetectorReport, TransitDetectorReportUnavailable } from "@/components/TransitDetectorReport";
-import { TransitFamilyTabs } from "@/components/TransitFamilyTabs";
 
 interface DetectorReportPageProps {
   params: Promise<{ jobId: string }>;
 }
+
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: DetectorReportPageProps): Promise<Metadata> {
   const { jobId } = await params;
@@ -121,7 +120,7 @@ async function resolveDetectorReportAccess(jobId: string): Promise<
 
   let directQuery = supabase
     .from("transit_detector_jobs")
-    .select("*")
+    .select("id,user_id,status,detector_job_id")
     .eq("id", jobId);
   if (user && !adminSession) {
     directQuery = directQuery.eq("user_id", user.id);
@@ -136,7 +135,7 @@ async function resolveDetectorReportAccess(jobId: string): Promise<
   if (!row) {
     let legacyQuery = supabase
       .from("transit_detector_jobs")
-      .select("*")
+      .select("id,user_id,status,detector_job_id")
       .eq("detector_job_id", jobId)
       .limit(1);
     if (user && !adminSession) {
@@ -197,39 +196,4 @@ async function loadDetectorReport(jobId: string, serviceUrl: string) {
       error: error instanceof Error ? error.message : "检测报告读取失败，请稍后再试。",
     };
   }
-}
-
-function DetectorReportShell({
-  familyOptions,
-  jsonLdData,
-  children,
-}: {
-  familyOptions: ReturnType<typeof getTransitModelFamilyOptions>;
-  jsonLdData?: Record<string, unknown>;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
-      {jsonLdData ? <JsonLd data={[jsonLdData]} /> : null}
-
-      <div className="sticky top-0 z-40 bg-[#f9f9f9]/95 shadow-[0_10px_24px_rgba(45,52,53,0.035)] backdrop-blur-[18px]">
-        <SiteHeader activeSection="transit" />
-        <Suspense fallback={<TransitFamilyTabsFallback />}>
-          <TransitFamilyTabs options={familyOptions} />
-        </Suspense>
-      </div>
-
-      <main className="mx-auto max-w-[1500px] px-5 py-6 pb-20">{children}</main>
-    </div>
-  );
-}
-
-function TransitFamilyTabsFallback() {
-  return (
-    <section className="border-y border-[#dfe4e5] py-2">
-      <div className="mx-auto max-w-[1500px] px-5 sm:px-8">
-        <div className="h-10" />
-      </div>
-    </section>
-  );
 }

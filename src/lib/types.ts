@@ -238,6 +238,7 @@ export type AdminSummary = DashboardData & {
   collectionJobs: CollectionJob[];
   collectorHealth: CollectorHealthSummary;
   collectionMonitoring: CollectionMonitoringSummary;
+  sourceQuality: SourceQualitySummary;
   officialPrices: OfficialSubscriptionAdminData;
   apiModels: ApiModelAdminData;
   apiTransit: ApiTransitAdminData;
@@ -298,6 +299,68 @@ export type SourceOfferStats = {
   manuallyHiddenCount: number;
   collectorFailureCount: number;
   totalCount: number;
+};
+
+export type SourceQualityQueueKind =
+  | "priority_keep"
+  | "valuable_lead"
+  | "needs_review"
+  | "low_quality_candidate"
+  | "duplicate_or_no_advantage"
+  | "collection_environment_issue"
+  | "downfrequency_candidate"
+  | "disable_candidate";
+
+export type SourceQualityEvidence = {
+  visibleCount: number;
+  hiddenCount: number;
+  manuallyHiddenCount: number;
+  collectorFailureCount: number;
+  totalCount: number;
+  purchaseClicks: number;
+  sampleFrontRankOfferCount: number;
+  successAgeMinutes: number | null;
+  checkedAgeMinutes: number | null;
+  sourceAgeDays: number | null;
+  consecutiveFailures: number;
+  healthStatus: Source["healthStatus"];
+  lastSuccessAt: string | null;
+  lastCheckedAt: string | null;
+  latestJobStatus: CollectionJob["status"] | null;
+  latestJobAt: string | null;
+  latestRunStatus: CrawlRun["status"] | null;
+  latestRunAt: string | null;
+  latestError: string | null;
+};
+
+export type SourceQualitySource = {
+  sourceId: string;
+  kind: SourceQualityQueueKind;
+  label: string;
+  tone: "default" | "info" | "warn" | "success" | "danger" | "muted";
+  score: number;
+  reasons: string[];
+  nextAction: string;
+  evidence: SourceQualityEvidence;
+};
+
+export type SourceQualitySegment = {
+  kind: SourceQualityQueueKind;
+  label: string;
+  description: string;
+  count: number;
+  visibleOfferCount: number;
+  purchaseClicks: number;
+  sampleFrontRankOfferCount: number;
+  topSources: SourceQualitySource[];
+};
+
+export type SourceQualitySummary = {
+  generatedAt: string;
+  behaviorWindowDays: number;
+  sourceCount: number;
+  segments: SourceQualitySegment[];
+  sources: SourceQualitySource[];
 };
 
 export type CrawlRun = {
@@ -1074,7 +1137,7 @@ export type AdminUserDetail = {
   followups: FeedbackFollowup[];
 };
 
-export type TransitDetectorJobStatus = "queued" | "running" | "done" | "error";
+export type TransitDetectorJobStatus = "queued" | "running" | "done" | "error" | "timed_out";
 
 export type TransitDetectorJob = {
   id: string;
@@ -1093,6 +1156,9 @@ export type TransitDetectorJob = {
   jsonUrl: string | null;
   imageUrl: string | null;
   errorMessage: string | null;
+  leaseExpiresAt: string | null;
+  lastHeartbeatAt: string | null;
+  attemptCount: number;
   submittedAt: string;
   completedAt: string | null;
   updatedAt: string;

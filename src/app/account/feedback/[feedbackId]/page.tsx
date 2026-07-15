@@ -17,10 +17,10 @@ export default async function AccountFeedbackDetailPage({
 }: {
   params: Promise<{ feedbackId: string }>;
 }) {
-  const user = await getCurrentUser();
-  if (!user) redirect(buildGoogleAuthHref("/account/feedback"));
-
   const { feedbackId } = await params;
+  const user = await getCurrentUser();
+  if (!user) redirect(buildGoogleAuthHref(`/account/feedback/${encodeURIComponent(feedbackId)}`));
+
   const feedback = await getUserOfferFeedback(user.id, feedbackId);
   if (!feedback) notFound();
   const followups = await listUserFeedbackFollowups(user.id, feedbackId);

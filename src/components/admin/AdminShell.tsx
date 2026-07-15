@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -69,6 +69,17 @@ export function AdminShell({ sections, activeItemId, onSelectItem, children }: A
               {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
           </div>
+          <form action="/api/admin/logout" method="post" className={`mb-3 ${sidebarCollapsed ? "lg:flex lg:justify-center" : ""}`}>
+            <button
+              type="submit"
+              className={`inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[#adb3b4]/25 bg-white text-xs font-medium text-[#5a6061] transition hover:bg-[#f2f4f4] hover:text-[#202829] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2d3435]/20 ${sidebarCollapsed ? "h-9 w-9 px-0" : "w-full px-3"}`}
+              aria-label="退出后台登录"
+              title="退出后台登录"
+            >
+              <LogOut size={15} />
+              <span className={sidebarCollapsed ? "lg:hidden" : ""}>退出后台</span>
+            </button>
+          </form>
           <div className={`grid min-w-0 gap-3 md:grid-cols-2 lg:block ${sidebarCollapsed ? "lg:space-y-2" : "lg:space-y-4"}`}>
             {sections.map((section) => (
               <section key={section.id} className="min-w-0">

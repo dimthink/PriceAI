@@ -2857,6 +2857,7 @@ export async function createSubmission(input: {
 }
 
 export async function createOfferFeedback(input: {
+  id?: string | null;
   feedbackScope?: OfferFeedbackScope | null;
   publicStatus?: OfferFeedbackPublicStatus | null;
   productId?: string | null;
@@ -2933,7 +2934,7 @@ export async function createOfferFeedback(input: {
   }
 
   const feedbackScope = input.feedbackScope === "merchant" ? "merchant" : "offer";
-  const id = stableId(`${feedbackScope}-feedback`, input.offerId || input.sourceId || "", input.reason, ip || "", Date.now().toString());
+  const id = input.id?.trim() || stableId(`${feedbackScope}-feedback`, input.offerId || input.sourceId || "", input.reason, ip || "", Date.now().toString());
   const userExpectedAction = normalizeOfferFeedbackUserExpectedAction(input.userExpectedAction);
   const evidenceText = input.evidenceText?.trim() || null;
   const evidenceUrls = sanitizeFeedbackEvidenceUrls(input.evidenceUrls || []);

@@ -1,3 +1,4 @@
+import { fetchDetectorJson, normalizeDetectorServiceUrl } from "@/lib/detector-request";
 import { formatDateMinute } from "@/lib/utils";
 
 export type DetectorReportTone = "success" | "warning" | "danger" | "muted";
@@ -127,14 +128,15 @@ export function buildPriceAiDetectorReportHref(jobId: string): string {
 }
 
 export async function fetchDetectorReport(jobId: string, serviceUrl = getDetectorServiceUrl()): Promise<DetectorReportRaw> {
-  if (!serviceUrl) throw new Error("检测服务未配置。");
-
-  const endpoint = `${serviceUrl}/api/result/${encodeURIComponent(jobId)}.json`;
-  const response = await fetch(endpoint, { cache: "no-store" });
+  const normalizedServiceUrl = normalizeDetectorServiceUrl(serviceUrl);
+  const endpoint = `${normalizedServiceUrl}/api/result/${encodeURIComponent(jobId)}.json`;
+  const { response, data } = await fetchDetectorJson<DetectorReportRaw>(endpoint, {
+    cache: "no-store",
+  }, { timeoutMs: 20_000, maxBytes: 2 * 1024 * 1024 });
   if (response.status === 404) throw new Error("报告还没有生成，或者任务编号不存在。");
   if (!response.ok) throw new Error("无法读取检测报告。");
 
-  return (await response.json()) as DetectorReportRaw;
+  return data;
 }
 
 export function toDetectorReportView(jobId: string, report: DetectorReportRaw): DetectorReportView {
@@ -171,6 +173,23 @@ export function toDetectorReportView(jobId: string, report: DetectorReportRaw): 
     issueCount,
     skippedCount,
     raw: report,
+  };
+}
+
+export function toPublicDetectorReportView(jobId: string, report: DetectorReportRaw): DetectorReportView {
+  const view = toDetectorReportView(jobId, report);
+  return {
+    ...view,
+    title: "已分享报告",
+    baseUrl: "已由分享者隐藏",
+    apiKeyMasked: "已隐藏",
+    runError: view.runError ? "检测运行未完整完成，具体内部错误已隐藏。" : undefined,
+    checks: view.checks.map((check) => ({
+      ...check,
+      summary: publicCheckSummary(check.tone),
+      details: [],
+    })),
+    raw: sanitizePublicDetectorReportRaw(report),
   };
 }
 
@@ -217,6 +236,37 @@ function toReportMetrics(report: DetectorReportRaw): DetectorReportMetric[] {
       helper: "检测器实际发起的请求数量。",
     },
   ];
+}
+
+function publicCheckSummary(tone: DetectorReportTone): string {
+  if (tone === "success") return "这一项在本次检测中通过。";
+  if (tone === "warning") return "这一项存在需要结合多次检测复核的信号。";
+  if (tone === "danger") return "这一项在本次检测中未通过。";
+  return "这一项未启用或没有形成有效结论。";
+}
+
+function sanitizePublicDetectorReportRaw(report: DetectorReportRaw): DetectorReportRaw {
+  return {
+    protocol: report.protocol,
+    tier: report.tier,
+    tier_title: report.tier_title,
+    tier_message: report.tier_message,
+    target_model: report.target_model,
+    mode: report.mode,
+    timestamp: report.timestamp,
+    total_score: report.total_score,
+    verdict: report.verdict,
+    summary: report.summary,
+    performance: report.performance,
+    results: (report.results || []).map((result) => ({
+      name: result.name,
+      display_name: result.display_name,
+      status: result.status,
+      score: result.score,
+      weight: result.weight,
+      duration_ms: result.duration_ms,
+    })),
+  };
 }
 
 function toReportCheck(result: DetectorReportRawResult): DetectorReportCheck {

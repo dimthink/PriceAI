@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { AccountFeedbackList } from "@/components/AccountFeedbackList";
+import { AccountSignOutControls } from "@/components/AccountSignOutControls";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { buildGoogleAuthHref } from "@/lib/auth-paths";
@@ -43,11 +44,10 @@ export default async function AccountPage() {
           <p className="text-sm font-semibold text-[#5a6061]">当前登录</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-normal text-[#202829]">{user.displayName || user.email || "PriceAI 用户"}</h1>
           <p className="mt-1 text-sm text-[#5a6061]">{user.email}</p>
-          <form action="/auth/signout" method="post" className="mt-4">
-            <button type="submit" className="inline-flex h-10 items-center rounded-lg bg-[#f2f4f4] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#e8ecec]">
-              退出登录
-            </button>
-          </form>
+          <AccountSignOutControls />
+          <Link href="/account/settings" className="mt-4 inline-flex text-sm font-semibold text-[#2d3435] underline decoration-[#adb3b4] underline-offset-4">
+            隐私、数据导出与账号删除
+          </Link>
         </div>
 
         <div className="mt-5 space-y-4">
@@ -66,7 +66,7 @@ export default async function AccountPage() {
 
           <AccountSection
             title="我的检测"
-            description="模型检测任务会绑定到当前账号，完成后的公开报告可分享给未登录用户。"
+            description="模型检测任务会绑定到当前账号，报告默认仅提交者和后台可见。"
             href="/account/detector-reports"
             actionLabel="查看全部"
             secondaryHref="/api-transit/detector"
@@ -174,6 +174,7 @@ function protocolLabel(value: string) {
 
 function detectorStatusLabel(value: TransitDetectorJob["status"]) {
   if (value === "done") return "已完成";
+  if (value === "timed_out") return "已超时";
   if (value === "error") return "失败";
   if (value === "running") return "运行中";
   return "排队中";
