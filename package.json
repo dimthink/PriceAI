@@ -27,7 +27,7 @@
     "audit:sbom": "npm sbom --sbom-format cyclonedx > sbom.cdx.json",
     "start": "node_modules/node/bin/node node_modules/next/dist/bin/next start",
     "lint": "node_modules/node/bin/node node_modules/eslint/bin/eslint.js",
-    "typecheck": "node_modules/node/bin/node node_modules/typescript/bin/tsc --noEmit",
+    "typecheck": "node_modules/node/bin/node node_modules/next/dist/bin/next typegen && node_modules/node/bin/node node_modules/typescript/bin/tsc --noEmit",
     "test": "npm run test:auth-security && npm run test:feedback && npm run test:api-transit && npm run test:product-offer-pagination && npm run test:catalog && npm run test:api-models && npm run test:official-parser",
     "collect:prices": "node scripts/collect-prices.mjs",
     "rebalance:source-shards": "node scripts/rebalance-source-shards.mjs",
