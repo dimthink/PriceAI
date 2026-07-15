@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { CircleUserRound, ExternalLink, Handshake, HeartHandshake, Info, LogIn, LogOut, Menu, MessageCircle, UserRound, X } from "lucide-react";
+import { CircleUserRound, ExternalLink, Handshake, HeartHandshake, LogIn, LogOut, Menu, MessageCircle, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppLogo } from "@/components/AppLogo";
@@ -40,7 +40,6 @@ export function SiteHeader({
   compactActionLabelFrom?: "sm" | "2xl" | "never";
 }) {
   const pathname = usePathname();
-  const aboutActive = pathname.startsWith("/about");
   const supportActive = pathname.startsWith(supportPagePath);
   const wholesaleActive = activeSection === "wholesale" || pathname.startsWith("/wholesale");
   const desktopCenterNavClassName = "hidden items-center rounded-full bg-[#e4e9ea] p-1 text-sm font-semibold text-[#5a6061] min-[720px]:flex";
@@ -125,7 +124,6 @@ export function SiteHeader({
       {mobileDrawerOpen ? (
         <MobileModuleDrawer
           activeKey={activeNavItem?.key}
-          aboutActive={aboutActive}
           supportActive={supportActive}
           wholesaleActive={wholesaleActive}
           accountUser={accountUser}
@@ -150,7 +148,6 @@ export function SiteHeader({
 
 function MobileModuleDrawer({
   activeKey,
-  aboutActive,
   supportActive,
   wholesaleActive,
   accountUser,
@@ -161,7 +158,6 @@ function MobileModuleDrawer({
   communitySettings,
 }: {
   activeKey?: (typeof navItems)[number]["key"];
-  aboutActive: boolean;
   supportActive: boolean;
   wholesaleActive: boolean;
   accountUser: AccountUser | null;
@@ -233,6 +229,7 @@ function MobileModuleDrawer({
 
         <div className="mt-4 border-t border-[var(--color-border-soft)] pt-3">
           <div className="space-y-1">
+            <MobileAccountLinks user={accountUser} loaded={accountLoaded} onClose={onClose} />
             <IntentPrefetchLink
               href="/wholesale"
               onClick={onClose}
@@ -249,23 +246,6 @@ function MobileModuleDrawer({
               </span>
               {wholesaleActive ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" aria-hidden="true" /> : null}
             </IntentPrefetchLink>
-            <IntentPrefetchLink
-              href="/about"
-              onClick={onClose}
-              className={`flex h-11 items-center justify-between rounded-lg px-3 text-sm font-semibold transition ${
-                aboutActive
-                  ? "bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]"
-                  : "text-[var(--color-text-body)] hover:bg-[var(--color-surface-hover)]"
-              }`}
-              aria-current={aboutActive ? "page" : undefined}
-            >
-              <span className="inline-flex items-center gap-3">
-                <Info size={17} />
-                边界与披露
-              </span>
-              {aboutActive ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)]" aria-hidden="true" /> : null}
-            </IntentPrefetchLink>
-            <MobileAccountLinks user={accountUser} loaded={accountLoaded} onClose={onClose} />
             <IntentPrefetchLink
               href={supportPagePath}
               onClick={onClose}
