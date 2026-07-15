@@ -3,6 +3,7 @@ export const OFFER_FILTER_TAG_GROUPS = {
   geminiRecharge: "Gemini 开通",
   plusChannel: "Plus 渠道",
   plusRecharge: "Plus 代充",
+  proMax: "Pro/Max 形态",
   team: "Team 类型",
   duration: "时长",
   gemini: "Gemini 条件",
@@ -30,6 +31,9 @@ export type OfferFilterTagId =
   | "chatgpt_plus_recharge_ph_card"
   | "chatgpt_plus_recharge_us_ios"
   | "chatgpt_plus_recharge_official_direct"
+  | "pro_max_official_recharge"
+  | "pro_max_short_term"
+  | "pro_max_us_ios"
   | "team_k12"
   | "team_bug"
   | "team_official"
@@ -149,6 +153,24 @@ export const OFFER_FILTER_TAGS: OfferFilterTagDefinition[] = [
     label: "官方直充",
     group: "plusRecharge",
     description: "ChatGPT Plus 正价代充里的官方充值、正价代充或正规直充报价。",
+  },
+  {
+    id: "pro_max_official_recharge",
+    label: "正价代充",
+    group: "proMax",
+    description: "ChatGPT Pro / Claude Max 里的正价、官方、正规直充、代充或续费报价。",
+  },
+  {
+    id: "pro_max_short_term",
+    label: "速刷/短期",
+    group: "proMax",
+    description: "ChatGPT Pro / Claude Max 里的速刷、短期、日抛、无质保或只保激活类报价。",
+  },
+  {
+    id: "pro_max_us_ios",
+    label: "iOS/美区",
+    group: "proMax",
+    description: "ChatGPT Pro 里的美区 iOS、App Store 或内购渠道报价。",
   },
   {
     id: "team_k12",
@@ -339,6 +361,13 @@ const CHATGPT_PLUS_RECHARGE_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "chatgpt_plus_recharge_us_ios",
   "chatgpt_plus_recharge_official_direct",
 ]);
+const PRO_MAX_RECHARGE_MODE_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
+  "pro_max_official_recharge",
+  "pro_max_short_term",
+]);
+const CHATGPT_PRO_CHANNEL_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
+  "pro_max_us_ios",
+]);
 const CHATGPT_TEAM_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "team_k12",
   "team_bug",
@@ -382,6 +411,16 @@ const VERIFICATION_FILTER_PRODUCT_IDS = new Set<string>([
   "google-phone-verification",
   "paypal-phone-verification",
   "phone-verification",
+]);
+const PRO_MAX_FILTER_PRODUCT_IDS = new Set<string>([
+  "chatgpt-pro-5x",
+  "chatgpt-pro-20x",
+  "claude-max-5x",
+  "claude-max-20x",
+]);
+const CHATGPT_PRO_FILTER_PRODUCT_IDS = new Set<string>([
+  "chatgpt-pro-5x",
+  "chatgpt-pro-20x",
 ]);
 
 export function parseOfferFilterTags(value: string | string[] | null | undefined): OfferFilterTagId[] {
@@ -430,6 +469,8 @@ export function offerFilterTagAppliesToProduct(productId: string, tagId: OfferFi
   if (GEMINI_PRO_RECHARGE_FILTER_TAG_IDS.has(tagId)) return productId === "gemini-pro-recharge";
   if (CHATGPT_PLUS_CHANNEL_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-plus";
   if (CHATGPT_PLUS_RECHARGE_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-plus-recharge";
+  if (PRO_MAX_RECHARGE_MODE_FILTER_TAG_IDS.has(tagId)) return PRO_MAX_FILTER_PRODUCT_IDS.has(productId);
+  if (CHATGPT_PRO_CHANNEL_FILTER_TAG_IDS.has(tagId)) return CHATGPT_PRO_FILTER_PRODUCT_IDS.has(productId);
   if (CHATGPT_TEAM_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-team-business";
   return true;
 }
@@ -469,6 +510,7 @@ export function deriveOfferFilterTags(input: {
   addGeminiProRechargeSubtypeFilterTag(output, text);
   addChatGptPlusChannelFilterTag(output, text);
   addChatGptPlusRechargeSubtypeFilterTag(output, text);
+  addProMaxSubtypeFilterTags(output, text);
   addChatGptTeamSubtypeFilterTag(output, titleText, sourceTagsText);
 
   if (hasDurationYearSignal(text)) {
@@ -764,6 +806,44 @@ function hasChatGptPlusRechargeUsIosSignal(text: string): boolean {
 
 function hasChatGptPlusRechargeOfficialDirectSignal(text: string): boolean {
   return /官方直充|官方充值|官方代充|官方订阅|正价代充|正规充值|正规官方|官网直充|官网代充|人工直充|自动直充|带账单|质保订阅/.test(text);
+}
+
+function addProMaxSubtypeFilterTags(output: Set<OfferFilterTagId>, text: string): void {
+  const hasShortTerm = hasProMaxShortTermSignal(text);
+
+  if (hasShortTerm) {
+    output.add("pro_max_short_term");
+  } else if (hasProMaxOfficialRechargeSignal(text)) {
+    output.add("pro_max_official_recharge");
+  }
+
+  if (hasProMaxUsIosSignal(text)) {
+    output.add("pro_max_us_ios");
+  }
+}
+
+function hasProMaxOfficialRechargeSignal(text: string): boolean {
+  const hasStrongOfficialSignal =
+    hasChatGptPlusRechargeOfficialDirectSignal(text) ||
+    /正价|官方|官网|正规|原价|标准价|带账单|真实付费|可续费/.test(text);
+  const hasRechargeSignal = /直充|代充|充值|续费|代开|内购|订阅/.test(text);
+  const hasCredentialOnlySignal = /cdk|卡密|兑换码|激活码/.test(text) && !hasStrongOfficialSignal;
+
+  return hasStrongOfficialSignal || (hasRechargeSignal && !hasCredentialOnlySignal);
+}
+
+function hasProMaxShortTermSignal(text: string): boolean {
+  return (
+    /速刷|短期|日抛|天抛|周抛|低价体验|体验号|库存号|临时号|临时会员|必死|只保激活|仅保激活|保激活|只保开通|仅保开通/.test(text) ||
+    hasDurationTrialSignal(text) ||
+    hasBlockingNoWarrantySignal(text) ||
+    hasShortWarrantySignal(text) ||
+    hasFirstActionWarrantySignal(text)
+  );
+}
+
+function hasProMaxUsIosSignal(text: string): boolean {
+  return hasUsRegionSignal(text) && hasIosPaymentSignal(text);
 }
 
 function addChatGptTeamSubtypeFilterTag(

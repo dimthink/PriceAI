@@ -459,6 +459,11 @@ const tagCases = [
   ["【质保-菲区卡冲】GPT Plus官方直充月卡", ["chatgpt_plus_recharge_ph_card"]],
   ["ChatGPT Plus 美区 iOS App Store 内购", ["chatgpt_plus_recharge_us_ios"]],
   ["ChatGPT Plus 官方直充 正价代充", ["chatgpt_plus_recharge_official_direct"]],
+  ["ChatGPT Pro 20倍 官方充值 带账单", ["pro_max_official_recharge"]],
+  ["ChatGPT Pro 20x 日抛速刷 无质保", ["pro_max_short_term"]],
+  ["PRO 5倍 美区 iOS App Store 内购", ["pro_max_official_recharge", "pro_max_us_ios"]],
+  ["Claude Max 20x 会员充值 无需上号", ["pro_max_official_recharge"]],
+  ["Claude Max 5x 速刷短期 3天", ["pro_max_short_term"]],
   ["ChatGPT Plus 成品号 独享账号", ["delivery_account"]],
   ["PLUS-成品-已接码rt-微软邮箱-支持登录网页端", ["delivery_account"]],
   ["GPT Team K12 成品 JSON 反代 发cpa", ["delivery_account", "team_k12"]],
@@ -494,6 +499,26 @@ const productSpecificTagScopeCases = [
     "chatgpt-plus-recharge",
     ["chatgpt_plus_brazil_pix", "chatgpt_plus_recharge_ph_card", "chatgpt_plus_recharge_us_ios", "delivery_recharge"],
     ["chatgpt_plus_recharge_ph_card", "chatgpt_plus_recharge_us_ios"],
+  ],
+  [
+    "chatgpt-pro-5x",
+    ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "chatgpt_plus_recharge_us_ios", "warranty_long"],
+    ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "warranty_long"],
+  ],
+  [
+    "chatgpt-pro-20x",
+    ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "chatgpt_plus_recharge_us_ios", "warranty_long"],
+    ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "warranty_long"],
+  ],
+  [
+    "claude-max-5x",
+    ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "warranty_long"],
+    ["pro_max_official_recharge", "pro_max_short_term", "warranty_long"],
+  ],
+  [
+    "claude-max-20x",
+    ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "warranty_long"],
+    ["pro_max_official_recharge", "pro_max_short_term", "warranty_long"],
   ],
 ];
 
@@ -557,6 +582,17 @@ const geminiConditionNegativeCases = [
 ];
 
 for (const [title, unexpectedTag] of geminiConditionNegativeCases) {
+  const tags = deriveOfferFilterTags({ sourceTitle: title });
+  assert.ok(!tags.includes(unexpectedTag), `${title} should not include ${unexpectedTag}. actual=${tags.join(",")}`);
+}
+
+const proMaxTagNegativeCases = [
+  ["ChatGPT Pro 5倍 CDK卡密", "pro_max_official_recharge"],
+  ["Claude Max 20x 充值CDK 卡密", "pro_max_official_recharge"],
+  ["ChatGPT Pro 20x 正价代充 7天质保", "pro_max_official_recharge"],
+];
+
+for (const [title, unexpectedTag] of proMaxTagNegativeCases) {
   const tags = deriveOfferFilterTags({ sourceTitle: title });
   assert.ok(!tags.includes(unexpectedTag), `${title} should not include ${unexpectedTag}. actual=${tags.join(",")}`);
 }
@@ -648,6 +684,9 @@ const productFacetCases = buildOfferFilterFacets([
   { sourceTitle: "GPT Team K12 成品 JSON 反代 发cpa" },
   { sourceTitle: "gpt Team bug 子号 最低200刀（无质保，拿着卡密去兑换地址下载JSON文件）" },
   { sourceTitle: "首次激活码 正规官方gpt business（team） 全程质保订阅，可无限续费，可用pro模型额度比plus高" },
+  { sourceTitle: "ChatGPT Pro 20倍 官方充值 带账单" },
+  { sourceTitle: "ChatGPT Pro 5倍 美区 iOS App Store 内购" },
+  { sourceTitle: "Claude Max 20x 日抛速刷 无质保" },
 ]);
 const chatGptFacetIds = filterOfferFilterFacetsForProduct("chatgpt-plus", productFacetCases).map((facet) => facet.id);
 assert.ok(!chatGptFacetIds.includes("duration_month"), "ChatGPT Plus must not show duration filters.");
@@ -690,6 +729,17 @@ assert.ok(chatGptTeamFacetIds.includes("team_k12"), "ChatGPT Team / Business sho
 assert.ok(chatGptTeamFacetIds.includes("team_bug"), "ChatGPT Team / Business should show Bug Team filters.");
 assert.ok(chatGptTeamFacetIds.includes("team_official"), "ChatGPT Team / Business should show official Team filters.");
 assert.ok(!chatGptTeamFacetIds.includes("gemini_antigravity_gcp"), "ChatGPT Team / Business must not show Gemini condition filters.");
+
+const chatGptPro5xFacetIds = filterOfferFilterFacetsForProduct("chatgpt-pro-5x", productFacetCases).map((facet) => facet.id);
+assert.ok(chatGptPro5xFacetIds.includes("pro_max_official_recharge"), "ChatGPT Pro 5x should show official recharge filters.");
+assert.ok(chatGptPro5xFacetIds.includes("pro_max_short_term"), "ChatGPT Pro 5x should show short-term filters.");
+assert.ok(chatGptPro5xFacetIds.includes("pro_max_us_ios"), "ChatGPT Pro 5x should show iOS/US filters.");
+assert.ok(!chatGptPro5xFacetIds.includes("chatgpt_plus_recharge_us_ios"), "ChatGPT Pro 5x must not show Plus recharge filters.");
+
+const claudeMax5xFacetIds = filterOfferFilterFacetsForProduct("claude-max-5x", productFacetCases).map((facet) => facet.id);
+assert.ok(claudeMax5xFacetIds.includes("pro_max_official_recharge"), "Claude Max 5x should show official recharge filters.");
+assert.ok(claudeMax5xFacetIds.includes("pro_max_short_term"), "Claude Max 5x should show short-term filters.");
+assert.ok(!claudeMax5xFacetIds.includes("pro_max_us_ios"), "Claude Max 5x must not show ChatGPT Pro iOS/US filters.");
 
 assert.deepEqual(
   parseOfferFilterTagsForProduct("chatgpt-plus", "duration_month,verification_single,warranty_long"),
