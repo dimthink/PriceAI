@@ -14,6 +14,7 @@ assertRequiredEnv(CLOUDFLARE_REQUIRED_ENV, "Cloudflare version upload env");
 
 const deploymentId = normalizeTag(process.env.NEXT_DEPLOYMENT_ID || gitSha());
 const previewAlias = normalizeAlias(process.env.CLOUDFLARE_PREVIEW_ALIAS || "candidate");
+const cacheChunkSize = normalizeCacheChunkSize(process.env.CLOUDFLARE_CACHE_CHUNK_SIZE || "5");
 const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH || join(tmpdir(), `priceai-wrangler-upload-${process.pid}.jsonl`);
 const shouldRemoveOutput = !process.env.WRANGLER_OUTPUT_FILE_PATH;
 const cli = join(
@@ -28,6 +29,8 @@ try {
     cli,
     [
       "upload",
+      "--cacheChunkSize",
+      String(cacheChunkSize),
       "--",
       "--keep-vars",
       "--preview-alias",
@@ -102,4 +105,12 @@ function normalizeAlias(value) {
     throw new Error("CLOUDFLARE_PREVIEW_ALIAS must be a valid DNS label.");
   }
   return normalized;
+}
+
+function normalizeCacheChunkSize(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw new Error("CLOUDFLARE_CACHE_CHUNK_SIZE must be an integer between 1 and 100.");
+  }
+  return parsed;
 }
