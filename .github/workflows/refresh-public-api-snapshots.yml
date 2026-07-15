@@ -38,7 +38,7 @@ jobs:
           const url = new URL(raw);
           url.hash = "";
           url.search = "";
-          url.pathname = url.pathname.replace(/\/api\/cron\/(?:collect-prices|api-transit-probe|feedback-closeup)\/?$/, "") || "/";
+          url.pathname = url.pathname.replace(/\/api\/cron\/(?:collect-prices|api-transit-probe|feedback-closeup|account-deletions)\/?$/, "") || "/";
           console.log(url.toString().replace(/\/$/, ""));
           NODE
           )

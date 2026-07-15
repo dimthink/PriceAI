@@ -17,6 +17,10 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    environment: production
+    concurrency:
+      group: priceai-production
+      cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

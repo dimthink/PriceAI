@@ -12,12 +12,18 @@ import type { RiskReviewSettingsSummary } from "@/lib/types";
 
 export const RISK_REVIEW_SETTING_ID = "risk_review";
 export const DEFAULT_RISK_REVIEW_TIMEOUT_MS = 12_000;
+export const DEFAULT_RISK_REVIEW_DAILY_LIMIT = 100;
+export const DEFAULT_RISK_REVIEW_MAX_OUTPUT_TOKENS = 900;
+export const DEFAULT_RISK_REVIEW_MAX_RESPONSE_BYTES = 256 * 1024;
 
 export type RiskReviewRuntimeConfig = {
   provider: string;
   baseUrl: string;
   model: string;
   timeoutMs: number;
+  dailyLimit: number;
+  maxOutputTokens: number;
+  maxResponseBytes: number;
   apiKey: string | null;
   source: RiskReviewSettingsSummary["source"];
 };
@@ -53,6 +59,9 @@ export async function getRiskReviewRuntimeConfig(): Promise<RiskReviewRuntimeCon
         baseUrl: normalizeBaseUrl(row.base_url) || environmentBaseUrl(),
         model: cleanText(row.model) || environmentModel(),
         timeoutMs: normalizeTimeoutMs(row.timeout_ms),
+        dailyLimit: environmentDailyLimit(),
+        maxOutputTokens: environmentMaxOutputTokens(),
+        maxResponseBytes: environmentMaxResponseBytes(),
         apiKey,
         source: storedApiKey ? "database" : "environment",
       };
@@ -64,6 +73,9 @@ export async function getRiskReviewRuntimeConfig(): Promise<RiskReviewRuntimeCon
     baseUrl: environmentBaseUrl(),
     model: environmentModel(),
     timeoutMs: normalizeTimeoutMs(Number(getRuntimeEnv(RISK_PRECHECK_ENV.timeoutMs))),
+    dailyLimit: environmentDailyLimit(),
+    maxOutputTokens: environmentMaxOutputTokens(),
+    maxResponseBytes: environmentMaxResponseBytes(),
     apiKey: envApiKey,
     source: envApiKey ? "environment" : "unconfigured",
   };
@@ -179,6 +191,18 @@ function environmentModel(): string {
   return getRuntimeEnv(RISK_PRECHECK_ENV.model) || DEFAULT_RISK_REVIEW_MODEL;
 }
 
+function environmentDailyLimit(): number {
+  return boundedInteger(getRuntimeEnv("PRICEAI_RISK_REVIEW_DAILY_LIMIT"), DEFAULT_RISK_REVIEW_DAILY_LIMIT, 1, 100000);
+}
+
+function environmentMaxOutputTokens(): number {
+  return boundedInteger(getRuntimeEnv("PRICEAI_RISK_REVIEW_MAX_OUTPUT_TOKENS"), DEFAULT_RISK_REVIEW_MAX_OUTPUT_TOKENS, 128, 8000);
+}
+
+function environmentMaxResponseBytes(): number {
+  return boundedInteger(getRuntimeEnv("PRICEAI_RISK_REVIEW_MAX_RESPONSE_BYTES"), DEFAULT_RISK_REVIEW_MAX_RESPONSE_BYTES, 16 * 1024, 2 * 1024 * 1024);
+}
+
 function normalizeBaseUrl(value: string | null | undefined): string | null {
   const text = cleanText(value);
   if (!text) return null;
@@ -200,4 +224,10 @@ function normalizeTimeoutMs(value: number | null | undefined): number {
 function cleanText(value: string | number | null | undefined): string | null {
   const text = String(value || "").trim();
   return text ? text : null;
+}
+
+function boundedInteger(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.max(min, Math.min(parsed, max));
 }

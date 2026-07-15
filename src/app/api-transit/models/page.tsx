@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { getTransitStations } from "@/lib/api-transit-db";
-import { formatRate, getTransitModelFamilyOptions, getTransitModelSummaries } from "@/lib/api-transit";
+import { compactTransitStationsForList, formatRate, getTransitModelFamilyOptions, getTransitModelSummaries } from "@/lib/api-transit";
 import { SiteHeader } from "@/components/SiteHeader";
 import { TransitFamilyTabs } from "@/components/TransitFamilyTabs";
 import TransitModelExplorer from "@/components/TransitModelExplorer";
@@ -30,7 +30,8 @@ export default async function ApiTransitModelsPage() {
     getSponsorSettingsSummary().catch(() => null),
   ]);
   const familyOptions = getTransitModelFamilyOptions();
-  const modelSummaries = getTransitModelSummaries(stations, "all");
+  const listStations = compactTransitStationsForList(stations);
+  const modelSummaries = getTransitModelSummaries(listStations, "all");
   const bestRate =
     modelSummaries
       .map((summary) => summary.bestCombinedRate)
@@ -78,7 +79,7 @@ export default async function ApiTransitModelsPage() {
         <SponsoredPlacementPreview kind="apiTransitModels" settings={sponsorSettings} className="mb-5" />
 
         <Suspense fallback={<div className="py-12 text-center text-[#5a6061]">加载中…</div>}>
-          <TransitModelExplorer stations={stations} />
+          <TransitModelExplorer stations={listStations} />
         </Suspense>
       </main>
     </div>

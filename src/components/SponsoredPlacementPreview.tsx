@@ -411,7 +411,16 @@ function SponsorCard({
       <div className={`relative aspect-[16/5] overflow-hidden ${imageUrl ? "bg-[#f2f4f4]" : footerSponsorVisualClass(card.tone)}`}>
         {imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <img
+            src={imageUrl}
+            alt=""
+            width={640}
+            height={200}
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
         ) : (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
             <p className="text-[11px] font-extrabold text-[#5a6061]">赞助图片</p>

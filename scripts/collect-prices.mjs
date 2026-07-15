@@ -30,6 +30,7 @@ const DEFAULT_FLUSH_SOURCE_COUNT = 20;
 const DEFAULT_FLUSH_INTERVAL_MS = 120_000;
 const DEFAULT_SPOOL_REPLAY_LIMIT = 40;
 const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
+const SHOP_API_FULL_SNAPSHOT_OFFER_LIMIT = 500;
 const STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT = 600;
 const STRUCTURED_FULL_SNAPSHOT_COLLECTORS = new Set(["kami", "shopApi"]);
 const EMPTY_FULL_SNAPSHOT_COLLECTORS = new Set(["kami"]);
@@ -1962,7 +1963,7 @@ function crawlLogPayloadFor(target, offers, status, message, options = {}, detai
 }
 
 function crawlLogPayloadsFor(target, offers, status, message, options = {}, details = {}) {
-  const fullSnapshot = details.fullSnapshot !== false && shouldIncludeFullSnapshot(target, offers, status, options);
+  const fullSnapshot = details.fullSnapshot !== false && shouldIncludeFullSnapshot(target, offers, status, options, details);
   const seenOfferIds = fullSnapshot ? seenOfferIdsForSnapshot(offers, details) : undefined;
 
   if (status !== "success" || offers.length <= postBatchSizeFor(options)) {
@@ -2435,9 +2436,13 @@ function postRequestOfferLimitFor(options = {}) {
 }
 
 function fullSnapshotOfferLimitFor(target, options = {}) {
-  const defaultLimit = STRUCTURED_FULL_SNAPSHOT_COLLECTORS.has(target?.kind)
-    ? STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT
-    : DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT;
+  let defaultLimit = DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT;
+  if (target?.kind === "shopApi") {
+    defaultLimit = SHOP_API_FULL_SNAPSHOT_OFFER_LIMIT;
+  } else if (STRUCTURED_FULL_SNAPSHOT_COLLECTORS.has(target?.kind)) {
+    defaultLimit = STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT;
+  }
+
   const value = Number(
     options.fullSnapshotOfferLimit ||
       options["full-snapshot-offer-limit"] ||
@@ -2449,8 +2454,54 @@ function fullSnapshotOfferLimitFor(target, options = {}) {
   return Math.max(0, Math.min(Math.trunc(value), 2000));
 }
 
-function shouldIncludeFullSnapshot(target, offers, status, options = {}) {
-  return status === "success" && offers.length <= fullSnapshotOfferLimitFor(target, options);
+function shouldIncludeFullSnapshot(target, offers, status, options = {}, details = {}) {
+  if (status !== "success") return false;
+
+  if (target?.kind === "shopApi") {
+    if (!shopApiFullSnapshotEvidenceReliable(offers, details)) return false;
+    return fullSnapshotEvidenceItemCount(offers, details) <= fullSnapshotOfferLimitFor(target, options);
+  }
+
+  return offers.length <= fullSnapshotOfferLimitFor(target, options);
+}
+
+function shopApiFullSnapshotEvidenceReliable(offers, details = {}) {
+  const fetchedItemCount = nonNegativeInteger(details.fetchedItemCount);
+  const rawSeenOfferCount = nonNegativeInteger(details.rawSeenOfferCount);
+  const publishedItemCount = nonNegativeInteger(details.publishedItemCount);
+  const reportedGoodsCount = nonNegativeInteger(details.reportedGoodsCount);
+
+  if (
+    fetchedItemCount === null ||
+    rawSeenOfferCount === null ||
+    publishedItemCount === null ||
+    reportedGoodsCount === null
+  ) {
+    return false;
+  }
+
+  return (
+    reportedGoodsCount === fetchedItemCount &&
+    fetchedItemCount >= rawSeenOfferCount &&
+    rawSeenOfferCount >= publishedItemCount &&
+    publishedItemCount >= offers.length
+  );
+}
+
+function fullSnapshotEvidenceItemCount(offers, details = {}) {
+  return Math.max(
+    offers.length,
+    nonNegativeInteger(details.fetchedItemCount) || 0,
+    nonNegativeInteger(details.rawSeenOfferCount) || 0,
+    nonNegativeInteger(details.publishedItemCount) || 0,
+    nonNegativeInteger(details.reportedGoodsCount) || 0,
+  );
+}
+
+function nonNegativeInteger(value) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) return null;
+  return number;
 }
 
 function isEmptyResultFullSnapshotTarget(target) {

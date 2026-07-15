@@ -1,8 +1,24 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { __test } from "./collect-api-transit.mjs";
+
+const leaseCliSmoke = spawnSync(process.execPath, [fileURLToPath(new URL("./collect-api-transit.mjs", import.meta.url)), "--post", "--source", "__lease_smoke__"], {
+  cwd: fileURLToPath(new URL("..", import.meta.url)),
+  encoding: "utf8",
+  env: {
+    ...process.env,
+    NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9",
+    SUPABASE_SERVICE_ROLE_KEY: "local-test-key",
+  },
+});
+const leaseCliOutput = `${leaseCliSmoke.stdout || ""}\n${leaseCliSmoke.stderr || ""}`;
+assert.notEqual(leaseCliSmoke.status, 0, "Lease smoke must stop at the intentionally unreachable local Supabase endpoint.");
+assert.doesNotMatch(leaseCliOutput, /ReferenceError:\s*env is not defined/, "CLI lease setup must use the initialized runtime environment.");
+assert.match(leaseCliOutput, /fetch failed|ECONNREFUSED|bad port/i, "Lease smoke must reach the Supabase client without touching a real project.");
 
 const transitSourceConfig = JSON.parse(readFileSync(new URL("../config/api-transit-sources.json", import.meta.url), "utf8"));
 const configuredRtocSource = transitSourceConfig.find((source) => source.id === "ai-rtoc-cc");

@@ -12,7 +12,9 @@
     "build:cloudflare": "node scripts/build-cloudflare.mjs",
     "preview:cloudflare": "opennextjs-cloudflare preview",
     "deploy:production": "node scripts/deploy-production.mjs",
-    "deploy:cloudflare": "node scripts/check-cloudflare-env.mjs && node scripts/sanitize-opennext-env.mjs && opennextjs-cloudflare deploy -- --keep-vars",
+    "upload:cloudflare": "node scripts/check-cloudflare-env.mjs && node scripts/sanitize-opennext-env.mjs && node scripts/upload-cloudflare-version.mjs",
+    "promote:cloudflare": "node scripts/promote-cloudflare-version.mjs",
+    "deploy:cloudflare": "node scripts/guard-cloudflare-deploy.mjs && node scripts/check-cloudflare-env.mjs && node scripts/sanitize-opennext-env.mjs && opennextjs-cloudflare deploy -- --keep-vars",
     "smoke:cloudflare": "node scripts/smoke-cloudflare.mjs",
     "check:cloudflare-env": "node scripts/check-cloudflare-env.mjs",
     "check:collector-runtime-sync": "node scripts/check-collector-runtime-guard.mjs",
@@ -20,8 +22,13 @@
     "collector-runtime:build": "node scripts/build-collector-runtime-artifact.mjs",
     "collector-runtime:deploy-release": "node scripts/deploy-collector-runtime-artifact.mjs",
     "check:performance": "node scripts/check-performance-guards.mjs",
+    "check:recovery-baseline": "node scripts/verify-supabase-recovery-baseline.mjs",
+    "audit:licenses": "node scripts/check-direct-dependency-licenses.mjs",
+    "audit:sbom": "npm sbom --sbom-format cyclonedx > sbom.cdx.json",
     "start": "node_modules/node/bin/node node_modules/next/dist/bin/next start",
     "lint": "node_modules/node/bin/node node_modules/eslint/bin/eslint.js",
+    "typecheck": "node_modules/node/bin/node node_modules/typescript/bin/tsc --noEmit",
+    "test": "npm run test:auth-security && npm run test:feedback && npm run test:api-transit && npm run test:product-offer-pagination && npm run test:catalog && npm run test:api-models && npm run test:official-parser",
     "collect:prices": "node scripts/collect-prices.mjs",
     "rebalance:source-shards": "node scripts/rebalance-source-shards.mjs",
     "refresh:snapshots": "node scripts/refresh-public-api-snapshots.mjs",
@@ -36,6 +43,7 @@
     "probe:api-transit": "node scripts/probe-api-transit.mjs",
     "test:api-transit": "node scripts/run-ts-test.mjs scripts/test-api-transit-sorting.ts && node scripts/test-api-transit.mjs && node scripts/test-api-transit-probe.mjs",
     "test:feedback": "node scripts/run-ts-test.mjs scripts/test-feedback-rules.ts",
+    "test:auth-security": "node scripts/run-ts-test.mjs scripts/test-auth-security.ts",
     "test:product-offer-pagination": "node scripts/run-ts-test.mjs scripts/test-product-offer-pagination.ts",
     "collect:worker": "node scripts/collect-worker.mjs",
     "import:api-models": "node scripts/import-api-models.mjs",
@@ -64,7 +72,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "1.19.11",
+    "@opennextjs/cloudflare": "1.20.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24",
     "@types/react": "^19",
@@ -76,5 +84,10 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "wrangler": "4.99.0"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.10"
+    }
   }
 }

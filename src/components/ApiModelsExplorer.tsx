@@ -22,6 +22,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SponsoredPlacementPreview } from "@/components/SponsoredPlacementPreview";
 import { useDebouncedValue, useMediaQuery } from "@/lib/client-hooks";
 import { listDetailHref, listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
+import { saveCurrentListScrollPosition, useListScrollRestoration } from "@/lib/list-scroll-restoration";
 import {
   type ApiBillingMode,
   apiProviderTypeLabels,
@@ -70,6 +71,7 @@ export function ApiModelsExplorer({
   dataset: ApiModelDataset;
   sponsorSettings?: SponsorSettingsSummary | null;
 }) {
+  useListScrollRestoration();
   const [family, setFamily] = useState<FamilyFilter>("all");
   const [scopeMode, setScopeMode] = useState<ScopeMode>("providers");
   const [query, setQuery] = useState("");
@@ -1422,6 +1424,7 @@ function listDetailClickHandler(path: string, returnQuery: string) {
   return (event: MouseEvent<HTMLAnchorElement>) => {
     if (!shouldHandleListDetailClick(event)) return;
     event.preventDefault();
+    saveCurrentListScrollPosition();
     window.location.assign(listDetailNavigationHref(path, returnQuery));
   };
 }

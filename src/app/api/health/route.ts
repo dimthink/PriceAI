@@ -2,11 +2,17 @@ import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/env";
 import type { CrawlRun } from "@/lib/types";
 import { getSupabaseServerClient } from "@/lib/supabase";
+import { withCloudflarePublicCache } from "@/lib/cloudflare-edge-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const HEALTH_SUPABASE_TIMEOUT_MS = 2_500;
+const HEALTH_EDGE_TTL_SECONDS = 15;
+const HEALTH_CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=0, must-revalidate",
+  "Cloudflare-CDN-Cache-Control": `public, s-maxage=${HEALTH_EDGE_TTL_SECONDS}, stale-while-revalidate=30`,
+};
 
 type HealthStatus = "ok" | "degraded" | "not_configured";
 type HealthCheck = {
@@ -15,7 +21,16 @@ type HealthCheck = {
   message: string | null;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  return withCloudflarePublicCache(request, {
+    namespace: "health-v1",
+    ttlSeconds: HEALTH_EDGE_TTL_SECONDS,
+    cacheKeySearchParams: new URLSearchParams(),
+    load: loadHealthResponse,
+  });
+}
+
+async function loadHealthResponse() {
   const generatedAt = new Date().toISOString();
   const supabaseConfigured = isSupabaseConfigured();
   const supabase = getSupabaseServerClient();
@@ -33,7 +48,7 @@ export async function GET() {
         latestCrawlStatus: null,
         message: "Supabase 尚未配置。",
       },
-      { status: 503 },
+      { status: 503, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }
 
@@ -87,7 +102,7 @@ export async function GET() {
       latestCrawlAt: latestCrawl.run ? crawlRunObservedAt(latestCrawl.run) : null,
       latestCrawlStatus: latestCrawl.run?.status || null,
       message: null,
-    });
+    }, { headers: HEALTH_CACHE_HEADERS });
   } catch (error) {
     return NextResponse.json(
       {
@@ -102,7 +117,7 @@ export async function GET() {
         latestCrawlStatus: null,
         message: error instanceof Error ? error.message : "健康检查失败。",
       },
-      { status: 503 },
+      { status: 503, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }
 }

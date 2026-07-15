@@ -522,6 +522,55 @@ begin
 end;
 $$;
 
+create or replace function priceai_public_offer_normalized_url(
+  p_url text
+)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  with parsed as (
+    select
+      trim(coalesce(p_url, '')) as value,
+      lower((regexp_match(trim(coalesce(p_url, '')), '^https?://(?:www\.)?([^/?#]+)'))[1]) as host,
+      (regexp_match(trim(coalesce(p_url, '')), '^https?://(?:www\.)?[^/?#]+/item/([^/?#]+)'))[1] as path_goods_key,
+      (regexp_match(trim(coalesce(p_url, '')), '[?&](commodity|id)=([^&#]+)'))[2] as query_goods_key
+  )
+  select
+    case
+      when host in ('catfk.com', 'ldxp.cn', 'pay.ldxp.cn', 'pay.qxvx.cn')
+        and coalesce(path_goods_key, query_goods_key) is not null
+      then 'https://' || host || '/item/' || coalesce(path_goods_key, query_goods_key)
+      else regexp_replace(regexp_replace(lower(value), '#.*$', ''), '/$', '')
+    end
+  from parsed;
+$$;
+
+create or replace function priceai_public_offer_dedupe_key(
+  p_product_id text,
+  p_url text,
+  p_source_title text,
+  p_price numeric
+)
+returns text
+language sql
+immutable
+set search_path = public
+as $$
+  select concat_ws(
+    '|',
+    coalesce(p_product_id, ''),
+    priceai_public_offer_normalized_url(p_url),
+    regexp_replace(lower(coalesce(p_source_title, '')), '[[:space:]]+', '', 'g'),
+    regexp_replace(
+      regexp_replace(coalesce(to_char(p_price, 'FM999999999999990.0000'), ''), '0+$', ''),
+      '\.$',
+      ''
+    )
+  );
+$$;
+
 alter table raw_offers
   add column if not exists public_filter_tags text[]
   generated always as (priceai_public_offer_filter_tags(source_title, tags)) stored;
@@ -1661,6 +1710,9 @@ create table if not exists public_user_profiles (
 
 alter table public_user_profiles enable row level security;
 
+drop policy if exists public_user_profiles_select_own on public_user_profiles;
+create policy public_user_profiles_select_own on public_user_profiles for select to authenticated using (auth.uid() = id);
+
 drop trigger if exists public_user_profiles_set_updated_at on public_user_profiles;
 create trigger public_user_profiles_set_updated_at
 before update on public_user_profiles
@@ -1798,6 +1850,9 @@ create index if not exists offer_feedback_user_public_status_idx
 
 alter table offer_feedback enable row level security;
 
+drop policy if exists offer_feedback_select_own on offer_feedback;
+create policy offer_feedback_select_own on offer_feedback for select to authenticated using (auth.uid() = user_id);
+
 create table if not exists feedback_followups (
   id text primary key,
   feedback_id text not null references offer_feedback(id) on delete cascade,
@@ -1811,6 +1866,39 @@ create table if not exists feedback_followups (
 create index if not exists feedback_followups_feedback_created_at_idx on feedback_followups(feedback_id, created_at asc);
 
 alter table feedback_followups enable row level security;
+
+drop policy if exists feedback_followups_select_own on feedback_followups;
+create policy feedback_followups_select_own on feedback_followups for select to authenticated using (auth.uid() = user_id);
+
+create table if not exists feedback_evidence_objects (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  draft_id uuid not null,
+  feedback_id text references offer_feedback(id) on delete set null,
+  object_key text not null unique,
+  reference text not null unique,
+  status text not null default 'draft' check (status in ('draft', 'bound', 'deleted')),
+  original_name text,
+  mime_type text,
+  size_bytes integer,
+  expires_at timestamptz default (now() + interval '24 hours'),
+  bound_at timestamptz,
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists feedback_evidence_objects_expiry_idx on feedback_evidence_objects(status, expires_at) where status = 'draft';
+create index if not exists feedback_evidence_objects_user_created_idx on feedback_evidence_objects(user_id, created_at desc);
+
+alter table feedback_evidence_objects enable row level security;
+drop policy if exists feedback_evidence_objects_select_own on feedback_evidence_objects;
+create policy feedback_evidence_objects_select_own on feedback_evidence_objects for select to authenticated using (auth.uid() = user_id);
+
+drop trigger if exists feedback_evidence_objects_set_updated_at on feedback_evidence_objects;
+create trigger feedback_evidence_objects_set_updated_at
+before update on feedback_evidence_objects
+for each row execute function set_updated_at();
 
 create or replace function reap_expired_collection_jobs(
   p_worker text default 'collector-agent',
@@ -2852,13 +2940,17 @@ create table if not exists transit_detector_jobs (
   intensity text not null default 'standard',
   include_long_context boolean not null default false,
   upstream_type text,
-  status text not null default 'queued' check (status in ('queued', 'running', 'done', 'error')),
+  status text not null default 'queued' check (status in ('queued', 'running', 'done', 'error', 'timed_out')),
   detector_job_id text,
   status_url text,
   result_url text,
   json_url text,
   image_url text,
   error_message text,
+  idempotency_key text,
+  lease_expires_at timestamptz,
+  last_heartbeat_at timestamptz,
+  attempt_count integer not null default 0,
   submitted_at timestamptz not null default now(),
   completed_at timestamptz,
   updated_at timestamptz not null default now()
@@ -2866,12 +2958,150 @@ create table if not exists transit_detector_jobs (
 
 create index if not exists transit_detector_jobs_user_submitted_idx on transit_detector_jobs(user_id, submitted_at desc);
 create index if not exists transit_detector_jobs_detector_job_id_idx on transit_detector_jobs(detector_job_id);
+create unique index if not exists transit_detector_jobs_user_idempotency_idx on transit_detector_jobs(user_id, idempotency_key) where idempotency_key is not null;
+create index if not exists transit_detector_jobs_active_lease_idx on transit_detector_jobs(user_id, lease_expires_at) where status in ('queued', 'running');
 
 alter table transit_detector_jobs enable row level security;
 
 drop trigger if exists transit_detector_jobs_set_updated_at on transit_detector_jobs;
 create trigger transit_detector_jobs_set_updated_at
 before update on transit_detector_jobs
+for each row execute function set_updated_at();
+
+create or replace function claim_transit_detector_job(
+  p_id text,
+  p_user_id uuid,
+  p_user_email text,
+  p_protocol text,
+  p_base_url text,
+  p_target_model text,
+  p_intensity text,
+  p_include_long_context boolean,
+  p_upstream_type text,
+  p_idempotency_key text,
+  p_daily_limit integer,
+  p_active_limit integer,
+  p_lease_seconds integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_existing public.transit_detector_jobs%rowtype;
+  v_recent_count integer := 0;
+  v_active_count integer := 0;
+  v_now timestamptz := now();
+  v_lease_seconds integer := greatest(60, least(coalesce(p_lease_seconds, 900), 3600));
+begin
+  if p_user_id is null or nullif(trim(p_id), '') is null or nullif(trim(p_idempotency_key), '') is null then
+    raise exception 'invalid detector job claim';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
+
+  select * into v_existing
+  from public.transit_detector_jobs
+  where user_id = p_user_id and idempotency_key = p_idempotency_key
+  limit 1;
+
+  if found then
+    return jsonb_build_object('outcome', 'existing', 'jobId', v_existing.id, 'status', v_existing.status);
+  end if;
+
+  update public.transit_detector_jobs
+  set status = 'timed_out',
+      error_message = coalesce(error_message, '检测任务超过等待时间，已自动释放名额。'),
+      completed_at = v_now,
+      lease_expires_at = null,
+      updated_at = v_now
+  where user_id = p_user_id
+    and status in ('queued', 'running')
+    and coalesce(lease_expires_at, updated_at + interval '30 minutes') < v_now;
+
+  select count(*)::integer into v_recent_count
+  from public.transit_detector_jobs
+  where user_id = p_user_id and submitted_at >= v_now - interval '24 hours';
+
+  if v_recent_count >= greatest(1, least(coalesce(p_daily_limit, 8), 100)) then
+    return jsonb_build_object('outcome', 'quota_exceeded', 'recentCount', v_recent_count, 'activeCount', 0);
+  end if;
+
+  select count(*)::integer into v_active_count
+  from public.transit_detector_jobs
+  where user_id = p_user_id and status in ('queued', 'running');
+
+  if v_active_count >= greatest(1, least(coalesce(p_active_limit, 2), 20)) then
+    return jsonb_build_object('outcome', 'active_limit', 'recentCount', v_recent_count, 'activeCount', v_active_count);
+  end if;
+
+  insert into public.transit_detector_jobs (
+    id, user_id, user_email, protocol, base_url, target_model, intensity,
+    include_long_context, upstream_type, status, idempotency_key,
+    lease_expires_at, last_heartbeat_at, attempt_count
+  ) values (
+    p_id, p_user_id, p_user_email, p_protocol, p_base_url, p_target_model, p_intensity,
+    coalesce(p_include_long_context, false), p_upstream_type, 'queued', p_idempotency_key,
+    v_now + make_interval(secs => v_lease_seconds), v_now, 1
+  );
+
+  return jsonb_build_object(
+    'outcome', 'created', 'jobId', p_id, 'status', 'queued',
+    'recentCount', v_recent_count + 1, 'activeCount', v_active_count + 1
+  );
+end;
+$$;
+
+revoke all on function claim_transit_detector_job(text, uuid, text, text, text, text, text, boolean, text, text, integer, integer, integer) from public, anon, authenticated;
+grant execute on function claim_transit_detector_job(text, uuid, text, text, text, text, text, boolean, text, text, integer, integer, integer) to service_role;
+
+drop policy if exists transit_detector_jobs_select_own on transit_detector_jobs;
+create policy transit_detector_jobs_select_own on transit_detector_jobs for select to authenticated using (auth.uid() = user_id);
+
+create table if not exists transit_detector_report_shares (
+  id uuid primary key default gen_random_uuid(),
+  job_id text not null references transit_detector_jobs(id) on delete cascade,
+  user_id uuid not null,
+  token_hash text not null unique,
+  status text not null default 'active' check (status in ('active', 'revoked')),
+  expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+
+create index if not exists transit_detector_report_shares_user_job_idx on transit_detector_report_shares(user_id, job_id, created_at desc);
+create unique index if not exists transit_detector_report_shares_one_active_job_idx on transit_detector_report_shares(job_id) where status = 'active';
+
+alter table transit_detector_report_shares enable row level security;
+drop policy if exists transit_detector_report_shares_select_own on transit_detector_report_shares;
+create policy transit_detector_report_shares_select_own on transit_detector_report_shares for select to authenticated using (auth.uid() = user_id);
+
+create table if not exists account_deletion_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  user_email text,
+  status text not null default 'pending' check (status in ('pending', 'processing', 'cancelled', 'completed', 'rejected')),
+  requested_at timestamptz not null default now(),
+  scheduled_for timestamptz not null default (now() + interval '7 days'),
+  cancelled_at timestamptz,
+  completed_at timestamptz,
+  resolution_note text,
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists account_deletion_requests_one_active_idx
+  on account_deletion_requests(user_id)
+  where status in ('pending', 'processing');
+create index if not exists account_deletion_requests_status_schedule_idx on account_deletion_requests(status, scheduled_for);
+
+alter table account_deletion_requests enable row level security;
+drop policy if exists account_deletion_requests_select_own on account_deletion_requests;
+create policy account_deletion_requests_select_own on account_deletion_requests for select to authenticated using (auth.uid() = user_id);
+
+drop trigger if exists account_deletion_requests_set_updated_at on account_deletion_requests;
+create trigger account_deletion_requests_set_updated_at
+before update on account_deletion_requests
 for each row execute function set_updated_at();
 
 create table if not exists api_transit_availability_samples (
@@ -2884,6 +3114,19 @@ create table if not exists api_transit_availability_samples (
   ok boolean not null,
   latency_ms integer,
   ping_latency_ms integer,
+  source_type text not null default 'unknown' check (
+    source_type in (
+      'priceai_probe',
+      'public_status',
+      'public_model_catalog',
+      'partner_api',
+      'merchant_reported',
+      'manual_snapshot',
+      'unknown'
+    )
+  ),
+  source_label text,
+  source_url text,
   checked_at timestamptz not null,
   created_at timestamptz not null default now()
 );
@@ -2924,6 +3167,7 @@ create index if not exists api_transit_detection_runs_started_at_idx on api_tran
 create index if not exists api_transit_detection_runs_station_id_idx on api_transit_detection_runs(station_id);
 create index if not exists api_transit_availability_samples_station_time_idx on api_transit_availability_samples(station_id, checked_at desc);
 create index if not exists api_transit_availability_samples_offer_time_idx on api_transit_availability_samples(station_id, scope, standard_model, group_name, checked_at desc);
+create index if not exists api_transit_availability_samples_source_time_idx on api_transit_availability_samples(station_id, source_type, checked_at desc);
 create index if not exists api_transit_availability_samples_checked_time_idx on api_transit_availability_samples(checked_at desc, station_id) include (scope, standard_model, group_name, ok, source_type);
 create index if not exists api_transit_feedback_status_idx on api_transit_feedback(status, created_at desc);
 
@@ -2954,3 +3198,658 @@ alter table api_transit_credentials enable row level security;
 alter table api_transit_detection_runs enable row level security;
 alter table api_transit_availability_samples enable row level security;
 alter table api_transit_feedback enable row level security;
+
+create table if not exists external_api_daily_usage (
+  usage_date date not null,
+  service text not null,
+  usage_count integer not null default 0 check (usage_count >= 0),
+  last_used_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (usage_date, service)
+);
+
+alter table external_api_daily_usage enable row level security;
+drop trigger if exists external_api_daily_usage_set_updated_at on external_api_daily_usage;
+create trigger external_api_daily_usage_set_updated_at
+before update on external_api_daily_usage
+for each row execute function set_updated_at();
+
+create or replace function claim_external_api_daily_budget(
+  p_service text,
+  p_daily_limit integer,
+  p_units integer default 1
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_service text := lower(trim(coalesce(p_service, '')));
+  v_limit integer := greatest(1, least(coalesce(p_daily_limit, 1), 100000));
+  v_units integer := greatest(1, least(coalesce(p_units, 1), 1000));
+  v_used integer := 0;
+  v_date date := (now() at time zone 'UTC')::date;
+begin
+  if v_service = '' or v_service !~ '^[a-z0-9][a-z0-9._-]{0,63}$' then
+    raise exception 'invalid external api service';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(v_service || ':' || v_date::text, 0));
+  select usage_count into v_used from external_api_daily_usage where usage_date = v_date and service = v_service;
+  v_used := coalesce(v_used, 0);
+
+  if v_used + v_units > v_limit then
+    return jsonb_build_object('allowed', false, 'service', v_service, 'date', v_date, 'used', v_used, 'limit', v_limit, 'remaining', greatest(0, v_limit - v_used));
+  end if;
+
+  insert into external_api_daily_usage (usage_date, service, usage_count, last_used_at)
+  values (v_date, v_service, v_units, now())
+  on conflict (usage_date, service) do update
+  set usage_count = external_api_daily_usage.usage_count + excluded.usage_count,
+      last_used_at = excluded.last_used_at,
+      updated_at = now()
+  returning usage_count into v_used;
+
+  return jsonb_build_object('allowed', true, 'service', v_service, 'date', v_date, 'used', v_used, 'limit', v_limit, 'remaining', greatest(0, v_limit - v_used));
+end;
+$$;
+
+revoke all on function claim_external_api_daily_budget(text, integer, integer) from public, anon, authenticated;
+grant execute on function claim_external_api_daily_budget(text, integer, integer) to service_role;
+
+create or replace function prune_api_transit_retention(
+  p_batch_size integer default 5000,
+  p_dry_run boolean default true
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not pg_try_advisory_xact_lock(hashtextextended('priceai:api-transit-retention', 0)) then
+    return jsonb_build_object('dryRun', coalesce(p_dry_run, true), 'skipped', 'lease_busy');
+  end if;
+  return jsonb_build_object(
+    'dryRun', coalesce(p_dry_run, true),
+    'availability', prune_api_transit_availability_retention(8, 90, 365, p_batch_size, p_dry_run),
+    'detectionRuns', prune_api_transit_detection_run_retention(14, 30, p_batch_size, p_dry_run)
+  );
+end;
+$$;
+
+revoke all on function prune_api_transit_retention(integer, boolean) from public, anon, authenticated;
+grant execute on function prune_api_transit_retention(integer, boolean) to service_role;
+
+-- Runtime leases, persistent admin throttling, and account deletion executor.
+-- Keep this section aligned with 20260716120000_audit_closeout_runtime_controls.sql.
+create table if not exists public.runtime_leases (
+  lease_key text primary key,
+  owner text not null,
+  acquired_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  heartbeat_at timestamptz not null default now(),
+  metadata jsonb not null default '{}'::jsonb
+);
+
+create index if not exists runtime_leases_expires_at_idx
+  on public.runtime_leases(expires_at);
+
+alter table public.runtime_leases enable row level security;
+
+create or replace function public.claim_runtime_lease(
+  p_lease_key text,
+  p_owner text,
+  p_lease_seconds integer default 1800,
+  p_metadata jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  v_expires_at timestamptz := v_now + make_interval(secs => greatest(60, least(coalesce(p_lease_seconds, 1800), 7200)));
+  v_row public.runtime_leases%rowtype;
+begin
+  if nullif(trim(p_lease_key), '') is null or nullif(trim(p_owner), '') is null then
+    raise exception 'runtime lease key and owner are required';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(trim(p_lease_key), 0));
+
+  insert into public.runtime_leases (lease_key, owner, acquired_at, expires_at, heartbeat_at, metadata)
+  values (trim(p_lease_key), trim(p_owner), v_now, v_expires_at, v_now, coalesce(p_metadata, '{}'::jsonb))
+  on conflict (lease_key) do update
+  set owner = excluded.owner,
+      acquired_at = case
+        when public.runtime_leases.owner = excluded.owner then public.runtime_leases.acquired_at
+        else excluded.acquired_at
+      end,
+      expires_at = excluded.expires_at,
+      heartbeat_at = excluded.heartbeat_at,
+      metadata = excluded.metadata
+  where public.runtime_leases.expires_at <= v_now
+     or public.runtime_leases.owner = excluded.owner;
+
+  select * into v_row
+  from public.runtime_leases
+  where lease_key = trim(p_lease_key);
+
+  return jsonb_build_object(
+    'acquired', v_row.owner = trim(p_owner),
+    'leaseKey', v_row.lease_key,
+    'owner', v_row.owner,
+    'expiresAt', v_row.expires_at,
+    'heartbeatAt', v_row.heartbeat_at
+  );
+end;
+$$;
+
+create or replace function public.release_runtime_lease(
+  p_lease_key text,
+  p_owner text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_deleted integer := 0;
+begin
+  delete from public.runtime_leases
+  where lease_key = trim(p_lease_key)
+    and owner = trim(p_owner);
+  get diagnostics v_deleted = row_count;
+  return v_deleted > 0;
+end;
+$$;
+
+revoke all on function public.claim_runtime_lease(text, text, integer, jsonb) from public, anon, authenticated;
+revoke all on function public.release_runtime_lease(text, text) from public, anon, authenticated;
+grant execute on function public.claim_runtime_lease(text, text, integer, jsonb) to service_role;
+grant execute on function public.release_runtime_lease(text, text) to service_role;
+
+comment on table public.runtime_leases is
+  'Cross-runtime leases shared by VPS timers, GitHub Actions, Workers cron routes, and manual recovery runs.';
+
+
+create or replace function public.renew_runtime_lease(
+  p_lease_key text,
+  p_owner text,
+  p_lease_seconds integer default 1800
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  v_expires_at timestamptz := v_now + make_interval(secs => greatest(60, least(coalesce(p_lease_seconds, 1800), 7200)));
+  v_row public.runtime_leases%rowtype;
+  v_renewed boolean := false;
+begin
+  if nullif(trim(p_lease_key), '') is null or nullif(trim(p_owner), '') is null then
+    raise exception 'runtime lease key and owner are required';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(trim(p_lease_key), 0));
+
+  update public.runtime_leases
+  set expires_at = v_expires_at,
+      heartbeat_at = v_now
+  where lease_key = trim(p_lease_key)
+    and owner = trim(p_owner)
+    and expires_at > v_now
+  returning * into v_row;
+
+  v_renewed := found;
+
+  if not v_renewed then
+    select * into v_row
+    from public.runtime_leases
+    where lease_key = trim(p_lease_key);
+  end if;
+
+  return jsonb_build_object(
+    'renewed', v_renewed,
+    'leaseKey', trim(p_lease_key),
+    'owner', coalesce(v_row.owner, ''),
+    'expiresAt', v_row.expires_at,
+    'heartbeatAt', v_row.heartbeat_at
+  );
+end;
+$$;
+
+revoke all on function public.renew_runtime_lease(text, text, integer) from public, anon, authenticated;
+grant execute on function public.renew_runtime_lease(text, text, integer) to service_role;
+
+create table if not exists public.feedback_evidence_upload_rate_limits (
+  key_hash text primary key,
+  upload_count integer not null default 0,
+  window_started_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists feedback_evidence_upload_rate_limits_updated_at_idx
+  on public.feedback_evidence_upload_rate_limits(updated_at);
+
+alter table public.feedback_evidence_upload_rate_limits enable row level security;
+
+create or replace function public.consume_feedback_evidence_upload_quota(
+  p_key_hash text,
+  p_window_seconds integer default 3600,
+  p_max_uploads integer default 30
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  v_window_seconds integer := greatest(60, least(coalesce(p_window_seconds, 3600), 86400));
+  v_max_uploads integer := greatest(1, least(coalesce(p_max_uploads, 30), 1000));
+  v_row public.feedback_evidence_upload_rate_limits%rowtype;
+  v_retry_after integer := 0;
+begin
+  if nullif(trim(p_key_hash), '') is null then
+    raise exception 'feedback evidence upload rate-limit key is required';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(trim(p_key_hash), 0));
+
+  select * into v_row
+  from public.feedback_evidence_upload_rate_limits
+  where key_hash = trim(p_key_hash)
+  for update;
+
+  if not found or v_row.window_started_at <= v_now - make_interval(secs => v_window_seconds) then
+    insert into public.feedback_evidence_upload_rate_limits (
+      key_hash,
+      upload_count,
+      window_started_at,
+      updated_at
+    )
+    values (trim(p_key_hash), 1, v_now, v_now)
+    on conflict (key_hash) do update
+    set upload_count = 1,
+        window_started_at = v_now,
+        updated_at = v_now
+    returning * into v_row;
+
+    return jsonb_build_object(
+      'allowed', true,
+      'count', v_row.upload_count,
+      'retryAfterSeconds', 0
+    );
+  end if;
+
+  if v_row.upload_count >= v_max_uploads then
+    v_retry_after := greatest(
+      1,
+      ceil(extract(epoch from (
+        v_row.window_started_at + make_interval(secs => v_window_seconds) - v_now
+      )))::integer
+    );
+    return jsonb_build_object(
+      'allowed', false,
+      'count', v_row.upload_count,
+      'retryAfterSeconds', v_retry_after
+    );
+  end if;
+
+  update public.feedback_evidence_upload_rate_limits
+  set upload_count = upload_count + 1,
+      updated_at = v_now
+  where key_hash = trim(p_key_hash)
+  returning * into v_row;
+
+  return jsonb_build_object(
+    'allowed', true,
+    'count', v_row.upload_count,
+    'retryAfterSeconds', 0
+  );
+end;
+$$;
+
+revoke all on function public.consume_feedback_evidence_upload_quota(text, integer, integer) from public, anon, authenticated;
+grant execute on function public.consume_feedback_evidence_upload_quota(text, integer, integer) to service_role;
+
+comment on table public.feedback_evidence_upload_rate_limits is
+  'Persistent upload quotas shared across Workers isolates and PoPs. Keys are HMAC-derived and do not store raw user or network identifiers.';
+
+
+create table if not exists public.admin_login_rate_limits (
+  key_hash text primary key,
+  failure_count integer not null default 0,
+  window_started_at timestamptz not null default now(),
+  locked_until timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists admin_login_rate_limits_updated_at_idx
+  on public.admin_login_rate_limits(updated_at);
+
+alter table public.admin_login_rate_limits enable row level security;
+
+create or replace function public.read_admin_login_rate_limit(
+  p_key_hash text,
+  p_window_seconds integer default 900
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  v_row public.admin_login_rate_limits%rowtype;
+begin
+  if nullif(trim(p_key_hash), '') is null then
+    raise exception 'admin login rate-limit key is required';
+  end if;
+
+  select * into v_row
+  from public.admin_login_rate_limits
+  where key_hash = trim(p_key_hash);
+
+  if not found then
+    return jsonb_build_object('retryAfterSeconds', 0, 'failureCount', 0);
+  end if;
+
+  if v_row.locked_until is not null and v_row.locked_until > v_now then
+    return jsonb_build_object(
+      'retryAfterSeconds', greatest(1, ceil(extract(epoch from (v_row.locked_until - v_now)))::integer),
+      'failureCount', v_row.failure_count
+    );
+  end if;
+
+  if v_row.window_started_at < v_now - make_interval(secs => greatest(60, least(coalesce(p_window_seconds, 900), 86400))) then
+    delete from public.admin_login_rate_limits where key_hash = trim(p_key_hash);
+    return jsonb_build_object('retryAfterSeconds', 0, 'failureCount', 0);
+  end if;
+
+  return jsonb_build_object('retryAfterSeconds', 0, 'failureCount', v_row.failure_count);
+end;
+$$;
+
+create or replace function public.record_admin_login_attempt(
+  p_key_hash text,
+  p_succeeded boolean,
+  p_window_seconds integer default 900,
+  p_max_failures integer default 8,
+  p_lock_seconds integer default 900
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  v_window_seconds integer := greatest(60, least(coalesce(p_window_seconds, 900), 86400));
+  v_max_failures integer := greatest(2, least(coalesce(p_max_failures, 8), 100));
+  v_lock_seconds integer := greatest(60, least(coalesce(p_lock_seconds, 900), 86400));
+  v_row public.admin_login_rate_limits%rowtype;
+begin
+  if nullif(trim(p_key_hash), '') is null then
+    raise exception 'admin login rate-limit key is required';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(trim(p_key_hash), 0));
+
+  if coalesce(p_succeeded, false) then
+    delete from public.admin_login_rate_limits where key_hash = trim(p_key_hash);
+    return jsonb_build_object('retryAfterSeconds', 0, 'failureCount', 0);
+  end if;
+
+  select * into v_row
+  from public.admin_login_rate_limits
+  where key_hash = trim(p_key_hash)
+  for update;
+
+  if not found or v_row.window_started_at < v_now - make_interval(secs => v_window_seconds) then
+    insert into public.admin_login_rate_limits (key_hash, failure_count, window_started_at, locked_until, updated_at)
+    values (trim(p_key_hash), 1, v_now, null, v_now)
+    on conflict (key_hash) do update
+    set failure_count = 1,
+        window_started_at = v_now,
+        locked_until = null,
+        updated_at = v_now
+    returning * into v_row;
+  else
+    update public.admin_login_rate_limits
+    set failure_count = failure_count + 1,
+        locked_until = case
+          when failure_count + 1 >= v_max_failures then v_now + make_interval(secs => v_lock_seconds)
+          else locked_until
+        end,
+        updated_at = v_now
+    where key_hash = trim(p_key_hash)
+    returning * into v_row;
+  end if;
+
+  return jsonb_build_object(
+    'retryAfterSeconds', case
+      when v_row.locked_until is not null and v_row.locked_until > v_now
+        then greatest(1, ceil(extract(epoch from (v_row.locked_until - v_now)))::integer)
+      else 0
+    end,
+    'failureCount', v_row.failure_count
+  );
+end;
+$$;
+
+revoke all on function public.read_admin_login_rate_limit(text, integer) from public, anon, authenticated;
+revoke all on function public.record_admin_login_attempt(text, boolean, integer, integer, integer) from public, anon, authenticated;
+grant execute on function public.read_admin_login_rate_limit(text, integer) to service_role;
+grant execute on function public.record_admin_login_attempt(text, boolean, integer, integer, integer) to service_role;
+
+comment on table public.admin_login_rate_limits is
+  'Persistent, privacy-preserving rate-limit counters for administrator password login. Only HMAC-derived request keys are stored.';
+
+alter table public.account_deletion_requests
+  alter column user_id drop not null,
+  add column if not exists subject_hash text,
+  add column if not exists processing_started_at timestamptz,
+  add column if not exists lease_expires_at timestamptz,
+  add column if not exists attempt_count integer not null default 0,
+  add column if not exists last_error text;
+
+create index if not exists account_deletion_requests_processing_lease_idx
+  on public.account_deletion_requests(status, lease_expires_at)
+  where status = 'processing';
+
+create or replace function public.claim_due_account_deletion_request(
+  p_worker text,
+  p_lease_seconds integer default 900
+)
+returns table (
+  id uuid,
+  user_id uuid,
+  user_email text,
+  attempt_count integer,
+  scheduled_for timestamptz,
+  lease_expires_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  v_lease_until timestamptz := v_now + make_interval(secs => greatest(60, least(coalesce(p_lease_seconds, 900), 3600)));
+begin
+  return query
+  with candidate as (
+    select request.id
+    from public.account_deletion_requests request
+    where request.user_id is not null
+      and request.scheduled_for <= v_now
+      and (
+        request.status = 'pending'
+        or (request.status = 'processing' and coalesce(request.lease_expires_at, request.processing_started_at, request.updated_at) <= v_now)
+      )
+    order by request.scheduled_for asc, request.requested_at asc
+    for update skip locked
+    limit 1
+  )
+  update public.account_deletion_requests request
+  set status = 'processing',
+      processing_started_at = v_now,
+      lease_expires_at = v_lease_until,
+      attempt_count = request.attempt_count + 1,
+      last_error = null,
+      resolution_note = concat('由 ', left(trim(coalesce(p_worker, 'account-deletion-worker')), 120), ' 处理'),
+      updated_at = v_now
+  from candidate
+  where request.id = candidate.id
+  returning request.id, request.user_id, request.user_email, request.attempt_count, request.scheduled_for, request.lease_expires_at;
+end;
+$$;
+
+create or replace function public.purge_account_data(
+  p_request_id uuid,
+  p_user_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_feedback integer := 0;
+  v_followups integer := 0;
+  v_evidence_metadata integer := 0;
+  v_detector_jobs integer := 0;
+  v_profiles integer := 0;
+begin
+  if p_request_id is null or p_user_id is null then
+    raise exception 'account deletion request and user are required';
+  end if;
+
+  if not exists (
+    select 1 from public.account_deletion_requests
+    where id = p_request_id and user_id = p_user_id and status = 'processing'
+  ) then
+    raise exception 'account deletion request is not processing';
+  end if;
+
+  delete from public.feedback_followups where user_id = p_user_id;
+  get diagnostics v_followups = row_count;
+
+  delete from public.feedback_evidence_objects where user_id = p_user_id;
+  get diagnostics v_evidence_metadata = row_count;
+
+  update public.offer_feedback
+  set user_id = null,
+      user_email = null,
+      user_display_name = null,
+      contact = null,
+      evidence_text = null,
+      evidence_urls = '[]'::jsonb,
+      notes = case when notes is null then null else '[账号删除后已清除用户补充说明]' end,
+      public_status = case when public_status = 'public' then 'withdrawn' else public_status end,
+      withdrawn_at = case when public_status = 'public' then now() else withdrawn_at end,
+      withdraw_reason = case when public_status = 'public' then 'account_deleted' else withdraw_reason end
+  where user_id = p_user_id;
+  get diagnostics v_feedback = row_count;
+
+  delete from public.transit_detector_jobs where user_id = p_user_id;
+  get diagnostics v_detector_jobs = row_count;
+
+  delete from public.public_user_profiles where id = p_user_id;
+  get diagnostics v_profiles = row_count;
+
+  return jsonb_build_object(
+    'feedbackAnonymized', v_feedback,
+    'followupsDeleted', v_followups,
+    'evidenceMetadataDeleted', v_evidence_metadata,
+    'detectorJobsDeleted', v_detector_jobs,
+    'profilesDeleted', v_profiles
+  );
+end;
+$$;
+
+create or replace function public.complete_account_deletion_request(
+  p_request_id uuid,
+  p_user_id uuid,
+  p_subject_hash text,
+  p_resolution_note text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_updated integer := 0;
+begin
+  update public.account_deletion_requests
+  set status = 'completed',
+      subject_hash = nullif(trim(p_subject_hash), ''),
+      user_id = null,
+      user_email = null,
+      completed_at = now(),
+      lease_expires_at = null,
+      last_error = null,
+      resolution_note = left(coalesce(nullif(trim(p_resolution_note), ''), '账号与关联数据已按隐私策略处理。'), 1000),
+      updated_at = now()
+  where id = p_request_id
+    and user_id = p_user_id
+    and status = 'processing';
+  get diagnostics v_updated = row_count;
+  return v_updated > 0;
+end;
+$$;
+
+create or replace function public.retry_account_deletion_request(
+  p_request_id uuid,
+  p_user_id uuid,
+  p_error text,
+  p_retry_seconds integer default 3600
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_updated integer := 0;
+begin
+  update public.account_deletion_requests
+  set status = case when attempt_count >= 10 then 'rejected' else 'pending' end,
+      scheduled_for = case
+        when attempt_count >= 10 then scheduled_for
+        else now() + make_interval(secs => greatest(300, least(coalesce(p_retry_seconds, 3600), 86400)))
+      end,
+      lease_expires_at = null,
+      last_error = left(coalesce(nullif(trim(p_error), ''), '账号删除处理失败。'), 1000),
+      resolution_note = case when attempt_count >= 10 then '自动处理多次失败，需要人工复核。' else resolution_note end,
+      updated_at = now()
+  where id = p_request_id
+    and user_id = p_user_id
+    and status = 'processing';
+  get diagnostics v_updated = row_count;
+  return v_updated > 0;
+end;
+$$;
+
+revoke all on function public.claim_due_account_deletion_request(text, integer) from public, anon, authenticated;
+revoke all on function public.purge_account_data(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.complete_account_deletion_request(uuid, uuid, text, text) from public, anon, authenticated;
+revoke all on function public.retry_account_deletion_request(uuid, uuid, text, integer) from public, anon, authenticated;
+grant execute on function public.claim_due_account_deletion_request(text, integer) to service_role;
+grant execute on function public.purge_account_data(uuid, uuid) to service_role;
+grant execute on function public.complete_account_deletion_request(uuid, uuid, text, text) to service_role;
+grant execute on function public.retry_account_deletion_request(uuid, uuid, text, integer) to service_role;
+
+comment on function public.claim_due_account_deletion_request(text, integer) is
+  'Atomically claims one due account-deletion request with an expiring lease so repeated cron invocations remain idempotent.';
+comment on function public.purge_account_data(uuid, uuid) is
+  'Deletes private account records and anonymizes retained feedback after evidence objects have been removed from R2.';

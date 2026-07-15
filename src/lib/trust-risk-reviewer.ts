@@ -1,6 +1,7 @@
 import "server-only";
 
 import { readFeedbackEvidenceImage } from "@/lib/feedback-evidence";
+import { claimExternalApiDailyBudget } from "@/lib/external-api-budget";
 import { getRiskReviewRuntimeConfig, type RiskReviewRuntimeConfig } from "@/lib/risk-review-settings";
 import {
   AFTERSALES_FEEDBACK_REASON,
@@ -133,6 +134,14 @@ export async function reviewRiskFeedback(input: RiskFeedbackReviewInput): Promis
     return buildFailedRiskPrecheck(input, "风险预审模型 API Key 未配置。", config);
   }
 
+  const budget = await claimExternalApiDailyBudget("risk_review", config.dailyLimit).catch(() => null);
+  if (!budget) {
+    return buildFailedRiskPrecheck(input, "风险预审预算服务暂时不可用，已停止第三方调用。", config);
+  }
+  if (!budget.allowed) {
+    return buildSkippedRiskPrecheck(input, `风险预审今日预算已用完（${budget.used}/${budget.limit}），暂不调用第三方模型。`, config);
+  }
+
   const reviewedAt = new Date().toISOString();
   const model = config.model;
 
@@ -147,6 +156,7 @@ export async function reviewRiskFeedback(input: RiskFeedbackReviewInput): Promis
       body: JSON.stringify({
         model,
         temperature: 0.1,
+        max_tokens: config.maxOutputTokens,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -162,7 +172,7 @@ export async function reviewRiskFeedback(input: RiskFeedbackReviewInput): Promis
       signal: AbortSignal.timeout(config.timeoutMs),
     });
 
-    const text = await response.text();
+    const text = await readLimitedResponseText(response, config.maxResponseBytes);
     if (!response.ok) throw new Error(`模型预审请求失败：${response.status} ${text.slice(0, 240)}`);
 
     const json = JSON.parse(text) as Record<string, unknown>;
@@ -172,6 +182,36 @@ export async function reviewRiskFeedback(input: RiskFeedbackReviewInput): Promis
   } catch (error) {
     return buildFailedRiskPrecheck(input, error instanceof Error ? error.message : "风险预审模型调用失败。", config);
   }
+}
+
+async function readLimitedResponseText(response: Response, maxBytes: number): Promise<string> {
+  const declaredBytes = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+    throw new Error("风险预审响应超过大小上限。");
+  }
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel();
+      throw new Error("风险预审响应超过大小上限。");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 export function mergeRiskPrecheckResult(

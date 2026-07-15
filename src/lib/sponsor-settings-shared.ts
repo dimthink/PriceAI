@@ -230,16 +230,9 @@ export function isSponsorCreativeVisible(creative: SponsorCreative, now = new Da
   return true;
 }
 
-function emptyPlacement(): SponsorPlacementConfig {
-  return {
-    enabled: false,
-    creatives: [],
-  };
-}
-
 function disabledDefaultPlacement(kind: SponsorPlacementKind): SponsorPlacementConfig {
   return {
-    ...emptyPlacement(),
+    enabled: false,
     creatives: cloneCreatives(defaultSponsorCreativesByPlacement[kind]),
   };
 }

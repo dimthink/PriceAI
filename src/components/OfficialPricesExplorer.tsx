@@ -15,6 +15,7 @@ import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/compon
 import { SiteHeader } from "@/components/SiteHeader";
 import { useDebouncedValue, useMediaQuery } from "@/lib/client-hooks";
 import { listDetailHref, listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
+import { saveCurrentListScrollPosition, useListScrollRestoration } from "@/lib/list-scroll-restoration";
 import {
   buildOfficialPriceOfferRows,
   buildOfficialPricePlanSummaries,
@@ -32,6 +33,7 @@ type PlatformFilter = "all" | OfficialPriceAppSlug;
 const officialScopeOptions = ["products", "offers"] as const;
 
 export function OfficialPricesExplorer({ dataset }: { dataset: OfficialPricesDataset }) {
+  useListScrollRestoration();
   const [platform, setPlatform] = useState<PlatformFilter>("all");
   const [scopeMode, setScopeMode] = useState<ScopeMode>("products");
   const [query, setQuery] = useState("");
@@ -579,6 +581,7 @@ function listDetailClickHandler(path: string, returnQuery: string) {
   return (event: MouseEvent<HTMLAnchorElement>) => {
     if (!shouldHandleListDetailClick(event)) return;
     event.preventDefault();
+    saveCurrentListScrollPosition();
     window.location.assign(listDetailNavigationHref(path, returnQuery));
   };
 }

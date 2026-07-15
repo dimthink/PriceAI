@@ -52,6 +52,7 @@ export interface TransitAvailability {
     ok: boolean;
     checkedAt: string | null;
   }>;
+  recentSampleBits?: string;
   latestLatencyMs?: number | null;
   avgLatency7dMs?: number | null;
   note?: string;

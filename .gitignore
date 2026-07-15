@@ -32,6 +32,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 /tmp/
+/sbom.cdx.json
 
 # local agent/workflow artifacts
 /.agents/

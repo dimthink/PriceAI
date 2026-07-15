@@ -1,14 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
-const versionId = process.argv[2];
+const versionRef = process.argv[2];
 
-if (!versionId || !/^[a-f0-9-]{36}$/i.test(versionId)) {
-  console.error("Usage: npm run promote:cloudflare -- <worker-version-id>");
+if (!versionRef || (!/^[a-f0-9-]{36}$/i.test(versionRef) && !/^[A-Za-z0-9._-]{7,64}$/.test(versionRef))) {
+  console.error("Usage: npm run promote:cloudflare -- <worker-version-id-or-tag>");
   process.exit(1);
 }
 
-const message = process.env.CLOUDFLARE_PROMOTE_MESSAGE || `Promote ${versionId}`;
+const isVersionId = /^[a-f0-9-]{36}$/i.test(versionRef);
+const message = process.env.CLOUDFLARE_PROMOTE_MESSAGE || `Promote ${versionRef}`;
 const wrangler = join(
   process.cwd(),
   "node_modules",
@@ -21,7 +22,7 @@ const result = spawnSync(
   [
     "versions",
     "deploy",
-    `${versionId}@100`,
+    ...(isVersionId ? [`${versionRef}@100`] : ["--version-tag", `${versionRef}@100`]),
     "--name",
     "priceai-cloudflare-poc",
     "--message",

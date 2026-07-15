@@ -7,6 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { pruneOperationalLogs } from "./operational-log-retention.mjs";
+import {
+  claimScriptRuntimeLease,
+  releaseScriptRuntimeLease,
+  startScriptRuntimeLeaseHeartbeat,
+} from "./runtime-lease.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -71,22 +76,70 @@ const APPLE_STOREFRONT_IDS = {
 
 if (isCli()) {
   const args = normalizeOptions(parseArgs(process.argv.slice(2)));
+  const leaseOwner = `official-prices:${process.env.GITHUB_RUN_ID || process.env.HOSTNAME || "local"}:${process.pid}`;
+  const runtimeEnv = { ...readEnvFile(path.join(repoRoot, ".env.local")), ...process.env };
+  let lease = null;
+  let leaseHeartbeat = null;
 
   try {
-    const result = args.fxOnly ? await refreshOfficialPriceFxRates(args) : await collectOfficialPrices(args);
-    printSummary(result);
+    if (args.post || args.db) {
+      lease = await claimScriptRuntimeLease({
+        key: "official-price-collection",
+        owner: leaseOwner,
+        leaseSeconds: 7200,
+        metadata: {
+          mode: args.fxOnly ? "fx_only" : "weekly_full",
+          runtime: process.env.GITHUB_ACTIONS === "true" ? "github-actions" : "collector-runtime",
+        },
+        env: runtimeEnv,
+      });
+      if (lease.acquired) {
+        leaseHeartbeat = startScriptRuntimeLeaseHeartbeat({
+          key: lease.key,
+          owner: leaseOwner,
+          leaseSeconds: 7200,
+          env: runtimeEnv,
+          onError: (error) => console.error(`Runtime lease heartbeat failed: ${errorMessage(error)}`),
+        });
+      }
+    }
 
-    if (args.dryRun) {
-      console.log(JSON.stringify(result, null, 2));
+    if (lease && !lease.acquired) {
+      console.log(JSON.stringify({
+        skipped: true,
+        reason: "lease_busy",
+        owner: lease.owner,
+        expiresAt: lease.expiresAt,
+      }));
     } else {
-      const outPath = path.resolve(repoRoot, args.out || defaultOutPath);
-      await mkdir(path.dirname(outPath), { recursive: true });
-      await writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-      console.log(`Snapshot written to ${path.relative(repoRoot, outPath)}`);
+      const result = args.fxOnly ? await refreshOfficialPriceFxRates(args) : await collectOfficialPrices(args);
+      leaseHeartbeat?.assertOwned();
+      printSummary(result);
+
+      if (args.dryRun) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const outPath = path.resolve(repoRoot, args.out || defaultOutPath);
+        await mkdir(path.dirname(outPath), { recursive: true });
+        await writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+        console.log(`Snapshot written to ${path.relative(repoRoot, outPath)}`);
+      }
     }
   } catch (error) {
     console.error(errorMessage(error));
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await leaseHeartbeat?.stop();
+    if (lease?.acquired) {
+      await releaseScriptRuntimeLease({
+        key: lease.key,
+        owner: leaseOwner,
+        env: runtimeEnv,
+      }).catch((error) => {
+        console.error(`Runtime lease release failed: ${errorMessage(error)}`);
+        process.exitCode = 1;
+      });
+    }
   }
 }
 

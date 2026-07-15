@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 const DEFAULT_ENDPOINT = "https://priceai.cc";
 const DEFAULT_KIND = "shopApi";
 const DEFAULT_FAMILY = "shopApi";
@@ -16,7 +16,7 @@ const DEFAULT_WIND_CONTROL_COOLDOWN_SECONDS = 300;
 const DEFAULT_WIND_CONTROL_THRESHOLD = 3;
 const DEFAULT_POST_BATCH_SIZE = 25;
 const MIN_POST_BATCH_SIZE = 10;
-const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
+const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 500;
 const DEFAULT_UPLOAD_TIMEOUT_MS = 90_000;
 const DEFAULT_DIRECT_TIMEOUT_MS = 15_000;
 const DEFAULT_DIRECT_RETRY_COOLDOWN_MS = 300_000;
@@ -681,7 +681,48 @@ function crawlRunPayloads(target, status, message, offers, extraDetails = {}) {
 }
 
 function shouldIncludeFullSnapshot(status, offers, extraDetails = {}) {
-  return status === "success" && Boolean(extraDetails.fullSnapshot) && offers.length <= config.fullSnapshotOfferLimit;
+  if (status !== "success" || !extraDetails.fullSnapshot) return false;
+  if (!shopApiFullSnapshotEvidenceReliable(offers, extraDetails)) return false;
+  return fullSnapshotEvidenceItemCount(offers, extraDetails) <= config.fullSnapshotOfferLimit;
+}
+
+function shopApiFullSnapshotEvidenceReliable(offers, details = {}) {
+  const fetchedItemCount = nonNegativeInteger(details.fetchedItemCount);
+  const rawSeenOfferCount = nonNegativeInteger(details.rawSeenOfferCount);
+  const publishedItemCount = nonNegativeInteger(details.publishedItemCount);
+  const reportedGoodsCount = nonNegativeInteger(details.reportedGoodsCount);
+
+  if (
+    fetchedItemCount === null ||
+    rawSeenOfferCount === null ||
+    publishedItemCount === null ||
+    reportedGoodsCount === null
+  ) {
+    return false;
+  }
+
+  return (
+    reportedGoodsCount === fetchedItemCount &&
+    fetchedItemCount >= rawSeenOfferCount &&
+    rawSeenOfferCount >= publishedItemCount &&
+    publishedItemCount >= offers.length
+  );
+}
+
+function fullSnapshotEvidenceItemCount(offers, details = {}) {
+  return Math.max(
+    offers.length,
+    nonNegativeInteger(details.fetchedItemCount) || 0,
+    nonNegativeInteger(details.rawSeenOfferCount) || 0,
+    nonNegativeInteger(details.publishedItemCount) || 0,
+    nonNegativeInteger(details.reportedGoodsCount) || 0,
+  );
+}
+
+function nonNegativeInteger(value) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) return null;
+  return number;
 }
 
 function crawlRunPayload(target, status, message, offers, extraDetails = {}) {

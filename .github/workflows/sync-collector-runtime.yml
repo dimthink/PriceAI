@@ -38,6 +38,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Validate runtime sync inputs and secrets
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$COLLECTOR_RUNTIME_SSH_HOST" ] || missing+=(COLLECTOR_RUNTIME_SSH_HOST)
+          [ -n "$COLLECTOR_RUNTIME_SSH_PRIVATE_KEY" ] || missing+=(COLLECTOR_RUNTIME_SSH_PRIVATE_KEY)
+
+          if [ "$MODE" != "source" ] && [ "$MODE" != "artifact" ]; then
+            echo "mode 必须是 source 或 artifact，当前值：$MODE"
+            exit 1
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Collector Runtime 同步缺少以下 GitHub Actions secrets：${missing[*]}"
+            echo "请在仓库 Settings > Secrets and variables > Actions 中配置；不要把私钥写入仓库或 workflow。"
+            echo "配置说明：docs/deployment.md#collector-runtime-同步"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
@@ -58,11 +77,6 @@ jobs:
       - name: Configure SSH
         run: |
           set -euo pipefail
-          if [ -z "$COLLECTOR_RUNTIME_SSH_HOST" ] || [ -z "$COLLECTOR_RUNTIME_SSH_PRIVATE_KEY" ]; then
-            echo "Missing COLLECTOR_RUNTIME_SSH_HOST or COLLECTOR_RUNTIME_SSH_PRIVATE_KEY."
-            exit 1
-          fi
-
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$COLLECTOR_RUNTIME_SSH_PRIVATE_KEY" > ~/.ssh/collector_runtime_key

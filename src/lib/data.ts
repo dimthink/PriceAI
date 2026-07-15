@@ -84,6 +84,8 @@ import type {
   RawOffer,
   Source,
   SourceOfferStats,
+  SourceQualityQueueKind,
+  SourceQualitySource,
 } from "./types";
 import { publicOfferDedupeKey, stableId } from "./utils";
 
@@ -1451,6 +1453,7 @@ export function getEmptyAdminSummary(isAuthenticated = false): AdminSummary {
     collectionJobs: [],
     collectorHealth: emptyCollectorHealthSummary(new Date().toISOString()),
     collectionMonitoring: emptyCollectionMonitoringSummary(new Date().toISOString()),
+    sourceQuality: emptySourceQualitySummary(new Date().toISOString()),
     officialPrices: {
       configured: isSupabaseConfigured(),
       tableReady: false,
@@ -1788,6 +1791,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       collectionJobs: [],
       collectorHealth: emptyCollectorHealthSummary(new Date().toISOString()),
       collectionMonitoring: emptyCollectionMonitoringSummary(new Date().toISOString()),
+      sourceQuality: emptySourceQualitySummary(new Date().toISOString()),
       officialPrices,
       apiModels,
       apiTransit,
@@ -1927,6 +1931,15 @@ async function readAdminSummary(): Promise<AdminSummary> {
       loadErrors,
     ),
   });
+  const sourceQuality = buildSourceQualitySummary({
+    generatedAt,
+    sources,
+    sourceOfferStats,
+    visibleOffers: visibleOfferData.rows,
+    collectionJobs,
+    crawlRuns,
+    collectionMonitoring,
+  });
   const baseDashboard: DashboardData = {
     generatedAt,
     configured: isSupabaseConfigured(),
@@ -1947,6 +1960,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       collectionJobs,
       collectorHealth,
       collectionMonitoring,
+      sourceQuality,
       officialPrices,
       apiModels,
       apiTransit,
@@ -1974,6 +1988,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     collectionJobs,
     collectorHealth,
     collectionMonitoring,
+    sourceQuality,
     officialPrices,
     apiModels,
     apiTransit,
@@ -3190,6 +3205,393 @@ function emptyCollectionMonitoringSummary(generatedAt: string): AdminSummary["co
     failureReasons: [],
     problemSources: [],
   };
+}
+
+const SOURCE_QUALITY_SEGMENT_ORDER: SourceQualityQueueKind[] = [
+  "priority_keep",
+  "valuable_lead",
+  "needs_review",
+  "collection_environment_issue",
+  "downfrequency_candidate",
+  "low_quality_candidate",
+  "duplicate_or_no_advantage",
+  "disable_candidate",
+];
+
+const SOURCE_QUALITY_SEGMENT_META: Record<
+  SourceQualityQueueKind,
+  { label: string; description: string; tone: SourceQualitySource["tone"]; nextAction: string }
+> = {
+  priority_keep: {
+    label: "优先保留",
+    description: "有点击、样本前列报价或足够可见报价，适合保留并优先维护。",
+    tone: "success",
+    nextAction: "保留并优先保证采集稳定",
+  },
+  valuable_lead: {
+    label: "有价值线索",
+    description: "有一定报价、点击或近期成功证据，但还需要看价格优势和商品独特性。",
+    tone: "info",
+    nextAction: "继续观察价格优势",
+  },
+  needs_review: {
+    label: "待观察",
+    description: "证据不足或状态混合，先保留人工复核入口。",
+    tone: "muted",
+    nextAction: "人工抽样复核",
+  },
+  collection_environment_issue: {
+    label: "采集环境问题",
+    description: "风控、验证码、403、网络或源站失败，不按低质处理。",
+    tone: "info",
+    nextAction: "低频重试或换节点",
+  },
+  downfrequency_candidate: {
+    label: "降频候选",
+    description: "可见报价少、暂无点击，适合降低采集优先级后继续观察。",
+    tone: "warn",
+    nextAction: "降频观察",
+  },
+  low_quality_candidate: {
+    label: "低质候选",
+    description: "长期少量或无有效报价，也缺少点击和前列样本证据。",
+    tone: "danger",
+    nextAction: "人工确认后清理",
+  },
+  duplicate_or_no_advantage: {
+    label: "重复/无优势",
+    description: "手动下架或隐藏占比较高，疑似重复、同质或价格无优势。",
+    tone: "warn",
+    nextAction: "合并主源或保留下架",
+  },
+  disable_candidate: {
+    label: "停用候选",
+    description: "已无可见报价、无点击或长期未成功，适合进入停用复核。",
+    tone: "danger",
+    nextAction: "复核后停用",
+  },
+};
+
+function emptySourceQualitySummary(generatedAt: string): AdminSummary["sourceQuality"] {
+  return {
+    generatedAt,
+    behaviorWindowDays: UMAMI_MONITORING_WINDOW_DAYS,
+    sourceCount: 0,
+    segments: SOURCE_QUALITY_SEGMENT_ORDER.map((kind) => ({
+      kind,
+      label: SOURCE_QUALITY_SEGMENT_META[kind].label,
+      description: SOURCE_QUALITY_SEGMENT_META[kind].description,
+      count: 0,
+      visibleOfferCount: 0,
+      purchaseClicks: 0,
+      sampleFrontRankOfferCount: 0,
+      topSources: [],
+    })),
+    sources: [],
+  };
+}
+
+function buildSourceQualitySummary(input: {
+  generatedAt: string;
+  sources: Source[];
+  sourceOfferStats: SourceOfferStats[];
+  visibleOffers: RawOffer[];
+  collectionJobs: CollectionJob[];
+  crawlRuns: CrawlRun[];
+  collectionMonitoring: AdminSummary["collectionMonitoring"];
+}): AdminSummary["sourceQuality"] {
+  const generatedMs = timestampMs(input.generatedAt) || Date.now();
+  const statsById = new Map(input.sourceOfferStats.map((stats) => [stats.sourceId, stats]));
+  const heatById = new Map(input.collectionMonitoring.behavior.sourceHeat.map((row) => [row.sourceId, row]));
+  const visibleSampleCountBySource = countVisibleOfferSamplesBySource(input.visibleOffers);
+  const sampleFrontRankOfferCountBySource = buildSampleFrontRankOfferCounts(input.visibleOffers);
+  const sourceIds = new Set(input.sources.map((source) => source.id));
+  const latestJobBySource = latestCollectionJobBySource(input.collectionJobs, sourceIds);
+  const latestRunBySource = latestCrawlRunBySource(input.crawlRuns, sourceIds);
+
+  const sourceRows = input.sources
+    .map((source) =>
+      classifySourceQuality({
+        source,
+        stats: statsById.get(source.id),
+        visibleSampleCount: visibleSampleCountBySource.get(source.id) || 0,
+        sampleFrontRankOfferCount: sampleFrontRankOfferCountBySource.get(source.id) || 0,
+        heat: heatById.get(source.id),
+        latestJob: latestJobBySource.get(source.id),
+        latestRun: latestRunBySource.get(source.id),
+        generatedMs,
+      }),
+    )
+    .sort(compareSourceQualitySources);
+
+  const rowsByKind = new Map<SourceQualityQueueKind, SourceQualitySource[]>();
+  for (const row of sourceRows) {
+    const rows = rowsByKind.get(row.kind) || [];
+    rows.push(row);
+    rowsByKind.set(row.kind, rows);
+  }
+
+  return {
+    generatedAt: input.generatedAt,
+    behaviorWindowDays: UMAMI_MONITORING_WINDOW_DAYS,
+    sourceCount: input.sources.length,
+    segments: SOURCE_QUALITY_SEGMENT_ORDER.map((kind) => {
+      const rows = rowsByKind.get(kind) || [];
+      const meta = SOURCE_QUALITY_SEGMENT_META[kind];
+      return {
+        kind,
+        label: meta.label,
+        description: meta.description,
+        count: rows.length,
+        visibleOfferCount: rows.reduce((sum, row) => sum + row.evidence.visibleCount, 0),
+        purchaseClicks: rows.reduce((sum, row) => sum + row.evidence.purchaseClicks, 0),
+        sampleFrontRankOfferCount: rows.reduce((sum, row) => sum + row.evidence.sampleFrontRankOfferCount, 0),
+        topSources: rows.slice(0, 80),
+      };
+    }),
+    sources: sourceRows,
+  };
+}
+
+function classifySourceQuality(input: {
+  source: Source;
+  stats?: SourceOfferStats;
+  visibleSampleCount: number;
+  sampleFrontRankOfferCount: number;
+  heat?: CollectionMonitoringSourceHeat;
+  latestJob?: CollectionJob;
+  latestRun?: CrawlRun;
+  generatedMs: number;
+}): SourceQualitySource {
+  const visibleCount = input.stats?.visibleCount ?? input.visibleSampleCount;
+  const hiddenCount = input.stats?.hiddenCount || 0;
+  const manuallyHiddenCount = input.stats?.manuallyHiddenCount || 0;
+  const collectorFailureCount = input.stats?.collectorFailureCount || 0;
+  const totalCount = input.stats?.totalCount || visibleCount + hiddenCount;
+  const purchaseClicks = input.heat?.purchaseClicks || 0;
+  const successAgeMinutes = input.source.lastSuccessAt ? minutesSince(input.source.lastSuccessAt, input.generatedMs) : null;
+  const checkedAgeMinutes = input.source.lastCheckedAt ? minutesSince(input.source.lastCheckedAt, input.generatedMs) : null;
+  const sourceAgeDays = sourceAgeDaysForQuality(input.source, input.generatedMs);
+  const latestJobAt = input.latestJob?.finishedAt || input.latestJob?.startedAt || input.latestJob?.createdAt || null;
+  const latestRunAt = input.latestRun?.finishedAt || input.latestRun?.startedAt || null;
+  const latestError = firstNonEmptyString(input.source.lastError, input.latestJob?.lastError, input.latestRun?.message);
+  const runtimeIssueLabel = sourceQualityRuntimeIssueLabel(latestError);
+  const consecutiveFailures = Number(input.source.consecutiveFailures || 0);
+  const hiddenRatio = totalCount > 0 ? hiddenCount / totalCount : 0;
+  const manualHiddenRatio = totalCount > 0 ? manuallyHiddenCount / totalCount : 0;
+  const isNewSource = sourceAgeDays !== null && sourceAgeDays <= 7;
+  const hasRecentSuccess = successAgeMinutes !== null && successAgeMinutes <= 24 * 60;
+  const hasFrontRankEvidence = input.sampleFrontRankOfferCount >= 2;
+  const hasStrongClickEvidence = purchaseClicks >= 3 && visibleCount >= 3;
+  const hasAnyValueSignal = purchaseClicks > 0 || input.sampleFrontRankOfferCount > 0 || hasRecentSuccess;
+
+  const evidence: SourceQualitySource["evidence"] = {
+    visibleCount,
+    hiddenCount,
+    manuallyHiddenCount,
+    collectorFailureCount,
+    totalCount,
+    purchaseClicks,
+    sampleFrontRankOfferCount: input.sampleFrontRankOfferCount,
+    successAgeMinutes,
+    checkedAgeMinutes,
+    sourceAgeDays,
+    consecutiveFailures,
+    healthStatus: input.source.healthStatus || "unknown",
+    lastSuccessAt: input.source.lastSuccessAt || null,
+    lastCheckedAt: input.source.lastCheckedAt || null,
+    latestJobStatus: input.latestJob?.status || null,
+    latestJobAt,
+    latestRunStatus: input.latestRun?.status || null,
+    latestRunAt,
+    latestError,
+  };
+
+  let kind: SourceQualityQueueKind = "needs_review";
+  let reasons: string[] = [];
+  let score = 0;
+
+  if (
+    runtimeIssueLabel ||
+    ((input.source.healthStatus === "failing" || input.source.healthStatus === "retrying") &&
+      consecutiveFailures >= 2 &&
+      !sourceQualityNoOfferSignal(latestError))
+  ) {
+    kind = "collection_environment_issue";
+    reasons = [
+      runtimeIssueLabel ? `最近失败：${runtimeIssueLabel}` : `连续失败 ${consecutiveFailures} 次`,
+      "风控、网络或源站阻断不按低质处理",
+    ];
+    score = 70 + Math.min(consecutiveFailures, 10) * 4 + collectorFailureCount;
+  } else if (hasFrontRankEvidence || hasStrongClickEvidence || (visibleCount >= 25 && hiddenRatio < 0.35)) {
+    kind = "priority_keep";
+    reasons = [
+      hasFrontRankEvidence ? `样本前列报价 ${input.sampleFrontRankOfferCount} 条` : `可见报价 ${visibleCount} 条`,
+      purchaseClicks > 0 ? `${UMAMI_MONITORING_WINDOW_DAYS} 天购买点击 ${purchaseClicks} 次` : "报价覆盖相对充足",
+    ];
+    score = 120 + input.sampleFrontRankOfferCount * 12 + purchaseClicks * 8 + Math.min(visibleCount, 50);
+  } else if ((manuallyHiddenCount >= 3 && manualHiddenRatio >= 0.5) || (hiddenCount >= 8 && hiddenRatio >= 0.75)) {
+    kind = "duplicate_or_no_advantage";
+    reasons = [
+      `隐藏 ${hiddenCount} 条，手动下架 ${manuallyHiddenCount} 条`,
+      "疑似重复、同质或价格无优势",
+    ];
+    score = 90 + Math.round(hiddenRatio * 20) + manuallyHiddenCount;
+  } else if (!input.source.enabled && visibleCount === 0 && purchaseClicks === 0) {
+    kind = "disable_candidate";
+    reasons = [
+      "当前渠道已停用且无可见报价",
+      "无购买点击证据",
+    ];
+    score = 95 + hiddenCount;
+  } else if (input.source.enabled && visibleCount === 0 && purchaseClicks === 0 && !hasRecentSuccess && !isNewSource) {
+    kind = "disable_candidate";
+    reasons = [
+      totalCount > 0 ? `无可见报价，历史报价 ${totalCount} 条` : "无可见报价",
+      successAgeMinutes === null ? "暂无成功采集记录" : `距上次成功 ${successAgeMinutes} 分钟`,
+    ];
+    score = 85 + Math.min(totalCount, 30);
+  } else if (totalCount <= 2 && purchaseClicks === 0 && !hasAnyValueSignal && !isNewSource) {
+    kind = "low_quality_candidate";
+    reasons = [
+      `总报价 ${totalCount} 条，可见 ${visibleCount} 条`,
+      "暂无点击或样本前列证据",
+    ];
+    score = 75 + Math.max(0, 3 - totalCount) * 8;
+  } else if (input.source.enabled && visibleCount > 0 && visibleCount <= 5 && purchaseClicks === 0 && !isNewSource) {
+    kind = "downfrequency_candidate";
+    reasons = [
+      `可见报价 ${visibleCount} 条`,
+      `${UMAMI_MONITORING_WINDOW_DAYS} 天无购买点击`,
+    ];
+    score = 65 + Math.max(0, 6 - visibleCount) * 6;
+  } else if (isNewSource || hasAnyValueSignal || visibleCount >= 6) {
+    kind = "valuable_lead";
+    reasons = [
+      isNewSource ? "新入库渠道，先观察" : visibleCount >= 6 ? `可见报价 ${visibleCount} 条` : "已有价值信号",
+      purchaseClicks > 0 ? `${UMAMI_MONITORING_WINDOW_DAYS} 天购买点击 ${purchaseClicks} 次` : "等待更多点击和价格优势证据",
+    ];
+    score = 55 + purchaseClicks * 6 + input.sampleFrontRankOfferCount * 8 + Math.min(visibleCount, 20);
+  } else {
+    reasons = [
+      visibleCount > 0 ? `可见报价 ${visibleCount} 条` : "暂无可见报价",
+      "证据不足，需人工抽样判断",
+    ];
+    score = 40 + Math.min(visibleCount, 20) + purchaseClicks * 4;
+  }
+
+  const meta = SOURCE_QUALITY_SEGMENT_META[kind];
+  return {
+    sourceId: input.source.id,
+    kind,
+    label: meta.label,
+    tone: meta.tone,
+    score,
+    reasons,
+    nextAction: meta.nextAction,
+    evidence,
+  };
+}
+
+function countVisibleOfferSamplesBySource(offers: RawOffer[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const offer of offers) {
+    if (!offer.sourceId) continue;
+    map.set(offer.sourceId, (map.get(offer.sourceId) || 0) + 1);
+  }
+  return map;
+}
+
+function buildSampleFrontRankOfferCounts(offers: RawOffer[]): Map<string, number> {
+  const byProduct = new Map<string, RawOffer[]>();
+  for (const offer of offers) {
+    if (!offer.sourceId || !sourceQualityOfferCanRank(offer)) continue;
+    const productId =
+      offer.canonicalProductId ||
+      offer.storedCanonicalProductId ||
+      classifyOffer(offer.sourceTitle, { tags: offer.tags, price: offer.price }).id;
+    const rows = byProduct.get(productId) || [];
+    rows.push(offer);
+    byProduct.set(productId, rows);
+  }
+
+  const counts = new Map<string, number>();
+  for (const rows of byProduct.values()) {
+    const ranked = [...rows]
+      .sort((left, right) => Number(left.price || 0) - Number(right.price || 0))
+      .slice(0, Math.min(3, rows.length));
+    for (const offer of ranked) {
+      if (!offer.sourceId) continue;
+      counts.set(offer.sourceId, (counts.get(offer.sourceId) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function sourceQualityOfferCanRank(offer: RawOffer): offer is RawOffer & { price: number; sourceId: string } {
+  if (offer.hidden || !offer.sourceId) return false;
+  if (typeof offer.price !== "number" || !Number.isFinite(offer.price)) return false;
+  if (offer.status === "out_of_stock") return false;
+  if (offer.effectiveStatus && ["unavailable", "stale", "failed"].includes(offer.effectiveStatus)) return false;
+  if (offer.freshnessStatus && ["expired", "failed"].includes(offer.freshnessStatus)) return false;
+  return true;
+}
+
+function sourceAgeDaysForQuality(source: Source, nowMs: number): number | null {
+  const createdAt = source.createdAt || source.shopCreatedAt || null;
+  if (!createdAt) return null;
+  const createdMs = timestampMs(createdAt);
+  if (!createdMs) return null;
+  return Math.max(0, Math.round((nowMs - createdMs) / 86_400_000));
+}
+
+function sourceQualityRuntimeIssueLabel(message: string | null): string | null {
+  if (!message || sourceQualityNoOfferSignal(message)) return null;
+  const text = message.toLowerCase();
+  if (/verification|challenge|captcha|验证码|风控|waf|http 403|status 403|\b403\b|forbidden|access denied|acw_tc|cdn_sec_tc|安全|拦截/.test(text)) {
+    return "风控 / 验证 / 403";
+  }
+  if (/timeout|timed out|fetch failed|network|econn|socket|http 5\d{2}|status 5\d{2}|\b50[234]\b|cancelled|canceled|request was cancelled/.test(text)) {
+    return "网络 / 源站失败";
+  }
+  return null;
+}
+
+function sourceQualityNoOfferSignal(message: string | null): boolean {
+  if (!message) return false;
+  return /no offers|found no offers|无商品|空结果|empty result/i.test(message);
+}
+
+function firstNonEmptyString(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function latestCrawlRunBySource(
+  runs: CrawlRun[],
+  sourceIds: Set<string>,
+): Map<string, CrawlRun> {
+  const latest = new Map<string, CrawlRun>();
+  for (const run of runs) {
+    if (!run.sourceId || !sourceIds.has(run.sourceId)) continue;
+    const observedAt = run.finishedAt || run.startedAt;
+    const current = latest.get(run.sourceId);
+    const currentObservedAt = current ? current.finishedAt || current.startedAt : "";
+    if (!current || observedAt > currentObservedAt) latest.set(run.sourceId, run);
+  }
+  return latest;
+}
+
+function compareSourceQualitySources(left: SourceQualitySource, right: SourceQualitySource): number {
+  const kindDiff =
+    SOURCE_QUALITY_SEGMENT_ORDER.indexOf(left.kind) -
+    SOURCE_QUALITY_SEGMENT_ORDER.indexOf(right.kind);
+  if (kindDiff) return kindDiff;
+  const scoreDiff = right.score - left.score;
+  if (scoreDiff) return scoreDiff;
+  return left.sourceId.localeCompare(right.sourceId);
 }
 
 function buildCollectionMonitoringSummary(input: {

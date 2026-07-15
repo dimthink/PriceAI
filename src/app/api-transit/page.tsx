@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { BookOpenText, ShieldCheck } from "lucide-react";
 import { getTransitStations } from "@/lib/api-transit-db";
 import { getTransitModelFamilyOptions } from "@/lib/api-transit";
-import { formatRate, getSummaryStats } from "@/lib/api-transit";
+import { compactTransitStationsForList, formatRate, getSummaryStats } from "@/lib/api-transit";
 import { GuidePromptStrip } from "@/components/GuidePromptStrip";
 import { SiteHeader } from "@/components/SiteHeader";
 import { TransitFamilyTabs } from "@/components/TransitFamilyTabs";
@@ -36,7 +36,8 @@ export default async function ApiTransitPage() {
     getSponsorSettingsSummary().catch(() => null),
   ]);
   const familyOptions = getTransitModelFamilyOptions();
-  const stats = getSummaryStats(stations);
+  const listStations = compactTransitStationsForList(stations);
+  const stats = getSummaryStats(listStations);
   const latestUpdatedAt = formatDateDay(
     stations
       .map((station) => station.lastUpdatedAt)
@@ -146,7 +147,7 @@ export default async function ApiTransitPage() {
         <SponsoredPlacementPreview kind="apiTransit" settings={sponsorSettings} className="mb-5 hidden md:block" hideOnMobile />
 
         <Suspense fallback={<div className="text-center py-16 text-[#5a6061]">加载中...</div>}>
-          <TransitStationExplorer stations={stations} rankingReferenceAt={rankingReferenceAt} />
+          <TransitStationExplorer stations={listStations} rankingReferenceAt={rankingReferenceAt} />
         </Suspense>
 
         <Link

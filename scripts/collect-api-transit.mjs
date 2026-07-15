@@ -6,6 +6,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { safeFetch } from "./safe-fetch.mjs";
+import {
+  claimScriptRuntimeLease,
+  releaseScriptRuntimeLease,
+  startScriptRuntimeLeaseHeartbeat,
+} from "./runtime-lease.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -136,22 +141,73 @@ const modelFamilyByStandard = {
 
 if (isCli()) {
   const args = normalizeOptions(parseArgs(process.argv.slice(2)));
+  const runtimeEnv = { ...readEnvFile(envPath), ...process.env };
+  const leaseOwner = `api-transit:${process.env.GITHUB_RUN_ID || process.env.HOSTNAME || "local"}:${process.pid}`;
+  let lease = null;
+  let leaseHeartbeat = null;
 
   try {
-    const result = await collectApiTransitPrices(args);
-    printSummary(result);
+    if (args.post || args.db) {
+      lease = await claimScriptRuntimeLease({
+        key: "api-transit-collection",
+        owner: leaseOwner,
+        leaseSeconds: 7200,
+        metadata: {
+          source: args.source || null,
+          runtime: process.env.GITHUB_ACTIONS === "true" ? "github-actions" : "collector-runtime",
+        },
+        env: runtimeEnv,
+      });
+      if (!lease.acquired) {
+        console.log(JSON.stringify({
+          skipped: true,
+          reason: "lease_busy",
+          owner: lease.owner,
+          expiresAt: lease.expiresAt,
+        }));
+        process.exitCode = 0;
+      } else {
+        leaseHeartbeat = startScriptRuntimeLeaseHeartbeat({
+          key: lease.key,
+          owner: leaseOwner,
+          leaseSeconds: 7200,
+          env: runtimeEnv,
+          onError: (error) => console.error(`Runtime lease heartbeat failed: ${errorMessage(error)}`),
+        });
+      }
+    }
 
-    if (args.dryRun) {
-      console.log(JSON.stringify(result, null, 2));
+    if (lease && !lease.acquired) {
+      // Another runtime is already performing the shared collection.
     } else {
-      const outPath = path.resolve(repoRoot, args.out || defaultOutPath);
-      await mkdir(path.dirname(outPath), { recursive: true });
-      await writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-      console.log(`Snapshot written to ${path.relative(repoRoot, outPath)}`);
+      const result = await collectApiTransitPrices(args);
+      leaseHeartbeat?.assertOwned();
+      printSummary(result);
+
+      if (args.dryRun) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const outPath = path.resolve(repoRoot, args.out || defaultOutPath);
+        await mkdir(path.dirname(outPath), { recursive: true });
+        await writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+        console.log(`Snapshot written to ${path.relative(repoRoot, outPath)}`);
+      }
     }
   } catch (error) {
     console.error(errorMessage(error));
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    await leaseHeartbeat?.stop();
+    if (lease?.acquired) {
+      await releaseScriptRuntimeLease({
+        key: lease.key,
+        owner: leaseOwner,
+        env: runtimeEnv,
+      }).catch((error) => {
+        console.error(`Runtime lease release failed: ${errorMessage(error)}`);
+        process.exitCode = 1;
+      });
+    }
   }
 }
 

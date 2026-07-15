@@ -201,6 +201,8 @@ async function runHttpCheck(check) {
     const bytes = body.byteLength;
     const text = check.text || check.json ? new TextDecoder().decode(body) : "";
     const elapsed = Date.now() - startedAt;
+    const expectedOrigin = new URL(baseUrl).origin;
+    const finalOrigin = new URL(response.url).origin;
     const cacheHeader =
       response.headers.get("cloudflare-cdn-cache-control") ||
       response.headers.get("cdn-cache-control") ||
@@ -208,13 +210,14 @@ async function runHttpCheck(check) {
       "";
 
     const statusOk = response.status === check.status;
+    const originOk = finalOrigin === expectedOrigin;
     const maxBytes = Number.isFinite(check.maxBytes) ? check.maxBytes : null;
     const sizeOk = maxBytes === null || bytes <= maxBytes;
     const cacheOk = !check.cache || /s-maxage|max-age/i.test(cacheHeader);
     const textFailures = check.text ? validateText(text, check.text) : [];
     const jsonFailures = check.json ? validateJson(text, check.json) : [];
     const contentOk = textFailures.length === 0 && jsonFailures.length === 0;
-    const ok = statusOk && sizeOk && cacheOk && contentOk;
+    const ok = statusOk && originOk && sizeOk && cacheOk && contentOk;
 
     return {
       ok,
@@ -222,6 +225,9 @@ async function runHttpCheck(check) {
       status: response.status,
       bytes,
       elapsed,
+      finalOrigin,
+      expectedOrigin,
+      originOk,
       cacheHeader,
       maxBytes,
       sizeOk,
@@ -251,6 +257,7 @@ function formatHttpCheckResult(result, label = result.ok ? "ok" : "fail") {
     `${result.elapsed}ms`,
     check.method ? `${check.method} ${check.path}` : check.path,
     check.cache ? `cache=${result.cacheHeader || "missing"}` : "",
+    !result.originOk ? `redirected=${result.finalOrigin}` : "",
     !result.sizeOk && result.maxBytes !== null ? `size>${result.maxBytes}B` : "",
     result.textFailures.length ? `text=${result.textFailures.join(";")}` : "",
     result.jsonFailures.length ? `json=${result.jsonFailures.join(";")}` : "",

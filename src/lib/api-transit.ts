@@ -716,8 +716,54 @@ export function getRecentTransitAvailabilitySamples(
   prices: TransitModelPrice[]
 ): TransitAvailability["recentSamples"] {
   return normalizeRecentAvailabilitySamples(
-    prices.flatMap((price) => price.availability.recentSamples || [])
+    prices.flatMap((price) => transitAvailabilityRecentSamples(price.availability) || [])
   );
+}
+
+export function compactTransitStationsForList(stations: TransitStation[]): TransitStation[] {
+  return stations.map((station) => ({
+    ...station,
+    apiBaseUrl: undefined,
+    paymentMethods: [],
+    balanceExpiry: null,
+    supportChannels: [],
+    refundPolicy: null,
+    strengths: undefined,
+    cautions: undefined,
+    availability: compactTransitAvailability(station.availability),
+    prices: station.prices.map((price) => ({
+      ...price,
+      history: undefined,
+      availability: compactTransitAvailability(price.availability),
+    })),
+    feedback: {
+      ...station.feedback,
+      publicNotes: null,
+    },
+    commercialOffers: station.commercialOffers?.filter((offer) => offer.enabled).slice(0, 2),
+    verificationEvents: station.verificationEvents?.slice(-4),
+  }));
+}
+
+function compactTransitAvailability(availability: TransitAvailability): TransitAvailability {
+  const samples = transitAvailabilityRecentSamples(availability);
+  return {
+    ...availability,
+    recentSamples: undefined,
+    recentSampleBits: samples?.map((sample) => sample.ok ? "1" : "0").join("") || undefined,
+  };
+}
+
+function transitAvailabilityRecentSamples(
+  availability: Pick<TransitAvailability, "recentSamples" | "recentSampleBits">,
+): TransitAvailability["recentSamples"] {
+  if (availability.recentSamples?.length) return availability.recentSamples;
+  const bits = availability.recentSampleBits;
+  if (!bits || !/^[01]+$/.test(bits)) return undefined;
+  return bits.slice(-TRANSIT_RECENT_AVAILABILITY_SAMPLE_LIMIT).split("").map((bit) => ({
+    ok: bit === "1",
+    checkedAt: null,
+  }));
 }
 
 export type TransitRecentAvailabilitySampleLookupScope = {
