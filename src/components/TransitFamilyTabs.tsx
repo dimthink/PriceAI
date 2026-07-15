@@ -82,7 +82,12 @@ export function TransitFamilyTabs({
     }
 
     const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    const nextUrl = query ? `${pathname}?${query}` : pathname;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+    if (currentUrl === nextUrl) return;
+
+    router.replace(nextUrl, { scroll: false });
   }
 
   return (
