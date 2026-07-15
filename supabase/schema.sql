@@ -1017,7 +1017,7 @@ as $$
         canonical_products.product_type,
         canonical_products.spec
       ) as public_haystack
-    from raw_offers
+    from raw_offer_public_state raw_offers
     join canonical_products on canonical_products.id = raw_offers.canonical_product_id
     where raw_offers.hidden = false
       and canonical_products.is_active = true
