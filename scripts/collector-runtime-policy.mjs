@@ -13,6 +13,7 @@ export const COLLECTOR_RUNTIME_SOURCE_FILES = [
   "scripts/import-sub2api-api-transit.mjs",
   "scripts/probe-api-transit.mjs",
   "scripts/refresh-public-api-snapshots.mjs",
+  "scripts/runtime-lease.mjs",
   "scripts/safe-fetch.mjs",
   "config/api-transit-probes.json",
   "config/api-transit-sources.json",

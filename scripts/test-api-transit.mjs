@@ -3,8 +3,22 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { __test } from "./collect-api-transit.mjs";
+import { COLLECTOR_RUNTIME_SOURCE_FILES } from "./collector-runtime-policy.mjs";
+
+const collectorRuntimeSources = new Set(COLLECTOR_RUNTIME_SOURCE_FILES);
+for (const sourceFile of COLLECTOR_RUNTIME_SOURCE_FILES.filter((file) => file.endsWith(".mjs"))) {
+  const source = readFileSync(new URL(`../${sourceFile}`, import.meta.url), "utf8");
+  for (const match of source.matchAll(/from\s+["'](\.\/[^"']+\.mjs)["']/g)) {
+    const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(sourceFile), match[1]));
+    assert.ok(
+      collectorRuntimeSources.has(dependency),
+      `${sourceFile} imports ${dependency}, which must be included in the collector runtime source manifest.`,
+    );
+  }
+}
 
 const leaseCliSmoke = spawnSync(process.execPath, [fileURLToPath(new URL("./collect-api-transit.mjs", import.meta.url)), "--post", "--source", "__lease_smoke__"], {
   cwd: fileURLToPath(new URL("..", import.meta.url)),
