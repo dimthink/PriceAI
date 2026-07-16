@@ -3,7 +3,7 @@
   "name": "priceai-cloudflare-poc",
   "main": ".open-next/worker.js",
   "workers_dev": false,
-  "preview_urls": false,
+  "preview_urls": true,
   "compatibility_date": "2026-06-11",
   "compatibility_flags": [
     "nodejs_compat",

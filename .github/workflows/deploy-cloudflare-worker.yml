@@ -113,12 +113,14 @@ jobs:
 
       - run: npm run build:cloudflare
 
+      - name: Enable candidate Preview URLs
+        run: npx wrangler triggers deploy
+
       - name: Upload candidate Worker version
         id: upload
         run: npm run upload:cloudflare
 
       - name: Smoke candidate Preview URL
-        if: ${{ steps.upload.outputs.smoke_base_url != '' }}
         run: npm run smoke:cloudflare -- "${{ steps.upload.outputs.smoke_base_url }}"
 
       - name: Record candidate summary
@@ -127,11 +129,7 @@ jobs:
             echo "### Cloudflare candidate"
             echo "- Git SHA: \`${GITHUB_SHA}\`"
             echo "- Version ID: \`${{ steps.upload.outputs.version_id }}\`"
-            if [ -n "${{ steps.upload.outputs.smoke_base_url }}" ]; then
-              echo "- Preview: ${{ steps.upload.outputs.smoke_base_url }}"
-            else
-              echo "- Preview: unavailable; production smoke runs after promotion"
-            fi
+            echo "- Preview: ${{ steps.upload.outputs.smoke_base_url }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   promote-production:
