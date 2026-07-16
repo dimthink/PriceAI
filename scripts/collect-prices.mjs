@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
+import { ProxyAgent } from "undici";
 import { createClient } from "@supabase/supabase-js";
 import { safeFetch } from "./safe-fetch.mjs";
 import collectorRegistry from "../config/collectors.json" with { type: "json" };
@@ -31,6 +32,8 @@ const DEFAULT_FLUSH_INTERVAL_MS = 120_000;
 const DEFAULT_SPOOL_REPLAY_LIMIT = 40;
 const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
 const SHOP_API_FULL_SNAPSHOT_OFFER_LIMIT = 500;
+const DEFAULT_SHOP_API_PROXY_HOSTS = ["pay.ldxp.cn", "ldxp.cn"];
+const SHOP_API_PROXY_REQUEST_TIMEOUT_MS = 20_000;
 const STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT = 600;
 const STRUCTURED_FULL_SNAPSHOT_COLLECTORS = new Set(["kami", "shopApi"]);
 const EMPTY_FULL_SNAPSHOT_COLLECTORS = new Set(["kami"]);
@@ -708,160 +711,172 @@ async function collectDujiaoNext(target) {
 
 async function collectShopApi(target, options = {}) {
   const base = target.baseUrl;
-  const tokens = await discoverShopTokens(target, options);
-  const offers = [];
-  const rawSeenOfferIds = new Set();
-  const partialReasons = [];
-  let fetchedItemCount = 0;
-  let publishedItemCount = 0;
-  let reportedGoodsCount = 0;
-  let hasReportedGoodsCount = false;
+  const proxyContext = await createShopApiProxyContext(target, options);
+  const requestOptions = proxyContext ? { dispatcher: proxyContext.dispatcher } : null;
 
-  if (!tokens.length) {
-    throw new Error("No shop token found. Need at least one /shop/<token> or /item/<goods_key> URL.");
-  }
+  try {
+    const tokens = await discoverShopTokens(target, options, requestOptions);
+    const offers = [];
+    const rawSeenOfferIds = new Set();
+    const partialReasons = [];
+    let fetchedItemCount = 0;
+    let publishedItemCount = 0;
+    let reportedGoodsCount = 0;
+    let hasReportedGoodsCount = false;
 
-  for (const token of tokens) {
-    const shopInfo = await postJson(`${base}/shopApi/Shop/info`, { token, category_key: "" }, `${base}/shop/${token}`);
-    if (shopInfo.code !== 1 || !shopInfo.data) {
-      partialReasons.push(`Shop info unavailable for token ${token}.`);
-      continue;
+    if (!tokens.length) {
+      throw new Error("No shop token found. Need at least one /shop/<token> or /item/<goods_key> URL.");
     }
 
-    const shopAvailability = shopApiShopAvailability(shopInfo.data);
-    const storeName = cleanText(shopInfo.data.nickname || target.sourceStoreName || target.sourceName);
-    const sourceUrl = shopInfo.data.link || `${base}/shop/${token}`;
-    const shopCreatedAt = timestampFromShopApiValue(shopInfo.data.create_time);
-    const defaultChannelId = await getShopApiDefaultChannelId(base, token, sourceUrl, options);
-    const categoriesPayload = await postJson(
-      `${base}/shopApi/Shop/categoryList`,
-      { token, goods_type: "card", category_key: "" },
-      sourceUrl,
-    );
-    if (categoriesPayload.code !== 1 || !Array.isArray(categoriesPayload.data)) {
-      partialReasons.push(`Category list unavailable for token ${token}.`);
-    }
-    const categories = Array.isArray(categoriesPayload.data) ? categoriesPayload.data : [];
-    const selectedCategories = categories.filter((category) => Number(category.goods_count || 0) > 0 && Number(category.id) !== 0);
-    const categoryIds = selectedCategories.length
-      ? selectedCategories.map((category) => Number(category.id))
-      : categories.some((category) => Number(category.id) === 0)
-        ? [0]
-        : [];
-
-    for (const categoryId of categoryIds) {
-      const expectedItemCount = reportedGoodsCountForCategory(categories, selectedCategories, categoryId);
-      let categoryFetchedItemCount = 0;
-      if (expectedItemCount !== null) {
-        reportedGoodsCount += expectedItemCount;
-        hasReportedGoodsCount = true;
+    for (const token of tokens) {
+      const shopInfo = await postJson(`${base}/shopApi/Shop/info`, { token, category_key: "" }, `${base}/shop/${token}`, requestOptions);
+      if (shopInfo.code !== 1 || !shopInfo.data) {
+        partialReasons.push(`Shop info unavailable for token ${token}.`);
+        continue;
       }
 
-      for (let page = 1; page <= 10; page += 1) {
-        await waitBetweenPages(options);
-        const listPayload = await postJson(
-          `${base}/shopApi/Shop/goodsList`,
-          {
-            token,
-            keywords: "",
-            category_id: categoryId,
-            goods_type: "card",
-            current: page,
-            pageSize: 100,
-          },
-          sourceUrl,
-        );
-        if (listPayload.code !== 1 || !Array.isArray(listPayload.data?.list)) {
-          partialReasons.push(`Goods list unavailable for category ${categoryId} page ${page}.`);
-          break;
+      const shopAvailability = shopApiShopAvailability(shopInfo.data);
+      const storeName = cleanText(shopInfo.data.nickname || target.sourceStoreName || target.sourceName);
+      const sourceUrl = shopInfo.data.link || `${base}/shop/${token}`;
+      const shopCreatedAt = timestampFromShopApiValue(shopInfo.data.create_time);
+      const defaultChannelId = await getShopApiDefaultChannelId(base, token, sourceUrl, options, requestOptions);
+      const categoriesPayload = await postJson(
+        `${base}/shopApi/Shop/categoryList`,
+        { token, goods_type: "card", category_key: "" },
+        sourceUrl,
+        requestOptions,
+      );
+      if (categoriesPayload.code !== 1 || !Array.isArray(categoriesPayload.data)) {
+        partialReasons.push(`Category list unavailable for token ${token}.`);
+      }
+      const categories = Array.isArray(categoriesPayload.data) ? categoriesPayload.data : [];
+      const selectedCategories = categories.filter((category) => Number(category.goods_count || 0) > 0 && Number(category.id) !== 0);
+      const categoryIds = selectedCategories.length
+        ? selectedCategories.map((category) => Number(category.id))
+        : categories.some((category) => Number(category.id) === 0)
+          ? [0]
+          : [];
+
+      for (const categoryId of categoryIds) {
+        const expectedItemCount = reportedGoodsCountForCategory(categories, selectedCategories, categoryId);
+        let categoryFetchedItemCount = 0;
+        if (expectedItemCount !== null) {
+          reportedGoodsCount += expectedItemCount;
+          hasReportedGoodsCount = true;
         }
 
-        const items = listPayload.data.list;
-        if (!items.length) break;
-        fetchedItemCount += items.length;
-        categoryFetchedItemCount += items.length;
-        if (page === 10 && items.length >= 100) {
-          partialReasons.push(`Category ${categoryId} reached page cap 10.`);
-        }
-
-        for (const item of items) {
-          const itemUrl = item.link || (item.goods_key ? `${base}/item/${item.goods_key}` : "");
-          const rawSeenOfferId = stableShopApiOfferIdFromUrl(itemUrl);
-          if (rawSeenOfferId) rawSeenOfferIds.add(rawSeenOfferId);
-
-          const title = cleanText(item.name);
-          const listedPrice = numberOrNull(item.price ?? item.real_price);
-          if (!title || listedPrice === null || isNonComparableTitle(title)) continue;
-
-          const stockCount = numberOrNull(item.extend?.stock_count);
-          const minOrderQuantity = shopApiMinOrderQuantity(item.extend?.limit_count);
-          const bulkPricingTiers = shopApiBulkPricingTiers(item.multipleoffers);
-          const status = Number(item.status ?? 1) !== 1 ? "out_of_stock" : statusFromStock(stockCount);
-          const categoryName = cleanText(item.category?.name || "");
-          const effectivePrice = await resolveShopApiEffectivePrice({
-            base,
-            goodsKey: item.goods_key,
-            listedPrice,
-            channelId: defaultChannelId,
-            referer: item.link || sourceUrl,
-            options,
-          });
-
-          offers.push(
-            makeOffer(
-              {
-                ...target,
-                sourceUrl,
-                sourceEntryUrl: sourceUrl,
-                sourceStoreName: storeName,
-                sourceShopCreatedAt: shopCreatedAt,
-              },
-              {
-                title,
-                price: effectivePrice.price,
-                listedPrice: effectivePrice.listedPrice,
-                feeAmount: effectivePrice.feeAmount,
-                priceBasis: effectivePrice.priceBasis,
-                status,
-                effectiveStatus: shopAvailability.closed ? "unavailable" : "available",
-                failureReason: shopAvailability.closed ? shopAvailability.reason : null,
-                stockCount,
-                minOrderQuantity,
-                bulkPricingTiers,
-                url: itemUrl,
-                tags: compact([
-                  categoryName,
-                  item.goods_type === "card" ? "卡密" : null,
-                  item.extend?.send_order === 0 ? "自动发货" : null,
-                ]),
-              },
-            ),
+        for (let page = 1; page <= 10; page += 1) {
+          await waitBetweenPages(options);
+          const listPayload = await postJson(
+            `${base}/shopApi/Shop/goodsList`,
+            {
+              token,
+              keywords: "",
+              category_id: categoryId,
+              goods_type: "card",
+              current: page,
+              pageSize: 100,
+            },
+            sourceUrl,
+            requestOptions,
           );
-          publishedItemCount += 1;
+          if (listPayload.code !== 1 || !Array.isArray(listPayload.data?.list)) {
+            partialReasons.push(`Goods list unavailable for category ${categoryId} page ${page}.`);
+            break;
+          }
+
+          const items = listPayload.data.list;
+          if (!items.length) break;
+          fetchedItemCount += items.length;
+          categoryFetchedItemCount += items.length;
+          if (page === 10 && items.length >= 100) {
+            partialReasons.push(`Category ${categoryId} reached page cap 10.`);
+          }
+
+          for (const item of items) {
+            const itemUrl = item.link || (item.goods_key ? `${base}/item/${item.goods_key}` : "");
+            const rawSeenOfferId = stableShopApiOfferIdFromUrl(itemUrl);
+            if (rawSeenOfferId) rawSeenOfferIds.add(rawSeenOfferId);
+
+            const title = cleanText(item.name);
+            const listedPrice = numberOrNull(item.price ?? item.real_price);
+            if (!title || listedPrice === null || isNonComparableTitle(title)) continue;
+
+            const stockCount = numberOrNull(item.extend?.stock_count);
+            const minOrderQuantity = shopApiMinOrderQuantity(item.extend?.limit_count);
+            const bulkPricingTiers = shopApiBulkPricingTiers(item.multipleoffers);
+            const status = Number(item.status ?? 1) !== 1 ? "out_of_stock" : statusFromStock(stockCount);
+            const categoryName = cleanText(item.category?.name || "");
+            const effectivePrice = await resolveShopApiEffectivePrice({
+              base,
+              goodsKey: item.goods_key,
+              listedPrice,
+              channelId: defaultChannelId,
+              referer: item.link || sourceUrl,
+              options,
+              requestOptions,
+            });
+
+            offers.push(
+              makeOffer(
+                {
+                  ...target,
+                  sourceUrl,
+                  sourceEntryUrl: sourceUrl,
+                  sourceStoreName: storeName,
+                  sourceShopCreatedAt: shopCreatedAt,
+                },
+                {
+                  title,
+                  price: effectivePrice.price,
+                  listedPrice: effectivePrice.listedPrice,
+                  feeAmount: effectivePrice.feeAmount,
+                  priceBasis: effectivePrice.priceBasis,
+                  status,
+                  effectiveStatus: shopAvailability.closed ? "unavailable" : "available",
+                  failureReason: shopAvailability.closed ? shopAvailability.reason : null,
+                  stockCount,
+                  minOrderQuantity,
+                  bulkPricingTiers,
+                  url: itemUrl,
+                  tags: compact([
+                    categoryName,
+                    item.goods_type === "card" ? "卡密" : null,
+                    item.extend?.send_order === 0 ? "自动发货" : null,
+                  ]),
+                },
+              ),
+            );
+            publishedItemCount += 1;
+          }
+
+          if (items.length < 100) break;
         }
 
-        if (items.length < 100) break;
-      }
-
-      if (expectedItemCount !== null && categoryFetchedItemCount !== expectedItemCount) {
-        partialReasons.push(
-          `Category ${categoryId} reported ${expectedItemCount} goods but fetched ${categoryFetchedItemCount}.`,
-        );
+        if (expectedItemCount !== null && categoryFetchedItemCount !== expectedItemCount) {
+          partialReasons.push(
+            `Category ${categoryId} reported ${expectedItemCount} goods but fetched ${categoryFetchedItemCount}.`,
+          );
+        }
       }
     }
+
+    offers.collectionDetails = {
+      fullSnapshot: partialReasons.length === 0,
+      seenOfferIds: Array.from(rawSeenOfferIds),
+      rawSeenOfferCount: rawSeenOfferIds.size,
+      fetchedItemCount,
+      publishedItemCount,
+      reportedGoodsCount: hasReportedGoodsCount ? reportedGoodsCount : null,
+      partialReason: partialReasons.join(" "),
+    };
+
+    return offers;
+  } finally {
+    if (proxyContext?.dispatcher?.close) {
+      await proxyContext.dispatcher.close().catch(() => {});
+    }
   }
-
-  offers.collectionDetails = {
-    fullSnapshot: partialReasons.length === 0,
-    seenOfferIds: Array.from(rawSeenOfferIds),
-    rawSeenOfferCount: rawSeenOfferIds.size,
-    fetchedItemCount,
-    publishedItemCount,
-    reportedGoodsCount: hasReportedGoodsCount ? reportedGoodsCount : null,
-    partialReason: partialReasons.join(" "),
-  };
-
-  return offers;
 }
 
 function reportedGoodsCountForCategory(categories, selectedCategories, categoryId) {
@@ -873,12 +888,13 @@ function reportedGoodsCountForCategory(categories, selectedCategories, categoryI
   return Math.trunc(value);
 }
 
-async function getShopApiDefaultChannelId(base, token, referer, options = {}) {
+async function getShopApiDefaultChannelId(base, token, referer, options = {}, requestOptions = null) {
   await waitBetweenPages(options);
   const payload = await postJson(
     `${base}/shopApi/Shop/getUserChannel`,
     { token },
     referer,
+    requestOptions,
   ).catch(() => null);
 
   const channels = Array.isArray(payload?.data) ? payload.data : [];
@@ -889,7 +905,7 @@ async function getShopApiDefaultChannelId(base, token, referer, options = {}) {
   return channelId === null ? 0 : channelId;
 }
 
-async function resolveShopApiEffectivePrice({ base, goodsKey, listedPrice, channelId, referer, options = {} }) {
+async function resolveShopApiEffectivePrice({ base, goodsKey, listedPrice, channelId, referer, options = {}, requestOptions = null }) {
   if (!goodsKey) {
     return {
       price: listedPrice,
@@ -909,6 +925,7 @@ async function resolveShopApiEffectivePrice({ base, goodsKey, listedPrice, chann
       channel_id: channelId ?? 0,
     },
     referer,
+    requestOptions,
   ).catch(() => null);
 
   const totalAmount = numberOrNull(payload?.data?.total_amount);
@@ -1805,7 +1822,7 @@ function isLikelySingleProductPage(url, priceCount) {
   return priceCount <= 2 && /\/(?:product|products|goods|item)\//i.test(parsed.pathname);
 }
 
-async function discoverShopTokens(target, options = {}) {
+async function discoverShopTokens(target, options = {}, requestOptions = null) {
   const tokens = new Set();
   const entryToken = shopTokenFromUrl(target.sourceUrl);
   if (entryToken) tokens.add(entryToken);
@@ -1825,6 +1842,7 @@ async function discoverShopTokens(target, options = {}) {
       `${target.baseUrl}/shopApi/Shop/goodsInfo`,
       { goods_key: goodsKey, trade_no: "" },
       itemUrl,
+      requestOptions,
     ).catch(() => null);
 
     const token = payload?.data?.user?.token;
@@ -3394,7 +3412,7 @@ async function fetchText(url) {
   return response.text();
 }
 
-async function postJson(url, body, referer) {
+async function postJson(url, body, referer, requestOptions = null) {
   const response = await safeFetch(url, {
     method: "POST",
     headers: {
@@ -3406,6 +3424,7 @@ async function postJson(url, body, referer) {
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(20_000),
+    ...requestOptions,
   });
 
   if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
@@ -3431,6 +3450,151 @@ function defaultHeaders(url) {
     referer: deriveBaseUrl(url) || url,
     "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   };
+}
+
+async function createShopApiProxyContext(target, options = {}) {
+  const hosts = shopApiProxyHostsFor(options);
+  const host = normalizeHostname(target.baseUrl || target.sourceUrl);
+  if (!hosts.has(host)) return null;
+
+  const proxyUrl = await resolveShopApiProxyUrl(options);
+  if (!proxyUrl) return null;
+
+  return {
+    proxyUrl,
+    dispatcher: new ProxyAgent(proxyUrl),
+  };
+}
+
+async function resolveShopApiProxyUrl(options = {}) {
+  const proxyApiUrl = shopApiProxyApiUrlFor(options);
+  if (proxyApiUrl) return fetchShopApiProxyUrl(proxyApiUrl);
+
+  const proxyUrl = shopApiProxyUrlFor(options);
+  if (proxyUrl) return proxyUrl;
+
+  return null;
+}
+
+function shopApiProxyHostsFor(options = {}) {
+  const raw =
+    runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_HOSTS") ||
+    optionValue(options, "shopApiProxyHosts", "shop-api-proxy-hosts") ||
+    DEFAULT_SHOP_API_PROXY_HOSTS.join(",");
+  return new Set(
+    String(raw)
+      .split(",")
+      .map((value) => normalizeHostname(value))
+      .filter(Boolean),
+  );
+}
+
+function shopApiProxyApiUrlFor(options = {}) {
+  return (
+    optionValue(options, "shopApiProxyApiUrl", "shop-api-proxy-api-url") ||
+    runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_API_URL")
+  );
+}
+
+function shopApiProxyUrlFor(options = {}) {
+  return optionValue(options, "shopApiProxyUrl", "shop-api-proxy-url") || runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_URL");
+}
+
+async function fetchShopApiProxyUrl(proxyApiUrl) {
+  const response = await safeFetch(proxyApiUrl, {
+    headers: {
+      accept: "application/json, text/plain, */*",
+      "user-agent": defaultHeaders(proxyApiUrl)["user-agent"],
+    },
+    signal: AbortSignal.timeout(SHOP_API_PROXY_REQUEST_TIMEOUT_MS),
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Proxy API returned HTTP ${response.status}${text ? `: ${text.slice(0, 120)}` : ""}`);
+  }
+
+  const proxyUrl = extractProxyUrlFromPayload(text);
+  if (!proxyUrl) {
+    throw new Error(`Proxy API response from ${proxyApiUrl} did not contain a usable proxy address.`);
+  }
+
+  return proxyUrl;
+}
+
+function extractProxyUrlFromPayload(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return null;
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    parsed = null;
+  }
+
+  const fromJson = extractProxyUrlCandidate(parsed);
+  if (fromJson) return fromJson;
+
+  const fromText = extractProxyUrlCandidate(trimmed);
+  if (fromText) return fromText;
+
+  return null;
+}
+
+function extractProxyUrlCandidate(value) {
+  if (!value) return null;
+  if (typeof value === "string") return normalizeProxyUrl(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const candidate = extractProxyUrlCandidate(item);
+      if (candidate) return candidate;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+
+  if (typeof value.proxyUrl === "string") return normalizeProxyUrl(value.proxyUrl);
+  if (typeof value.proxy_url === "string") return normalizeProxyUrl(value.proxy_url);
+  if (typeof value.url === "string") return normalizeProxyUrl(value.url);
+  if (typeof value.ipport === "string") return normalizeProxyUrl(value.ipport);
+
+  const data = value.data ?? value.result ?? value.items ?? null;
+  const nested = extractProxyUrlCandidate(data);
+  if (nested) return nested;
+
+  const ip = value.IP || value.ip || value.host;
+  const port = value.Port || value.port;
+  if (ip && port) return normalizeProxyUrl(`${ip}:${port}`);
+
+  return null;
+}
+
+function normalizeProxyUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const prefixed = text.includes("://") ? text : `http://${text}`;
+  try {
+    const url = new URL(prefixed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (!url.hostname || !url.port) return null;
+    return `${url.protocol}//${url.hostname}:${url.port}`;
+  } catch {
+    return null;
+  }
+}
+
+function runtimeEnvValue(name) {
+  return String(process.env[name] || env[name] || "").trim();
+}
+
+function optionValue(options, camelKey, kebabKey) {
+  const camel = options?.[camelKey];
+  if (camel !== undefined && camel !== null && String(camel).trim()) return String(camel).trim();
+  const kebab = options?.[kebabKey];
+  if (kebab !== undefined && kebab !== null && String(kebab).trim()) return String(kebab).trim();
+  return "";
 }
 
 function statusFromStock(stockCount) {
