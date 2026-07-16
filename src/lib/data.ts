@@ -167,10 +167,35 @@ const PUBLIC_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_OFFERS_SNAPSHOT_OFFSET = 0;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET = 0;
-const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS = OFFER_FILTER_TAGS.map((tag) => tag.id);
+const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS: OfferFilterTagId[] = [
+  "delivery_recharge",
+  "delivery_account",
+  "gemini_12_month_link",
+  "gemini_12_month_card_binding",
+  "gemini_18_month_link",
+  "chatgpt_plus_brazil_pix",
+  "chatgpt_plus_netherlands_ideal",
+  "chatgpt_plus_india_upi",
+  "chatgpt_plus_europe_channel",
+  "chatgpt_plus_recharge_ph_card",
+  "chatgpt_plus_recharge_us_ios",
+  "chatgpt_plus_recharge_official_direct",
+  "pro_max_official_recharge",
+  "pro_max_short_term",
+  "pro_max_us_ios",
+  "team_k12",
+  "team_bug",
+  "team_official",
+  "telegram_premium_quarter",
+  "telegram_premium_half_year",
+  "telegram_premium_year",
+  "telegram_stars",
+  "proxy_supported",
+  "warranty_long",
+];
 const PUBLIC_OFFERS_SNAPSHOT_KEY = `default:limit:${PUBLIC_OFFERS_SNAPSHOT_LIMIT}`;
 const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
-const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION = "v4-ai-subscription-tags";
+const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION = "v5-curated-offer-tags";
 const PUBLIC_LIST_SNAPSHOT_STOCKS = ["available"] as const;
 const PUBLIC_LIST_SNAPSHOT_SORTS = ["updated"] as const;
 const PUBLIC_MERCHANT_SNAPSHOT_SIGNALS = ["lowest", "warranty", "platform_aftersales", "risk_clear"] as const;
@@ -1086,6 +1111,37 @@ async function refreshPublicProductOfferSnapshots(
       });
     }
     productOffers.push({ key: defaultKey, ok: defaultOk });
+
+    for (const tag of publicProductOfferSnapshotTagsForProduct(product.id)) {
+      const tagValue = await loadPublicProductOffers(product.id, {
+        limit: PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT,
+        offset: PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET,
+        filterTags: [tag],
+        filterProductId: product.id,
+        query: "",
+        excludeQuery: "",
+        collector: "all",
+        minPrice: null,
+        maxPrice: null,
+        skipSnapshot: true,
+      });
+      const tagKey = publicProductOffersSnapshotKey(product.id, [tag]);
+      let tagOk = !tagValue.degraded && await writePublicApiSnapshot({
+        kind: "product_offers",
+        key: tagKey,
+        payload: tagValue,
+        generatedAt: tagValue.generatedAt,
+      });
+      if (product.slug && product.slug !== product.id) {
+        tagOk = tagOk && await writePublicApiSnapshot({
+          kind: "product_offers",
+          key: publicProductOffersSnapshotKey(product.slug, [tag]),
+          payload: tagValue,
+          generatedAt: tagValue.generatedAt,
+        });
+      }
+      productOffers.push({ key: tagKey, ok: tagOk });
+    }
   }
   return productOffers;
 }
@@ -2265,6 +2321,7 @@ function publicProductOffersSnapshotKeyForRequest(
     limit: number;
     offset: number;
     filterTags: OfferFilterTagId[];
+    filterProductId: string;
     query: string;
     excludeQuery: string;
     collector: MerchantCollectorFilter;
@@ -2287,12 +2344,16 @@ function publicProductOffersSnapshotKeyForRequest(
   if (filters.filterTags.length === 0) return publicProductOffersSnapshotKey(id);
   if (
     filters.filterTags.length === 1 &&
-    PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS.includes(filters.filterTags[0])
+    publicProductOfferSnapshotTagsForProduct(filters.filterProductId).includes(filters.filterTags[0])
   ) {
     return publicProductOffersSnapshotKey(id, filters.filterTags);
   }
 
   return null;
+}
+
+function publicProductOfferSnapshotTagsForProduct(productId: string): OfferFilterTagId[] {
+  return parseOfferFilterTagsForProduct(productId, PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS);
 }
 
 function isPublicProductKeyVisible(id: string | null | undefined): boolean {
