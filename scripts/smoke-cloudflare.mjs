@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 const DEFAULT_BASE_URL = "https://priceai.cc";
 const SMOKE_FETCH_TIMEOUT_MS = Number(process.env.CLOUDFLARE_SMOKE_TIMEOUT_MS || 15_000);
 const SMOKE_DATA_RETRY_ATTEMPTS = Number(process.env.CLOUDFLARE_SMOKE_DATA_RETRY_ATTEMPTS || 5);
+const SMOKE_DEPLOYMENT_RETRY_ATTEMPTS = Number(process.env.CLOUDFLARE_SMOKE_DEPLOYMENT_RETRY_ATTEMPTS || 30);
 const SMOKE_RETRY_DELAY_MS = Number(process.env.CLOUDFLARE_SMOKE_RETRY_DELAY_MS || 1_500);
 const SMOKE_VERSION_ID = (process.env.CLOUDFLARE_SMOKE_VERSION_ID || "").trim();
 const SMOKE_VERSION_TAG = (process.env.CLOUDFLARE_SMOKE_VERSION_TAG || "").trim();
@@ -89,6 +90,7 @@ const checks = [
     path: "/api/deployment",
     status: 200,
     maxBytes: 2_000,
+    retries: SMOKE_VERSION_ID ? SMOKE_DEPLOYMENT_RETRY_ATTEMPTS : 0,
     json: validateDeploymentJson,
   }]),
   {
