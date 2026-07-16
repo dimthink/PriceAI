@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -53,6 +53,9 @@ try {
     throw new Error("Cloudflare upload succeeded but Wrangler did not report a version ID.");
   }
 
+  writeDeployFile("cloudflare-version-id", upload.version_id);
+  writeDeployFile("cloudflare-version-tag", deploymentId);
+
   console.log(`Cloudflare candidate version: ${upload.version_id}`);
   console.log(`Cloudflare candidate tag: ${deploymentId}`);
   if (previewUrl) {
@@ -83,6 +86,12 @@ function readUploadOutput(filePath) {
 function writeGithubOutput(name, value) {
   if (!process.env.GITHUB_OUTPUT) return;
   appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${String(value).replaceAll("\n", "")}\n`);
+}
+
+function writeDeployFile(name, value) {
+  const deployDir = join(process.cwd(), ".priceai-deploy");
+  mkdirSync(deployDir, { recursive: true });
+  writeFileSync(join(deployDir, name), `${String(value).replaceAll("\n", "")}\n`);
 }
 
 function gitSha() {

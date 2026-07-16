@@ -119,13 +119,11 @@ jobs:
       - name: Persist uploaded version id
         run: |
           set -euo pipefail
-          mkdir -p .priceai-deploy
-          version_id="${{ steps.upload.outputs.version_id }}"
+          version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
           if ! [[ "$version_id" =~ ^[a-f0-9-]{36}$ ]]; then
             echo "Wrangler did not return a valid Worker version ID."
             exit 1
           fi
-          printf "%s\n" "$version_id" > .priceai-deploy/cloudflare-version-id
 
       - name: Upload version id artifact
         uses: actions/upload-artifact@v4
@@ -137,10 +135,11 @@ jobs:
 
       - name: Record uploaded version summary
         run: |
+          version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
           {
             echo "### Cloudflare uploaded version"
             echo "- Git SHA: \`${GITHUB_SHA}\`"
-            echo "- Version ID: \`${{ steps.upload.outputs.version_id }}\`"
+            echo "- Version ID: \`${version_id}\`"
             echo "- Preview URL: unavailable because this Worker implements a Durable Object"
             echo "- Validation: staged at 0% and tested through a version override before promotion"
           } >> "$GITHUB_STEP_SUMMARY"
