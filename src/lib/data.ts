@@ -157,10 +157,11 @@ const UMAMI_MONITORING_PROPERTY_KEYS = new Set<UmamiPropertyKey>([
 ]);
 const PRIMARY_COLLECTOR_NODE_IDS = new Set([
   "huoshan2-nonshop",
+  "huoshan2-nonshop-dujiao",
   "aliyun6-hangzhou-priceai",
-  "aliyun5-chengdu-priceai",
-  "aliyun8-new-8-147-priceai",
   "aliyun7-new-47-121-priceai",
+  "aliyun7-new-47-121-priceai-qxvx",
+  "aliyun7-new-47-121-priceai-yunmao",
 ]);
 const PUBLIC_EXPLORER_SNAPSHOT_KEY = "default";
 const PUBLIC_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
