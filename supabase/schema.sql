@@ -476,6 +476,9 @@ begin
 
   if text_value !~ '(仅支持?网页|只能网页|仅网页|网页号|不支持codex|无法使用codex|不能使用codex|不能直接登录codex|无法直接登录codex|无法codex|codex不售后|不可反代|无法反代|不能反代|不支持反代)'
     and text_value ~ '(可反代|支持反代|反代\+?codex|可用codex|支持codex|直接登录codex|sub2|cpa|api格式|json格式|json文件|sub格式|cpa格式)'
+    and text_value ~ '(chatgpt|gpt|openai|codex)'
+    and text_value ~ '(plus|team|business|free|普号|普通号|白号|账号|成品号|网页号|半成品|独享|母号|邀请|k12|bug|首登|已接码|未接码|已接|未接)'
+    and text_value !~ '(gemini|claude|grok|kiro|cursor|perplexity|suno|dreamina|api|中转|余额|额度|号池|token|倍率|openrouter|nvidia)'
   then
     output := array_append(output, 'proxy_supported');
   end if;

@@ -36,7 +36,7 @@ export const LOW_RISK_VERIFICATION_REASONS: ReadonlySet<OfferFeedbackReason> = n
 
 export const API_CDK_PLATFORM = "API/CDK";
 export const API_CDK_PRODUCT_ID = "openai-api-cdk";
-// Defaults to hidden. Set either flag to 1/true/yes/on when the API/CDK catalog needs to be restored publicly.
+// Kept for old deploy environments; API/CDK is no longer restorable through public visibility flags.
 export const API_CDK_PUBLIC_VISIBILITY_ENV = "NEXT_PUBLIC_PRICEAI_SHOW_API_CDK";
 export const API_CDK_SERVER_VISIBILITY_ENV = "PRICEAI_SHOW_API_CDK";
 export const OFFER_EXIT_NOTICE_MUTED_DATE_KEY = "priceai:offer-exit-notice-muted-date";
@@ -179,23 +179,21 @@ export function buildInitialFeedbackVerificationResult(input: {
 }
 
 export function apiCdkPublicVisible(): boolean {
-  return truthyFlag(process.env[API_CDK_SERVER_VISIBILITY_ENV]) ||
-    truthyFlag(process.env[API_CDK_PUBLIC_VISIBILITY_ENV]);
+  void API_CDK_SERVER_VISIBILITY_ENV;
+  void API_CDK_PUBLIC_VISIBILITY_ENV;
+  return false;
 }
 
 export function apiCdkPublicVisibleForClient(): boolean {
-  return truthyFlag(process.env[API_CDK_PUBLIC_VISIBILITY_ENV]);
+  void API_CDK_PUBLIC_VISIBILITY_ENV;
+  return false;
 }
 
 export function isApiCdkProductLike(product: { id?: string | null; platform?: string | null } | null | undefined): boolean {
-  return product?.platform === API_CDK_PLATFORM;
+  return product?.platform === API_CDK_PLATFORM || product?.id === API_CDK_PRODUCT_ID;
 }
 
-export function isPublicCatalogProduct(
-  product: { id?: string | null; platform?: string | null },
-  options: { showApiCdk?: boolean } = {},
-): boolean {
-  if (options.showApiCdk ?? apiCdkPublicVisible()) return true;
+export function isPublicCatalogProduct(product: { id?: string | null; platform?: string | null }): boolean {
   return !isApiCdkProductLike(product);
 }
 
@@ -328,9 +326,4 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function truthyFlag(value: string | undefined): boolean {
-  if (!value) return false;
-  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }

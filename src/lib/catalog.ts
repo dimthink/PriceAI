@@ -994,9 +994,8 @@ export function buildProductGroups(
 
 export function publicCatalogProducts(
   products: CanonicalProduct[] = canonicalCatalog,
-  options: { showApiCdk?: boolean } = {},
 ): CanonicalProduct[] {
-  return products.filter((product) => isPublicCatalogProduct(product, options));
+  return products.filter((product) => isPublicCatalogProduct(product));
 }
 
 export function compareOffers(a: RawOffer, b: RawOffer): number {

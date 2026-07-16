@@ -14,7 +14,7 @@ export type PlatformLink = {
 };
 
 export type PlatformPageConfig = {
-  slug: "chatgpt" | "gemini" | "claude" | "api";
+  slug: "chatgpt" | "gemini" | "claude";
   platform: string;
   iconPlatform: string;
   pageUrl: string;
@@ -368,102 +368,6 @@ export const platformPageConfigs = {
         title: "Claude Pro 与 Max 订阅渠道价格 | PriceAI",
         description: "购买 Claude Pro 或 Claude Max 前，先比较有货最低价、官方参考价、账号交付和渠道风险。",
         url: "https://priceai.cc/platforms/claude",
-      },
-    },
-  },
-  api: {
-    slug: "api",
-    platform: "API/CDK",
-    iconPlatform: "API/CDK",
-    pageUrl: "https://priceai.cc/platforms/api",
-    productIds: ["openai-api-cdk"],
-    badge: "API / CDK 平台价格页",
-    title: "模型 API、CDK 与额度获取入口",
-    intro:
-      "这里把订阅渠道里的 API / CDK / 额度商品和 PriceAI 官方 API 串起来。适合想把模型接入 Codex、Cursor、OpenCode、自建应用或自动化脚本的用户。",
-    primaryHref: "/official-api",
-    primaryLabel: "查看官方 API",
-    secondaryHref: "/api-transit",
-    secondaryLabel: "查看中转 API",
-    tableTitle: "当前收录的 API / CDK 标准商品",
-    tableDescription: "这里的有货最低价来自渠道报价；更完整的官方 API、免费 API 和 Token Plan 信息请进入官方 API。",
-    optionsEyebrow: "Token access",
-    optionsTitle: "API 需求先分清官方 API、免费 API 和渠道额度。",
-    optionsIntro:
-      "API / CDK / 额度和网页会员不是同一种东西。你要接入编程工具或应用时，除了价格，还要看模型、接口格式、额度、有效期、并发和限制。",
-    optionCards: [
-      {
-        title: "官方 API",
-        text: "适合追求稳定和可核验文档的用户，重点看输入、输出、缓存、速率限制和账单规则。",
-        icon: "database",
-      },
-      {
-        title: "免费 API",
-        text: "适合试用和低频体验，但通常会有限流、排队、额度刷新、模型下线或地区限制。",
-        icon: "sparkles",
-      },
-      {
-        title: "Token Plan",
-        text: "像 OpenCode Go 这类套餐更适合对比套餐额度、覆盖模型、价格折算和适配工具。",
-        icon: "zap",
-      },
-      {
-        title: "渠道额度 / CDK",
-        text: "需要确认是否兼容 OpenAI API 格式、是否限制模型、是否有有效期和售后。",
-        icon: "shield",
-      },
-    ],
-    darkTitle: "API 不是只看每百万 token 单价。",
-    darkCards: [
-      {
-        title: "可用性比标价更重要",
-        text: "模型是否可用、速率是否足够、是否支持流式、是否稳定维护，都会影响真实成本。",
-      },
-      {
-        title: "先收正规公开来源",
-        text: "PriceAI 当前优先整理官方 API、公开文档 API、免费测试入口和公开模型路由，不把灰色中转作为主线推荐。",
-      },
-    ],
-    faqs: [
-      [
-        "API / CDK / 额度和 ChatGPT Plus 有什么区别？",
-        "ChatGPT Plus 是网页或 App 里的会员权益；API / CDK / 额度用于程序调用模型。能不能接 Codex、Cursor、OpenCode 等工具，取决于接口格式、模型和额度限制。",
-      ],
-      [
-        "免费 API 能长期使用吗？",
-        "不一定。免费 API 可能存在限流、排队、额度刷新、模型下线、地区限制或条款变化，最终以原平台公开页面为准。",
-      ],
-      [
-        "OpenRouter、NVIDIA NIM、OpenCode Go 这类入口怎么比较？",
-        "可以先看覆盖模型、免费额度、套餐价格、输入输出计费、有效期和是否兼容你要用的工具，再决定是否接入。",
-      ],
-      [
-        "为什么 API 平台页还要保留渠道报价？",
-        "因为一部分用户搜索的是 API/CDK 或额度商品，一部分用户搜索的是官方 API 和免费 API。PriceAI 会把两类入口分清楚，并引导到官方 API 做更细对比。",
-      ],
-      [
-        "PriceAI 会收录灰色中转 API 吗？",
-        "当前策略优先收录官方或公开文档可核验的 API 渠道。第三方中转会更谨慎，重点看来源、文档、稳定性和风险边界。",
-      ],
-    ],
-    relatedTitle: "准备接入模型 API？",
-    relatedDescription: "先进入官方 API 看官方价格、免费额度和 Token Plan，再回到渠道报价判断是否需要 CDK 或额度商品。",
-    relatedLinks: [
-      { label: "官方 API", href: "/official-api" },
-      { label: "指南目录", href: "/guides" },
-      { label: "ChatGPT 获取方式", href: "/guides/chatgpt-subscription-options" },
-    ],
-    metadata: {
-      title: "模型 API、CDK 与额度获取入口",
-      description:
-        "查看模型 API、免费 API、官方 API、Token Plan、OpenAI API/CDK、Codex API 和渠道额度的获取入口、报价和限制说明。",
-      alternates: {
-        canonical: "/platforms/api",
-      },
-      openGraph: {
-        title: "模型 API、CDK 与额度获取入口 | PriceAI",
-        description: "把官方 API、免费 API、模型路由、Token Plan 和 API/CDK 渠道报价放在一起比较。",
-        url: "https://priceai.cc/platforms/api",
       },
     },
   },

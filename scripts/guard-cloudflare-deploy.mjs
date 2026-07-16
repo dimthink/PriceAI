@@ -4,7 +4,7 @@ if (!allowDeploy) {
   console.error(
     [
       "Direct Cloudflare deploy is disabled.",
-      "Use `npm run upload:cloudflare` to create a Worker Version, run smoke on its Preview URL, then promote with `wrangler versions deploy <version-id>@100`.",
+      "Upload a Worker Version, stage it at 0%, smoke it with a version override, then promote the exact version ID to 100%.",
       "Set PRICEAI_ALLOW_DIRECT_CLOUDFLARE_DEPLOY=1 only for an intentional emergency deploy.",
     ].join("\n"),
   );

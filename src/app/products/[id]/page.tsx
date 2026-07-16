@@ -208,7 +208,6 @@ function getOfficialPricePlanMapping(product: Pick<ExplorerProductSummary, "id" 
 }
 
 const platformBreadcrumbUrls: Record<string, string> = {
-  "API/CDK": "https://priceai.cc/platforms/api",
   ChatGPT: "https://priceai.cc/platforms/chatgpt",
   Claude: "https://priceai.cc/platforms/claude",
   Gemini: "https://priceai.cc/platforms/gemini",
@@ -414,17 +413,6 @@ function getRelatedCta(product: ExplorerProductSummary): RelatedCta | null {
         { label: "Claude 平台页", href: "/platforms/claude" },
         { label: "官方地区价", href: "/official-prices" },
         { label: "渠道判断", href: "/guides/are-ai-subscription-card-shops-reliable", tone: "primary" },
-      ],
-    };
-  }
-
-  if (product.platform === "API/CDK" || product.id === "openai-api-cdk") {
-    return {
-      title: "想接入 Codex、Cursor 或自建工具？",
-      description: "可以先看 API 平台页和官方 API，分清官方 API、免费 API、Token Plan 和渠道额度。",
-      links: [
-        { label: "API 平台页", href: "/platforms/api" },
-        { label: "官方 API", href: "/official-api", tone: "primary" },
       ],
     };
   }

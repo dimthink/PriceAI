@@ -17,6 +17,9 @@
   "observability": {
     "enabled": true
   },
+  "version_metadata": {
+    "binding": "PRICEAI_VERSION"
+  },
   "routes": [
     {
       "pattern": "cf.priceai.cc",

@@ -13,6 +13,7 @@
     "preview:cloudflare": "opennextjs-cloudflare preview",
     "deploy:production": "node scripts/deploy-production.mjs",
     "upload:cloudflare": "node scripts/check-cloudflare-env.mjs && node scripts/sanitize-opennext-env.mjs && node scripts/upload-cloudflare-version.mjs",
+    "stage:cloudflare": "node scripts/stage-cloudflare-version.mjs",
     "promote:cloudflare": "node scripts/promote-cloudflare-version.mjs",
     "deploy:cloudflare": "node scripts/guard-cloudflare-deploy.mjs && node scripts/check-cloudflare-env.mjs && node scripts/sanitize-opennext-env.mjs && opennextjs-cloudflare deploy -- --keep-vars",
     "smoke:cloudflare": "node scripts/smoke-cloudflare.mjs",

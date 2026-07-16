@@ -47,10 +47,6 @@ const productSeoProfiles: Record<string, ProductSeoProfile> = {
     metadataTitle: "ChatGPT Pro 20x 价格对比：Pro 高额度、代开和渠道报价",
     metadataDescription: "查看 ChatGPT Pro 20x 有货最低价、Pro 高额度、代开、卡密、渠道报价、官方参考价和更新时间。",
   }),
-  "openai-api-cdk": profile({
-    metadataTitle: "API / CDK / 额度价格对比：OpenAI API、Codex API 和渠道额度",
-    metadataDescription: "查看 API/CDK、OpenAI API、Codex API、余额、额度和模型中转渠道报价。",
-  }),
   "chatgpt-codex-service": profile({
     metadataTitle: "Codex / ChatGPT 周边服务价格对比：额度重置、长链提取和服务包",
     metadataDescription: "查看 Codex 与 ChatGPT 周边辅助服务的有货最低价、额度重置、长链提取、服务包、渠道报价和更新时间。",
@@ -194,5 +190,5 @@ export function getProductSeoProfile(product: Pick<ExplorerProductSummary, "id" 
 }
 
 export function shouldNoIndexProduct(product: Pick<ExplorerProductSummary, "id" | "slug">): boolean {
-  return product.id === "other-product" || product.slug === "other-product";
+  return product.id === "other-product" || product.slug === "other-product" || product.id === "openai-api-cdk" || product.slug === "openai-api-cdk";
 }

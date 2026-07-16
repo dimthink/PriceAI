@@ -30,20 +30,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-preview:
+  build-and-upload:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
-    outputs:
-      version_id: ${{ steps.upload.outputs.version_id }}
-      version_tag: ${{ steps.upload.outputs.version_tag }}
-      smoke_base_url: ${{ steps.upload.outputs.smoke_base_url }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       NEXT_DEPLOYMENT_ID: ${{ github.sha }}
-      CLOUDFLARE_PREVIEW_ALIAS: candidate
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -121,25 +116,37 @@ jobs:
         id: upload
         run: npm run upload:cloudflare
 
-      - name: Smoke candidate Preview URL
-        if: ${{ steps.upload.outputs.smoke_base_url != '' }}
-        run: npm run smoke:cloudflare -- "${{ steps.upload.outputs.smoke_base_url }}"
+      - name: Persist uploaded version id
+        run: |
+          set -euo pipefail
+          mkdir -p .priceai-deploy
+          version_id="${{ steps.upload.outputs.version_id }}"
+          if ! [[ "$version_id" =~ ^[a-f0-9-]{36}$ ]]; then
+            echo "Wrangler did not return a valid Worker version ID."
+            exit 1
+          fi
+          printf "%s\n" "$version_id" > .priceai-deploy/cloudflare-version-id
 
-      - name: Record candidate summary
+      - name: Upload version id artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-version-${{ github.sha }}
+          path: .priceai-deploy/cloudflare-version-id
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Record uploaded version summary
         run: |
           {
-            echo "### Cloudflare candidate"
+            echo "### Cloudflare uploaded version"
             echo "- Git SHA: \`${GITHUB_SHA}\`"
             echo "- Version ID: \`${{ steps.upload.outputs.version_id }}\`"
-            if [ -n "${{ steps.upload.outputs.smoke_base_url }}" ]; then
-              echo "- Preview: ${{ steps.upload.outputs.smoke_base_url }}"
-            else
-              echo "- Preview: unavailable; production smoke runs after promotion"
-            fi
+            echo "- Preview URL: unavailable because this Worker implements a Durable Object"
+            echo "- Validation: staged at 0% and tested through a version override before promotion"
           } >> "$GITHUB_STEP_SUMMARY"
 
   promote-production:
-    needs: build-and-preview
+    needs: build-and-upload
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
@@ -149,7 +156,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_SMOKE_BASE_URL: ${{ inputs.smoke_base_url }}
-      CLOUDFLARE_PROMOTE_MESSAGE: Promote PriceAI ${{ github.sha }} after preview smoke
+      CLOUDFLARE_PROMOTE_MESSAGE: Promote PriceAI ${{ github.sha }} after staged version-override smoke
     steps:
       - uses: actions/checkout@v4
 
@@ -163,6 +170,61 @@ jobs:
       - name: Verify promotion SHA
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - run: npm run promote:cloudflare -- "${{ needs.build-and-preview.outputs.version_id }}"
+      - name: Download candidate version id
+        uses: actions/download-artifact@v4
+        with:
+          name: cloudflare-version-${{ github.sha }}
+          path: .priceai-deploy
 
-      - run: npm run smoke:cloudflare -- "$CLOUDFLARE_SMOKE_BASE_URL"
+      - name: Verify candidate version id
+        run: |
+          set -euo pipefail
+          candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
+          if ! [[ "$candidate_version_id" =~ ^[a-f0-9-]{36}$ ]]; then
+            echo "Downloaded candidate Worker version ID is invalid."
+            exit 1
+          fi
+          echo "Candidate Worker version ID artifact is valid."
+
+      - name: Stage candidate at zero percent
+        id: stage
+        run: |
+          set -euo pipefail
+          candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
+          npm run stage:cloudflare -- "$candidate_version_id"
+
+      - name: Smoke staged candidate with version override
+        env:
+          CLOUDFLARE_SMOKE_VERSION_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
+          CLOUDFLARE_SMOKE_VERSION_ID="$candidate_version_id" npm run smoke:cloudflare -- "$CLOUDFLARE_SMOKE_BASE_URL"
+
+      - name: Promote staged candidate
+        run: |
+          set -euo pipefail
+          candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
+          npm run promote:cloudflare -- "$candidate_version_id"
+
+      - name: Smoke production deployment
+        env:
+          CLOUDFLARE_SMOKE_VERSION_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
+          CLOUDFLARE_SMOKE_VERSION_ID="$candidate_version_id" npm run smoke:cloudflare -- "$CLOUDFLARE_SMOKE_BASE_URL"
+
+      - name: Roll back previous Worker version
+        if: ${{ failure() }}
+        env:
+          CLOUDFLARE_PROMOTE_MESSAGE: Roll back failed PriceAI release ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          previous_version_id="$(tr -d "\r\n" < .priceai-deploy/previous-version-id 2>/dev/null || true)"
+          if ! [[ "$previous_version_id" =~ ^[a-f0-9-]{36}$ ]]; then
+            echo "No previous Worker version was staged; skipping rollback."
+            exit 0
+          fi
+          npm run promote:cloudflare -- "$previous_version_id"
+          CLOUDFLARE_SMOKE_SKIP_DEPLOYMENT_CHECK=1 npm run smoke:cloudflare -- "$CLOUDFLARE_SMOKE_BASE_URL"

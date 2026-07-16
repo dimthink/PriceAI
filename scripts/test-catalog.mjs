@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 const {
+  canonicalCatalog,
   buildProductGroups,
   classifyOffer,
   compareProductDisplayOrder,
@@ -18,6 +19,7 @@ const {
   isDomesticMirrorSiteOffer,
   isSharedAccessOffer,
   isTelegramStarsOffer,
+  publicCatalogProducts,
   withCanonicalCatalogProduct,
 } = await loadCatalogModule();
 const {
@@ -479,6 +481,26 @@ for (const [title, expectedTags] of tagCases) {
   }
 }
 
+const proxySupportedCases = [
+  ["ChatGPT 普号 支持Codex官方端登录 JSON格式", true],
+  ["GPT Plus 成品号 支持反代 sub2/cpa", true],
+  ["GPT Team K12 反代+codex cpa格式", true],
+  ["Codex普号 账密直登 支持Codex官方端登录", true],
+  ["ChatGPT Plus 成品号 不可反代 JSON格式", false],
+  ["Gemini Pro 一年成品号 支持Codex JSON格式", false],
+  ["Grok 普号 sub2 JSON格式", false],
+  ["OpenAI API 中转 余额卡密 cpa", false],
+  ["Claude Max 20x JSON格式", false],
+];
+
+for (const [title, expected] of proxySupportedCases) {
+  assert.equal(
+    deriveOfferFilterTags({ sourceTitle: title }).includes("proxy_supported"),
+    expected,
+    `${title} proxy_supported should be ${expected}.`,
+  );
+}
+
 const productSpecificTagScopeCases = [
   [
     "gemini-pro-recharge",
@@ -487,13 +509,18 @@ const productSpecificTagScopeCases = [
   ],
   [
     "gemini-pro-year",
-    ["gemini_12_month_link", "gemini_antigravity_gcp", "gemini_phone_required"],
+    ["gemini_12_month_link", "gemini_antigravity_gcp", "gemini_phone_required", "proxy_supported"],
     ["gemini_antigravity_gcp", "gemini_phone_required"],
   ],
   [
+    "chatgpt-free-account",
+    ["proxy_supported", "warranty_long"],
+    ["proxy_supported", "warranty_long"],
+  ],
+  [
     "chatgpt-plus",
-    ["chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel", "chatgpt_plus_recharge_ph_card", "delivery_account"],
-    ["delivery_account", "chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel"],
+    ["chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel", "chatgpt_plus_recharge_ph_card", "delivery_account", "proxy_supported"],
+    ["delivery_account", "chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel", "proxy_supported"],
   ],
   [
     "chatgpt-plus-recharge",
@@ -504,6 +531,11 @@ const productSpecificTagScopeCases = [
     "chatgpt-pro-5x",
     ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "chatgpt_plus_recharge_us_ios", "warranty_long"],
     ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "warranty_long"],
+  ],
+  [
+    "chatgpt-team-business",
+    ["team_k12", "team_bug", "team_official", "proxy_supported"],
+    ["team_k12", "team_bug", "team_official", "proxy_supported"],
   ],
   [
     "chatgpt-pro-20x",
@@ -519,6 +551,11 @@ const productSpecificTagScopeCases = [
     "claude-max-20x",
     ["pro_max_official_recharge", "pro_max_short_term", "pro_max_us_ios", "warranty_long"],
     ["pro_max_official_recharge", "pro_max_short_term", "warranty_long"],
+  ],
+  [
+    "grok-account",
+    ["duration_trial", "proxy_supported", "warranty_long"],
+    ["duration_trial", "warranty_long"],
   ],
 ];
 
@@ -1026,6 +1063,11 @@ assert.deepEqual(
     "openai-api-cdk",
   ],
   "Other platform products should use family display order and keep API/CDK last.",
+);
+
+assert.ok(
+  !publicCatalogProducts(canonicalCatalog).some((product) => product.id === "openai-api-cdk"),
+  "API/CDK should stay hidden from the public catalog.",
 );
 
 console.log(`catalog test passed cases=${cases.length + contextCases.length + priceCases.length}`);

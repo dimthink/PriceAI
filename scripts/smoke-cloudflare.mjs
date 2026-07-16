@@ -2,6 +2,14 @@ const DEFAULT_BASE_URL = "https://priceai.cc";
 const SMOKE_FETCH_TIMEOUT_MS = Number(process.env.CLOUDFLARE_SMOKE_TIMEOUT_MS || 15_000);
 const SMOKE_DATA_RETRY_ATTEMPTS = Number(process.env.CLOUDFLARE_SMOKE_DATA_RETRY_ATTEMPTS || 5);
 const SMOKE_RETRY_DELAY_MS = Number(process.env.CLOUDFLARE_SMOKE_RETRY_DELAY_MS || 1_500);
+const SMOKE_VERSION_ID = (process.env.CLOUDFLARE_SMOKE_VERSION_ID || "").trim();
+const SMOKE_VERSION_TAG = (process.env.CLOUDFLARE_SMOKE_VERSION_TAG || "").trim();
+const SMOKE_SKIP_DEPLOYMENT_CHECK = process.env.CLOUDFLARE_SMOKE_SKIP_DEPLOYMENT_CHECK === "1";
+const WORKER_NAME = "priceai-cloudflare-poc";
+
+if (SMOKE_VERSION_ID && !/^[a-f0-9-]{36}$/i.test(SMOKE_VERSION_ID)) {
+  throw new Error("CLOUDFLARE_SMOKE_VERSION_ID must be a Worker version UUID.");
+}
 
 const baseUrl = normalizeBaseUrl(
   process.argv[2] || process.env.CLOUDFLARE_SMOKE_BASE_URL || DEFAULT_BASE_URL,
@@ -66,6 +74,12 @@ const checks = [
     maxBytes: 5_000,
     json: validateHealthJson,
   },
+  ...(SMOKE_SKIP_DEPLOYMENT_CHECK ? [] : [{
+    path: "/api/deployment",
+    status: 200,
+    maxBytes: 2_000,
+    json: validateDeploymentJson,
+  }]),
   {
     path: "/api/explorer",
     status: 200,
@@ -107,6 +121,9 @@ const checks = [
 
 let failures = 0;
 console.log(`Cloudflare smoke base: ${baseUrl}`);
+if (SMOKE_VERSION_ID) {
+  console.log(`Cloudflare smoke version override: ${SMOKE_VERSION_ID}`);
+}
 
 for (const check of checks) {
   const maxAttempts = Math.max(1, 1 + (Number.isFinite(check.retries) ? check.retries : 0));
@@ -271,6 +288,16 @@ function validateHealthJson(data) {
   if (data?.ok !== true) failures.push("ok!=true");
   if (data?.supabaseConfigured !== true) failures.push("supabaseConfigured!=true");
   if (data?.supabaseReachable !== true) failures.push("supabaseReachable!=true");
+  return failures;
+}
+
+function validateDeploymentJson(data) {
+  const failures = [];
+  if (data?.ok !== true) failures.push("ok!=true");
+  if (data?.platform !== "cloudflare") failures.push("platform!=cloudflare");
+  if (!/^[a-f0-9-]{36}$/i.test(data?.versionId || "")) failures.push("versionId!=uuid");
+  if (SMOKE_VERSION_ID && data?.versionId !== SMOKE_VERSION_ID) failures.push("versionId!=expected");
+  if (SMOKE_VERSION_TAG && data?.versionTag !== SMOKE_VERSION_TAG) failures.push("versionTag!=expected");
   return failures;
 }
 
@@ -514,8 +541,15 @@ function isLocalhostBaseUrl(baseUrl) {
 }
 
 function fetchWithTimeout(input, init = {}) {
+  const inputUrl = input instanceof Request ? new URL(input.url) : new URL(input);
+  const headers = new Headers(init.headers);
+  if (SMOKE_VERSION_ID && inputUrl.origin === new URL(baseUrl).origin) {
+    headers.set("Cloudflare-Workers-Version-Overrides", `${WORKER_NAME}="${SMOKE_VERSION_ID}"`);
+  }
+
   return fetch(input, {
     ...init,
+    headers,
     signal: AbortSignal.timeout(SMOKE_FETCH_TIMEOUT_MS),
   });
 }

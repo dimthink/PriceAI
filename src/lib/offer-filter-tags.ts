@@ -284,7 +284,7 @@ export const OFFER_FILTER_TAGS: OfferFilterTagDefinition[] = [
     id: "proxy_supported",
     label: "可反代",
     group: "proxy",
-    description: "支持反代、Codex、sub2、cpa、json 或 API 格式。",
+    description: "仅限 ChatGPT 普号、Plus、Team 中支持反代、Codex、sub2、cpa、json 或 API 格式的报价。",
   },
   {
     id: "gemini_antigravity_gcp",
@@ -372,6 +372,11 @@ const CHATGPT_TEAM_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "team_k12",
   "team_bug",
   "team_official",
+]);
+const PROXY_SUPPORTED_FILTER_PRODUCT_IDS = new Set<string>([
+  "chatgpt-free-account",
+  "chatgpt-plus",
+  "chatgpt-team-business",
 ]);
 const AI_SUBSCRIPTION_RECHARGE_FILTER_PRODUCT_IDS = new Set<string>([
   "chatgpt-plus",
@@ -472,6 +477,7 @@ export function offerFilterTagAppliesToProduct(productId: string, tagId: OfferFi
   if (PRO_MAX_RECHARGE_MODE_FILTER_TAG_IDS.has(tagId)) return PRO_MAX_FILTER_PRODUCT_IDS.has(productId);
   if (CHATGPT_PRO_CHANNEL_FILTER_TAG_IDS.has(tagId)) return CHATGPT_PRO_FILTER_PRODUCT_IDS.has(productId);
   if (CHATGPT_TEAM_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-team-business";
+  if (tagId === "proxy_supported") return PROXY_SUPPORTED_FILTER_PRODUCT_IDS.has(productId);
   return true;
 }
 
@@ -484,7 +490,7 @@ export function deriveOfferFilterTags(input: {
   const text = normalizeOfferFilterText(`${input.sourceTitle || ""} ${(input.tags || []).join(" ")}`);
   const output = new Set<OfferFilterTagId>();
 
-  if (!hasUnsupportedProxySignal(text) && hasSupportedProxySignal(text)) {
+  if (shouldEmitProxySupportedTag(text)) {
     output.add("proxy_supported");
   }
 
@@ -616,12 +622,27 @@ function normalizeOfferFilterText(value: string): string {
     .replace(/[【】\[\]（）()]/g, " ");
 }
 
+function hasSupportedProxySignal(text: string): boolean {
+  return /可反代|支持反代|反代\+?codex|可用codex|支持codex|直接登录codex|sub2|cpa|api格式|json格式|json文件|sub格式|cpa格式/.test(text);
+}
+
 function hasUnsupportedProxySignal(text: string): boolean {
   return /仅支持?网页|只能网页|仅网页|网页号|不支持codex|无法使用codex|不能使用codex|不能直接登录codex|无法直接登录codex|无法codex|codex不售后|不可反代|无法反代|不能反代|不支持反代/.test(text);
 }
 
-function hasSupportedProxySignal(text: string): boolean {
-  return /可反代|支持反代|反代\+?codex|可用codex|支持codex|直接登录codex|sub2|cpa|api格式|json格式|json文件|sub格式|cpa格式/.test(text);
+function shouldEmitProxySupportedTag(text: string): boolean {
+  if (hasUnsupportedProxySignal(text)) return false;
+  if (!hasSupportedProxySignal(text)) return false;
+  return hasChatGptProxySupportedSignal(text);
+}
+
+function hasChatGptProxySupportedSignal(text: string): boolean {
+  if (!/(chatgpt|gpt|openai|codex)/.test(text)) return false;
+  if (/(gemini|claude|grok|kiro|cursor|perplexity|suno|dreamina|api|中转|余额|额度|号池|token|倍率|openrouter|nvidia)/.test(text)) {
+    return false;
+  }
+
+  return /(plus|team|business|free|普号|普通号|白号|账号|成品号|网页号|半成品|独享|母号|邀请|k12|bug|首登|已接码|未接码|已接|未接)/.test(text);
 }
 
 function hasSharedAccessNegativeSignal(text: string): boolean {

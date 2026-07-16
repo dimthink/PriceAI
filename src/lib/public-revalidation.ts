@@ -7,7 +7,6 @@ const publicOfferPaths = [
   "/platforms/chatgpt",
   "/platforms/claude",
   "/platforms/gemini",
-  "/platforms/api",
   "/channels",
   "/sitemap.xml",
 ] as const;

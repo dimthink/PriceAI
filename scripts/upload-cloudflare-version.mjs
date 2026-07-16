@@ -13,7 +13,6 @@ loadCloudflareLocalEnv();
 assertRequiredEnv(CLOUDFLARE_REQUIRED_ENV, "Cloudflare version upload env");
 
 const deploymentId = normalizeTag(process.env.NEXT_DEPLOYMENT_ID || gitSha());
-const previewAlias = normalizeAlias(process.env.CLOUDFLARE_PREVIEW_ALIAS || "candidate");
 const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH || join(tmpdir(), `priceai-wrangler-upload-${process.pid}.jsonl`);
 const shouldRemoveOutput = !process.env.WRANGLER_OUTPUT_FILE_PATH;
 const wrangler = join(
@@ -32,8 +31,6 @@ try {
       "versions",
       "upload",
       "--keep-vars",
-      "--preview-alias",
-      previewAlias,
       "--tag",
       deploymentId,
       "--message",
@@ -98,14 +95,6 @@ function normalizeTag(value) {
   const normalized = value.trim();
   if (!/^[A-Za-z0-9._-]{7,64}$/.test(normalized)) {
     throw new Error("NEXT_DEPLOYMENT_ID must be a stable 7-64 character version tag.");
-  }
-  return normalized;
-}
-
-function normalizeAlias(value) {
-  const normalized = value.trim().toLowerCase();
-  if (!/^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(normalized)) {
-    throw new Error("CLOUDFLARE_PREVIEW_ALIAS must be a valid DNS label.");
   }
   return normalized;
 }
