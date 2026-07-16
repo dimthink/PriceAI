@@ -15,21 +15,24 @@ assertRequiredEnv(CLOUDFLARE_REQUIRED_ENV, "Cloudflare version upload env");
 const deploymentId = normalizeTag(process.env.NEXT_DEPLOYMENT_ID || gitSha());
 const outputPath = process.env.WRANGLER_OUTPUT_FILE_PATH || join(tmpdir(), `priceai-wrangler-upload-${process.pid}.jsonl`);
 const shouldRemoveOutput = !process.env.WRANGLER_OUTPUT_FILE_PATH;
-const wrangler = join(
+const openNextCloudflare = join(
   process.cwd(),
   "node_modules",
   ".bin",
-  process.platform === "win32" ? "wrangler.cmd" : "wrangler",
+  process.platform === "win32" ? "opennextjs-cloudflare.cmd" : "opennextjs-cloudflare",
 );
+const canUseRcloneCacheUpload =
+  hasEnv("R2_ACCESS_KEY_ID") &&
+  hasEnv("R2_SECRET_ACCESS_KEY") &&
+  (hasEnv("CF_ACCOUNT_ID") || hasEnv("CLOUDFLARE_ACCOUNT_ID"));
 
 try {
-  // OpenNext's remote cache helper requires OAuth state that API-token CI does not have.
-  // Upload the validated bundle directly; preview and production smoke cover cold-cache behavior.
   const result = spawnSync(
-    wrangler,
+    openNextCloudflare,
     [
-      "versions",
       "upload",
+      ...(canUseRcloneCacheUpload ? ["--rclone"] : []),
+      "--",
       "--keep-vars",
       "--tag",
       deploymentId,
@@ -38,7 +41,12 @@ try {
     ],
     {
       cwd: process.cwd(),
-      env: { ...process.env, OPEN_NEXT_DEPLOY: "true", WRANGLER_OUTPUT_FILE_PATH: outputPath },
+      env: {
+        ...process.env,
+        CF_ACCOUNT_ID: process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID,
+        OPEN_NEXT_DEPLOY: "true",
+        WRANGLER_OUTPUT_FILE_PATH: outputPath,
+      },
       stdio: "inherit",
       shell: process.platform === "win32",
     },
@@ -98,6 +106,10 @@ function gitSha() {
   const result = spawnSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" });
   if (result.status !== 0) throw new Error("Unable to resolve git SHA for Cloudflare version tag.");
   return result.stdout.trim();
+}
+
+function hasEnv(name) {
+  return typeof process.env[name] === "string" && process.env[name].trim().length > 0;
 }
 
 function normalizeTag(value) {
