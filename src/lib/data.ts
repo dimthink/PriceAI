@@ -3392,20 +3392,41 @@ function classifySourceQuality(input: {
   const hasFrontRankEvidence = input.sampleFrontRankOfferCount >= 2;
   const hasStrongClickEvidence = purchaseClicks >= 3 && visibleCount >= 3;
   const priceEvidence = input.priceStats ? sourceQualityPriceEvidenceFromStats(input.priceStats) : emptySourceQualityPriceEvidence();
+  const lowestHitRate = sourceQualityPriceHitRate(priceEvidence, priceEvidence.lowestHitCount);
+  const top5HitRate = sourceQualityPriceHitRate(priceEvidence, priceEvidence.top5HitCount);
+  const within10PctRate = sourceQualityPriceHitRate(priceEvidence, priceEvidence.within10PctCount);
+  const within20PctRate = sourceQualityPriceHitRate(priceEvidence, priceEvidence.within20PctCount);
+  const hasEnoughPriceBenchmarks =
+    priceEvidence.benchmarkOfferCount >= 5 || priceEvidence.competitiveScopeCount >= 3 || priceEvidence.pricedOfferCount >= 5;
   const hasStrongPriceEvidence =
-    priceEvidence.lowestHitCount >= 1 ||
-    priceEvidence.top5HitCount >= 2 ||
-    priceEvidence.within10PctCount >= 3;
+    hasEnoughPriceBenchmarks &&
+    (
+      (lowestHitRate !== null && lowestHitRate >= 0.08) ||
+      (top5HitRate !== null && top5HitRate >= 0.2) ||
+      (within10PctRate !== null && within10PctRate >= 0.3)
+    );
   const hasModeratePriceEvidence =
-    priceEvidence.top5HitCount >= 1 ||
-    priceEvidence.within20PctCount >= 2 ||
+    (
+      hasEnoughPriceBenchmarks &&
+      (
+        (top5HitRate !== null && top5HitRate >= 0.1) ||
+        (within20PctRate !== null && within20PctRate >= 0.2)
+      )
+    ) ||
+    (!hasEnoughPriceBenchmarks && priceEvidence.lowestHitCount >= 1) ||
+    (!hasEnoughPriceBenchmarks && priceEvidence.top5HitCount >= 1) ||
     (priceEvidence.within20PctCount >= 1 && priceEvidence.benchmarkOfferCount <= 3);
-  const hasEnoughPriceBenchmarks = priceEvidence.benchmarkOfferCount >= 5 || priceEvidence.pricedOfferCount >= 5;
+  const hasWeakLowPriceHitRate =
+    hasEnoughPriceBenchmarks &&
+    priceEvidence.benchmarkOfferCount >= 10 &&
+    (top5HitRate ?? 0) < 0.08 &&
+    (within20PctRate ?? 0) < 0.15;
   const hasPriceNoAdvantage =
     hasEnoughPriceBenchmarks &&
     !hasStrongPriceEvidence &&
     priceEvidence.lowestHitCount === 0 &&
     (
+      hasWeakLowPriceHitRate ||
       (priceEvidence.highGapShare !== null && priceEvidence.highGapShare >= 0.6) ||
       (priceEvidence.medianGapToMin !== null && priceEvidence.medianGapToMin >= 0.5) ||
       (priceEvidence.medianGapToTop5 !== null && priceEvidence.medianGapToTop5 >= 0.25)
@@ -3456,21 +3477,21 @@ function classifySourceQuality(input: {
       "风控、网络或源站阻断不按低质处理",
     ];
     score = 70 + Math.min(consecutiveFailures, 10) * 4 + collectorFailureCount;
-  } else if (hasStrongPriceEvidence || hasFrontRankEvidence || hasStrongClickEvidence || (visibleCount >= 25 && hiddenRatio < 0.35)) {
+  } else if (hasStrongPriceEvidence || hasFrontRankEvidence || (hasStrongClickEvidence && hasModeratePriceEvidence)) {
     const priceReason = sourceQualityPricePositiveReason(priceEvidence);
     kind = "priority_keep";
     reasons = [
-      priceReason || (hasFrontRankEvidence ? `样本前列报价 ${input.sampleFrontRankOfferCount} 条` : `可见报价 ${visibleCount} 条`),
-      purchaseClicks > 0 ? `${UMAMI_MONITORING_WINDOW_DAYS} 天购买点击 ${purchaseClicks} 次` : "报价覆盖相对充足",
+      priceReason || (hasFrontRankEvidence ? `样本前列报价 ${input.sampleFrontRankOfferCount} 条` : `${UMAMI_MONITORING_WINDOW_DAYS} 天购买点击 ${purchaseClicks} 次`),
+      purchaseClicks > 0 ? `${UMAMI_MONITORING_WINDOW_DAYS} 天购买点击 ${purchaseClicks} 次` : "按低价命中率保留，不按商品数量加分",
     ];
     score =
       120 +
-      priceEvidence.lowestHitCount * 18 +
-      priceEvidence.top5HitCount * 8 +
-      priceEvidence.within10PctCount * 4 +
+      Math.round((lowestHitRate || 0) * 120) +
+      Math.round((top5HitRate || 0) * 70) +
+      Math.round((within10PctRate || 0) * 40) +
       input.sampleFrontRankOfferCount * 12 +
       purchaseClicks * 8 +
-      Math.min(visibleCount, 50);
+      Math.min(visibleCount, 10);
   } else if ((manuallyHiddenCount >= 3 && manualHiddenRatio >= 0.5) || (hiddenCount >= 8 && hiddenRatio >= 0.75)) {
     kind = "duplicate_or_no_advantage";
     reasons = [
@@ -3532,16 +3553,16 @@ function classifySourceQuality(input: {
     const priceReason = hasModeratePriceEvidence ? sourceQualityPricePositiveReason(priceEvidence) : null;
     kind = "valuable_lead";
     reasons = [
-      priceReason || (isNewSource ? "新入库渠道，先观察" : visibleCount >= 6 ? `可见报价 ${visibleCount} 条` : "已有价值信号"),
+      priceReason || (isNewSource ? "新入库渠道，先观察" : visibleCount >= 6 ? `可见报价 ${visibleCount} 条，需看低价命中率` : "已有价值信号"),
       purchaseClicks > 0 ? `${UMAMI_MONITORING_WINDOW_DAYS} 天购买点击 ${purchaseClicks} 次` : "等待更多点击和价格优势证据",
     ];
     score =
       55 +
-      priceEvidence.top5HitCount * 5 +
-      priceEvidence.within20PctCount * 3 +
+      Math.round((top5HitRate || 0) * 50) +
+      Math.round((within20PctRate || 0) * 30) +
       purchaseClicks * 6 +
       input.sampleFrontRankOfferCount * 8 +
-      Math.min(visibleCount, 20);
+      Math.min(visibleCount, 8);
   } else {
     reasons = [
       visibleCount > 0 ? `可见报价 ${visibleCount} 条` : "暂无可见报价",
@@ -3600,14 +3621,33 @@ function sourceQualityPriceEvidenceFromStats(stats: SourceQualityPriceStats): So
 }
 
 function sourceQualityPricePositiveReason(price: SourceQualitySource["evidence"]["price"]): string | null {
-  if (price.lowestHitCount > 0) return `最低价命中 ${price.lowestHitCount} 条`;
-  if (price.top5HitCount > 0) return `前五价命中 ${price.top5HitCount} 条`;
-  if (price.within10PctCount > 0) return `最低价 10% 内 ${price.within10PctCount} 条`;
-  if (price.within20PctCount > 0) return `最低价 20% 内 ${price.within20PctCount} 条`;
+  const base = price.benchmarkOfferCount;
+  const suffix = base > 0 ? `/${base}` : " 条";
+  const lowestHitRate = sourceQualityPriceHitRate(price, price.lowestHitCount);
+  const top5HitRate = sourceQualityPriceHitRate(price, price.top5HitCount);
+  const within10PctRate = sourceQualityPriceHitRate(price, price.within10PctCount);
+  const within20PctRate = sourceQualityPriceHitRate(price, price.within20PctCount);
+  if (price.lowestHitCount > 0) {
+    return `最低价命中 ${price.lowestHitCount}${suffix}${lowestHitRate !== null ? ` (${formatSourceQualityRatio(lowestHitRate)})` : ""}`;
+  }
+  if (price.top5HitCount > 0) {
+    return `前五价命中 ${price.top5HitCount}${suffix}${top5HitRate !== null ? ` (${formatSourceQualityRatio(top5HitRate)})` : ""}`;
+  }
+  if (price.within10PctCount > 0) {
+    return `最低价 10% 内 ${price.within10PctCount}${suffix}${within10PctRate !== null ? ` (${formatSourceQualityRatio(within10PctRate)})` : ""}`;
+  }
+  if (price.within20PctCount > 0) {
+    return `最低价 20% 内 ${price.within20PctCount}${suffix}${within20PctRate !== null ? ` (${formatSourceQualityRatio(within20PctRate)})` : ""}`;
+  }
   return null;
 }
 
 function sourceQualityPriceRiskReason(price: SourceQualitySource["evidence"]["price"]): string | null {
+  const top5HitRate = sourceQualityPriceHitRate(price, price.top5HitCount);
+  const within20PctRate = sourceQualityPriceHitRate(price, price.within20PctCount);
+  if (price.benchmarkOfferCount >= 10 && top5HitRate !== null && within20PctRate !== null && top5HitRate < 0.08 && within20PctRate < 0.15) {
+    return `低价命中率 ${formatSourceQualityRatio(top5HitRate)}，可比报价 ${price.benchmarkOfferCount} 条`;
+  }
   if (price.highGapShare !== null && price.highGapShare > 0) return `高价占比 ${formatSourceQualityRatio(price.highGapShare)}`;
   if (price.medianGapToMin !== null && price.medianGapToMin > 0) return `中位价差 +${formatSourceQualityRatio(price.medianGapToMin)}`;
   if (price.medianGapToTop5 !== null && price.medianGapToTop5 > 0) return `较前五价中位差 +${formatSourceQualityRatio(price.medianGapToTop5)}`;
@@ -3616,6 +3656,11 @@ function sourceQualityPriceRiskReason(price: SourceQualitySource["evidence"]["pr
 
 function formatSourceQualityRatio(value: number): string {
   return `${Math.round(Math.max(0, value) * 100)}%`;
+}
+
+function sourceQualityPriceHitRate(price: SourceQualitySource["evidence"]["price"], count: number): number | null {
+  if (price.benchmarkOfferCount <= 0) return null;
+  return Math.max(0, Math.min(1, count / price.benchmarkOfferCount));
 }
 
 function countVisibleOfferSamplesBySource(offers: RawOffer[]): Map<string, number> {
