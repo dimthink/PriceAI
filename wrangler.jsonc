@@ -88,6 +88,8 @@
     "UMAMI_WEBSITE_ID": "ded26a4f-77c4-45ed-86ef-774b0fed0ef6",
     "NEXT_PUBLIC_UMAMI_SCRIPT_URL": "https://umami.dimthink.com/script.js",
     "NEXT_PUBLIC_UMAMI_WEBSITE_ID": "ded26a4f-77c4-45ed-86ef-774b0fed0ef6",
-    "NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS": "priceai.cc,www.priceai.cc"
+    "NEXT_PUBLIC_UMAMI_ALLOWED_DOMAINS": "priceai.cc,www.priceai.cc",
+    "NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL": "https://detector.priceai.cc",
+    "NEXT_PUBLIC_TURNSTILE_SITE_KEY": "0x4AAAAAADsul7KotYK1hB9X"
   }
 }

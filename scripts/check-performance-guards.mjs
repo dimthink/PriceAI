@@ -311,6 +311,8 @@ assert(/<InfrastructureOverviewPanel\s*\/>/.test(adminConsoleText), "src/compone
 const wranglerConfigText = read("wrangler.jsonc");
 assert(/"name"\s*:\s*"NEXT_CACHE_DO_QUEUE"/.test(wranglerConfigText), "wrangler.jsonc: the OpenNext revalidation queue must keep its durable object binding.");
 assert(/"new_sqlite_classes"[\s\S]{0,120}"DOQueueHandler"/.test(wranglerConfigText), "wrangler.jsonc: the OpenNext queue durable object must keep its SQLite migration.");
+assert(/"NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL"\s*:\s*"https:\/\/[^"]+"/.test(wranglerConfigText), "wrangler.jsonc: detector service URL must stay in Worker runtime vars.");
+assert(/"NEXT_PUBLIC_TURNSTILE_SITE_KEY"\s*:\s*"0x[^"]+"/.test(wranglerConfigText), "wrangler.jsonc: Turnstile site key must stay in Worker runtime vars.");
 
 const intentPrefetchLinkText = read("src/components/IntentPrefetchLink.tsx");
 assert(/prefetch=\{shouldPrefetch \? null : false\}/.test(intentPrefetchLinkText), "src/components/IntentPrefetchLink.tsx: main navigation must wait for hover or focus intent before prefetching.");

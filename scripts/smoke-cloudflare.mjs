@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 const DEFAULT_BASE_URL = "https://priceai.cc";
 const SMOKE_FETCH_TIMEOUT_MS = Number(process.env.CLOUDFLARE_SMOKE_TIMEOUT_MS || 15_000);
 const SMOKE_DATA_RETRY_ATTEMPTS = Number(process.env.CLOUDFLARE_SMOKE_DATA_RETRY_ATTEMPTS || 5);
@@ -14,6 +16,15 @@ if (SMOKE_VERSION_ID && !/^[a-f0-9-]{36}$/i.test(SMOKE_VERSION_ID)) {
 const baseUrl = normalizeBaseUrl(
   process.argv[2] || process.env.CLOUDFLARE_SMOKE_BASE_URL || DEFAULT_BASE_URL,
 );
+const cloudflareVars = readWranglerVars();
+const detectorServiceUrl = normalizeDetectorServiceUrl(
+  cloudflareVars.NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL,
+);
+const turnstileSiteKey = String(cloudflareVars.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "").trim();
+
+if (!turnstileSiteKey) {
+  throw new Error("wrangler.jsonc must define NEXT_PUBLIC_TURNSTILE_SITE_KEY for Worker runtime.");
+}
 
 const fallbackHtmlMarkers = [
   "当前使用内置演示数据",
@@ -111,6 +122,30 @@ const checks = [
     retries: SMOKE_DATA_RETRY_ATTEMPTS,
     json: validateMerchantsJson,
   },
+  {
+    path: "/api-transit/detector",
+    status: 200,
+    maxBytes: 520_000,
+    text: {
+      forbidden: fallbackHtmlMarkers,
+      requiredAny: [
+        {
+          label: "detector-service-url",
+          patterns: [
+            `"serviceUrl":"${detectorServiceUrl}"`,
+            `\\"serviceUrl\\":\\"${detectorServiceUrl}\\"`,
+          ],
+        },
+        {
+          label: "turnstile-site-key",
+          patterns: [
+            `"turnstileSiteKey":"${turnstileSiteKey}"`,
+            `\\"turnstileSiteKey\\":\\"${turnstileSiteKey}\\"`,
+          ],
+        },
+      ],
+    },
+  },
   { path: "/api/cron/collect-prices", status: 405, maxBytes: 5_000 },
   { path: "/api/cron/collect-prices", method: "POST", status: 401, maxBytes: 5_000 },
   { path: "/api/cron/official-prices", status: 405, maxBytes: 5_000 },
@@ -144,6 +179,7 @@ for (const check of checks) {
 }
 
 await validateApiTransitDetailPages(baseUrl);
+await validateDetectorService(detectorServiceUrl);
 await validateNextStaticAssets(baseUrl);
 
 if (failures > 0) {
@@ -157,6 +193,33 @@ function normalizeBaseUrl(value) {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+function normalizeDetectorServiceUrl(value) {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) {
+    throw new Error("wrangler.jsonc must define NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL for Worker runtime.");
+  }
+
+  const url = new URL(rawValue);
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error("NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL in wrangler.jsonc must be a clean HTTP(S) origin.");
+  }
+
+  return url.toString().replace(/\/$/, "");
+}
+
+function readWranglerVars(file = "wrangler.jsonc") {
+  const config = JSON.parse(stripJsonComments(readFileSync(file, "utf8")));
+  return config && typeof config === "object" && config.vars && typeof config.vars === "object"
+    ? config.vars
+    : {};
+}
+
+function stripJsonComments(content) {
+  return content
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
 function validateText(text, expectations) {
@@ -389,6 +452,41 @@ async function validateApiTransitDetailPages(baseUrl) {
     failures += 1;
     console.log(
       `fail api-transit-details error ${sitemapUrl.pathname} ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function validateDetectorService(serviceUrl) {
+  const url = new URL("/api/status/priceai-smoke-nonexistent", serviceUrl);
+  const startedAt = Date.now();
+
+  try {
+    const response = await fetchWithTimeout(url, {
+      headers: {
+        "user-agent": "PriceAI Cloudflare smoke check",
+      },
+    });
+    const text = await response.text();
+    const detailOk = text.includes("job not found") || text.includes("not found");
+    const ok = response.status === 404 && detailOk;
+
+    if (!ok) failures += 1;
+
+    console.log(
+      [
+        ok ? "ok" : "fail",
+        "detector-service",
+        response.status,
+        `${text.length}B`,
+        `${Date.now() - startedAt}ms`,
+        url.origin,
+        !detailOk ? "text=missing:not-found-detail" : "",
+      ].filter(Boolean).join(" "),
+    );
+  } catch (error) {
+    failures += 1;
+    console.log(
+      `fail detector-service error ${url.origin} ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
