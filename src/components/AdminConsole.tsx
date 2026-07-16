@@ -6884,6 +6884,7 @@ function collectorNodeHealthLabel(status: CollectorHealthNodeRow["health"]): str
   if (status === "quiet") return "最近失败";
   if (status === "stale") return "延迟";
   if (status === "down") return "离线";
+  if (status === "disabled") return "备用停用";
   return "未知";
 }
 

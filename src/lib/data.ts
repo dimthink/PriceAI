@@ -3925,7 +3925,7 @@ function buildCollectorNodeSummaries(
   for (const heartbeat of heartbeats) {
     if (!isPrimaryCollectorNode(heartbeat.node.id)) continue;
     const ageMinutes = minutesSince(heartbeat.lastSeenAt, nowMs);
-    const health = nodeHealthFor(ageMinutes, heartbeat.status);
+    const health = nodeHealthFor(ageMinutes, heartbeat.status, heartbeat.scope, heartbeat.details);
     map.set(heartbeat.node.id, {
       node: heartbeat.node,
       scope: heartbeat.scope || null,
@@ -3968,7 +3968,7 @@ function buildCollectorNodeSummaries(
   }
 
   return Array.from(map.values()).sort((a, b) => {
-    const riskOrder = { down: 4, stale: 3, quiet: 2, unknown: 1, online: 0 };
+    const riskOrder = { down: 5, stale: 4, quiet: 3, unknown: 2, online: 1, disabled: 0 };
     const riskDiff = riskOrder[b.health] - riskOrder[a.health];
     if (riskDiff) return riskDiff;
     return (b.ageMinutes ?? 999999) - (a.ageMinutes ?? 999999);
@@ -4127,12 +4127,23 @@ function healthSourceTone(status: CollectorHealthSource["status"]): CollectorHea
 function nodeHealthFor(
   ageMinutes: number | null,
   status: CollectorHeartbeat["status"],
+  scope?: string | null,
+  details?: Record<string, unknown> | null,
 ): CollectorHealthNodeSummary["health"] {
+  if (collectorNodeIsStandbyDisabled(scope, details)) return "disabled";
   if (ageMinutes === null) return "unknown";
   if (status === "running" && ageMinutes <= 90) return "online";
   if (ageMinutes <= 45) return status === "failed" ? "quiet" : "online";
   if (ageMinutes <= 90) return "stale";
   return "down";
+}
+
+function collectorNodeIsStandbyDisabled(
+  scope?: string | null,
+  details?: Record<string, unknown> | null,
+): boolean {
+  if (details?.standby === true && details?.timerEnabled === false) return true;
+  return /^standby:disabled\b/i.test(String(scope || ""));
 }
 
 function nodeHealthTone(
@@ -4143,6 +4154,7 @@ function nodeHealthTone(
   if (health === "quiet") return "warn";
   if (health === "stale") return "warn";
   if (health === "down") return "danger";
+  if (health === "disabled") return "muted";
   return "muted";
 }
 

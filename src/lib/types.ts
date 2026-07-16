@@ -472,7 +472,7 @@ export type CollectorHealthNodeSummary = {
   node: CollectorNodeInfo;
   scope?: string | null;
   status: CollectorHeartbeatStatus;
-  health: "online" | "quiet" | "stale" | "down" | "unknown";
+  health: "online" | "quiet" | "stale" | "down" | "disabled" | "unknown";
   tone: CollectorHealthTone;
   lastSeenAt?: string | null;
   lastRunAt?: string | null;
