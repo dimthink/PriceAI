@@ -149,6 +149,7 @@ const OFFER_BASE_COLUMNS = [
   "standard_model",
   "group_name",
   "recharge_ratio",
+  "billing_mode",
   "model_multiplier",
   "input_price",
   "output_price",
@@ -157,6 +158,10 @@ const OFFER_BASE_COLUMNS = [
   "cache_hit_rate",
   "cache_hit_sample_tokens",
   "image_output_price",
+  "fixed_price",
+  "fixed_price_currency",
+  "fixed_price_unit",
+  "fixed_price_tiers",
   "currency",
   "account_pool",
   "channel_type",
@@ -173,6 +178,13 @@ const OFFER_BASE_COLUMNS = [
   "availability_source_label",
   "availability_source_url",
 ];
+const OFFER_FIXED_PRICE_COLUMNS = [
+  "billing_mode",
+  "fixed_price",
+  "fixed_price_currency",
+  "fixed_price_unit",
+  "fixed_price_tiers",
+] as const;
 const OFFER_COLUMNS = OFFER_BASE_COLUMNS.join(",");
 const OFFER_COLUMNS_WITH_RAW_PAYLOAD = `${OFFER_COLUMNS},raw_payload`;
 const OFFER_COLUMNS_WITHOUT_CACHE_HIT = withoutColumns(OFFER_BASE_COLUMNS, "cache_hit_rate", "cache_hit_sample_tokens");
@@ -644,7 +656,7 @@ async function readPublicOfferRows(
   stationId?: string,
   options: { includeRawPayload?: boolean } = {}
 ): Promise<DbRow[]> {
-  const attempts = [
+  const baseAttempts = [
     ...(options.includeRawPayload ? [OFFER_COLUMNS_WITH_RAW_PAYLOAD] : []),
     OFFER_COLUMNS,
     OFFER_COLUMNS_WITHOUT_LATENCY,
@@ -655,6 +667,7 @@ async function readPublicOfferRows(
     OFFER_COLUMNS_WITHOUT_CACHE_HIT_OR_AVAILABILITY_SOURCE,
     OFFER_COLUMNS_WITHOUT_LATENCY_CACHE_HIT_OR_AVAILABILITY_SOURCE,
   ];
+  const attempts = withOfferFixedPriceColumnFallbacks(baseAttempts);
   let lastError: unknown = null;
   for (const columns of attempts) {
     try {
@@ -689,7 +702,9 @@ async function readPublicOfferRowsWithoutNewOptionalColumns(
   ];
   const attempts = Array.from(new Set(baseAttempts.flatMap((columns) => [
     columns,
+    withoutColumnsFromSelect(columns, ...OFFER_FIXED_PRICE_COLUMNS),
     withoutColumnsFromSelect(columns, "availability_latest_latency_ms", "availability_avg_latency_7d_ms"),
+    withoutColumnsFromSelect(columns, "availability_latest_latency_ms", "availability_avg_latency_7d_ms", ...OFFER_FIXED_PRICE_COLUMNS),
   ])));
   let lastError: unknown = previousError;
   for (const columns of attempts) {
@@ -701,6 +716,13 @@ async function readPublicOfferRowsWithoutNewOptionalColumns(
     }
   }
   throw lastError;
+}
+
+function withOfferFixedPriceColumnFallbacks(columns: string[]): string[] {
+  return Array.from(new Set(columns.flatMap((columnList) => [
+    columnList,
+    withoutColumnsFromSelect(columnList, ...OFFER_FIXED_PRICE_COLUMNS),
+  ])));
 }
 
 async function queryPublishedStationRows(
@@ -1308,6 +1330,7 @@ function mapOfferRow(
     standardModel,
     groupName,
     rechargeRatio: nullableString(row.recharge_ratio),
+    billingMode: billingMode(row.billing_mode),
     modelMultiplier: numberValue(row.model_multiplier),
     stationGroupMultiplier: stationGroupMultiplierFromRawPayload(row.raw_payload),
     inputPrice: numberValue(row.input_price),
@@ -1315,6 +1338,10 @@ function mapOfferRow(
     cacheReadPrice: numberValue(row.cache_read_price),
     cacheWritePrice: numberValue(row.cache_write_price),
     imageOutputPrice: numberValue(row.image_output_price),
+    fixedPrice: numberValue(row.fixed_price),
+    fixedPriceCurrency: fixedPriceCurrency(row.fixed_price_currency),
+    fixedPriceUnit: nullableString(row.fixed_price_unit),
+    fixedPriceTiers: fixedPriceTiers(row.fixed_price_tiers),
     currency: "CNY",
     accountPool: accountPool(row.account_pool),
     channelType: channelType(row.channel_type),
@@ -1348,6 +1375,32 @@ function stationGroupMultiplierFromRawPayload(value: unknown): number | null {
   const group = (value as { group?: unknown }).group;
   if (!group || typeof group !== "object") return null;
   return numberValue((group as { rate_multiplier?: unknown }).rate_multiplier);
+}
+
+function billingMode(value: unknown): TransitModelPrice["billingMode"] {
+  const text = nullableString(value);
+  return text === "token" || text === "per_request" || text === "fixed" ? text : null;
+}
+
+function fixedPriceCurrency(value: unknown): TransitModelPrice["fixedPriceCurrency"] {
+  return nullableString(value) === "CNY" ? "CNY" : null;
+}
+
+function fixedPriceTiers(value: unknown): NonNullable<TransitModelPrice["fixedPriceTiers"]> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const label = nullableString((item as { label?: unknown }).label);
+      const price = numberValue((item as { price?: unknown }).price);
+      if (!label || price === null || price <= 0) return null;
+      return {
+        label,
+        price,
+        unit: nullableString((item as { unit?: unknown }).unit),
+      };
+    })
+    .filter((item): item is NonNullable<TransitModelPrice["fixedPriceTiers"]>[number] => item !== null);
 }
 
 function dbRows(value: unknown): DbRow[] {

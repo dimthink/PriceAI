@@ -160,14 +160,14 @@ function normalizeSponsorSettings(
 
   return {
     ...defaults,
-    placements,
+    placements: syncTransitSponsorPlacements(placements),
   };
 }
 
 function serializeSponsorSettings(settings: SponsorSettingsSummary) {
   return {
     enabled: settings.enabled,
-    placements: settings.placements,
+    placements: syncTransitSponsorPlacements(settings.placements),
   };
 }
 
@@ -183,6 +183,45 @@ function mergePlacementInputs(
     };
     return acc;
   }, {} as Record<SponsorPlacementKind, SponsorPlacementConfig>);
+}
+
+function syncTransitSponsorPlacements(
+  placements: Record<SponsorPlacementKind, SponsorPlacementConfig>,
+): Record<SponsorPlacementKind, SponsorPlacementConfig> {
+  const canonical = selectTransitSponsorPlacement(placements.apiTransit, placements.apiTransitModels);
+  const mirrored = clonePlacement(canonical);
+
+  return {
+    ...placements,
+    apiTransit: mirrored,
+    apiTransitModels: clonePlacement(mirrored),
+  };
+}
+
+function selectTransitSponsorPlacement(
+  apiTransit: SponsorPlacementConfig,
+  apiTransitModels: SponsorPlacementConfig,
+): SponsorPlacementConfig {
+  if (hasSponsorPlacementVisibility(apiTransit)) return apiTransit;
+  if (hasSponsorPlacementVisibility(apiTransitModels)) return apiTransitModels;
+  if (hasSponsorPlacementContent(apiTransit)) return apiTransit;
+  if (hasSponsorPlacementContent(apiTransitModels)) return apiTransitModels;
+  return apiTransit;
+}
+
+function hasSponsorPlacementContent(placement: SponsorPlacementConfig): boolean {
+  return placement.creatives.length > 0;
+}
+
+function hasSponsorPlacementVisibility(placement: SponsorPlacementConfig): boolean {
+  return placement.enabled && placement.creatives.length > 0;
+}
+
+function clonePlacement(placement: SponsorPlacementConfig): SponsorPlacementConfig {
+  return {
+    enabled: placement.enabled,
+    creatives: placement.creatives.map((creative) => ({ ...creative })),
+  };
 }
 
 function normalizeCreatives(value: unknown, fallback: SponsorCreative[]): SponsorCreative[] {

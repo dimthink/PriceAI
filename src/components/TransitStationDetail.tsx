@@ -51,6 +51,7 @@ import {
   formatCacheHitRate,
   formatPercent,
   formatTransitLatencyMs,
+  formatTransitFixedPriceRange,
   formatTransitModelMultiplier,
   getAvailabilitySourceMeta,
   formatRate,
@@ -72,6 +73,7 @@ import {
   getStationPublishedAvailabilitySummary,
   getTransitAvailabilityRollupPrices,
   getTransitPriceAvailabilitySource,
+  getTransitFixedPriceValue,
   getTransitVerificationEvents,
   getTransitReviewTags,
   getTransitStationSystemLabel,
@@ -79,6 +81,8 @@ import {
   getUsageAdviceBadgeClass,
   hasTransitAffRelation,
   isTransitStationOutboundAff,
+  hasTransitFixedPriceSummary,
+  isTransitFixedPrice,
 } from "@/lib/api-transit";
 import {
   TRANSIT_CACHE_HIT_RATE_EXPLANATION,
@@ -103,6 +107,10 @@ type TransitPriceGroup = {
   modelMultiplierMin: number | null;
   modelMultiplierMax: number | null;
   modelMultiplierLabel: string;
+  fixedPriceMin: number | null;
+  fixedPriceMax: number | null;
+  fixedPriceLabel: string;
+  isFixedPrice: boolean;
   stationGroupMultiplierLabel: string | null;
   cacheUsage: TransitModelPrice["cacheUsage"];
   sevenDayRate: number | null;
@@ -266,8 +274,8 @@ export default function TransitStationDetail({ station, children }: Props) {
               {familySummaries.slice(0, 2).map((summary) => (
                 <MetricCard
                   key={summary.family}
-                  label={`${TRANSIT_MODEL_FAMILY_LABELS[summary.family]} 综合倍率`}
-                  value={formatRate(summary.combinedRateMin)}
+                  label={`${TRANSIT_MODEL_FAMILY_LABELS[summary.family]} ${hasTransitFixedPriceSummary(summary) ? "固定价" : "综合倍率"}`}
+                  value={hasTransitFixedPriceSummary(summary) ? formatTransitFixedPriceRange(summary) : formatRate(summary.combinedRateMin)}
                   helper={`${getFamilyPriceGroups(station, summary.family).length} 个分组`}
                 />
               ))}
@@ -921,6 +929,7 @@ function PriceTable({
   const summary = getFamilyRateSummary(station, family);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const trend = buildFamilyTrend(groups);
+  const fixedPriceSummary = hasTransitFixedPriceSummary(summary);
   const panelId = useId();
   const titleId = useId();
 
@@ -943,8 +952,8 @@ function PriceTable({
           aria-label={`${expanded ? "收起" : "展开"} ${TRANSIT_MODEL_FAMILY_LABELS[family]} 价格表`}
           className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[#dfe4e5] bg-white px-3 py-2 text-xs font-extrabold text-[#2d3435] shadow-sm transition-colors hover:bg-[#edf4f1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f7a4b]"
         >
-          <span className="hidden sm:inline">最低综合倍率</span>
-          <span>{formatRate(summary.combinedRateMin)}</span>
+          <span className="hidden sm:inline">{fixedPriceSummary ? "最低固定价" : "最低综合倍率"}</span>
+          <span>{fixedPriceSummary ? formatTransitFixedPriceRange(summary) : formatRate(summary.combinedRateMin)}</span>
           <span className="h-3.5 w-px bg-[#dfe4e5]" aria-hidden="true" />
           <span>{expanded ? "收起" : "展开"}</span>
           <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
@@ -953,7 +962,7 @@ function PriceTable({
       <div id={panelId}>
         {expanded && groups.length ? (
           <>
-            <MultiplierTrendPanel family={family} groups={groups} trend={trend} />
+            {fixedPriceSummary ? null : <MultiplierTrendPanel family={family} groups={groups} trend={trend} />}
             {isDesktop === false ? (
               <div className="divide-y divide-[#dfe4e5]">
                 {groups.map((group) => (
@@ -977,9 +986,9 @@ function PriceTable({
                   <thead>
                     <tr className="bg-[#f2f4f4]/50">
                       <DataTableHead compact>分组 / 模型</DataTableHead>
-                      <DataTableHead compact explanation={TRANSIT_COMBINED_RATE_EXPLANATION}>综合倍率</DataTableHead>
+                      <DataTableHead compact explanation={TRANSIT_COMBINED_RATE_EXPLANATION}>{fixedPriceSummary ? "人民币固定价" : "综合倍率"}</DataTableHead>
                       <DataTableHead compact explanation={TRANSIT_CACHE_HIT_RATE_EXPLANATION}>缓存命中率</DataTableHead>
-                      <DataTableHead compact explanation={TRANSIT_MONITORED_PRICE_EXPLANATION}>监测模型价格</DataTableHead>
+                      <DataTableHead compact explanation={TRANSIT_MONITORED_PRICE_EXPLANATION}>{fixedPriceSummary ? "公开价格" : "监测模型价格"}</DataTableHead>
                       <DataTableHead compact explanation="展示该分组的可用性探测、来源披露和最近来源更新时间。PriceAI 实测与站方公开状态会分开标注。">监测 / 来源</DataTableHead>
                     </tr>
                   </thead>
@@ -1395,12 +1404,12 @@ function PriceGroupMobileCard({
           </div>
         </div>
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-extrabold ${getRateBadgeClass(group.combinedRate)}`}>
-          {formatRate(group.combinedRate)}
+          {group.isFixedPrice ? group.fixedPriceLabel : formatRate(group.combinedRate)}
         </span>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <MobilePriceFact label="充值倍率" value={formatRate(group.rechargeCoefficient)} />
+        <MobilePriceFact label="充值" value={group.isFixedPrice ? "已折算人民币" : formatRate(group.rechargeCoefficient)} />
         {group.stationGroupMultiplierLabel ? (
           <MobilePriceFact
             label="站方倍率"
@@ -1408,10 +1417,10 @@ function PriceGroupMobileCard({
             title="站方公开快照中的分组倍率，未乘官方模型价差。"
           />
         ) : null}
-        <MobilePriceFact label="模型倍率" value={group.modelMultiplierLabel} />
+        <MobilePriceFact label={group.isFixedPrice ? "固定价" : "模型倍率"} value={group.isFixedPrice ? group.fixedPriceLabel : group.modelMultiplierLabel} />
         <MobilePriceFact
           label="缓存命中率"
-          value={formatCacheHitRate(group.cacheUsage)}
+          value={group.isFixedPrice ? "不适用" : formatCacheHitRate(group.cacheUsage)}
           valueClassName={getCacheHitRateTextClass(group.cacheUsage)}
           title={TRANSIT_CACHE_HIT_RATE_EXPLANATION}
         />
@@ -1428,9 +1437,11 @@ function PriceGroupMobileCard({
 
       <div className="mt-3">
         <TransitPriceBreakdown station={station} price={primaryPrice} mode="detail" />
-        <p className="mt-1.5 text-[11px] leading-5 text-[#5a6061]">
-          按 {primaryPrice.standardModel} 官方价换算
-        </p>
+        {group.isFixedPrice ? null : (
+          <p className="mt-1.5 text-[11px] leading-5 text-[#5a6061]">
+            按 {primaryPrice.standardModel} 官方价换算
+          </p>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1488,13 +1499,19 @@ function MobilePriceFact({
   );
 }
 
-function CacheHitCell({ cacheUsage }: { cacheUsage: TransitModelPrice["cacheUsage"] }) {
+function CacheHitCell({
+  cacheUsage,
+  isFixedPrice = false,
+}: {
+  cacheUsage: TransitModelPrice["cacheUsage"];
+  isFixedPrice?: boolean;
+}) {
   return (
     <div
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold tabular-nums ${getCacheHitRateBadgeClass(cacheUsage)}`}
+      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold tabular-nums ${isFixedPrice ? "bg-[#f2f4f4] text-[#7f8889]" : getCacheHitRateBadgeClass(cacheUsage)}`}
       title={TRANSIT_CACHE_HIT_RATE_EXPLANATION}
     >
-      {formatCacheHitRate(cacheUsage)}
+      {isFixedPrice ? "不适用" : formatCacheHitRate(cacheUsage)}
     </div>
   );
 }
@@ -1537,27 +1554,33 @@ function PriceGroupRow({
       </td>
       <td className="px-4 py-4">
         <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold ${getRateBadgeClass(group.combinedRate)}`}>
-          {formatRate(group.combinedRate)}
+          {group.isFixedPrice ? group.fixedPriceLabel : formatRate(group.combinedRate)}
         </span>
         <div className="mt-2 space-y-1 text-[11px] font-semibold text-[#5a6061]">
-          <div title={TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}>充值倍率 {formatRate(group.rechargeCoefficient)}</div>
+          <div title={TRANSIT_RECHARGE_COEFFICIENT_EXPLANATION}>
+            {group.isFixedPrice ? "已按充值比例折算人民币" : `充值倍率 ${formatRate(group.rechargeCoefficient)}`}
+          </div>
           {group.stationGroupMultiplierLabel ? (
             <div title="站方公开快照中的分组倍率，未乘官方模型价差。">
               站方倍率 {group.stationGroupMultiplierLabel}
             </div>
           ) : null}
-          <div title={TRANSIT_MODEL_MULTIPLIER_EXPLANATION}>模型倍率 {group.modelMultiplierLabel}</div>
+          <div title={TRANSIT_MODEL_MULTIPLIER_EXPLANATION}>
+            {group.isFixedPrice ? `固定价 ${group.fixedPriceLabel}` : `模型倍率 ${group.modelMultiplierLabel}`}
+          </div>
           <div>{group.prices.length} 个模型</div>
         </div>
       </td>
       <td className="px-4 py-4">
-        <CacheHitCell cacheUsage={group.cacheUsage} />
+        <CacheHitCell cacheUsage={group.cacheUsage} isFixedPrice={group.isFixedPrice} />
       </td>
       <td className="px-4 py-3">
         <TransitPriceBreakdown station={station} price={primaryPrice} mode="detail" />
-        <p className="mt-1.5 text-[11px] leading-5 text-[#5a6061]">
-          按 {primaryPrice.standardModel} 官方价换算
-        </p>
+        {group.isFixedPrice ? null : (
+          <p className="mt-1.5 text-[11px] leading-5 text-[#5a6061]">
+            按 {primaryPrice.standardModel} 官方价换算
+          </p>
+        )}
       </td>
       <td className="px-4 py-4">
         <div className="flex flex-wrap gap-1.5">
@@ -1631,6 +1654,9 @@ function buildPriceGroup(
   const modelMultipliers = prices
     .map((price) => price.modelMultiplier)
     .filter((value): value is number => value !== null && Number.isFinite(value));
+  const fixedPrices = prices
+    .map((price) => isTransitFixedPrice(price) ? getTransitFixedPriceValue(price) : null)
+    .filter((value): value is number => value !== null && Number.isFinite(value));
   const stationGroupMultipliers = prices
     .map((price) => price.stationGroupMultiplier)
     .filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value));
@@ -1672,6 +1698,13 @@ function buildPriceGroup(
     modelMultiplierMin: modelMultipliers.length ? Math.min(...modelMultipliers) : null,
     modelMultiplierMax: modelMultipliers.length ? Math.max(...modelMultipliers) : null,
     modelMultiplierLabel: formatModelGroupMultiplierLabel(primaryPrice, modelMultipliers),
+    fixedPriceMin: fixedPrices.length ? Math.min(...fixedPrices) : null,
+    fixedPriceMax: fixedPrices.length ? Math.max(...fixedPrices) : null,
+    fixedPriceLabel: formatTransitFixedPriceRange({
+      fixedPriceMin: fixedPrices.length ? Math.min(...fixedPrices) : null,
+      fixedPriceMax: fixedPrices.length ? Math.max(...fixedPrices) : null,
+    }),
+    isFixedPrice: fixedPrices.length > 0 && modelMultipliers.length === 0,
     stationGroupMultiplierLabel: formatOptionalModelRateRange(stationGroupMultipliers),
     cacheUsage: getRepresentativeCacheUsage(prices),
     sevenDayRate: weightedAvailability,

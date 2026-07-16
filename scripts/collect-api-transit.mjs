@@ -138,6 +138,22 @@ const modelFamilyByStandard = {
   "Seedance 2.0": "video",
   "Kling 2.5 Turbo": "video",
 };
+const fixedPriceMediaStandards = new Set([
+  "GPT Image 2",
+  "Grok Image",
+  "Nano Banana Pro",
+  "Nano Banana 2",
+  "Nano Banana",
+  "Nano Banana Lite",
+  "Sora 2",
+  "Sora 2 Pro",
+  "Grok Video",
+  "Veo 3.1",
+  "Veo 3.1 Lite",
+  "Gemini Omni Flash",
+  "Seedance 2.0",
+  "Kling 2.5 Turbo",
+]);
 
 if (isCli()) {
   const args = normalizeOptions(parseArgs(process.argv.slice(2)));
@@ -850,8 +866,16 @@ function buildAiTransitSnapshotOfferRow({
   const family = familyForStandardModel(standard);
   const official = officialTransitPrices[standard];
   const unitPricesUsd = aiTransitUnitPricesUsd(model?.price);
-  const splitMultipliers = getAiTransitSnapshotSplitMultipliers(unitPricesUsd, official, group?.rate_multiplier);
-  if (!splitMultipliers || splitMultipliers.model === null || splitMultipliers.model <= 0) return null;
+  const fixedPrice = aiTransitFixedPriceInfo(model, rechargeRatio, standard);
+  const splitMultipliers = fixedPrice
+    ? fixedPriceSplitMultipliers(fixedPrice, "ai_transit_per_request_fixed_price")
+    : getAiTransitSnapshotSplitMultipliers(unitPricesUsd, official, group?.rate_multiplier);
+  if (
+    !splitMultipliers ||
+    (!splitMultipliers.isFixedPrice && (splitMultipliers.model === null || splitMultipliers.model <= 0))
+  ) {
+    return null;
+  }
 
   groupName = stringOrNull(groupName) || normalizeSourceGroupName(source, stringOrNull(group?.name) || "default");
   rawGroupName = stringOrNull(rawGroupName) || stringOrNull(group?.name) || groupName;
@@ -866,7 +890,9 @@ function buildAiTransitSnapshotOfferRow({
     model?.source?.account_pool_type,
   ].filter(Boolean).join(" ");
   const autoPublish = shouldAutoPublishSource(source);
-  const cacheUsage = cacheHitUsageFromGroup(group);
+  const cacheUsage = splitMultipliers.isFixedPrice
+    ? { hitRate: null, sampleTokens: 0 }
+    : cacheHitUsageFromGroup(group);
   const fallbackAvailability = {
     rate: null,
     samples: 0,
@@ -885,7 +911,8 @@ function buildAiTransitSnapshotOfferRow({
     raw_model_name: String(model?.raw_model || model?.standard_model || standard),
     group_name: groupName,
     recharge_ratio: rechargeRatio,
-    model_multiplier: round(splitMultipliers.model, 6),
+    billing_mode: splitMultipliers.billingMode,
+    model_multiplier: splitMultipliers.model === null ? null : round(splitMultipliers.model, 6),
     input_price: splitMultipliers.input === null ? null : round(splitMultipliers.input, 6),
     output_price: splitMultipliers.output === null ? null : round(splitMultipliers.output, 6),
     cache_read_price: splitMultipliers.cacheRead === null ? null : round(splitMultipliers.cacheRead, 6),
@@ -893,6 +920,10 @@ function buildAiTransitSnapshotOfferRow({
     cache_hit_rate: cacheUsage.hitRate,
     cache_hit_sample_tokens: cacheUsage.sampleTokens,
     image_output_price: splitMultipliers.imageOutput === null ? null : round(splitMultipliers.imageOutput, 6),
+    fixed_price: splitMultipliers.fixedPrice,
+    fixed_price_currency: splitMultipliers.fixedPrice === null ? "CNY" : splitMultipliers.fixedPriceCurrency,
+    fixed_price_unit: splitMultipliers.fixedPrice === null ? null : splitMultipliers.fixedPriceUnit,
+    fixed_price_tiers: splitMultipliers.fixedPriceTiers,
     currency: "CNY",
     account_pool: aiTransitAccountPool({ payload, model, groupName, rawGroupName, sourceText }),
     channel_type: aiTransitChannelType({ payload, model, sourceText }),
@@ -923,6 +954,8 @@ function buildAiTransitSnapshotOfferRow({
       disclosure: payload?.disclosure || null,
       unit_prices_usd: unitPricesUsd,
       multiplier_basis: splitMultipliers.basis,
+      fixed_price: splitMultipliers.fixedPrice,
+      fixed_price_tiers: splitMultipliers.fixedPriceTiers,
     },
     created_at: collectedAt,
   };
@@ -943,6 +976,12 @@ function getAiTransitSnapshotSplitMultipliers(unitPricesUsd, official, groupMult
       cacheRead,
       cacheWrite,
       imageOutput,
+      billingMode: "token",
+      fixedPrice: null,
+      fixedPriceCurrency: "CNY",
+      fixedPriceUnit: null,
+      fixedPriceTiers: [],
+      isFixedPrice: false,
       basis: "ai_transit_group_rate_multiplier",
     };
   }
@@ -954,6 +993,12 @@ function getAiTransitSnapshotSplitMultipliers(unitPricesUsd, official, groupMult
     cacheRead: null,
     cacheWrite: null,
     imageOutput: null,
+    billingMode: "token",
+    fixedPrice: null,
+    fixedPriceCurrency: "CNY",
+    fixedPriceUnit: null,
+    fixedPriceTiers: [],
+    isFixedPrice: false,
     basis: "ai_transit_group_rate_multiplier",
   };
 }
@@ -972,6 +1017,100 @@ function aiTransitUnitPricesUsd(price) {
     cacheRead: multiplyNullable(numberValue(price?.cache_read_usd_per_token), tokenUnitFactor),
     cacheWrite: multiplyNullable(numberValue(price?.cache_write_usd_per_token), tokenUnitFactor),
     imageOutput: numberValue(price?.image_output_usd_per_token) ?? maxNumber(Object.values(imageSizePrices)),
+  };
+}
+
+function aiTransitFixedPriceInfo(model, rechargeRatio, standard) {
+  if (!fixedPriceMediaStandards.has(standard)) return null;
+  const price = model?.price && typeof model.price === "object" ? model.price : {};
+  const billingMode = normalizeBillingMode(model?.billing_mode);
+  const perRequestCreditPrice = numberValue(
+    price.per_request_usd ??
+      price.per_request_price ??
+      price.per_request ??
+      price.fixed_usd ??
+      model?.per_request_usd
+  );
+  const fixedPriceTiers = aiTransitFixedPriceTiers(price, rechargeRatio);
+  const primaryPrice = perRequestCreditPrice !== null && perRequestCreditPrice > 0
+    ? fixedPriceCnyFromCreditPrice(perRequestCreditPrice, rechargeRatio)
+    : minNumber(fixedPriceTiers.map((tier) => tier.price));
+
+  if (primaryPrice === null || primaryPrice <= 0) return null;
+
+  return {
+    billingMode: billingMode === "fixed" ? "fixed" : "per_request",
+    fixedPrice: roundFixedPrice(primaryPrice),
+    fixedPriceCurrency: "CNY",
+    fixedPriceUnit: "request",
+    fixedPriceTiers,
+  };
+}
+
+function aiTransitFixedPriceTiers(price, rechargeRatio) {
+  return [
+    ...imageSizeFixedPriceTiers(price?.image_size_prices, rechargeRatio),
+    ...intervalFixedPriceTiers(price?.intervals, rechargeRatio),
+  ];
+}
+
+function imageSizeFixedPriceTiers(imageSizePrices, rechargeRatio) {
+  if (!imageSizePrices || typeof imageSizePrices !== "object") return [];
+  return Object.entries(imageSizePrices)
+    .map(([label, value]) => fixedPriceTier(label, value, rechargeRatio))
+    .filter(Boolean);
+}
+
+function intervalFixedPriceTiers(intervals, rechargeRatio) {
+  if (!Array.isArray(intervals)) return [];
+  return intervals
+    .map((interval, index) => {
+      if (!interval || typeof interval !== "object") return null;
+      const label = stringOrNull(
+        interval.label ??
+          interval.name ??
+          interval.size ??
+          interval.resolution ??
+          interval.quality ??
+          interval.duration
+      ) || `档位 ${index + 1}`;
+      return fixedPriceTier(
+        label,
+        interval.per_request_usd ?? interval.per_request_price ?? interval.price_usd ?? interval.price,
+        rechargeRatio
+      );
+    })
+    .filter(Boolean);
+}
+
+function fixedPriceTier(label, creditPriceValue, rechargeRatio) {
+  const creditPrice = numberValue(creditPriceValue);
+  if (creditPrice === null || creditPrice <= 0) return null;
+  const price = fixedPriceCnyFromCreditPrice(creditPrice, rechargeRatio);
+  if (price === null || price <= 0) return null;
+  return {
+    label: String(label || "默认").trim(),
+    price: roundFixedPrice(price),
+    unit: "request",
+  };
+}
+
+function fixedPriceSplitMultipliers(fixedPrice, basis) {
+  return {
+    model: null,
+    input: null,
+    output: null,
+    cacheRead: null,
+    cacheWrite: null,
+    imageOutput: null,
+    billingMode: fixedPrice.billingMode,
+    fixedPrice: fixedPrice.fixedPrice,
+    fixedPriceCurrency: fixedPrice.fixedPriceCurrency,
+    fixedPriceUnit: fixedPrice.fixedPriceUnit,
+    fixedPriceTiers: fixedPrice.fixedPriceTiers,
+    isFixedPrice: true,
+    unitPricesUsd: null,
+    basis,
   };
 }
 
@@ -1000,6 +1139,11 @@ function multiplyNullable(value, multiplier) {
 function maxNumber(values) {
   const numbers = (values || []).map(numberValue).filter((value) => value !== null);
   return numbers.length ? Math.max(...numbers) : null;
+}
+
+function minNumber(values) {
+  const numbers = (values || []).map(numberValue).filter((value) => value !== null);
+  return numbers.length ? Math.min(...numbers) : null;
 }
 
 function compactAiTransitGroupPayload(group) {
@@ -2604,8 +2748,14 @@ function buildStationRow(source, collectedAt, collection = {}) {
 function buildOfferRow(source, item, group, standard, collectedAt) {
   const family = familyForStandardModel(standard);
   const groupMultiplier = group.groupRatio ?? 1;
-  const splitMultipliers = getSplitMultipliers(item, group, standard, groupMultiplier);
-  if (!splitMultipliers || splitMultipliers.model === null || splitMultipliers.model <= 0) return null;
+  const rechargeRatio = source.rechargeRatio || DEFAULT_RECHARGE_RATIO;
+  const splitMultipliers = getSplitMultipliers(item, group, standard, groupMultiplier, rechargeRatio);
+  if (
+    !splitMultipliers ||
+    (!splitMultipliers.isFixedPrice && (splitMultipliers.model === null || splitMultipliers.model <= 0))
+  ) {
+    return null;
+  }
 
   return {
     id: stableId("api-transit-offer", source.id, standard, group.key),
@@ -2614,13 +2764,18 @@ function buildOfferRow(source, item, group, standard, collectedAt) {
     standard_model: standard,
     raw_model_name: String(item.model_name || item.name || ""),
     group_name: group.name || group.key || "default",
-    recharge_ratio: source.rechargeRatio || DEFAULT_RECHARGE_RATIO,
-    model_multiplier: round(splitMultipliers.model, 6),
+    recharge_ratio: rechargeRatio,
+    billing_mode: splitMultipliers.billingMode || "token",
+    model_multiplier: splitMultipliers.model === null ? null : round(splitMultipliers.model, 6),
     input_price: splitMultipliers.input === null ? null : round(splitMultipliers.input, 6),
     output_price: splitMultipliers.output === null ? null : round(splitMultipliers.output, 6),
     cache_read_price: splitMultipliers.cacheRead === null ? null : round(splitMultipliers.cacheRead, 6),
     cache_write_price: splitMultipliers.cacheWrite === null ? null : round(splitMultipliers.cacheWrite, 6),
     image_output_price: splitMultipliers.imageOutput === null ? null : round(splitMultipliers.imageOutput, 6),
+    fixed_price: splitMultipliers.fixedPrice,
+    fixed_price_currency: splitMultipliers.fixedPrice === null ? "CNY" : splitMultipliers.fixedPriceCurrency,
+    fixed_price_unit: splitMultipliers.fixedPrice === null ? null : splitMultipliers.fixedPriceUnit,
+    fixed_price_tiers: splitMultipliers.fixedPriceTiers,
     currency: "CNY",
     account_pool: inferAccountPool(`${group.name} ${item.model_name || ""}`),
     channel_type: inferChannelType(`${group.name} ${group.description || ""}`),
@@ -2641,14 +2796,16 @@ function buildOfferRow(source, item, group, standard, collectedAt) {
       unit_prices_usd: splitMultipliers.unitPricesUsd || null,
       multiplier_basis: splitMultipliers.basis || "unknown",
       fixed_price: splitMultipliers.fixedPrice ?? null,
+      fixed_price_source: splitMultipliers.fixedPriceSource ?? null,
+      fixed_price_tiers: splitMultipliers.fixedPriceTiers,
     },
     created_at: collectedAt,
   };
 }
 
-function getSplitMultipliers(item, group, standard, groupMultiplier) {
+function getSplitMultipliers(item, group, standard, groupMultiplier, rechargeRatio) {
   const official = officialTransitPrices[standard];
-  const fixed = getFixedPriceMultipliers(item, groupMultiplier, official);
+  const fixed = getFixedPriceMultipliers(item, groupMultiplier, standard, rechargeRatio);
   if (fixed) return fixed;
 
   const billing = parseBillingExpression(item?.billing_expr);
@@ -2665,6 +2822,12 @@ function getSplitMultipliers(item, group, standard, groupMultiplier) {
       cacheRead,
       cacheWrite,
       imageOutput,
+      billingMode: "token",
+      fixedPrice: null,
+      fixedPriceCurrency: "CNY",
+      fixedPriceUnit: null,
+      fixedPriceTiers: [],
+      isFixedPrice: false,
     };
   }
 
@@ -2686,6 +2849,12 @@ function getSplitMultipliers(item, group, standard, groupMultiplier) {
       cacheWrite,
       imageOutput,
       unitPricesUsd,
+      billingMode: "token",
+      fixedPrice: null,
+      fixedPriceCurrency: "CNY",
+      fixedPriceUnit: null,
+      fixedPriceTiers: [],
+      isFixedPrice: false,
       basis: "new_api_usd_per_million",
     };
   }
@@ -2698,6 +2867,12 @@ function getSplitMultipliers(item, group, standard, groupMultiplier) {
     cacheRead: group.cacheRatio === null ? null : input * group.cacheRatio,
     cacheWrite: group.createCacheRatio === null ? null : input * group.createCacheRatio,
     imageOutput: null,
+    billingMode: "token",
+    fixedPrice: null,
+    fixedPriceCurrency: "CNY",
+    fixedPriceUnit: null,
+    fixedPriceTiers: [],
+    isFixedPrice: false,
     unitPricesUsd: null,
     basis: "legacy_multiplier",
   };
@@ -2724,40 +2899,33 @@ function getNewApiUnitPricesUsd(group, groupMultiplier) {
   };
 }
 
-function getFixedPriceMultipliers(item, groupMultiplier, official) {
+function getFixedPriceMultipliers(item, groupMultiplier, standard, rechargeRatio) {
   const fixedPrice = numberValue(item?.model_price ?? item?.fixed_price);
   if (fixedPrice === null || fixedPrice <= 0) return null;
+  if (!fixedPriceMediaStandards.has(standard)) return null;
   const quotaType = numberValue(item?.quota_type ?? item?.quotaType);
   if (quotaType !== null && quotaType !== 1) return null;
 
-  const effectivePrice = fixedPrice * groupMultiplier;
-  if (official) {
-    const imageOutput = unitRatioValue(effectivePrice, official.imageOutput);
-    if (imageOutput !== null) {
-      return {
-        model: imageOutput,
-        input: null,
-        output: null,
-        cacheRead: null,
-        cacheWrite: null,
-        imageOutput,
-        unitPricesUsd: { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: effectivePrice },
-        basis: "new_api_fixed_price_against_official_image_output",
-        fixedPrice,
-      };
-    }
-  }
+  const effectiveCreditPrice = fixedPrice * groupMultiplier;
+  const fixedPriceCny = fixedPriceCnyFromCreditPrice(effectiveCreditPrice, rechargeRatio);
+  if (fixedPriceCny === null || fixedPriceCny <= 0) return null;
 
   return {
-    model: effectivePrice,
+    model: null,
     input: null,
     output: null,
     cacheRead: null,
     cacheWrite: null,
-    imageOutput: effectivePrice,
+    imageOutput: null,
+    billingMode: "fixed",
+    fixedPrice: roundFixedPrice(fixedPriceCny),
+    fixedPriceCurrency: "CNY",
+    fixedPriceUnit: "request",
+    fixedPriceTiers: [],
+    isFixedPrice: true,
     unitPricesUsd: null,
     basis: "new_api_fixed_price",
-    fixedPrice,
+    fixedPriceSource: fixedPrice,
   };
 }
 
@@ -3169,7 +3337,7 @@ async function deactivateOffersById(supabase, offerIds) {
 }
 
 async function upsertOfferRows(supabase, offers) {
-  const attempts = [
+  const baseAttempts = [
     { rows: offers, compatibility: null },
     {
       rows: removeLatencyFields(offers),
@@ -3208,6 +3376,7 @@ async function upsertOfferRows(supabase, offers) {
       compatibility: "api_transit_offers optional columns missing; wrote offers without first-check window, image output split, source labels, or cache hit usage.",
     },
   ];
+  const attempts = withFixedPriceOfferWriteFallbacks(baseAttempts);
 
   let lastMissingColumnError = null;
   for (const attempt of attempts) {
@@ -3220,6 +3389,7 @@ async function upsertOfferRows(supabase, offers) {
         !isMissingColumnError(error, "image_output_price") &&
         !isMissingColumnError(error, "cache_hit_rate") &&
         !isMissingColumnError(error, "cache_hit_sample_tokens") &&
+        !isFixedPriceOfferColumnError(error) &&
         !isMissingColumnError(error, "availability_latest_latency_ms") &&
         !isMissingColumnError(error, "availability_avg_latency_7d_ms") &&
         !isAvailabilitySourceColumnError(error)
@@ -3233,10 +3403,31 @@ async function upsertOfferRows(supabase, offers) {
   throw lastMissingColumnError;
 }
 
+function withFixedPriceOfferWriteFallbacks(attempts) {
+  const output = [];
+  const seen = new Set();
+  for (const attempt of attempts) {
+    for (const candidate of [
+      attempt,
+      {
+        rows: removeFixedPriceOfferFields(attempt.rows),
+        compatibility: attempt.compatibility || "api_transit_offers fixed price columns missing; wrote offers without fixed-price display fields.",
+      },
+    ]) {
+      const key = Object.keys(candidate.rows[0] || {}).sort().join(",");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      output.push(candidate);
+    }
+  }
+  return output;
+}
+
 function normalizeApiTransitOfferForWrite(offer) {
   return {
     ...offer,
     cache_hit_sample_tokens: Math.max(0, integerValue(offer.cache_hit_sample_tokens) || 0),
+    fixed_price_tiers: Array.isArray(offer.fixed_price_tiers) ? offer.fixed_price_tiers : [],
   };
 }
 
@@ -3562,6 +3753,13 @@ function availabilitySourcePriority(sourceType) {
 }
 
 function mergeExistingCacheHit(row, existing) {
+  if (isFixedPriceOfferRow(row)) {
+    return {
+      ...row,
+      cache_hit_rate: null,
+      cache_hit_sample_tokens: 0,
+    };
+  }
   if (!existing) return row;
   const incomingTokens = Math.max(0, integerValue(row.cache_hit_sample_tokens) || 0);
   const existingTokens = Math.max(0, integerValue(existing.cache_hit_sample_tokens) || 0);
@@ -3571,6 +3769,11 @@ function mergeExistingCacheHit(row, existing) {
     cache_hit_rate: existing.cache_hit_rate ?? row.cache_hit_rate ?? null,
     cache_hit_sample_tokens: existingTokens,
   };
+}
+
+function isFixedPriceOfferRow(row) {
+  const billingMode = stringOrNull(row?.billing_mode);
+  return billingMode === "per_request" || billingMode === "fixed" || numberValue(row?.fixed_price) !== null;
 }
 
 function normalizeUnknownAvailability(row, fallbackNote) {
@@ -3708,6 +3911,16 @@ function removeLatencyFields(rows) {
   ]);
 }
 
+function removeFixedPriceOfferFields(rows) {
+  return removeFieldsFromRows(rows, [
+    "billing_mode",
+    "fixed_price",
+    "fixed_price_currency",
+    "fixed_price_unit",
+    "fixed_price_tiers",
+  ]);
+}
+
 function removeSampleSourceFields(rows) {
   return removeFieldsFromRows(rows, ["source_type", "source_label", "source_url"]);
 }
@@ -3794,6 +4007,16 @@ function isAvailabilitySourceColumnError(error) {
     isMissingColumnError(error, "availability_source_type") ||
     isMissingColumnError(error, "availability_source_label") ||
     isMissingColumnError(error, "availability_source_url")
+  );
+}
+
+function isFixedPriceOfferColumnError(error) {
+  return (
+    isMissingColumnError(error, "billing_mode") ||
+    isMissingColumnError(error, "fixed_price") ||
+    isMissingColumnError(error, "fixed_price_currency") ||
+    isMissingColumnError(error, "fixed_price_unit") ||
+    isMissingColumnError(error, "fixed_price_tiers")
   );
 }
 
@@ -3953,6 +4176,47 @@ function rechargeRatioFromBilling(billing) {
   const multiplier = numberValue(billing?.balance_recharge_multiplier);
   if (multiplier === null || multiplier <= 0) return null;
   return `1:${round(multiplier, 6)}`;
+}
+
+function fixedPriceCnyFromCreditPrice(creditPrice, rechargeRatio) {
+  const price = numberValue(creditPrice);
+  if (price === null || price <= 0) return null;
+  const creditsPerCny = creditsPerCnyFromRechargeRatio(rechargeRatio) ?? 1;
+  if (creditsPerCny <= 0) return null;
+  return price / creditsPerCny;
+}
+
+function creditsPerCnyFromRechargeRatio(text) {
+  const value = stringOrNull(text);
+  if (!value) return null;
+
+  const ratioMatch = value.match(/(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)/);
+  if (ratioMatch) {
+    const base = Number(ratioMatch[1]);
+    const quota = Number(ratioMatch[2]);
+    if (!Number.isFinite(base) || !Number.isFinite(quota) || base <= 0 || quota <= 0) return null;
+    return quota / base;
+  }
+
+  const balanceMatch = value.match(
+    /(\d+(?:\.\d+)?)\s*(?:CNY|RMB|人民币|元|￥|¥)?\s*=\s*(\d+(?:\.\d+)?)\s*(?:USD\s*)?(?:balance|余额|额度|credit|credits)?/i,
+  );
+  if (!balanceMatch) return null;
+
+  const base = Number(balanceMatch[1]);
+  const quota = Number(balanceMatch[2]);
+  if (!Number.isFinite(base) || !Number.isFinite(quota) || base <= 0 || quota <= 0) return null;
+  return quota / base;
+}
+
+function normalizeBillingMode(value) {
+  const mode = stringOrNull(value);
+  if (mode === "per_request" || mode === "fixed" || mode === "token") return mode;
+  return null;
+}
+
+function roundFixedPrice(value) {
+  return round(value, 6);
 }
 
 function skippedSource(message, reason) {

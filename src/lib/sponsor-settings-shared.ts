@@ -56,8 +56,8 @@ export type SponsorSettingsSummary = {
 export const sponsorPlacementLabels: Record<SponsorPlacementKind, string> = {
   topBanner: "全站顶部横幅",
   home: "首页生态合作位",
-  apiTransit: "中转 API 频道赞助位",
-  apiTransitModels: "中转 API 模型页赞助位",
+  apiTransit: "中转 API 赞助位",
+  apiTransitModels: "中转 API 赞助位（兼容）",
   apiModels: "官方 API 页赞助位",
   listFooter: "底部赞助展示区",
 };
@@ -108,8 +108,8 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       id: "api-transit-gateway",
       enabled: true,
       status: "live",
-      title: "API Gateway / 中转站赞助展示",
-      description: "适合展示品牌、优惠码和资料入口；价格、稳定性和准入规则仍独立展示。",
+      title: "API Gateway / 中转站共用赞助展示",
+      description: "适合展示品牌、优惠码和资料入口；站点页与模型页共用同一套素材与开关。",
       targetUrl: "/commercial#slots",
       appendUtm: true,
       visualTitle: "API Gateway",
@@ -122,8 +122,8 @@ export const defaultSponsorCreativesByPlacement: Record<SponsorPlacementKind, Sp
       id: "api-transit-model-router",
       enabled: true,
       status: "live",
-      title: "按模型承接 API Gateway 合作",
-      description: "适合强调模型覆盖、协议兼容、公开价格和监测能力。",
+      title: "API Gateway / 中转站共用赞助展示",
+      description: "适合展示品牌、优惠码和资料入口；站点页与模型页共用同一套素材与开关。",
       targetUrl: "/commercial#slots",
       appendUtm: true,
       visualTitle: "Model Router",
@@ -196,7 +196,7 @@ export function createDefaultSponsorSettingsSummary(
     enabled: false,
     updatedAt: null,
     message: null,
-    placements: {
+    placements: syncTransitSponsorPlacements({
       topBanner: disabledDefaultPlacement("topBanner"),
       home: disabledDefaultPlacement("home"),
       apiTransit: disabledDefaultPlacement("apiTransit"),
@@ -206,7 +206,7 @@ export function createDefaultSponsorSettingsSummary(
         enabled: false,
         creatives: cloneCreatives(defaultFooterSponsorCreatives),
       },
-    },
+    }),
     ...overrides,
   };
 }
@@ -217,7 +217,7 @@ export function getVisibleSponsorCreatives(
   now = new Date(),
 ): SponsorCreative[] {
   if (!settings?.enabled) return [];
-  const placement = settings.placements[kind];
+  const placement = getEffectiveSponsorPlacement(settings, kind);
   if (!placement?.enabled) return [];
 
   return placement.creatives.filter((creative) => isSponsorCreativeVisible(creative, now));
@@ -239,4 +239,62 @@ function disabledDefaultPlacement(kind: SponsorPlacementKind): SponsorPlacementC
 
 function cloneCreatives(creatives: SponsorCreative[]): SponsorCreative[] {
   return creatives.map((creative) => ({ ...creative }));
+}
+
+function syncTransitSponsorPlacements(
+  placements: Record<SponsorPlacementKind, SponsorPlacementConfig>,
+): Record<SponsorPlacementKind, SponsorPlacementConfig> {
+  const canonical = selectTransitSponsorPlacement(placements.apiTransit, placements.apiTransitModels);
+  const mirrored = clonePlacement(canonical);
+
+  return {
+    ...placements,
+    apiTransit: mirrored,
+    apiTransitModels: clonePlacement(mirrored),
+  };
+}
+
+function selectTransitSponsorPlacement(
+  apiTransit: SponsorPlacementConfig,
+  apiTransitModels: SponsorPlacementConfig,
+): SponsorPlacementConfig {
+  if (hasSponsorPlacementVisibility(apiTransit)) return apiTransit;
+  if (hasSponsorPlacementVisibility(apiTransitModels)) return apiTransitModels;
+  if (hasSponsorPlacementContent(apiTransit)) return apiTransit;
+  if (hasSponsorPlacementContent(apiTransitModels)) return apiTransitModels;
+  return apiTransit;
+}
+
+function hasSponsorPlacementContent(placement: SponsorPlacementConfig): boolean {
+  return placement.creatives.length > 0;
+}
+
+function hasSponsorPlacementVisibility(placement: SponsorPlacementConfig): boolean {
+  return placement.enabled && placement.creatives.length > 0;
+}
+
+function clonePlacement(placement: SponsorPlacementConfig): SponsorPlacementConfig {
+  return {
+    enabled: placement.enabled,
+    creatives: cloneCreatives(placement.creatives),
+  };
+}
+
+function getEffectiveSponsorPlacement(
+  settings: SponsorSettingsSummary,
+  kind: SponsorPlacementKind,
+): SponsorPlacementConfig | null {
+  const placement = settings.placements[kind] || null;
+  if (kind !== "apiTransit" && kind !== "apiTransitModels") {
+    return placement;
+  }
+
+  const transitPlacement = settings.placements.apiTransit;
+  const modelPlacement = settings.placements.apiTransitModels;
+  if (hasSponsorPlacementVisibility(transitPlacement)) return transitPlacement;
+  if (hasSponsorPlacementVisibility(modelPlacement)) return modelPlacement;
+  if (hasSponsorPlacementContent(transitPlacement)) return transitPlacement;
+  if (hasSponsorPlacementContent(modelPlacement)) return modelPlacement;
+
+  return placement;
 }

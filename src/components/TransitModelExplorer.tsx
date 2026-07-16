@@ -32,6 +32,8 @@ import {
   formatCacheHitRate,
   formatPercent,
   formatRate,
+  formatTransitFixedPrice,
+  formatTransitFixedPriceValue,
   formatTransitModelDetectionLabel,
   formatTransitModelDetectionMeta,
   formatTransitModelMultiplier,
@@ -46,6 +48,7 @@ import {
   getTransitStationSystemLabel,
   getUsageAdviceBadgeClass,
   hasPublicTransitModelDetectionReport,
+  isTransitFixedPrice,
   type TransitModelPriceEntry,
   type TransitModelSummary,
 } from "@/lib/api-transit";
@@ -164,7 +167,7 @@ function ModelSummaryTable({ summaries }: { summaries: TransitModelSummary[] }) 
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
               <DataTableHead>标准模型</DataTableHead>
-              <DataTableHead explanation={TRANSIT_COMBINED_RATE_EXPLANATION}>最优综合倍率</DataTableHead>
+              <DataTableHead explanation={TRANSIT_COMBINED_RATE_EXPLANATION}>最优价格</DataTableHead>
               <DataTableHead>稳定性</DataTableHead>
               <DataTableHead>代表站点</DataTableHead>
               <DataTableHead>覆盖</DataTableHead>
@@ -203,6 +206,7 @@ function ModelSummaryRow({
 }) {
   const bestEntry = summary.prices[0] ?? null;
   const hasPrices = summary.prices.length > 0;
+  const hasFixedPrice = summary.bestFixedPrice !== null && summary.bestCombinedRate === null;
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTableRowElement>) {
     if (event.key === "Enter" || event.key === " ") {
@@ -238,12 +242,14 @@ function ModelSummaryRow({
       </td>
       <td className="px-5 py-4">
         <p className="font-semibold leading-6 text-[#202829]">
-          {hasPrices ? formatRate(summary.bestCombinedRate) : "暂无报价"}
+          {hasPrices ? (hasFixedPrice ? formatTransitFixedPriceValue(summary.bestFixedPrice) : formatRate(summary.bestCombinedRate)) : "暂无报价"}
         </p>
-        {summary.worstCombinedRate !== null && summary.worstCombinedRate !== summary.bestCombinedRate ? (
+        {hasFixedPrice && summary.worstFixedPrice !== null && summary.worstFixedPrice !== summary.bestFixedPrice ? (
+          <p className="mt-1 text-xs text-[#5a6061]">最高 {formatTransitFixedPriceValue(summary.worstFixedPrice)}</p>
+        ) : summary.worstCombinedRate !== null && summary.worstCombinedRate !== summary.bestCombinedRate ? (
           <p className="mt-1 text-xs text-[#5a6061]">最高 {formatRate(summary.worstCombinedRate)}</p>
         ) : (
-          <p className="mt-1 text-xs text-[#5a6061]">{hasPrices ? "综合倍率" : "等待站点采集"}</p>
+          <p className="mt-1 text-xs text-[#5a6061]">{hasPrices ? (hasFixedPrice ? "人民币固定价" : "综合倍率") : "等待站点采集"}</p>
         )}
       </td>
       <td className="px-5 py-4">
@@ -278,6 +284,7 @@ function ModelSummaryRow({
 function ModelSummaryCard({ summary }: { summary: TransitModelSummary }) {
   const bestEntry = summary.prices[0] ?? null;
   const hasPrices = summary.prices.length > 0;
+  const hasFixedPrice = summary.bestFixedPrice !== null && summary.bestCombinedRate === null;
   const [expanded, setExpanded] = useState(false);
 
   function toggleModel() {
@@ -297,7 +304,7 @@ function ModelSummaryCard({ summary }: { summary: TransitModelSummary }) {
           <span className="mt-1 block truncate text-xs text-[#5a6061]">{summary.familyLabel} · {summary.stationCount} 个站点</span>
         </span>
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${getRateBadgeClass(summary.bestCombinedRate)}`}>
-          {hasPrices ? formatRate(summary.bestCombinedRate) : "暂无报价"}
+          {hasPrices ? (hasFixedPrice ? formatTransitFixedPriceValue(summary.bestFixedPrice) : formatRate(summary.bestCombinedRate)) : "暂无报价"}
         </span>
       </div>
       <div className="mb-3 grid grid-cols-2 gap-2 text-xs text-[#5a6061]">
@@ -345,7 +352,7 @@ function ModelExpandedPanel({ summary, stationId }: { summary: TransitModelSumma
           <p className="text-sm font-extrabold text-[#202829]">
             {selectedStation ? selectedStation.name : "全部站点"} · {summary.standardModel}
           </p>
-          <p className="mt-1 text-xs text-[#5a6061]">展示该模型在对应站点/分组下的综合倍率、模型倍率、充值倍率、输入输出、缓存率、可用性和检测报告。</p>
+          <p className="mt-1 text-xs text-[#5a6061]">展示该模型在对应站点/分组下的价格、充值折算、缓存率、可用性和检测报告。</p>
         </div>
         {selectedStation ? (
           <Link
@@ -462,6 +469,29 @@ function ModelExpandedEntryRow({ entry }: { entry: TransitModelPriceEntry }) {
 function RateAndCacheCell({ entry }: { entry: TransitModelPriceEntry }) {
   const cacheUsage = entry.price.cacheUsage;
   const sampleTokens = formatTransitTokenVolume(cacheUsage?.sampleTokens);
+
+  if (isTransitFixedPrice(entry.price)) {
+    return (
+      <div className="min-w-0 space-y-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 rounded-full bg-[#e8f3ec] px-2.5 py-1 text-[11px] font-extrabold text-[#2f7a4b]">
+            {formatTransitFixedPrice(entry.price)}
+          </span>
+          <span className="truncate text-[10px] font-semibold text-[#7f8889]">人民币固定价</span>
+        </div>
+        <div className="grid min-w-0 grid-cols-2 gap-1.5">
+          <div className="min-w-0 rounded-lg bg-[#eef3f8] px-2 py-1.5 text-[#47657a] ring-1 ring-[#47657a]/10">
+            <span className="block truncate text-[10px] font-bold leading-none">计费口径</span>
+            <span className="mt-1 block truncate text-[11px] font-extrabold leading-4">按次固定</span>
+          </div>
+          <div className="min-w-0 rounded-lg bg-[#f2f4f4] px-2 py-1.5 text-[#7f8889] ring-1 ring-[#adb3b4]/15">
+            <span className="block truncate text-[10px] font-bold leading-none">缓存</span>
+            <span className="mt-1 block truncate text-[11px] font-extrabold leading-4">不适用</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-0 space-y-1.5" title={TRANSIT_CACHE_HIT_RATE_EXPLANATION}>
@@ -654,15 +684,18 @@ function ModelMobileExpandedPanel({ summary, stationId }: { summary: TransitMode
                     </p>
                   </div>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${getRateBadgeClass(entry.combinedRate)}`}>
-                    {formatRate(entry.combinedRate)}
+                    {isTransitFixedPrice(entry.price) ? formatTransitFixedPrice(entry.price) : formatRate(entry.combinedRate)}
                   </span>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <MobileQuoteMetric label="模型" value={formatTransitModelMultiplier(entry.price)} />
-                  <MobileQuoteMetric label="充值" value={formatRate(entry.rechargeCoefficient)} />
+                  <MobileQuoteMetric
+                    label={isTransitFixedPrice(entry.price) ? "固定价" : "模型"}
+                    value={isTransitFixedPrice(entry.price) ? formatTransitFixedPrice(entry.price) : formatTransitModelMultiplier(entry.price)}
+                  />
+                  <MobileQuoteMetric label="充值" value={isTransitFixedPrice(entry.price) ? "已折算" : formatRate(entry.rechargeCoefficient)} />
                   <MobileQuoteMetric
                     label="缓存"
-                    value={`${formatCacheHitRate(entry.price.cacheUsage)} · ${formatTransitTokenVolume(entry.price.cacheUsage?.sampleTokens)}`}
+                    value={isTransitFixedPrice(entry.price) ? "不适用" : `${formatCacheHitRate(entry.price.cacheUsage)} · ${formatTransitTokenVolume(entry.price.cacheUsage?.sampleTokens)}`}
                   />
                   <MobileQuoteMetric label="可用性" value={formatAvailability(entry.price.availability)} />
                 </div>
@@ -709,12 +742,13 @@ function RepresentativeStation({ entry }: { entry: TransitModelPriceEntry }) {
     <div className="min-w-0">
       <p className="truncate font-semibold text-[#202829]">{entry.station.name}</p>
       <p className="mt-1 truncate text-xs text-[#5a6061]">
-        {TRANSIT_ACCOUNT_POOL_LABELS[entry.price.accountPool]} · 充值 {formatRate(entry.rechargeCoefficient)} · 模型{" "}
-        {formatTransitModelMultiplier(entry.price)}
+        {TRANSIT_ACCOUNT_POOL_LABELS[entry.price.accountPool]} · {isTransitFixedPrice(entry.price)
+          ? `固定价 ${formatTransitFixedPrice(entry.price)}`
+          : `充值 ${formatRate(entry.rechargeCoefficient)} · 模型 ${formatTransitModelMultiplier(entry.price)}`}
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getRateBadgeClass(entry.combinedRate)}`}>
-          {formatRate(entry.combinedRate)}
+          {isTransitFixedPrice(entry.price) ? formatTransitFixedPrice(entry.price) : formatRate(entry.combinedRate)}
         </span>
         <RiskPills station={entry.station} />
       </div>

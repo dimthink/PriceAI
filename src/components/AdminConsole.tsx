@@ -5821,7 +5821,7 @@ function SponsorSettingsPanel({
     : "bg-[#f2f4f4] text-[#5a6061]";
   const sponsorPlacementEntries = Object.entries(draft.placements) as Array<[SponsorPlacementKind, SponsorPlacementConfig]>;
   const topBannerPlacement = draft.placements.topBanner;
-  const standardSponsorPlacements = sponsorPlacementEntries.filter(([kind]) => kind !== "topBanner");
+  const standardSponsorPlacements = sponsorPlacementEntries.filter(([kind]) => kind !== "topBanner" && kind !== "apiTransitModels");
 
   return (
     <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4">
@@ -6461,7 +6461,11 @@ function buildCommunitySettingsPayload(settings: CommunitySettings) {
 }
 
 function activeSponsorPlacementCount(settings: SponsorSettings): number {
-  return Object.values(settings.placements).filter((placement) => placement.enabled).length;
+  return new Set(
+    Object.entries(settings.placements)
+      .filter(([, placement]) => placement.enabled)
+      .map(([kind]) => canonicalSponsorPlacementKind(kind)),
+  ).size;
 }
 
 function activeCommunityChannelCount(settings: CommunitySettings): number {
@@ -6472,15 +6476,25 @@ function updateSponsorPlacement(settings: SponsorSettings, kind: string, patch: 
   const placement = settings.placements[kind as keyof SponsorSettings["placements"]];
   if (!placement) return settings;
 
+  const nextPlacement = {
+    ...placement,
+    ...patch,
+  };
+  const shouldMirrorTransitPlacement = isTransitSponsorPlacementKind(kind);
+  const placements = { ...settings.placements } as SponsorSettings["placements"];
+  placements[kind as keyof SponsorSettings["placements"]] = nextPlacement;
+
+  if (shouldMirrorTransitPlacement) {
+    placements.apiTransit = nextPlacement;
+    placements.apiTransitModels = {
+      ...nextPlacement,
+      creatives: nextPlacement.creatives.map((creative) => ({ ...creative })),
+    };
+  }
+
   return {
     ...settings,
-    placements: {
-      ...settings.placements,
-      [kind]: {
-        ...placement,
-        ...patch,
-      },
-    },
+    placements,
   };
 }
 
@@ -6632,8 +6646,17 @@ function sponsorPlacementLabel(kind: string): string {
 
 function sponsorPlacementDescription(kind: string): string {
   if (kind === "topBanner") return "展示为全站顶部通知条，单独占满后台宽度，只需要短标题、说明和跳转链接。";
+  if (isTransitSponsorPlacementKind(kind)) return "站点页和模型页共用同一套素材与开关，展示为轻量横幅或图文卡片。";
   if (kind === "listFooter") return "底部区域支持多张图片卡，可放 AI 周边和中转 API 周边赞助；不得写成榜单推荐或排序权益。";
   return "展示为轻量横幅或图文卡片。";
+}
+
+function isTransitSponsorPlacementKind(kind: string): boolean {
+  return kind === "apiTransit" || kind === "apiTransitModels";
+}
+
+function canonicalSponsorPlacementKind(kind: string): string {
+  return kind === "apiTransitModels" ? "apiTransit" : kind;
 }
 
 function FeedbackEvidenceLink({ url }: { url: string }) {

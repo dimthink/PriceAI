@@ -138,11 +138,20 @@ export type TransitStandardModel =
   | "Seedance 2.0"
   | "Kling 2.5 Turbo";
 
+export type TransitBillingMode = "token" | "per_request" | "fixed";
+
+export interface TransitFixedPriceTier {
+  label: string;
+  price: number;
+  unit?: string | null;
+}
+
 export interface TransitModelPrice {
   family: TransitModelFamily;
   standardModel: TransitStandardModel;
   groupName: string;
   rechargeRatio: string | null;
+  billingMode?: TransitBillingMode | null;
   modelMultiplier: number | null;
   stationGroupMultiplier?: number | null;
   inputPrice: number | null;
@@ -150,6 +159,10 @@ export interface TransitModelPrice {
   cacheReadPrice: number | null;
   cacheWritePrice: number | null;
   imageOutputPrice: number | null;
+  fixedPrice?: number | null;
+  fixedPriceCurrency?: "CNY" | null;
+  fixedPriceUnit?: string | null;
+  fixedPriceTiers?: TransitFixedPriceTier[];
   currency: "CNY";
   accountPool: TransitAccountPool;
   channelType: TransitChannelType;

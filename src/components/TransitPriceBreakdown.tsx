@@ -10,6 +10,9 @@ import {
   getTransitConvertedUnitPrice,
   getTransitEffectiveMetricRate,
   hasComparableTransitOfficialPrice,
+  isTransitFixedPrice,
+  formatTransitFixedPrice,
+  formatTransitFixedPriceValue,
   type TransitPriceMetric,
 } from "@/lib/api-transit";
 
@@ -41,6 +44,35 @@ export function TransitPriceBreakdown({
     return true;
   });
   const currency = getOfficialTransitUnitCurrency(price.standardModel);
+
+  if (isTransitFixedPrice(price)) {
+    const tiers = price.fixedPriceTiers || [];
+    return (
+      <div className="overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-panel-soft)] px-2 py-1.5 leading-tight">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <p className="truncate text-[10px] font-bold text-[var(--color-text-muted)]">人民币固定价</p>
+          <span className="shrink-0 rounded-full bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-text-muted)] ring-1 ring-[var(--color-border-soft)]">
+            按次
+          </span>
+        </div>
+        <p className="mt-0.5 text-[13px] font-extrabold tabular-nums text-[var(--color-text-primary)]">
+          {formatTransitFixedPrice(price)}
+        </p>
+        {mode === "detail" && tiers.length ? (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {tiers.slice(0, 4).map((tier) => (
+              <span
+                key={`${tier.label}-${tier.price}`}
+                className="rounded-full bg-[var(--color-surface-raised)] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-[var(--color-text-muted)] ring-1 ring-[var(--color-border-soft)]"
+              >
+                {tier.label} {formatTransitFixedPriceValue(tier.price, tier.unit)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   if (!hasComparableOfficial) {
     return (

@@ -37,6 +37,7 @@ import {
   TRANSIT_OPERATOR_TYPE_LABELS,
   TRANSIT_STANDARD_MODELS,
   TRANSIT_STANDARD_MODEL_FAMILY,
+  TRANSIT_STANDARD_MODEL_MODALITY,
   isTransitModelFamily,
   transitModelPriceMatchesFamily,
 } from "@/data/api-transit/types";
@@ -72,6 +73,8 @@ import {
   hasTransitAffRelation,
   getTransitReviewTags,
   getTransitStationSystemLabel,
+  formatTransitFixedPriceRange,
+  hasTransitFixedPriceSummary,
   parseRechargeRatio,
   type TransitSortKey,
 } from "@/lib/api-transit";
@@ -99,12 +102,23 @@ const POOL_OPTIONS: { value: TransitAccountPool | "all"; label: string }[] = [
 
 const SORT_OPTIONS: { value: TransitSortKey; label: string }[] = [
   { value: "overall", label: "综合推荐" },
-  { value: "rate", label: "最低倍率" },
+  { value: "rate", label: "最低价格" },
   { value: "stability", label: "稳定性优先" },
 ];
 
 function sortLabel(value: TransitSortKey) {
   return SORT_OPTIONS.find((option) => option.value === value)?.label ?? "综合推荐";
+}
+
+function isFixedPriceScope(
+  family: "all" | TransitModelFamily,
+  standardModel: "all" | TransitStandardModel
+): boolean {
+  if (standardModel !== "all") {
+    const modality = TRANSIT_STANDARD_MODEL_MODALITY[standardModel];
+    return modality === "image" || modality === "video";
+  }
+  return family === "image" || family === "video";
 }
 
 function coerceParam<T extends string>(
@@ -227,11 +241,12 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
     return params.toString();
   }, [channelFilter, familyFilter, modelFilter, poolFilter, search, sortBy]);
 
+  const fixedPriceScope = isFixedPriceScope(effectiveFamilyFilter, modelFilter);
   const rateColumnLabel = modelFilter !== "all"
-    ? `${modelFilter} 综合倍率`
+    ? `${modelFilter} ${fixedPriceScope ? "人民币固定价" : "综合倍率"}`
     : effectiveFamilyFilter === "all"
       ? "最低综合倍率"
-      : `${TRANSIT_MODEL_FAMILY_LABELS[effectiveFamilyFilter]} 综合倍率`;
+      : `${TRANSIT_MODEL_FAMILY_LABELS[effectiveFamilyFilter]} ${fixedPriceScope ? "固定价" : "综合倍率"}`;
   const availabilityColumnExplanation = modelFilter !== "all"
     ? `${modelFilter} 近 7 日可用性样本汇总；样本不足时不会借用站点整体稳定性。`
     : effectiveFamilyFilter === "all"
@@ -478,22 +493,25 @@ function CombinedRateCell({
       ? null
       : comparison.families[family];
   const rate = summary ? summary.combinedRateMin : comparison.bestCombinedRate;
+  const fixedPrice = summary && hasTransitFixedPriceSummary(summary)
+    ? formatTransitFixedPriceRange(summary)
+    : null;
 
   if (summary && summary.priceCount === 0) {
     return <span className="text-xs text-[#7f8889]">未收录</span>;
   }
 
   if (!summary && rate === null) {
-    return <span className="text-xs text-[#7f8889]">暂无倍率</span>;
+    return <span className="text-xs text-[#7f8889]">暂无价格</span>;
   }
 
   return (
     <div className={compact ? "" : "min-w-[108px]"}>
       <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold ${getRateBadgeClass(rate)}`}>
-        {formatRate(rate)}
+        {fixedPrice || formatRate(rate)}
       </span>
       <div className="mt-1 text-[10px] font-semibold text-[#7f8889]">
-        {standardModel !== "all" ? standardModel : summary ? formatMultiplierRange(summary) : bestFamilyLabel(comparison)}
+        {fixedPrice ? "人民币固定价" : standardModel !== "all" ? standardModel : summary ? formatMultiplierRange(summary) : bestFamilyLabel(comparison)}
       </div>
     </div>
   );
@@ -518,6 +536,7 @@ function PriceBreakdownCell({
       .map((family) => summary.families[family])
       .filter((item) => item.priceCount > 0 && (activeFamily === "all" || item.family === activeFamily))
       .slice(0, compact ? 3 : 4);
+  const fixedPriceOnly = visibleSummaries.length > 0 && visibleSummaries.every(hasTransitFixedPriceSummary);
 
   return (
     <div className={compact ? "space-y-1" : "min-w-[166px] space-y-1"}>
@@ -526,14 +545,16 @@ function PriceBreakdownCell({
         <RechargeRatioDisplay station={station} />
       </div>
       <div className="flex items-start gap-1.5 text-[11px] font-semibold">
-        <span className="mt-0.5 shrink-0 text-[10px] font-extrabold text-[#7f8889]">模型倍率</span>
+        <span className="mt-0.5 shrink-0 text-[10px] font-extrabold text-[#7f8889]">
+          {fixedPriceOnly ? "固定价" : "模型倍率"}
+        </span>
         <div className="flex min-w-0 flex-wrap gap-1.5">
           {visibleSummaries.length ? (
             visibleSummaries.map((item) => (
               <CompactRateTag
                 key={activeStandardModel !== "all" ? activeStandardModel : item.family}
                 label={activeStandardModel !== "all" ? "模型" : TRANSIT_MODEL_FAMILY_LABELS[item.family]}
-                value={formatMultiplierRange(item)}
+                value={hasTransitFixedPriceSummary(item) ? formatTransitFixedPriceRange(item) : formatMultiplierRange(item)}
                 missing={false}
               />
             ))
@@ -547,10 +568,10 @@ function PriceBreakdownCell({
           缓存命中率
         </span>
         <span
-          className={`rounded-full px-2 py-0.5 tabular-nums ${getCacheHitRateBadgeClass(cacheUsage)}`}
+          className={`rounded-full px-2 py-0.5 tabular-nums ${fixedPriceOnly ? "bg-[#f2f4f4] text-[#7f8889]" : getCacheHitRateBadgeClass(cacheUsage)}`}
           title={TRANSIT_CACHE_HIT_RATE_EXPLANATION}
         >
-          {formatCacheHitRate(cacheUsage)}
+          {fixedPriceOnly ? "不适用" : formatCacheHitRate(cacheUsage)}
         </span>
       </div>
     </div>

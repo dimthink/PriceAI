@@ -332,12 +332,17 @@ export async function updateApiTransitOffer(input: {
   rawModelName?: string;
   groupName?: string;
   rechargeRatio?: string | null;
+  billingMode?: string | null;
   modelMultiplier?: number | null;
   inputPrice?: number | null;
   outputPrice?: number | null;
   cacheReadPrice?: number | null;
   cacheWritePrice?: number | null;
   imageOutputPrice?: number | null;
+  fixedPrice?: number | null;
+  fixedPriceCurrency?: string | null;
+  fixedPriceUnit?: string | null;
+  fixedPriceTiers?: Array<{ label: string; price: number; unit?: string | null }>;
   currency?: string;
   accountPool?: string;
   channelType?: string;
@@ -353,12 +358,17 @@ export async function updateApiTransitOffer(input: {
   if (input.rawModelName !== undefined) row.raw_model_name = cleanRequired(input.rawModelName, "原始模型不能为空。");
   if (input.groupName !== undefined) row.group_name = cleanRequired(input.groupName, "分组名不能为空。");
   if (input.rechargeRatio !== undefined) row.recharge_ratio = cleanNullable(input.rechargeRatio);
+  if (input.billingMode !== undefined) row.billing_mode = cleanNullable(input.billingMode);
   if (input.modelMultiplier !== undefined) row.model_multiplier = input.modelMultiplier;
   if (input.inputPrice !== undefined) row.input_price = input.inputPrice;
   if (input.outputPrice !== undefined) row.output_price = input.outputPrice;
   if (input.cacheReadPrice !== undefined) row.cache_read_price = input.cacheReadPrice;
   if (input.cacheWritePrice !== undefined) row.cache_write_price = input.cacheWritePrice;
   if (input.imageOutputPrice !== undefined) row.image_output_price = input.imageOutputPrice;
+  if (input.fixedPrice !== undefined) row.fixed_price = input.fixedPrice;
+  if (input.fixedPriceCurrency !== undefined) row.fixed_price_currency = cleanNullable(input.fixedPriceCurrency) || "CNY";
+  if (input.fixedPriceUnit !== undefined) row.fixed_price_unit = cleanNullable(input.fixedPriceUnit);
+  if (input.fixedPriceTiers !== undefined) row.fixed_price_tiers = input.fixedPriceTiers;
   if (input.currency !== undefined) row.currency = cleanRequired(input.currency, "币种不能为空。");
   if (input.accountPool !== undefined) row.account_pool = normalizeAccountPool(input.accountPool) || cleanRequired(input.accountPool, "号池不能为空。");
   if (input.channelType !== undefined) row.channel_type = normalizeChannelType(input.channelType) || cleanRequired(input.channelType, "渠道类型不能为空。");
@@ -379,12 +389,17 @@ export async function updateApiTransitOffer(input: {
         "raw_model_name",
         "group_name",
         "recharge_ratio",
+        "billing_mode",
         "model_multiplier",
         "input_price",
         "output_price",
         "cache_read_price",
         "cache_write_price",
         "image_output_price",
+        "fixed_price",
+        "fixed_price_currency",
+        "fixed_price_unit",
+        "fixed_price_tiers",
         "currency",
         "account_pool",
         "channel_type",
@@ -786,11 +801,17 @@ async function listAdminTransitOffers(): Promise<ApiTransitAdminOffer[]> {
         "raw_model_name",
         "group_name",
         "recharge_ratio",
+        "billing_mode",
         "model_multiplier",
         "input_price",
         "output_price",
         "cache_read_price",
         "cache_write_price",
+        "image_output_price",
+        "fixed_price",
+        "fixed_price_currency",
+        "fixed_price_unit",
+        "fixed_price_tiers",
         "currency",
         "account_pool",
         "channel_type",
@@ -1007,12 +1028,17 @@ function mapOffer(row: DbRow): ApiTransitAdminOffer {
     rawModelName: stringValue(row.raw_model_name),
     groupName: stringValue(row.group_name),
     rechargeRatio: nullableString(row.recharge_ratio),
+    billingMode: nullableString(row.billing_mode),
     modelMultiplier: numberValue(row.model_multiplier),
     inputPrice,
     outputPrice,
     cacheReadPrice,
     cacheWritePrice,
     imageOutputPrice,
+    fixedPrice: numberValue(row.fixed_price),
+    fixedPriceCurrency: nullableString(row.fixed_price_currency),
+    fixedPriceUnit: nullableString(row.fixed_price_unit),
+    fixedPriceTiers: adminFixedPriceTiers(row.fixed_price_tiers),
     inputUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "input", inputPrice),
     outputUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "output", outputPrice),
     cacheReadUnitPriceUsd: getAdminUnitPriceUsd(standardModel, "cacheRead", cacheReadPrice),
@@ -1417,6 +1443,21 @@ function numberValue(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function adminFixedPriceTiers(value: unknown): Array<{ label: string; price: number; unit?: string | null }> {
+  return objectArray(value)
+    .map((item) => {
+      const label = nullableString(item.label);
+      const price = numberValue(item.price);
+      if (!label || price === null || price <= 0) return null;
+      return {
+        label,
+        price,
+        unit: nullableString(item.unit),
+      };
+    })
+    .filter((item): item is { label: string; price: number; unit?: string | null } => item !== null);
 }
 
 function getAdminUnitPriceUsd(

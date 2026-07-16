@@ -111,6 +111,7 @@ export function getCombinedRateForPrice(
   station: TransitStation,
   price: TransitModelPrice
 ): number | null {
+  if (isTransitFixedPrice(price)) return null;
   if (!hasComparableTransitOfficialPrice(price.standardModel)) return null;
 
   const coefficient =
@@ -119,6 +120,27 @@ export function getCombinedRateForPrice(
   if (coefficient === null || price.modelMultiplier === null) return null;
 
   return coefficient * price.modelMultiplier;
+}
+
+export function isTransitFixedPrice(price: TransitModelPrice): boolean {
+  return getTransitFixedPriceValue(price) !== null;
+}
+
+export function getTransitFixedPriceValue(price: TransitModelPrice): number | null {
+  const values = [
+    price.fixedPrice,
+    ...(price.fixedPriceTiers || []).map((tier) => tier.price),
+  ].filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value) && value > 0);
+  return values.length ? Math.min(...values) : null;
+}
+
+export function formatTransitFixedPrice(price: TransitModelPrice): string {
+  const value = getTransitFixedPriceValue(price);
+  if (value === null) return "—";
+  const prices = fixedPriceValues(price);
+  const max = prices.length ? Math.max(...prices) : value;
+  const prefix = max > value ? " 起" : "";
+  return `${formatTransitFixedPriceValue(value, price.fixedPriceUnit)}${prefix}`;
 }
 
 export function getRepresentativeTransitPrice(
@@ -683,6 +705,8 @@ export type TransitFamilyRateSummary = {
   priceCount: number;
   modelMultiplierMin: number | null;
   modelMultiplierMax: number | null;
+  fixedPriceMin: number | null;
+  fixedPriceMax: number | null;
   combinedRateMin: number | null;
   combinedRateMax: number | null;
   sevenDayRate: number | null;
@@ -930,6 +954,9 @@ function summarizeRateScope(
   const multipliers = scopePrices
     .map((price) => price.modelMultiplier)
     .filter((value): value is number => value !== null && Number.isFinite(value));
+  const fixedPrices = scopePrices
+    .flatMap((price) => fixedPriceValues(price))
+    .filter((value): value is number => Number.isFinite(value) && value > 0);
   const combinedRates = scopePrices
     .map((price) => getCombinedRateForPrice(station, price))
     .filter((value): value is number => value !== null && Number.isFinite(value));
@@ -966,6 +993,8 @@ function summarizeRateScope(
     priceCount: prices.length,
     modelMultiplierMin: multipliers.length ? Math.min(...multipliers) : null,
     modelMultiplierMax: multipliers.length ? Math.max(...multipliers) : null,
+    fixedPriceMin: fixedPrices.length ? Math.min(...fixedPrices) : null,
+    fixedPriceMax: fixedPrices.length ? Math.max(...fixedPrices) : null,
     combinedRateMin: combinedRates.length ? Math.min(...combinedRates) : null,
     combinedRateMax: combinedRates.length ? Math.max(...combinedRates) : null,
     sevenDayRate: weightedAvailability,
@@ -1408,6 +1437,8 @@ type TransitStationSortContext = {
   summary: TransitStationComparisonSummary;
   scope: TransitFamilyRateSummary | null;
   rate: number | null;
+  fixedPrice: number | null;
+  cost: number | null;
   stabilityRate: number | null;
   stabilitySamples: number;
   recentSamples: TransitAvailability["recentSamples"];
@@ -1437,7 +1468,7 @@ export function compareStations(
 
     if (sortBy === "rate") {
       return (
-        compareNullableNumber(a.rate, b.rate, "asc") ||
+        compareNullableNumber(a.cost, b.cost, "asc") ||
         compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
         b.stabilitySamples - a.stabilitySamples ||
         new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
@@ -1447,7 +1478,7 @@ export function compareStations(
     if (sortBy === "claude_rate") {
       return (
         compareNullableNumber(a.summary.claude.combinedRateMin, b.summary.claude.combinedRateMin, "asc") ||
-        compareNullableNumber(a.rate, b.rate, "asc") ||
+        compareNullableNumber(a.cost, b.cost, "asc") ||
         compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
         b.stabilitySamples - a.stabilitySamples ||
         new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
@@ -1457,7 +1488,7 @@ export function compareStations(
     if (sortBy === "gpt_rate") {
       return (
         compareNullableNumber(a.summary.gpt.combinedRateMin, b.summary.gpt.combinedRateMin, "asc") ||
-        compareNullableNumber(a.rate, b.rate, "asc") ||
+        compareNullableNumber(a.cost, b.cost, "asc") ||
         compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
         b.stabilitySamples - a.stabilitySamples ||
         new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
@@ -1468,7 +1499,7 @@ export function compareStations(
     const bScore = ranking?.get(right.id)?.totalScore ?? 0;
     return (
       bScore - aScore ||
-      compareNullableNumber(a.rate, b.rate, "asc") ||
+      compareNullableNumber(a.cost, b.cost, "asc") ||
       compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
       b.stabilitySamples - a.stabilitySamples ||
       new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
@@ -1499,6 +1530,8 @@ function getTransitStationSortContext(
     summary,
     scope,
     rate: scope ? scope.combinedRateMin : summary.bestCombinedRate,
+    fixedPrice: scope ? scope.fixedPriceMin : null,
+    cost: transitSortCost(scope, summary),
     stabilityRate: scope ? scope.sevenDayRate : summary.stabilityRate,
     stabilitySamples: scope ? scope.sevenDaySamples : summary.stabilitySamples,
     recentSamples: scope ? scope.recentSamples : summary.availability.recentSamples,
@@ -1520,17 +1553,25 @@ function getActiveSortPrices(
   return station.prices;
 }
 
+function transitSortCost(
+  scope: TransitFamilyRateSummary | null,
+  summary: TransitStationComparisonSummary
+): number | null {
+  if (!scope) return summary.bestCombinedRate;
+  return scope.combinedRateMin ?? scope.fixedPriceMin;
+}
+
 function scoreTransitStationContexts(
   contexts: TransitStationSortContext[],
   options: TransitStationRankingOptions
 ): Map<string, TransitStationRankingBreakdown> {
   const peerRates = contexts
-    .map((context) => context.rate)
+    .map((context) => context.cost)
     .filter((rate): rate is number => rate !== null && Number.isFinite(rate) && rate > 0);
   const now = rankingTimestamp(options.now);
 
   return new Map(contexts.map((context) => {
-    const costScore = scoreTransitRelativeCost(context.rate, peerRates) * TRANSIT_RANKING_WEIGHTS.cost;
+    const costScore = scoreTransitRelativeCost(context.cost, peerRates) * TRANSIT_RANKING_WEIGHTS.cost;
     const sevenDayReliability = scoreTransitReliability(
       context.stabilityRate,
       context.stabilitySamples
@@ -1573,7 +1614,7 @@ function scoreTransitStationContexts(
       cacheHitScore,
       modelDetectionScore,
       eligible,
-      comparisonRate: context.rate,
+      comparisonRate: context.cost,
       stabilityRate: context.stabilityRate,
       stabilitySamples: context.stabilitySamples,
       recentSamples: context.recentSamples?.length ?? 0,
@@ -1665,7 +1706,7 @@ function scoreTransitDetectionSummary(detection: TransitModelDetectionSummary | 
 }
 
 function isTransitRankingEligible(context: TransitStationSortContext, now: number): boolean {
-  if (context.rate === null || context.stabilityRate === null || context.stabilitySamples <= 0) return false;
+  if (context.cost === null || context.stabilityRate === null || context.stabilitySamples <= 0) return false;
   const checkedAt = parseAvailabilityTimestamp(context.lastCheckedAt);
   if (checkedAt === null) return false;
   return Math.max(0, now - checkedAt) <= 7 * 24 * 60 * 60 * 1000;
@@ -1736,6 +1777,8 @@ export type TransitModelSummary = {
   stationCount: number;
   bestCombinedRate: number | null;
   worstCombinedRate: number | null;
+  bestFixedPrice: number | null;
+  worstFixedPrice: number | null;
   averageAvailability: number | null;
   sampleCount: number;
   prices: TransitModelPriceEntry[];
@@ -1794,6 +1837,10 @@ export function getTransitModelSummaries(
         .map((entry) => entry.combinedRate)
         .filter((rate): rate is number => rate !== null && Number.isFinite(rate))
         .sort((a, b) => a - b);
+      const fixedPrices = prices
+        .map((entry) => getTransitFixedPriceValue(entry.price))
+        .filter((price): price is number => price !== null && Number.isFinite(price) && price > 0)
+        .sort((a, b) => a - b);
       const sampleCount = prices.reduce(
         (total, entry) => total + entry.price.availability.sevenDaySamples,
         0
@@ -1817,10 +1864,12 @@ export function getTransitModelSummaries(
         stationCount: new Set(prices.map((entry) => entry.station.id)).size,
         bestCombinedRate: finiteRates[0] ?? null,
         worstCombinedRate: finiteRates[finiteRates.length - 1] ?? null,
+        bestFixedPrice: fixedPrices[0] ?? null,
+        worstFixedPrice: fixedPrices[fixedPrices.length - 1] ?? null,
         averageAvailability,
         sampleCount,
         prices: prices.sort((a, b) =>
-          compareNullableNumber(a.combinedRate, b.combinedRate, "asc")
+          compareNullableNumber(a.combinedRate ?? getTransitFixedPriceValue(a.price), b.combinedRate ?? getTransitFixedPriceValue(b.price), "asc")
         ),
       };
     })
@@ -1829,6 +1878,7 @@ export function getTransitModelSummaries(
       if (familyOrder !== 0) return familyOrder;
       return (
         compareNullableNumber(a.bestCombinedRate, b.bestCombinedRate, "asc") ||
+        compareNullableNumber(a.bestFixedPrice, b.bestFixedPrice, "asc") ||
         (standardModelOrder.get(a.standardModel) ?? Number.MAX_SAFE_INTEGER) -
           (standardModelOrder.get(b.standardModel) ?? Number.MAX_SAFE_INTEGER)
       );
@@ -1878,6 +1928,7 @@ export function formatRate(rate: number | null): string {
 }
 
 export function formatTransitModelMultiplier(price: TransitModelPrice): string {
+  if (isTransitFixedPrice(price)) return "不适用";
   const value = price.modelMultiplier;
   if (value === null || !Number.isFinite(value)) return "—";
   if (!hasComparableTransitOfficialPrice(price.standardModel)) return `${formatFixedTransitUnitPrice(value)} 固定价`;
@@ -1885,11 +1936,42 @@ export function formatTransitModelMultiplier(price: TransitModelPrice): string {
 }
 
 function formatFixedTransitUnitPrice(value: number): string {
-  if (value >= 100) return value.toFixed(0);
-  if (value >= 10) return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
-  if (value >= 1) return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2);
-  if (value >= 0.1) return value.toFixed(3);
-  return value.toFixed(4);
+  const decimals = value >= 100 ? 0 : value >= 10 ? 1 : value >= 1 ? 2 : value >= 0.1 ? 3 : 4;
+  return value.toFixed(decimals).replace(/\.?0+$/, "");
+}
+
+export function formatTransitFixedPriceValue(value: number | null, unit?: string | null): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  return `¥${formatFixedTransitUnitPrice(value)}/${transitFixedPriceUnitLabel(unit)}`;
+}
+
+export function formatTransitFixedPriceRange(
+  summary: Pick<TransitFamilyRateSummary, "fixedPriceMin" | "fixedPriceMax">
+): string {
+  if (summary.fixedPriceMin === null) return "—";
+  if (summary.fixedPriceMax === null || summary.fixedPriceMax === summary.fixedPriceMin) {
+    return formatTransitFixedPriceValue(summary.fixedPriceMin);
+  }
+  return `¥${formatFixedTransitUnitPrice(summary.fixedPriceMin)}-${formatFixedTransitUnitPrice(summary.fixedPriceMax)}/${transitFixedPriceUnitLabel(null)}`;
+}
+
+export function hasTransitFixedPriceSummary(
+  summary: Pick<TransitFamilyRateSummary, "fixedPriceMin" | "combinedRateMin">
+): boolean {
+  return summary.fixedPriceMin !== null && summary.combinedRateMin === null;
+}
+
+function fixedPriceValues(price: TransitModelPrice): number[] {
+  return [
+    price.fixedPrice,
+    ...(price.fixedPriceTiers || []).map((tier) => tier.price),
+  ].filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value) && value > 0);
+}
+
+function transitFixedPriceUnitLabel(unit?: string | null): string {
+  if (unit === "image") return "张";
+  if (unit === "video") return "次";
+  return "次";
 }
 
 export function formatUsdPerMTok(price: number | null): string {
@@ -1910,6 +1992,7 @@ export function formatOfficialUnitPrice(
 }
 
 export function formatMultiplierRange(summary: TransitFamilyRateSummary): string {
+  if (hasTransitFixedPriceSummary(summary)) return formatTransitFixedPriceRange(summary);
   if (summary.modelMultiplierMin === null) return "—";
   const suffix = summary.combinedRateMin === null && (summary.family === "image" || summary.family === "video") ? " 固定价" : "x";
   if (summary.modelMultiplierMax === null || summary.modelMultiplierMax === summary.modelMultiplierMin) {
@@ -1956,6 +2039,7 @@ export function getRepresentativeCacheUsage(
   prices: TransitModelPrice[]
 ): TransitModelPrice["cacheUsage"] | undefined {
   return prices
+    .filter((price) => !isTransitFixedPrice(price))
     .map((price) => price.cacheUsage)
     .filter((cacheUsage): cacheUsage is NonNullable<TransitModelPrice["cacheUsage"]> => Boolean(cacheUsage))
     .sort((left, right) => {
