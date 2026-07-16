@@ -35,6 +35,10 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      version_id: ${{ steps.upload.outputs.version_id }}
+      version_tag: ${{ steps.upload.outputs.version_tag }}
+      smoke_base_url: ${{ steps.upload.outputs.smoke_base_url }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -157,6 +161,6 @@ jobs:
       - name: Verify promotion SHA
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - run: npm run promote:cloudflare -- "$GITHUB_SHA"
+      - run: npm run promote:cloudflare -- "${{ needs.build-and-preview.outputs.version_id }}"
 
       - run: npm run smoke:cloudflare -- "$CLOUDFLARE_SMOKE_BASE_URL"
