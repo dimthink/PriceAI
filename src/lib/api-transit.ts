@@ -139,8 +139,9 @@ export function formatTransitFixedPrice(price: TransitModelPrice): string {
   if (value === null) return "—";
   const prices = fixedPriceValues(price);
   const max = prices.length ? Math.max(...prices) : value;
-  const prefix = max > value ? " 起" : "";
-  return `${formatTransitFixedPriceValue(value, price.fixedPriceUnit)}${prefix}`;
+  const unit = transitFixedPriceUnitLabel(price.fixedPriceUnit);
+  const priceText = formatFixedTransitUnitPrice(value);
+  return max > value ? `¥${priceText} 起/${unit}` : `¥${priceText}/${unit}`;
 }
 
 export function getRepresentativeTransitPrice(
@@ -1436,8 +1437,6 @@ type TransitStationSortContext = {
   station: TransitStation;
   summary: TransitStationComparisonSummary;
   scope: TransitFamilyRateSummary | null;
-  rate: number | null;
-  fixedPrice: number | null;
   cost: number | null;
   stabilityRate: number | null;
   stabilitySamples: number;
@@ -1529,8 +1528,6 @@ function getTransitStationSortContext(
     station,
     summary,
     scope,
-    rate: scope ? scope.combinedRateMin : summary.bestCombinedRate,
-    fixedPrice: scope ? scope.fixedPriceMin : null,
     cost: transitSortCost(scope, summary),
     stabilityRate: scope ? scope.sevenDayRate : summary.stabilityRate,
     stabilitySamples: scope ? scope.sevenDaySamples : summary.stabilitySamples,

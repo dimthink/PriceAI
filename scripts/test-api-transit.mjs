@@ -706,16 +706,22 @@ const fixedPriceRows = __test.parsePricingPayload(
   "2026-07-02T00:00:00.000Z",
 );
 const fixedOffersByModel = new Map(fixedPriceRows.offers.map((offer) => [offer.standard_model, offer]));
-assert.equal(fixedOffersByModel.get("Nano Banana").model_multiplier, 0.04);
-assert.equal(fixedOffersByModel.get("Nano Banana").image_output_price, 0.04);
-assert.equal(fixedOffersByModel.get("Sora 2").model_multiplier, 0.1);
-assert.equal(fixedOffersByModel.get("GPT Image 2").model_multiplier, 0.008333);
-assert.equal(fixedOffersByModel.get("GPT Image 2").image_output_price, 0.008333);
+assert.equal(fixedOffersByModel.get("Nano Banana").billing_mode, "fixed");
+assert.equal(fixedOffersByModel.get("Nano Banana").model_multiplier, null);
+assert.equal(fixedOffersByModel.get("Nano Banana").image_output_price, null);
+assert.equal(fixedOffersByModel.get("Nano Banana").fixed_price, 0.04);
+assert.equal(fixedOffersByModel.get("Sora 2").model_multiplier, null);
+assert.equal(fixedOffersByModel.get("Sora 2").fixed_price, 0.1);
+assert.equal(fixedOffersByModel.get("GPT Image 2").model_multiplier, null);
+assert.equal(fixedOffersByModel.get("GPT Image 2").image_output_price, null);
+assert.equal(fixedOffersByModel.get("GPT Image 2").fixed_price, 0.25);
 assert.equal(fixedOffersByModel.get("GPT Image 2").raw_payload.fixed_price, 0.25);
 assert.equal(fixedOffersByModel.get("Grok Image").family, "grok");
-assert.equal(fixedOffersByModel.get("Grok Image").model_multiplier, 0.03);
+assert.equal(fixedOffersByModel.get("Grok Image").model_multiplier, null);
+assert.equal(fixedOffersByModel.get("Grok Image").fixed_price, 0.03);
 assert.equal(fixedOffersByModel.get("Grok Video").family, "grok");
-assert.equal(fixedOffersByModel.get("Grok Video").model_multiplier, 0.12);
+assert.equal(fixedOffersByModel.get("Grok Video").model_multiplier, null);
+assert.equal(fixedOffersByModel.get("Grok Video").fixed_price, 0.12);
 
 const legacyNewApiPerformanceSource = {
   ...configuredRtocSource,
@@ -1121,6 +1127,14 @@ const aiTransitSnapshot = __test.parsePricingPayload(
         name: "image",
         platform: "openai",
         rate_multiplier: 1,
+        cache_usage: {
+          total: {
+            input_tokens: 1_000,
+            cache_creation_tokens: 0,
+            cache_read_tokens: 9_000,
+            cache_hit_rate: 99,
+          },
+        },
         models: [
           {
             standard_model: "gpt-image-2",
@@ -1128,7 +1142,11 @@ const aiTransitSnapshot = __test.parsePricingPayload(
             platform: "openai",
             billing_mode: "per_request",
             price: {
-              image_output_usd_per_token: 0.00003,
+              per_request_usd: 0.08,
+              image_size_prices: {
+                "1k": 0.08,
+                "2k": 0.08,
+              },
             },
           },
         ],
@@ -1172,12 +1190,65 @@ assert.equal(aiTransitGpt.availability_avg_latency_7d_ms, 1005);
 assert.equal(aiTransitGpt.availability_source_type, "public_status");
 const aiTransitImage = aiTransitSnapshot.offers.find((offer) => offer.standard_model === "GPT Image 2");
 assert.equal(aiTransitImage.family, "image");
-assert.equal(aiTransitImage.image_output_price, 1);
+assert.equal(aiTransitImage.billing_mode, "per_request");
+assert.equal(aiTransitImage.model_multiplier, null);
+assert.equal(aiTransitImage.image_output_price, null);
+assert.equal(aiTransitImage.fixed_price, 0.08);
+assert.deepEqual(aiTransitImage.fixed_price_tiers, [
+  { label: "1k", price: 0.08, unit: "request" },
+  { label: "2k", price: 0.08, unit: "request" },
+]);
+assert.equal(aiTransitImage.cache_hit_rate, null);
+assert.equal(aiTransitImage.cache_hit_sample_tokens, 0);
 assert.equal(aiTransitSnapshot.availabilitySamples.length, 4);
 assert.equal(aiTransitSnapshot.station.availability_seven_day_rate, 0.965);
 assert.equal(aiTransitSnapshot.station.availability_seven_day_samples, 42);
 assert.equal(aiTransitSnapshot.station.availability_latest_latency_ms, 1985);
 assert.equal(aiTransitSnapshot.station.availability_avg_latency_7d_ms, 1005);
+
+const convertedAiTransitFixedPrice = __test.parsePricingPayload(
+  configuredAiTransitSnapshotSource,
+  {
+    schema_version: "ai-transit.v1",
+    system: "sub2api",
+    generated_at: "2026-07-05T08:40:00.000Z",
+    billing: {
+      recharge_multiplier: 5,
+    },
+    groups: [
+      {
+        name: "image",
+        platform: "openai",
+        rate_multiplier: 0.03,
+        cache_usage: {
+          total: {
+            input_tokens: 1_000,
+            cache_read_tokens: 9_000,
+            cache_hit_rate: 90,
+          },
+        },
+        models: [
+          {
+            standard_model: "gpt-image-2",
+            raw_model: "gpt-image-2",
+            platform: "openai",
+            billing_mode: "per_request",
+            price: {
+              per_request_usd: 0.08,
+            },
+          },
+        ],
+      },
+    ],
+  },
+  "2026-07-05T08:40:00.000Z",
+);
+const convertedAiTransitImage = convertedAiTransitFixedPrice.offers.find((offer) => offer.standard_model === "GPT Image 2");
+assert.equal(convertedAiTransitImage.recharge_ratio, "1:5");
+assert.equal(convertedAiTransitImage.model_multiplier, null);
+assert.equal(convertedAiTransitImage.fixed_price, 0.016);
+assert.equal(convertedAiTransitImage.cache_hit_rate, null);
+assert.equal(convertedAiTransitImage.cache_hit_sample_tokens, 0);
 
 const longAiTransitTimeline = Array.from({ length: 63 }, (_, index) => ({
   status: index === 40 ? "error" : "operational",

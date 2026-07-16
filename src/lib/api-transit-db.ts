@@ -1388,19 +1388,19 @@ function fixedPriceCurrency(value: unknown): TransitModelPrice["fixedPriceCurren
 
 function fixedPriceTiers(value: unknown): NonNullable<TransitModelPrice["fixedPriceTiers"]> {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const label = nullableString((item as { label?: unknown }).label);
-      const price = numberValue((item as { price?: unknown }).price);
-      if (!label || price === null || price <= 0) return null;
-      return {
-        label,
-        price,
-        unit: nullableString((item as { unit?: unknown }).unit),
-      };
-    })
-    .filter((item): item is NonNullable<TransitModelPrice["fixedPriceTiers"]>[number] => item !== null);
+  const tiers: NonNullable<TransitModelPrice["fixedPriceTiers"]> = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const label = nullableString((item as { label?: unknown }).label);
+    const price = numberValue((item as { price?: unknown }).price);
+    if (!label || price === null || price <= 0) continue;
+    tiers.push({
+      label,
+      price,
+      unit: nullableString((item as { unit?: unknown }).unit),
+    });
+  }
+  return tiers;
 }
 
 function dbRows(value: unknown): DbRow[] {

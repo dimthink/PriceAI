@@ -3426,6 +3426,10 @@ function withFixedPriceOfferWriteFallbacks(attempts) {
 function normalizeApiTransitOfferForWrite(offer) {
   return {
     ...offer,
+    billing_mode: offer.billing_mode || "token",
+    fixed_price: numberValue(offer.fixed_price),
+    fixed_price_currency: offer.fixed_price_currency || "CNY",
+    fixed_price_unit: offer.fixed_price_unit || null,
     cache_hit_sample_tokens: Math.max(0, integerValue(offer.cache_hit_sample_tokens) || 0),
     fixed_price_tiers: Array.isArray(offer.fixed_price_tiers) ? offer.fixed_price_tiers : [],
   };

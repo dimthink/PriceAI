@@ -1198,12 +1198,17 @@ function toOfferCandidate(group: ApiTransitAdminOffer[]): ApiTransitOfferCandida
     rawOfferCount: sorted.length,
     groupName: representative.groupName,
     rechargeRatio: representative.rechargeRatio,
+    billingMode: representative.billingMode,
     modelMultiplier: representative.modelMultiplier,
     inputPrice: representative.inputPrice,
     outputPrice: representative.outputPrice,
     cacheReadPrice: representative.cacheReadPrice,
     cacheWritePrice: representative.cacheWritePrice,
     imageOutputPrice: representative.imageOutputPrice,
+    fixedPrice: representative.fixedPrice,
+    fixedPriceCurrency: representative.fixedPriceCurrency,
+    fixedPriceUnit: representative.fixedPriceUnit,
+    fixedPriceTiers: representative.fixedPriceTiers,
     inputUnitPriceUsd: representative.inputUnitPriceUsd,
     outputUnitPriceUsd: representative.outputUnitPriceUsd,
     cacheReadUnitPriceUsd: representative.cacheReadUnitPriceUsd,
@@ -1446,18 +1451,18 @@ function numberValue(value: unknown): number | null {
 }
 
 function adminFixedPriceTiers(value: unknown): Array<{ label: string; price: number; unit?: string | null }> {
-  return objectArray(value)
-    .map((item) => {
-      const label = nullableString(item.label);
-      const price = numberValue(item.price);
-      if (!label || price === null || price <= 0) return null;
-      return {
-        label,
-        price,
-        unit: nullableString(item.unit),
-      };
-    })
-    .filter((item): item is { label: string; price: number; unit?: string | null } => item !== null);
+  const tiers: Array<{ label: string; price: number; unit?: string | null }> = [];
+  for (const item of objectArray(value)) {
+    const label = nullableString(item.label);
+    const price = numberValue(item.price);
+    if (!label || price === null || price <= 0) continue;
+    tiers.push({
+      label,
+      price,
+      unit: nullableString(item.unit),
+    });
+  }
+  return tiers;
 }
 
 function getAdminUnitPriceUsd(

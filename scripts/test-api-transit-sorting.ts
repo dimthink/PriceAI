@@ -20,6 +20,7 @@ import {
   hasPublicTransitModelDetectionReport,
   normalizedTransitCommercialOfferDisclosure,
   getRechargeCoefficientFromRatio,
+  formatTransitFixedPriceValue,
   scoreTransitRelativeCost,
   scoreTransitReliability,
   scoreTransitTtft,
@@ -89,6 +90,49 @@ function station(input: {
       publicNotes: null,
     },
   };
+}
+
+function imageStation(input: {
+  id: string;
+  name: string;
+  fixedPrice: number;
+  availabilityRate: number;
+  availabilitySamples: number;
+}): TransitStation {
+  const base = station({
+    id: input.id,
+    name: input.name,
+    claudeRate: 0.2,
+    availabilityRate: input.availabilityRate,
+    availabilitySamples: input.availabilitySamples,
+  });
+  base.prices = [
+    {
+      family: "image",
+      standardModel: "GPT Image 2",
+      groupName: "image",
+      rechargeRatio: "1:1",
+      billingMode: "per_request",
+      modelMultiplier: null,
+      inputPrice: null,
+      outputPrice: null,
+      cacheReadPrice: null,
+      cacheWritePrice: null,
+      imageOutputPrice: null,
+      fixedPrice: input.fixedPrice,
+      fixedPriceCurrency: "CNY",
+      fixedPriceUnit: "request",
+      fixedPriceTiers: [],
+      currency: "CNY",
+      accountPool: "max",
+      channelType: "first_party_pool",
+      priceSource: "test",
+      lastVerifiedAt: now,
+      availability: availability(input.availabilityRate, input.availabilitySamples),
+      cacheUsage: { hitRate: 0.99, sampleTokens: 100_000 },
+    },
+  ];
+  return base;
 }
 
 function availability(sevenDayRate: number, sevenDaySamples: number): TransitStation["availability"] {
@@ -168,6 +212,30 @@ assertDeepEqual(
   }).map((item) => item.id),
   ["cheaper-station", "pricier-station"],
 );
+
+const cheapImageStation = imageStation({
+  id: "cheap-image-station",
+  name: "Cheap Image Station",
+  fixedPrice: 0.016,
+  availabilityRate: 0.99,
+  availabilitySamples: 240,
+});
+const expensiveImageStation = imageStation({
+  id: "expensive-image-station",
+  name: "Expensive Image Station",
+  fixedPrice: 0.08,
+  availabilityRate: 0.99,
+  availabilitySamples: 240,
+});
+assertDeepEqual(
+  compareStations([expensiveImageStation, cheapImageStation], "rate", { activeFamily: "image" }).map((item) => item.id),
+  ["cheap-image-station", "expensive-image-station"],
+);
+const imageSummary = getTransitModelSummaries([expensiveImageStation, cheapImageStation], "image")
+  .find((summary) => summary.standardModel === "GPT Image 2");
+assertEqual(imageSummary?.bestCombinedRate, null);
+assertEqual(imageSummary?.bestFixedPrice, 0.016);
+assertEqual(formatTransitFixedPriceValue(imageSummary?.bestFixedPrice ?? null), "¥0.016/次");
 
 const neutralStation = station({
   id: "neutral-station",
