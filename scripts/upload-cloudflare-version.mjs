@@ -24,6 +24,8 @@ const wrangler = join(
 );
 
 try {
+  await waitForPreviewUrls();
+
   // OpenNext's remote cache helper requires OAuth state that API-token CI does not have.
   // Upload the validated bundle directly; preview and production smoke cover cold-cache behavior.
   const result = spawnSync(
@@ -108,4 +110,28 @@ function normalizeAlias(value) {
     throw new Error("CLOUDFLARE_PREVIEW_ALIAS must be a valid DNS label.");
   }
   return normalized;
+}
+
+async function waitForPreviewUrls() {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const workerName = "priceai-cloudflare-poc";
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}/subdomain`;
+
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const payload = await response.json();
+
+    if (!response.ok || payload.success !== true) {
+      const message = payload.errors?.map((error) => error.message).filter(Boolean).join("; ");
+      throw new Error(`Unable to verify Cloudflare Preview URLs: ${message || `HTTP ${response.status}`}`);
+    }
+    if (payload.result?.previews_enabled === true) return;
+
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  throw new Error("Cloudflare Preview URLs did not become active within 20 seconds.");
 }
