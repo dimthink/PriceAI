@@ -106,7 +106,7 @@ export function isFeedbackImageEvidenceReference(value: string): boolean {
   try {
     const parsed = new URL(trimmed);
     if (parsed.protocol !== "r2:" || parsed.hostname !== "feedback-evidence") return false;
-    return /^\/feedback\/\d{4}\/\d{2}\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/i.test(parsed.pathname);
+    return /^\/(?:feedback\/\d{4}\/\d{2}\/[0-9a-f-]{36}|feedback-drafts\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36})\.(?:jpg|png|webp)$/i.test(parsed.pathname);
   } catch {
     return false;
   }

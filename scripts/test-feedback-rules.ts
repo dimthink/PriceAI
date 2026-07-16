@@ -1,10 +1,13 @@
 import {
   AFTERSALES_FEEDBACK_REASON,
   buildInitialFeedbackVerificationResult,
+  countFeedbackImageEvidenceReferences,
   feedbackRequiresContact,
   feedbackRequiresEvidence,
   feedbackRequiresImageEvidence,
+  hasFeedbackImageEvidenceReference,
   inferSuggestedActionForFeedback,
+  isFeedbackImageEvidenceReference,
   MODEL_PRECHECK_FEEDBACK_REASONS,
   shouldCreateFeedbackVerification,
 } from "../src/lib/trust-risk.js";
@@ -53,6 +56,13 @@ for (const reason of highRiskReasons) {
 assertEqual(inferSuggestedActionForFeedback("wrong_price"), "recollect", "wrong_price should still suggest recollection");
 assertEqual(shouldCreateFeedbackVerification("item_removed"), true, "item_removed should still enter link verification");
 assertEqual(shouldCreateFeedbackVerification("stock_mismatch"), true, "stock_mismatch should still enter link verification");
+
+const legacyImageReference = "r2://feedback-evidence/feedback/2026/07/1485f294-feae-4c77-998f-a4ccad012539.png";
+const draftImageReference = "r2://feedback-evidence/feedback-drafts/1485f294-feae-4c77-998f-a4ccad012539/98e8d80f-03c9-460c-a134-c5f094b9f7d2/77f4c098-8408-40c8-a3bb-2459335624f7.webp";
+assertEqual(isFeedbackImageEvidenceReference(legacyImageReference), true, "legacy bound feedback image reference should count as image evidence");
+assertEqual(isFeedbackImageEvidenceReference(draftImageReference), true, "uploaded draft feedback image reference should count as image evidence before binding");
+assertEqual(hasFeedbackImageEvidenceReference([draftImageReference]), true, "draft image references should satisfy high-risk image evidence checks");
+assertEqual(countFeedbackImageEvidenceReferences([draftImageReference, "https://example.com/evidence.png"]), 1, "only managed image references should count as image evidence");
 
 console.log("feedback rules test passed");
 
