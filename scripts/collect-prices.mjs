@@ -34,6 +34,8 @@ const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
 const SHOP_API_FULL_SNAPSHOT_OFFER_LIMIT = 500;
 const DEFAULT_SHOP_API_PROXY_HOSTS = ["pay.ldxp.cn", "ldxp.cn"];
 const SHOP_API_PROXY_REQUEST_TIMEOUT_MS = 20_000;
+const DEFAULT_SHOP_API_PROXY_REUSE_LIMIT = 1;
+const DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS = 55_000;
 const STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT = 600;
 const STRUCTURED_FULL_SNAPSHOT_COLLECTORS = new Set(["kami", "shopApi"]);
 const EMPTY_FULL_SNAPSHOT_COLLECTORS = new Set(["kami"]);
@@ -110,15 +112,21 @@ export async function runPriceCollection(options = {}) {
       concurrency,
       async (group) => {
         const results = [];
-        for (const target of group.targets) {
-          const result = await collectOneTarget(target, options, logger, lockOwner, familyState, writeQueue);
-          results.push(result);
+        const shopApiProxyReusePool = createShopApiProxyReusePool(options);
+        const groupOptions = { ...options, shopApiProxyReusePool };
+        try {
+          for (const target of group.targets) {
+            const result = await collectOneTarget(target, groupOptions, logger, lockOwner, familyState, writeQueue);
+            results.push(result);
 
-          const familyPause = collectionFamilyRunPauseReason(target, familyState);
-          if (familyPause) {
-            logger?.log(`Paused ${familyPause.label}: ${familyPause.message}`);
-            break;
+            const familyPause = collectionFamilyRunPauseReason(target, familyState);
+            if (familyPause) {
+              logger?.log(`Paused ${familyPause.label}: ${familyPause.message}`);
+              break;
+            }
           }
+        } finally {
+          await closeShopApiProxyReusePool(shopApiProxyReusePool);
         }
         return results;
       },
@@ -598,6 +606,7 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
         message,
       });
       lastError = error;
+      await discardShopApiProxyReuseForTarget(target, options);
     }
 
     if (attempt < maxAttempts) {
@@ -873,7 +882,7 @@ async function collectShopApi(target, options = {}) {
 
     return offers;
   } finally {
-    if (proxyContext?.dispatcher?.close) {
+    if (!proxyContext?.shared && proxyContext?.dispatcher?.close) {
       await proxyContext.dispatcher.close().catch(() => {});
     }
   }
@@ -3457,6 +3466,9 @@ async function createShopApiProxyContext(target, options = {}) {
   const host = normalizeHostname(target.baseUrl || target.sourceUrl);
   if (!hosts.has(host)) return null;
 
+  const sharedProxyContext = await shopApiProxyContextFromReusePool(host, options);
+  if (sharedProxyContext) return sharedProxyContext;
+
   const proxyUrl = await resolveShopApiProxyUrl(options);
   if (!proxyUrl) return null;
 
@@ -3464,6 +3476,92 @@ async function createShopApiProxyContext(target, options = {}) {
     proxyUrl,
     dispatcher: new ProxyAgent(proxyUrl),
   };
+}
+
+function createShopApiProxyReusePool(options = {}) {
+  return {
+    enabled: shopApiProxyReuseLimitFor(options) > 1,
+    limit: shopApiProxyReuseLimitFor(options),
+    ttlMs: shopApiProxyReuseTtlMsFor(options),
+    entries: new Map(),
+  };
+}
+
+async function shopApiProxyContextFromReusePool(host, options = {}) {
+  const pool = options.shopApiProxyReusePool;
+  if (!pool?.enabled) return null;
+
+  const now = Date.now();
+  const existing = pool.entries.get(host);
+  if (existing && existing.remaining > 0 && existing.expiresAt > now) {
+    existing.remaining -= 1;
+    return {
+      ...existing.context,
+      shared: true,
+    };
+  }
+
+  if (existing) {
+    await closeShopApiProxyReuseEntry(existing);
+    pool.entries.delete(host);
+  }
+
+  const proxyUrl = await resolveShopApiProxyUrl(options);
+  if (!proxyUrl) return null;
+
+  const entry = {
+    context: {
+      proxyUrl,
+      dispatcher: new ProxyAgent(proxyUrl),
+    },
+    expiresAt: now + pool.ttlMs,
+    remaining: pool.limit - 1,
+  };
+  pool.entries.set(host, entry);
+
+  return {
+    ...entry.context,
+    shared: true,
+  };
+}
+
+async function discardShopApiProxyReuseForTarget(target, options = {}) {
+  const pool = options.shopApiProxyReusePool;
+  if (!pool?.enabled) return;
+
+  const host = normalizeHostname(target.baseUrl || target.sourceUrl);
+  const entry = pool.entries.get(host);
+  if (!entry) return;
+
+  await closeShopApiProxyReuseEntry(entry);
+  pool.entries.delete(host);
+}
+
+async function closeShopApiProxyReusePool(pool) {
+  if (!pool?.entries) return;
+  const entries = [...pool.entries.values()];
+  pool.entries.clear();
+  await Promise.all(entries.map((entry) => closeShopApiProxyReuseEntry(entry)));
+}
+
+async function closeShopApiProxyReuseEntry(entry) {
+  await entry?.context?.dispatcher?.close?.().catch(() => {});
+}
+
+function shopApiProxyReuseLimitFor(options = {}) {
+  const raw =
+    optionValue(options, "shopApiProxyReuseLimit", "shop-api-proxy-reuse-limit") ||
+    runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_REUSE_LIMIT") ||
+    DEFAULT_SHOP_API_PROXY_REUSE_LIMIT;
+  return integerInRange(raw, 1, 20, DEFAULT_SHOP_API_PROXY_REUSE_LIMIT);
+}
+
+function shopApiProxyReuseTtlMsFor(options = {}) {
+  const raw =
+    optionValue(options, "shopApiProxyReuseTtlMs", "shop-api-proxy-reuse-ttl-ms") ||
+    runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_REUSE_TTL_MS") ||
+    DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS;
+  return integerInRange(raw, 1_000, 10 * 60 * 1000, DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS);
 }
 
 async function resolveShopApiProxyUrl(options = {}) {
