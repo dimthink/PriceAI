@@ -2235,7 +2235,7 @@ $$;
 revoke execute on function list_public_merchant_summaries() from anon, public;
 grant execute on function list_public_merchant_summaries() to service_role;
 
-create or replace function list_source_quality_price_benchmarks()
+create or replace function build_source_quality_price_benchmark_rows()
 returns table (
   source_id text,
   competitive_scope_count bigint,
@@ -2566,6 +2566,103 @@ as $$
     source_aggregates.top5_hit_count desc,
     source_aggregates.benchmark_offer_count desc,
     source_aggregates.source_id asc;
+$$;
+
+revoke execute on function build_source_quality_price_benchmark_rows() from anon, authenticated, public;
+grant execute on function build_source_quality_price_benchmark_rows() to service_role;
+
+drop materialized view if exists source_quality_price_benchmarks;
+
+create materialized view source_quality_price_benchmarks as
+select
+  build_source_quality_price_benchmark_rows.source_id,
+  build_source_quality_price_benchmark_rows.competitive_scope_count,
+  build_source_quality_price_benchmark_rows.priced_offer_count,
+  build_source_quality_price_benchmark_rows.benchmark_offer_count,
+  build_source_quality_price_benchmark_rows.lowest_hit_count,
+  build_source_quality_price_benchmark_rows.top5_hit_count,
+  build_source_quality_price_benchmark_rows.within_10pct_count,
+  build_source_quality_price_benchmark_rows.within_20pct_count,
+  build_source_quality_price_benchmark_rows.high_gap_count,
+  build_source_quality_price_benchmark_rows.high_gap_share,
+  build_source_quality_price_benchmark_rows.median_gap_to_min,
+  build_source_quality_price_benchmark_rows.median_gap_to_top5,
+  build_source_quality_price_benchmark_rows.avg_gap_to_min,
+  build_source_quality_price_benchmark_rows.sample_scopes,
+  now() as computed_at
+from build_source_quality_price_benchmark_rows();
+
+create unique index source_quality_price_benchmarks_source_id_idx
+  on source_quality_price_benchmarks(source_id);
+
+revoke all on table source_quality_price_benchmarks from anon, authenticated, public;
+grant select on table source_quality_price_benchmarks to service_role;
+
+create or replace function refresh_source_quality_price_benchmarks()
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  refreshed_count bigint;
+begin
+  refresh materialized view source_quality_price_benchmarks;
+
+  select count(*)
+  into refreshed_count
+  from source_quality_price_benchmarks;
+
+  return refreshed_count;
+end;
+$$;
+
+revoke execute on function refresh_source_quality_price_benchmarks() from anon, authenticated, public;
+grant execute on function refresh_source_quality_price_benchmarks() to service_role;
+
+create or replace function list_source_quality_price_benchmarks()
+returns table (
+  source_id text,
+  competitive_scope_count bigint,
+  priced_offer_count bigint,
+  benchmark_offer_count bigint,
+  lowest_hit_count bigint,
+  top5_hit_count bigint,
+  within_10pct_count bigint,
+  within_20pct_count bigint,
+  high_gap_count bigint,
+  high_gap_share numeric,
+  median_gap_to_min numeric,
+  median_gap_to_top5 numeric,
+  avg_gap_to_min numeric,
+  sample_scopes jsonb
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    source_quality_price_benchmarks.source_id,
+    source_quality_price_benchmarks.competitive_scope_count,
+    source_quality_price_benchmarks.priced_offer_count,
+    source_quality_price_benchmarks.benchmark_offer_count,
+    source_quality_price_benchmarks.lowest_hit_count,
+    source_quality_price_benchmarks.top5_hit_count,
+    source_quality_price_benchmarks.within_10pct_count,
+    source_quality_price_benchmarks.within_20pct_count,
+    source_quality_price_benchmarks.high_gap_count,
+    source_quality_price_benchmarks.high_gap_share,
+    source_quality_price_benchmarks.median_gap_to_min,
+    source_quality_price_benchmarks.median_gap_to_top5,
+    source_quality_price_benchmarks.avg_gap_to_min,
+    source_quality_price_benchmarks.sample_scopes
+  from source_quality_price_benchmarks
+  order by
+    source_quality_price_benchmarks.lowest_hit_count desc,
+    source_quality_price_benchmarks.top5_hit_count desc,
+    source_quality_price_benchmarks.benchmark_offer_count desc,
+    source_quality_price_benchmarks.source_id asc;
 $$;
 
 revoke execute on function list_source_quality_price_benchmarks() from anon, authenticated, public;
