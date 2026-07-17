@@ -963,7 +963,7 @@ export function buildProductGroups(
     product.inStockCount = product.offers.filter(isAvailable).length;
     product.outOfStockCount = Math.max(0, product.offers.length - product.inStockCount);
     const excludeTelegramStars = product.id === "telegram-premium";
-    const lowestOfferOptions = { excludeSharedAccess: true, excludeDomesticMirrorSite: true, excludeTelegramStars };
+    const lowestOfferOptions = { excludeSharedAccess: true, excludeDomesticMirrorSite: true, excludeWebOnlyAccount: true, excludeTelegramStars };
     const displayLowestOffer = getDisplayLowestOffer(product.offers, lowestOfferOptions);
     const warrantyLowestOffer = getDisplayLowestOffer(product.offers.filter(isLongWarrantyOffer), lowestOfferOptions);
     const priceMeta = getOfferPriceMeta(displayLowestOffer);
@@ -1008,6 +1008,9 @@ export function compareOffers(a: RawOffer, b: RawOffer): number {
   const mirrorSiteDelta = Number(isDomesticMirrorSiteOffer(a)) - Number(isDomesticMirrorSiteOffer(b));
   if (isAvailable(a) && isAvailable(b) && mirrorSiteDelta !== 0) return mirrorSiteDelta;
 
+  const webOnlyAccountDelta = Number(isWebOnlyAccountOffer(a)) - Number(isWebOnlyAccountOffer(b));
+  if (isAvailable(a) && isAvailable(b) && webOnlyAccountDelta !== 0) return webOnlyAccountDelta;
+
   const telegramStarsDelta = Number(isTelegramStarsOffer(a)) - Number(isTelegramStarsOffer(b));
   if (isAvailable(a) && isAvailable(b) && telegramStarsDelta !== 0) return telegramStarsDelta;
 
@@ -1045,12 +1048,13 @@ export function getOfferPriceMeta(
 
 function getDisplayLowestOffer(
   offers: RawOffer[],
-  options: { excludeSharedAccess?: boolean; excludeDomesticMirrorSite?: boolean; excludeTelegramStars?: boolean } = {},
+  options: { excludeSharedAccess?: boolean; excludeDomesticMirrorSite?: boolean; excludeWebOnlyAccount?: boolean; excludeTelegramStars?: boolean } = {},
 ): RawOffer | null {
   const displayPool = offers.filter((offer) => {
     if (!hasUsablePrice(offer) || !isAvailable(offer)) return false;
     if (options.excludeSharedAccess && isSharedAccessOffer(offer)) return false;
     if (options.excludeDomesticMirrorSite && isDomesticMirrorSiteOffer(offer)) return false;
+    if (options.excludeWebOnlyAccount && isWebOnlyAccountOffer(offer)) return false;
     if (options.excludeTelegramStars && isTelegramStarsOffer(offer)) return false;
     return true;
   });
@@ -1080,6 +1084,10 @@ export function isDomesticMirrorSiteOffer(offer: RawOffer): boolean {
   return offerMatchesFilterTags(offer, ["domestic_mirror_site"]);
 }
 
+export function isWebOnlyAccountOffer(offer: RawOffer): boolean {
+  return offerMatchesFilterTags(offer, ["web_only_account"]);
+}
+
 function hasUsablePrice(offer: RawOffer): offer is RawOffer & { price: number } {
   return typeof offer.price === "number" && Number.isFinite(offer.price);
 }
@@ -1089,6 +1097,7 @@ export function collectOfferFlags(offer: RawOffer): string[] {
 
   if (!isAvailable(offer)) flags.add("缺货");
   if (isSharedAccessOffer(offer)) flags.add("拼车/团购");
+  if (isWebOnlyAccountOffer(offer)) flags.add("网页号");
   if (offer.tags.some((tag) => tag.includes("无质保"))) flags.add("无质保");
 
   return Array.from(flags);

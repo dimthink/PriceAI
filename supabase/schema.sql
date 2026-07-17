@@ -368,10 +368,20 @@ begin
     output := array_append(output, 'domestic_mirror_site');
   end if;
 
+  if text_value ~ '(网页号|仅限网页|仅支持?网页|只支持网页|只能网页|仅网页|只可网页|只能网页登录|仅网页登录)' then
+    output := array_append(output, 'web_only_account');
+  end if;
+
   if title_text ~ '(自助充值|自助开通|自助卡密|卡密自助|自助激活|自动充值|自动开通|自动激活|全自动激活|全自动开通|直充|代充|卡充|充值|续费|代开|内购|激活码|兑换码|cdk|卡密|提链|提取链接|支付二维码|扫码对接|upi扫码|pix渠道|ideal渠道|i deal渠道)'
     or tags_text ~ '(自助充值|自助开通|自助卡密|卡密自助|自助激活|自动充值|自动开通|自动激活|全自动激活|全自动开通|直充|代充|卡充|充值|续费|代开|内购|激活码|兑换码|cdk|提链|提取链接|支付二维码|扫码对接|upi扫码|pix渠道|ideal渠道|i deal渠道)'
   then
     output := array_append(output, 'delivery_recharge');
+  end if;
+
+  if text_value ~ '(未接码|未完成接码|没接码|未绑手机|未绑定手机|没绑手机|没绑定手机|未绑手机号|未绑定手机号|无手机绑定|无绑手机|自行接码|自己接码|需自行接码|需自己接码|需要自行接码|需要自己接码|需要接码|需接码|要接码|接码登录codex|codex.{0,12}(需|要|需要|自行|自己)接码)' then
+    output := array_append(output, 'account_unverified');
+  elsif text_value ~ '(已接码|已完成接码|已经接码|已手机接码|已绑手机|已绑定手机|已经绑手机|已经绑定手机|已绑手机号|已绑定手机号|带2fa|带二验|可二验)' then
+    output := array_append(output, 'account_verified');
   end if;
 
   if text_value !~ '(非成品|不是成品|非账号|不是账号|非账户|不是账户|不交付账号|不发账号|不提供账号|不含账号|无需账号|自备账号|自备号|自己账号|自己的账号|到自己账号|冲自己号|充值自己号|给自己号)'
@@ -757,7 +767,7 @@ as $$
         else 1
       end as availability_rank,
       case
-        when coalesce(raw_offers.public_filter_tags, priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags)) && array['shared_access', 'domestic_mirror_site']::text[]
+        when coalesce(raw_offers.public_filter_tags, priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags)) && array['shared_access', 'web_only_account', 'domestic_mirror_site']::text[]
         then 1
         else 0
       end as special_delivery_rank,
@@ -901,7 +911,7 @@ as $$
         else 1
       end as availability_rank,
       case
-        when filtered.public_filter_tags && array['shared_access', 'domestic_mirror_site']::text[]
+        when filtered.public_filter_tags && array['shared_access', 'web_only_account', 'domestic_mirror_site']::text[]
         then 1
         else 0
       end as special_delivery_rank,
@@ -1043,7 +1053,7 @@ as $$
         else false
       end as is_public_available,
       case
-        when coalesce(raw_offers.public_filter_tags, priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags)) @> array['shared_access']::text[]
+        when coalesce(raw_offers.public_filter_tags, priceai_public_offer_filter_tags(raw_offers.source_title, raw_offers.tags)) && array['shared_access', 'web_only_account', 'domestic_mirror_site']::text[]
         then 1
         else 0
       end as shared_access_rank,
@@ -1222,9 +1232,12 @@ as $$
   order by array_position(
     array[
       'shared_access',
+      'web_only_account',
       'domestic_mirror_site',
       'delivery_recharge',
       'delivery_account',
+      'account_verified',
+      'account_unverified',
       'gemini_12_month_link',
       'gemini_12_month_card_binding',
       'gemini_18_month_link',
@@ -1336,6 +1349,7 @@ as $$
     from offers
     where offers.is_public_available = true
       and not (offers.public_offer_filter_tags @> array['shared_access']::text[])
+      and not (offers.public_offer_filter_tags @> array['web_only_account']::text[])
       and not (offers.public_offer_filter_tags @> array['domestic_mirror_site']::text[])
   ),
   warranty_lowest_ranked as (
@@ -1355,6 +1369,7 @@ as $$
     where offers.is_public_available = true
       and offers.public_offer_filter_tags @> array['warranty_long']::text[]
       and not (offers.public_offer_filter_tags @> array['shared_access']::text[])
+      and not (offers.public_offer_filter_tags @> array['web_only_account']::text[])
       and not (offers.public_offer_filter_tags @> array['domestic_mirror_site']::text[])
   ),
   stats as (
@@ -2098,6 +2113,7 @@ as $$
     from deduped
     where deduped.is_public_available = true
       and not (deduped.public_offer_filter_tags @> array['shared_access']::text[])
+      and not (deduped.public_offer_filter_tags @> array['web_only_account']::text[])
       and not (deduped.public_offer_filter_tags @> array['domestic_mirror_site']::text[])
   ),
   warranty_lowest_ranked as (
@@ -2117,6 +2133,7 @@ as $$
     where deduped.is_public_available = true
       and deduped.public_offer_filter_tags @> array['warranty_long']::text[]
       and not (deduped.public_offer_filter_tags @> array['shared_access']::text[])
+      and not (deduped.public_offer_filter_tags @> array['web_only_account']::text[])
       and not (deduped.public_offer_filter_tags @> array['domestic_mirror_site']::text[])
   ),
   feedback as (
@@ -2262,9 +2279,12 @@ as $$
       ('default', '默认最低', null::text, true),
       ('warranty_long', '质保最低', 'warranty_long', true),
       ('shared_access', '拼车/团购', 'shared_access', false),
+      ('web_only_account', '网页号', 'web_only_account', false),
       ('domestic_mirror_site', '国内镜像站', 'domestic_mirror_site', false),
       ('delivery_recharge', '充值', 'delivery_recharge', false),
       ('delivery_account', '成品号', 'delivery_account', false),
+      ('account_verified', '已接码成品号', 'account_verified', false),
+      ('account_unverified', '未接码成品号', 'account_unverified', false),
       ('gemini_12_month_link', '12个月提链', 'gemini_12_month_link', false),
       ('gemini_12_month_card_binding', '12个月含绑卡', 'gemini_12_month_card_binding', false),
       ('gemini_18_month_link', '18个月链接', 'gemini_18_month_link', false),
@@ -2374,6 +2394,7 @@ as $$
       from scope_definitions
       where scope_definitions.scope_key = 'default'
         and not (deduped.public_offer_filter_tags @> array['shared_access']::text[])
+        and not (deduped.public_offer_filter_tags @> array['web_only_account']::text[])
         and not (deduped.public_offer_filter_tags @> array['domestic_mirror_site']::text[])
       union all
       select
@@ -2386,6 +2407,7 @@ as $$
           scope_definitions.exclude_shared_mirror = false
           or (
             not (deduped.public_offer_filter_tags @> array['shared_access']::text[])
+            and not (deduped.public_offer_filter_tags @> array['web_only_account']::text[])
             and not (deduped.public_offer_filter_tags @> array['domestic_mirror_site']::text[])
           )
         )

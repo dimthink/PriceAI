@@ -19,6 +19,7 @@ const {
   isDomesticMirrorSiteOffer,
   isSharedAccessOffer,
   isTelegramStarsOffer,
+  isWebOnlyAccountOffer,
   publicCatalogProducts,
   withCanonicalCatalogProduct,
 } = await loadCatalogModule();
@@ -458,6 +459,10 @@ const tagCases = [
   ["ChatGPT Plus 荷兰 iDEAL 自助渠道", ["chatgpt_plus_netherlands_ideal"]],
   ["印度 UPI渠道-PLUS成品号30天", ["chatgpt_plus_india_upi"]],
   ["GPT Plus 成品号 未接码（欧洲渠道）", ["chatgpt_plus_europe_channel"]],
+  ["GPT Plus 成品号（质保首登，codex已经用完，网页号）日抛", ["web_only_account"]],
+  ["ChatGPT Plus 成品号 仅限网页", ["web_only_account"]],
+  ["PLUS-成品-已接码rt-微软邮箱-支持登录网页端", ["account_verified"]],
+  ["【本店自营】GPT Plus 半成品号【未接码，质保发货2小时】", ["account_unverified"]],
   ["【质保-菲区卡冲】GPT Plus官方直充月卡", ["chatgpt_plus_recharge_ph_card"]],
   ["ChatGPT Plus 美区 iOS App Store 内购", ["chatgpt_plus_recharge_us_ios"]],
   ["ChatGPT Plus 官方直充 正价代充", ["chatgpt_plus_recharge_official_direct"]],
@@ -519,8 +524,8 @@ const productSpecificTagScopeCases = [
   ],
   [
     "chatgpt-plus",
-    ["chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel", "chatgpt_plus_recharge_ph_card", "delivery_account", "proxy_supported"],
-    ["delivery_account", "chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel", "proxy_supported"],
+    ["chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel", "chatgpt_plus_recharge_ph_card", "delivery_account", "proxy_supported", "web_only_account", "account_verified", "account_unverified"],
+    ["web_only_account", "account_verified", "account_unverified", "chatgpt_plus_brazil_pix", "chatgpt_plus_europe_channel"],
   ],
   [
     "chatgpt-plus-recharge",
@@ -679,7 +684,7 @@ const deliveryPollutionCases = [
       sourceTitle: "GPT Plus 成品号 未接码（欧洲渠道）",
       tags: ["卡密", "自动发货"],
     },
-    ["delivery_account"],
+    ["delivery_account", "account_unverified"],
     [],
   ],
   [
@@ -704,8 +709,10 @@ for (const [offer, expectedTags, unexpectedTags] of deliveryPollutionCases) {
 
 const productFacetCases = buildOfferFilterFacets([
   { sourceTitle: "ChatGPT Plus 月卡 30天质保 拼车" },
+  { sourceTitle: "GPT Plus 成品号（质保首登，codex已经用完，网页号）日抛" },
   { sourceTitle: "ChatGPT Plus 直充 卡密自助" },
-  { sourceTitle: "ChatGPT Plus 成品号 独享账号" },
+  { sourceTitle: "ChatGPT Plus 成品号 独享账号 已接码" },
+  { sourceTitle: "ChatGPT Plus 半成品号 未接码" },
   { sourceTitle: "Super Grok 独享成品号 3天会员" },
   { sourceTitle: "Grok Heavy 官方订阅年卡" },
   { sourceTitle: "OpenAI Codex 单次接码 1次验证" },
@@ -732,8 +739,12 @@ assert.ok(!chatGptFacetIds.includes("verification_single"), "ChatGPT Plus must n
 assert.ok(!chatGptFacetIds.includes("gemini_antigravity_gcp"), "ChatGPT Plus must not show Gemini condition filters.");
 assert.ok(!chatGptFacetIds.includes("team_k12"), "ChatGPT Plus must not show Team type filters.");
 assert.ok(chatGptFacetIds.includes("shared_access"), "ChatGPT Plus should keep shared-access filters.");
+assert.ok(chatGptFacetIds.includes("web_only_account"), "ChatGPT Plus should show web-only account filters.");
 assert.ok(chatGptFacetIds.includes("delivery_recharge"), "ChatGPT Plus should show recharge filters.");
-assert.ok(chatGptFacetIds.includes("delivery_account"), "ChatGPT Plus should show account-delivery filters.");
+assert.ok(!chatGptFacetIds.includes("delivery_account"), "ChatGPT Plus should replace generic account-delivery filters with account-state filters.");
+assert.ok(chatGptFacetIds.includes("account_verified"), "ChatGPT Plus should show verified account filters.");
+assert.ok(chatGptFacetIds.includes("account_unverified"), "ChatGPT Plus should show unverified account filters.");
+assert.ok(!chatGptFacetIds.includes("proxy_supported"), "ChatGPT Plus should hide proxy-supported filters.");
 assert.ok(chatGptFacetIds.includes("warranty_long"), "ChatGPT Plus should keep warranty filters.");
 
 const superGrokFacetIds = filterOfferFilterFacetsForProduct("super-grok", productFacetCases).map((facet) => facet.id);
@@ -815,8 +826,13 @@ assert.deepEqual(
 );
 assert.deepEqual(
   parseOfferFilterTagsForProduct("chatgpt-plus", "delivery_recharge,delivery_account,warranty_long"),
-  ["delivery_recharge", "delivery_account", "warranty_long"],
-  "ChatGPT Plus should accept delivery filters.",
+  ["delivery_recharge", "warranty_long"],
+  "ChatGPT Plus should ignore the legacy generic account-delivery filter.",
+);
+assert.deepEqual(
+  parseOfferFilterTagsForProduct("chatgpt-plus", "web_only_account,account_verified,account_unverified,warranty_long"),
+  ["web_only_account", "account_verified", "account_unverified", "warranty_long"],
+  "ChatGPT Plus should accept web-only and account-state filters.",
 );
 assert.deepEqual(
   parseOfferFilterTagsForProduct("chatgpt-team-business", "delivery_recharge,delivery_account,warranty_long"),
@@ -1040,6 +1056,34 @@ assert.equal(
 assert.ok(
   isDomesticMirrorSiteOffer(domesticMirrorPlusGroup.offers.find((offer) => offer.id === "cheap-mirror")),
   "Mirror site titles should remain identifiable for the domestic mirror site filter.",
+);
+
+const webOnlyAccountGroups = buildProductGroups([
+  makeOffer({ id: "cheap-web-only", title: "GPT Plus 成品号（质保首登，codex已经用完，网页号）日抛", price: 2, status: "in_stock" }),
+  makeOffer({ id: "regular-plus-account", title: "ChatGPT Plus 成品号 独享账号 已接码", price: 88, status: "in_stock" }),
+  makeOffer({ id: "warranty-web-only", title: "ChatGPT Plus 成品号 仅限网页 30天质保", price: 8, status: "in_stock" }),
+  makeOffer({ id: "warranty-regular-plus", title: "ChatGPT Plus 月卡 30天质保 已接码", price: 99, status: "in_stock" }),
+]);
+const webOnlyPlusGroup = webOnlyAccountGroups.find((group) => group.id === "chatgpt-plus");
+assert.ok(webOnlyPlusGroup, "ChatGPT Plus group should include web-only account offers.");
+assert.equal(
+  webOnlyPlusGroup.lowestOffer?.id,
+  "regular-plus-account",
+  "Web-only account offers must not drive ChatGPT Plus default lowest price.",
+);
+assert.equal(
+  webOnlyPlusGroup.warrantyLowestOffer?.id,
+  "warranty-regular-plus",
+  "Web-only account offers must not drive warranty lowest price.",
+);
+assert.equal(
+  webOnlyPlusGroup.offers.at(-1)?.id,
+  "warranty-web-only",
+  "Available web-only account offers should sort behind regular available offers.",
+);
+assert.ok(
+  isWebOnlyAccountOffer(webOnlyPlusGroup.offers.find((offer) => offer.id === "cheap-web-only")),
+  "Web-only titles should remain identifiable for the web-only filter.",
 );
 
 const otherDisplayOrder = [

@@ -18,9 +18,12 @@ export type OfferFilterTagGroup = keyof typeof OFFER_FILTER_TAG_GROUPS;
 
 export type OfferFilterTagId =
   | "shared_access"
+  | "web_only_account"
   | "domestic_mirror_site"
   | "delivery_recharge"
   | "delivery_account"
+  | "account_verified"
+  | "account_unverified"
   | "gemini_12_month_link"
   | "gemini_12_month_card_binding"
   | "gemini_18_month_link"
@@ -77,6 +80,12 @@ export const OFFER_FILTER_TAGS: OfferFilterTagDefinition[] = [
     description: "多人共享、几人车、拼车、团购、车位或合租类报价。",
   },
   {
+    id: "web_only_account",
+    label: "网页号",
+    group: "access",
+    description: "网页号、仅限网页、仅网页或只能网页使用的 ChatGPT Plus 报价。",
+  },
+  {
     id: "domestic_mirror_site",
     label: "国内镜像站",
     group: "access",
@@ -93,6 +102,18 @@ export const OFFER_FILTER_TAGS: OfferFilterTagDefinition[] = [
     label: "成品号",
     group: "access",
     description: "交付成品号、账号、账密、独享号、首登或接码状态明确的报价。",
+  },
+  {
+    id: "account_verified",
+    label: "已接码成品号",
+    group: "access",
+    description: "已接码、已绑定手机或手机验证状态已完成的 ChatGPT Plus 成品号。",
+  },
+  {
+    id: "account_unverified",
+    label: "未接码成品号",
+    group: "access",
+    description: "未接码、未绑定手机或需要自行接码的 ChatGPT Plus 成品号。",
   },
   {
     id: "gemini_12_month_link",
@@ -356,6 +377,11 @@ const CHATGPT_PLUS_CHANNEL_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "chatgpt_plus_india_upi",
   "chatgpt_plus_europe_channel",
 ]);
+const CHATGPT_PLUS_ACCOUNT_STATE_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
+  "web_only_account",
+  "account_verified",
+  "account_unverified",
+]);
 const CHATGPT_PLUS_RECHARGE_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "chatgpt_plus_recharge_ph_card",
   "chatgpt_plus_recharge_us_ios",
@@ -465,7 +491,8 @@ export function filterOfferFilterFacetsForProduct(productId: string, facets: Off
 
 export function offerFilterTagAppliesToProduct(productId: string, tagId: OfferFilterTagId): boolean {
   if (tagId === "delivery_recharge") return AI_SUBSCRIPTION_RECHARGE_FILTER_PRODUCT_IDS.has(productId);
-  if (tagId === "delivery_account") return AI_SUBSCRIPTION_ACCOUNT_DELIVERY_FILTER_PRODUCT_IDS.has(productId);
+  if (tagId === "delivery_account") return productId !== "chatgpt-plus" && AI_SUBSCRIPTION_ACCOUNT_DELIVERY_FILTER_PRODUCT_IDS.has(productId);
+  if (CHATGPT_PLUS_ACCOUNT_STATE_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-plus";
   if (DURATION_FILTER_TAG_IDS.has(tagId)) return DURATION_FILTER_PRODUCT_IDS.has(productId);
   if (VERIFICATION_FILTER_TAG_IDS.has(tagId)) return VERIFICATION_FILTER_PRODUCT_IDS.has(productId);
   if (TELEGRAM_ACCOUNT_FILTER_TAG_IDS.has(tagId)) return productId === "telegram-account";
@@ -477,8 +504,12 @@ export function offerFilterTagAppliesToProduct(productId: string, tagId: OfferFi
   if (PRO_MAX_RECHARGE_MODE_FILTER_TAG_IDS.has(tagId)) return PRO_MAX_FILTER_PRODUCT_IDS.has(productId);
   if (CHATGPT_PRO_CHANNEL_FILTER_TAG_IDS.has(tagId)) return CHATGPT_PRO_FILTER_PRODUCT_IDS.has(productId);
   if (CHATGPT_TEAM_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-team-business";
-  if (tagId === "proxy_supported") return PROXY_SUPPORTED_FILTER_PRODUCT_IDS.has(productId);
+  if (tagId === "proxy_supported") return productId !== "chatgpt-plus" && PROXY_SUPPORTED_FILTER_PRODUCT_IDS.has(productId);
   return true;
+}
+
+export function isChatGptPlusChannelFilterTag(tagId: OfferFilterTagId): boolean {
+  return CHATGPT_PLUS_CHANNEL_FILTER_TAG_IDS.has(tagId);
 }
 
 export function deriveOfferFilterTags(input: {
@@ -502,8 +533,17 @@ export function deriveOfferFilterTags(input: {
     output.add("domestic_mirror_site");
   }
 
+  if (hasWebOnlyAccountSignal(text)) {
+    output.add("web_only_account");
+  }
+
   if (hasSelfServiceDeliverySignal(titleText) || hasSpecificDeliveryTagSignal(sourceTagsText)) {
     output.add("delivery_recharge");
+  }
+  if (hasAccountUnverifiedSignal(text)) {
+    output.add("account_unverified");
+  } else if (hasAccountVerifiedSignal(text)) {
+    output.add("account_verified");
   }
   if (
     !hasAccountDeliveryNegativeSignal(text) &&
@@ -657,6 +697,10 @@ function hasDomesticMirrorSiteSignal(text: string): boolean {
   return /国内镜像站|国内镜像|网页镜像|镜像站|镜像|mirror/.test(text);
 }
 
+function hasWebOnlyAccountSignal(text: string): boolean {
+  return /网页号|仅限网页|仅支持?网页|只支持网页|只能网页|仅网页|只可网页|只能网页登录|仅网页登录/.test(text);
+}
+
 function hasSelfServiceDeliverySignal(text: string): boolean {
   return /自助充值|自助开通|自助卡密|卡密自助|自助激活|自动充值|自动开通|自动激活|全自动激活|全自动开通|直充|代充|卡充|充值|续费|代开|内购|激活码|兑换码|cdk|卡密|提链|提取链接|支付二维码|扫码对接|upi扫码|pix渠道|ideal渠道|i deal渠道/.test(text);
 }
@@ -675,6 +719,14 @@ function hasAccountDeliveryExclusionSignal(text: string): boolean {
 
 function hasAccountDeliverySignal(text: string): boolean {
   return /成品号|成品账号|成品帐号|成品会员账号|成品|账号购买|账号|帐号|账户|账密|独享号|独享账号|独享账户|库存号|会员号|普通号|普号|白号|网页号|半成品|首登|保首登|质保首登|直登|未接码|已接码|已接|未接|带2fa|带二验|可二验|已绑手机|未绑手机/.test(text);
+}
+
+function hasAccountVerifiedSignal(text: string): boolean {
+  return /已接码|已完成接码|已经接码|已手机接码|已绑手机|已绑定手机|已经绑手机|已经绑定手机|已绑手机号|已绑定手机号|带2fa|带二验|可二验/.test(text);
+}
+
+function hasAccountUnverifiedSignal(text: string): boolean {
+  return /未接码|未完成接码|没接码|未绑手机|未绑定手机|没绑手机|没绑定手机|未绑手机号|未绑定手机号|无手机绑定|无绑手机|自行接码|自己接码|需自行接码|需自己接码|需要自行接码|需要自己接码|需要接码|需接码|要接码|接码登录codex|codex.{0,12}(需|要|需要|自行|自己)接码/.test(text);
 }
 
 function hasChatGptTeamK12Signal(text: string): boolean {

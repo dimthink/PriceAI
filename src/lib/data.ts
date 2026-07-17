@@ -14,6 +14,7 @@ import {
   isDomesticMirrorSiteOffer,
   isSharedAccessOffer,
   isTelegramStarsOffer,
+  isWebOnlyAccountOffer,
   publicCatalogProducts,
   resolveOfferProduct,
   withCanonicalCatalogProduct,
@@ -171,7 +172,7 @@ const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET = 0;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS = OFFER_FILTER_TAGS.map((tag) => tag.id);
 const PUBLIC_OFFERS_SNAPSHOT_KEY = `default:limit:${PUBLIC_OFFERS_SNAPSHOT_LIMIT}`;
 const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
-const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION = "v4-ai-subscription-tags";
+const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION = "v5-plus-account-state-tags";
 const PUBLIC_LIST_SNAPSHOT_STOCKS = ["available"] as const;
 const PUBLIC_LIST_SNAPSHOT_SORTS = ["updated"] as const;
 const PUBLIC_MERCHANT_SNAPSHOT_SIGNALS = ["lowest", "warranty", "platform_aftersales", "risk_clear"] as const;
@@ -6349,6 +6350,9 @@ function comparePublicOffers(a: RawOffer, b: RawOffer): number {
 
   const mirrorSiteDelta = Number(isDomesticMirrorSiteOffer(a)) - Number(isDomesticMirrorSiteOffer(b));
   if (isOfferAvailableForPublicList(a) && isOfferAvailableForPublicList(b) && mirrorSiteDelta !== 0) return mirrorSiteDelta;
+
+  const webOnlyAccountDelta = Number(isWebOnlyAccountOffer(a)) - Number(isWebOnlyAccountOffer(b));
+  if (isOfferAvailableForPublicList(a) && isOfferAvailableForPublicList(b) && webOnlyAccountDelta !== 0) return webOnlyAccountDelta;
 
   const telegramStarsDelta = Number(isTelegramStarsOffer(a)) - Number(isTelegramStarsOffer(b));
   if (isOfferAvailableForPublicList(a) && isOfferAvailableForPublicList(b) && telegramStarsDelta !== 0) return telegramStarsDelta;

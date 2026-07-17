@@ -25,6 +25,7 @@ import {
 } from "@/lib/merchant-collectors";
 import {
   OFFER_FILTER_TAG_BY_ID,
+  isChatGptPlusChannelFilterTag,
   parseOfferFilterTagsForProduct,
   toggleOfferFilterTag,
   type OfferFilterTagFacet,
@@ -75,6 +76,15 @@ const PRODUCT_OFFERS_REFRESH_TIMEOUT_MS = 10_000;
 const PRODUCT_OFFERS_MEMORY_CACHE_LIMIT = 40;
 const FEEDBACK_EVIDENCE_MAX_IMAGES = 5;
 const INVENTORY_NUMBER_FORMATTER = new Intl.NumberFormat("zh-CN");
+const CHATGPT_PLUS_QUICK_FILTER_TAG_IDS: OfferFilterTagId[] = [
+  "shared_access",
+  "web_only_account",
+  "domestic_mirror_site",
+  "delivery_recharge",
+  "account_verified",
+  "account_unverified",
+  "warranty_long",
+];
 const productOffersMemoryCache = new Map<string, ProductOffersResponse>();
 
 export function ProductOffersPanel({
@@ -362,6 +372,14 @@ export function ProductOffersPanel({
     syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice);
   }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags]);
 
+  const handleClearFilterTags = useCallback((tagIds: OfferFilterTagId[]) => {
+    if (!tagIds.length) return;
+    const removeIds = new Set(tagIds);
+    const nextTags = selectedFilterTags.filter((tagId) => !removeIds.has(tagId));
+    setSelectedFilterTags(nextTags);
+    syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice);
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags]);
+
   const applyOfferFilters = useCallback(() => {
     const nextQuery = normalizeOfferSearchQuery(queryInput);
     const nextExcludeQuery = normalizeOfferSearchQuery(excludeInput, 160);
@@ -431,6 +449,7 @@ export function ProductOffersPanel({
         <InlineErrorBanner message={error} />
       ) : null}
       <OfferFilterBar
+        productId={productId}
         facets={filterFacets}
         selectedTags={selectedFilterTags}
         selectedCollector={selectedCollector}
@@ -455,6 +474,7 @@ export function ProductOffersPanel({
         onApply={applyOfferFiltersAndClose}
         onSearchInputChange={setQueryInput}
         onSearchSubmit={handleSearchSubmit}
+        onClearTags={handleClearFilterTags}
         onToggle={handleToggleFilterTag}
       />
       {loading || !visibleData ? (
@@ -562,7 +582,7 @@ function productOffersCacheKey(
   minPrice = "",
   maxPrice = "",
 ): string {
-  return `priceai:product-offers:v14-purchase-terms:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice || "none"}:${maxPrice || "none"}`;
+  return `priceai:product-offers:v15-plus-account-state:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice || "none"}:${maxPrice || "none"}`;
 }
 
 function productOfferFilterFacets(
@@ -739,6 +759,7 @@ function syncOfferFiltersToUrl(
 }
 
 function OfferFilterBar({
+  productId,
   facets,
   selectedTags,
   selectedCollector,
@@ -761,10 +782,12 @@ function OfferFilterBar({
   onMaxPriceInputChange,
   onMinPriceInputChange,
   onApply,
+  onClearTags,
   onSearchInputChange,
   onSearchSubmit,
   onToggle,
 }: {
+  productId: string;
   facets: OfferFilterTagFacet[];
   selectedTags: OfferFilterTagId[];
   selectedCollector: MerchantCollectorFilter;
@@ -787,15 +810,29 @@ function OfferFilterBar({
   onMaxPriceInputChange: (value: string) => void;
   onMinPriceInputChange: (value: string) => void;
   onApply: () => void;
+  onClearTags: (tagIds: OfferFilterTagId[]) => void;
   onSearchInputChange: (value: string) => void;
   onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onToggle: (tagId: OfferFilterTagId) => void;
 }) {
   const facetById = new Map(facets.map((facet) => [facet.id, facet]));
+  const pinnedQuickTagIds = productId === "chatgpt-plus" ? new Set(CHATGPT_PLUS_QUICK_FILTER_TAG_IDS) : null;
   const visibleFacets = Array.from(OFFER_FILTER_TAG_BY_ID.values())
-    .filter((definition) => facetById.has(definition.id));
+    .flatMap((definition) => {
+      if (productId === "chatgpt-plus" && isChatGptPlusChannelFilterTag(definition.id)) return [];
+      const facet = facetById.get(definition.id);
+      if (facet) return [facet];
+      return pinnedQuickTagIds?.has(definition.id) ? [{ ...definition, count: 0 }] : [];
+    });
+  const plusChannelFacets = productId === "chatgpt-plus"
+    ? Array.from(OFFER_FILTER_TAG_BY_ID.values()).flatMap((definition) => {
+        const facet = facetById.get(definition.id);
+        return facet && isChatGptPlusChannelFilterTag(definition.id) ? [facet] : [];
+      })
+    : [];
+  const advancedTagIds = new Set(plusChannelFacets.map((facet) => facet.id));
   const activeAdvancedChips = buildOfferActiveFilterChips({
-    selectedTags: [],
+    selectedTags: selectedTags.filter((tagId) => advancedTagIds.has(tagId)),
     selectedCollector,
     queryInput: activeQuery,
     excludeInput: activeExcludeQuery,
@@ -872,6 +909,8 @@ function OfferFilterBar({
       {filterOpen ? (
         <form onSubmit={onSearchSubmit} className="mt-3 hidden rounded-lg bg-white p-3 ring-1 ring-[#adb3b4]/15 md:block">
           <OfferAdvancedFilterFields
+            plusChannelFacets={plusChannelFacets}
+            selectedTags={selectedTags}
             selectedCollector={selectedCollector}
             excludeInput={excludeInput}
             maxPriceInput={maxPriceInput}
@@ -881,7 +920,9 @@ function OfferFilterBar({
             onExcludeInputChange={onExcludeInputChange}
             onMaxPriceInputChange={onMaxPriceInputChange}
             onMinPriceInputChange={onMinPriceInputChange}
+            onClearTags={onClearTags}
             onSearchInputChange={onSearchInputChange}
+            onToggleTag={onToggle}
           />
         </form>
       ) : null}
@@ -898,6 +939,8 @@ function OfferFilterBar({
       >
         <OfferAdvancedFilterFields
           compact
+          plusChannelFacets={plusChannelFacets}
+          selectedTags={selectedTags}
           selectedCollector={selectedCollector}
           excludeInput={excludeInput}
           maxPriceInput={maxPriceInput}
@@ -907,7 +950,9 @@ function OfferFilterBar({
           onExcludeInputChange={onExcludeInputChange}
           onMaxPriceInputChange={onMaxPriceInputChange}
           onMinPriceInputChange={onMinPriceInputChange}
+          onClearTags={onClearTags}
           onSearchInputChange={onSearchInputChange}
+          onToggleTag={onToggle}
         />
       </MobileFilterSheet>
     </section>
@@ -916,6 +961,8 @@ function OfferFilterBar({
 
 function OfferAdvancedFilterFields({
   compact = false,
+  plusChannelFacets = [],
+  selectedTags,
   selectedCollector,
   excludeInput,
   maxPriceInput,
@@ -923,11 +970,15 @@ function OfferAdvancedFilterFields({
   queryInput,
   onCollectorChange,
   onExcludeInputChange,
+  onClearTags,
   onMaxPriceInputChange,
   onMinPriceInputChange,
   onSearchInputChange,
+  onToggleTag,
 }: {
   compact?: boolean;
+  plusChannelFacets?: OfferFilterTagFacet[];
+  selectedTags: OfferFilterTagId[];
   selectedCollector: MerchantCollectorFilter;
   excludeInput: string;
   maxPriceInput: string;
@@ -935,10 +986,15 @@ function OfferAdvancedFilterFields({
   queryInput: string;
   onCollectorChange: (collector: MerchantCollectorFilter) => void;
   onExcludeInputChange: (value: string) => void;
+  onClearTags: (tagIds: OfferFilterTagId[]) => void;
   onMaxPriceInputChange: (value: string) => void;
   onMinPriceInputChange: (value: string) => void;
   onSearchInputChange: (value: string) => void;
+  onToggleTag: (tagId: OfferFilterTagId) => void;
 }) {
+  const plusChannelTagIds = plusChannelFacets.map((facet) => facet.id);
+  const hasSelectedPlusChannel = plusChannelTagIds.some((tagId) => selectedTags.includes(tagId));
+
   return (
     <div className="space-y-4">
       <fieldset className="min-w-0">
@@ -965,6 +1021,46 @@ function OfferAdvancedFilterFields({
           })}
         </div>
       </fieldset>
+
+      {plusChannelFacets.length ? (
+        <fieldset className="min-w-0 border-t border-[#edf0f1] pt-4">
+          <legend className="text-xs font-semibold text-[#5a6061]">Plus 渠道</legend>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onClearTags(plusChannelTagIds)}
+              aria-pressed={!hasSelectedPlusChannel}
+              className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition ${
+                !hasSelectedPlusChannel
+                  ? "bg-[#202829] text-white"
+                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+              }`}
+            >
+              全部渠道
+            </button>
+            {plusChannelFacets.map((facet) => {
+              const selected = selectedTags.includes(facet.id);
+
+              return (
+                <button
+                  key={facet.id}
+                  type="button"
+                  onClick={() => onToggleTag(facet.id)}
+                  aria-pressed={selected}
+                  title={facet.description}
+                  className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition ${
+                    selected
+                      ? "bg-[#202829] text-white"
+                      : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+                  }`}
+                >
+                  {facet.label}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+      ) : null}
 
       <div className={compact ? "space-y-4 border-t border-[#edf0f1] pt-4" : "grid gap-4 border-t border-[#edf0f1] pt-3 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.15fr)_auto] lg:items-end"}>
         <fieldset className="min-w-0">
