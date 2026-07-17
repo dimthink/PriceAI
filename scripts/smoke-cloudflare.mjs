@@ -66,6 +66,7 @@ const checks = [
   {
     path: "/official-prices",
     status: 200,
+    retries: SMOKE_DATA_RETRY_ATTEMPTS,
     text: {
       forbidden: [...fallbackHtmlMarkers, ...staticDatasetMarkers],
       requiredAny: [{ label: "source=supabase", patterns: ['"source":"supabase"', '\\"source\\":\\"supabase\\"'] }],
@@ -74,6 +75,7 @@ const checks = [
   {
     path: "/official-api",
     status: 200,
+    retries: SMOKE_DATA_RETRY_ATTEMPTS,
     text: {
       forbidden: [...fallbackHtmlMarkers, ...staticDatasetMarkers],
       requiredAny: [{ label: "source=supabase", patterns: ['"source":"supabase"', '\\"source\\":\\"supabase\\"'] }],
@@ -84,6 +86,7 @@ const checks = [
     path: "/api/health",
     status: 200,
     maxBytes: 5_000,
+    retries: SMOKE_DATA_RETRY_ATTEMPTS,
     json: validateHealthJson,
   },
   ...(SMOKE_SKIP_DEPLOYMENT_CHECK ? [] : [{
