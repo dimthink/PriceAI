@@ -2003,7 +2003,7 @@ function zivvStatusGroupName(service) {
   if (name.includes("gemini cli")) return "Gemini CLI";
   if (name.includes("claude anti")) return "Claude Anti【目前不稳定】";
   if (name.includes("claude max")) return "Claude MAX";
-  if (name.includes("codex plus")) return "Codex Plus【目前不稳定】";
+  if (name.includes("codex plus")) return "Codex Plus";
   if (name.includes("codex pro")) return "Codex Pro";
   return stringOrNull(service?.name);
 }

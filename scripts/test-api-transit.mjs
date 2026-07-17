@@ -2118,10 +2118,10 @@ const zivvParsed = __test.parseZivvModelHubPayload(
   {
     data: [
       {
-        id: "gpt-5.4",
+        id: "gpt-5.5",
         quota_type: 1,
         groups: [
-          { name: "Codex Plus【目前不稳定】", input_rate: 0.45, output_rate: 2.7, cache_read_rate: 0.045, cache_write_rate: 0.045 },
+          { name: "Codex Plus", input_rate: 0.45, output_rate: 2.7, cache_read_rate: 0.045, cache_write_rate: 0.045 },
           { name: "Codex Pro", input_rate: 0.7, output_rate: 4.2, cache_read_rate: 0.07, cache_write_rate: 0.07 },
         ],
       },
@@ -2172,8 +2172,18 @@ __test.applyZivvStatusAvailability(
   {
     services: [
       {
+        name: "Codex Plus&Pro",
+        model: "gpt-5.5",
+        current: { ok: true, timestamp: "2026-06-30T08:00:00.000Z" },
+        uptime_percent: 100,
+        history: [
+          { timestamp: "2026-06-30T07:55:00.000Z", ok: true, latency_ms: 1500 },
+          { timestamp: "2026-06-30T08:00:00.000Z", ok: true, latency_ms: 1600 },
+        ],
+      },
+      {
         name: "Codex Pro",
-        model: "gpt-5.4",
+        model: "gpt-5.5",
         current: { ok: true, timestamp: "2026-06-30T08:00:00.000Z" },
         uptime_percent: 99.5,
         history: [
@@ -2204,18 +2214,19 @@ __test.applyZivvStatusAvailability(
   "2026-06-30T08:00:00.000Z",
 );
 
-assert.equal(zivvParsed.station.availability_seven_day_samples, 4);
+assert.equal(zivvParsed.station.availability_seven_day_samples, 6);
 assert.equal(zivvParsed.station.availability_source_type, "public_status");
 assert.equal(zivvParsed.station.availability_source_label, "公开监测页");
-assert.equal(zivvParsed.availabilitySamples.length, 7);
+assert.equal(zivvParsed.availabilitySamples.length, 11);
 assert.equal(zivvParsed.availabilitySamples[0].source_type, "public_status");
 assert.equal(zivvParsed.collectionError, null);
-const codexProOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "Codex Pro");
+const codexProOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "Codex Pro");
 assert.equal(codexProOffer.availability_seven_day_samples, 2);
 assert.equal(codexProOffer.availability_seven_day_rate, 0.995);
 assert.equal(codexProOffer.availability_source_type, "public_status");
-const codexPlusOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "Codex Plus【目前不稳定】");
-assert.equal(codexPlusOffer.availability_seven_day_samples, 0);
+const codexPlusOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.5" && offer.group_name === "Codex Plus");
+assert.equal(codexPlusOffer.availability_seven_day_samples, 2);
+assert.equal(codexPlusOffer.availability_seven_day_rate, 1);
 assert.equal(codexPlusOffer.availability_source_type, "public_status");
 const claudeAntiOffer = zivvParsed.offers.find((offer) => offer.standard_model === "Claude Sonnet 4.6" && offer.group_name === "Claude Anti【目前不稳定】");
 assert.equal(claudeAntiOffer.availability_seven_day_rate, null);
