@@ -134,6 +134,8 @@ begin
 end;
 $migration$;
 
+set statement_timeout = '5min';
+
 do $refresh_public_filter_tags$
 declare
   refreshed_rows integer := 0;
@@ -142,14 +144,10 @@ begin
     with stale_offers as (
       select id
       from raw_offers
-      where (
-          canonical_product_id = 'chatgpt-plus'
-          or regexp_replace(lower(coalesce(source_title, '') || ' ' || array_to_string(coalesce(tags, array[]::text[]), ' ')), '[[:space:]]+', '', 'g')
-            ~ '(网页号|仅限网页|仅支持?网页|只支持网页|只能网页|仅网页|只可网页|只能网页登录|仅网页登录|未接码|已接码|未绑手机|已绑手机|未绑定手机|已绑定手机|自行接码|自己接码|需自行接码|需要自行接码|需要接码|需接码)'
-        )
+      where canonical_product_id = 'chatgpt-plus'
         and coalesce(public_filter_tags, '{}'::text[]) is distinct from priceai_public_offer_filter_tags(source_title, tags)
       order by id
-      limit 500
+      limit 250
       for update skip locked
     )
     update raw_offers
@@ -162,6 +160,8 @@ begin
   end loop;
 end;
 $refresh_public_filter_tags$;
+
+reset statement_timeout;
 
 delete from public_api_snapshots
 where kind = 'explorer'
