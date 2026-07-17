@@ -1375,13 +1375,12 @@ async function resolveShopApiEffectivePrice({ base, goodsKey, listedPrice, chann
   const totalAmount = numberOrNull(payload?.data?.total_amount);
   if (payload?.code === 1 && totalAmount !== null) {
     const originalAmount = numberOrNull(payload.data.original_amount) ?? listedPrice;
-    const feeAmount = numberOrNull(payload.data.fee);
-    const normalizedPrice =
-      normalizePriceWithFee && feeAmount !== null
-        ? roundCurrency(originalAmount + feeAmount)
-        : totalAmount;
+    const buyerAdjustmentAmount = roundCurrency(totalAmount - originalAmount);
+    const feeAmount = normalizePriceWithFee
+      ? buyerAdjustmentAmount
+      : numberOrNull(payload.data.fee);
     return {
-      price: normalizedPrice,
+      price: totalAmount,
       listedPrice: originalAmount,
       feeAmount,
       priceBasis: "settled",
