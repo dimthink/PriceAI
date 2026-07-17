@@ -166,7 +166,12 @@ type ShopInfoLookupResult = {
 type SubmissionParseContext = {
   submissionId?: string | null;
   submittedName?: string | null;
+  submittedUrl?: string | null;
   submittedAt?: string | null;
+  parsedTitle?: string | null;
+  contact?: string | null;
+  notes?: string | null;
+  currentMeta?: Record<string, unknown> | null;
 };
 
 export function getAdminPasswordFromRequest(request: Request): string | null {
@@ -2058,7 +2063,11 @@ async function enrichSubmissionReviewMeta(
 
   if (!reviewUrl) return next;
 
-  const duplicate = await findNewerPendingSubmissionByCanonicalUrl(reviewUrl, context);
+  const duplicate = await findPreferredPendingSubmissionByCanonicalUrl(reviewUrl, {
+    ...context,
+    submittedUrl: context.submittedUrl || stringValue(meta.normalized_url),
+    currentMeta: next,
+  });
   if (duplicate) {
     next.duplicate_pending_submission_id = duplicate.id;
     next.duplicate_pending_submission_name = duplicate.name || duplicate.parsedTitle || duplicate.suggestedSourceName || duplicate.url;
@@ -2069,17 +2078,19 @@ async function enrichSubmissionReviewMeta(
   return next;
 }
 
-async function findNewerPendingSubmissionByCanonicalUrl(
-  canonicalSourceUrl: string,
-  context: SubmissionParseContext = {},
-): Promise<{
+type PendingSubmissionDuplicate = {
   id: string;
   url: string;
   name: string | null;
   parsedTitle: string | null;
   suggestedSourceName: string | null;
   createdAt: string | null;
-} | null> {
+};
+
+async function findPreferredPendingSubmissionByCanonicalUrl(
+  canonicalSourceUrl: string,
+  context: SubmissionParseContext = {},
+): Promise<PendingSubmissionDuplicate | null> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return null;
 
@@ -2088,13 +2099,25 @@ async function findNewerPendingSubmissionByCanonicalUrl(
   if (!normalizedCanonical && !normalizedSubmission) return null;
 
   const submittedAt = context.submittedAt ? Date.parse(context.submittedAt) : NaN;
+  const currentScore = submissionCompletenessScore({
+    id: context.submissionId || null,
+    url: context.submittedUrl || canonicalSourceUrl,
+    name: context.submittedName || null,
+    contact: context.contact || null,
+    notes: context.notes || null,
+    parsedTitle: context.parsedTitle || null,
+    meta: context.currentMeta || {},
+    createdAt: context.submittedAt || null,
+  });
   const { data, error } = await supabase
     .from("channel_submissions")
-    .select("id,url,name,parsed_title,parsed_meta,created_at,status")
+    .select("id,url,name,contact,notes,parsed_title,parsed_meta,created_at,status")
     .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(300);
   if (error) throw error;
+
+  let preferred: (PendingSubmissionDuplicate & { score: number; createdMs: number }) | null = null;
 
   for (const row of data || []) {
     if (context.submissionId && row.id === context.submissionId) continue;
@@ -2114,19 +2137,117 @@ async function findNewerPendingSubmissionByCanonicalUrl(
 
     const rowCreatedAt = row.created_at ? String(row.created_at) : null;
     const rowCreatedMs = rowCreatedAt ? Date.parse(rowCreatedAt) : NaN;
-    if (Number.isFinite(submittedAt) && Number.isFinite(rowCreatedMs) && rowCreatedMs <= submittedAt) continue;
-
-    return {
+    const candidate: PendingSubmissionDuplicate & { score: number; createdMs: number } = {
       id: String(row.id),
       url: String(row.url || ""),
       name: row.name ? String(row.name) : null,
       parsedTitle: row.parsed_title ? String(row.parsed_title) : null,
       suggestedSourceName: stringValue(rowMeta.suggested_source_name),
       createdAt: rowCreatedAt,
+      score: submissionCompletenessScore({
+        id: String(row.id),
+        url: String(row.url || ""),
+        name: row.name ? String(row.name) : null,
+        contact: row.contact ? String(row.contact) : null,
+        notes: row.notes ? String(row.notes) : null,
+        parsedTitle: row.parsed_title ? String(row.parsed_title) : null,
+        meta: rowMeta,
+        createdAt: rowCreatedAt,
+      }),
+      createdMs: rowCreatedMs,
     };
+
+    if (
+      !preferred ||
+      candidate.score > preferred.score ||
+      (candidate.score === preferred.score && Number.isFinite(candidate.createdMs) && candidate.createdMs > preferred.createdMs)
+    ) {
+      preferred = candidate;
+    }
   }
 
-  return null;
+  if (!preferred) return null;
+
+  const isMoreComplete = preferred.score > currentScore;
+  const isTieBreakerPreferred =
+    preferred.score === currentScore &&
+    (
+      Number.isFinite(submittedAt)
+        ? Number.isFinite(preferred.createdMs) && preferred.createdMs > submittedAt
+        : !context.submissionId
+    );
+  if (!isMoreComplete && !isTieBreakerPreferred) return null;
+
+  return {
+    id: preferred.id,
+    url: preferred.url,
+    name: preferred.name,
+    parsedTitle: preferred.parsedTitle,
+    suggestedSourceName: preferred.suggestedSourceName,
+    createdAt: preferred.createdAt,
+  };
+}
+
+function submissionCompletenessScore(input: {
+  id?: string | null;
+  url?: string | null;
+  name?: string | null;
+  contact?: string | null;
+  notes?: string | null;
+  parsedTitle?: string | null;
+  meta?: Record<string, unknown> | null;
+  createdAt?: string | null;
+}): number {
+  const meta = input.meta || {};
+  let score = 0;
+
+  const submittedUrlType = stringValue(meta.submitted_url_type);
+  if (submittedUrlType === "source") score += 28;
+  else if (submittedUrlType === "product") score += 12;
+
+  if (stringValue(meta.canonical_source_url)) score += 24;
+  if (stringValue(meta.shop_token)) score += 8;
+  if (stringValue(meta.suggested_source_id) || stringValue(meta.existing_source_id)) score += 8;
+  if (stringValue(meta.suggested_source_name) || input.name) score += 8;
+  if (input.parsedTitle || submittedProductTitleFromMeta(meta)) score += 4;
+  if (input.contact) score += 3;
+  if (input.notes) score += 3;
+
+  const canonicalStatus = stringValue(meta.canonical_source_status);
+  if (canonicalStatus === "resolved") score += 28;
+  else if (canonicalStatus === "unresolved") score -= 10;
+
+  const collectorKind = normalizeCollectorKind(meta.suggested_collector_kind);
+  if (collectorKind && collectorKind !== "auto" && collectorKind !== "browser" && collectorKind !== "unsupported") score += 10;
+  if (stringValue(meta.suggested_collection_method)) score += 4;
+
+  const productPreview = meta.submitted_product_preview;
+  if (productPreview && typeof productPreview === "object" && !Array.isArray(productPreview)) {
+    const preview = productPreview as Record<string, unknown>;
+    score += 6;
+    if (stringValue(preview.sourceUrl)) score += 10;
+    if (stringValue(preview.sourceName)) score += 6;
+    if (stringValue(preview.title)) score += 4;
+    if (numberValue(preview.price) !== null || numberValue(preview.realPrice) !== null) score += 4;
+  }
+
+  const probe = getStoredProbeResult(meta);
+  if (probe?.status === "success") {
+    score += 36 + Math.min(30, Math.max(0, Number(probe.offerCount || 0)));
+  } else if (probe?.status === "queued" || probe?.status === "running") {
+    score += 8;
+  } else if (probe?.status === "failed" || probe?.status === "empty") {
+    score += 3;
+  }
+
+  const parsedUrl = safeUrl(input.url);
+  if (parsedUrl) {
+    const type = getSubmittedUrlType(parsedUrl);
+    if (type === "source") score += 6;
+    else if (type === "product") score += 2;
+  }
+
+  return score;
 }
 
 function normalizeSubmissionUrlForReview(value: string | null | undefined): string | null {
@@ -2826,6 +2947,9 @@ export async function createSubmission(input: {
   try {
     const parsed = await parseSubmissionMetadata(normalizedUrl, {
       submittedName: input.name?.trim() || null,
+      submittedUrl: normalizedUrl,
+      contact: input.contact?.trim() || null,
+      notes: input.notes?.trim() || null,
     });
     parsedTitle = parsed.parsedTitle || submittedProductTitleFromMeta(parsed.parsedMeta);
     parsedMeta = parsed.parsedMeta;
@@ -2834,9 +2958,16 @@ export async function createSubmission(input: {
   }
 
   const canonicalSourceUrl = stringValue(parsedMeta.canonical_source_url) || stringValue(parsedMeta.normalized_url) || normalizedUrl;
-  const duplicatePending = await findNewerPendingSubmissionByCanonicalUrl(canonicalSourceUrl);
+  const duplicatePending = await findPreferredPendingSubmissionByCanonicalUrl(canonicalSourceUrl, {
+    submittedName: input.name?.trim() || null,
+    submittedUrl: normalizedUrl,
+    parsedTitle,
+    contact: input.contact?.trim() || null,
+    notes: input.notes?.trim() || null,
+    currentMeta: parsedMeta,
+  });
   if (duplicatePending) {
-    throw new Error("该渠道已有待审记录，请勿重复提交。");
+    throw new Error("该渠道已有信息更完整的待审记录，请勿重复提交。");
   }
 
   const id = stableId("submission", normalizedUrl, ip || "", Date.now().toString());
@@ -3481,7 +3612,11 @@ export async function reparseSubmission(id: string): Promise<ChannelSubmission> 
     const parsed = await parseSubmissionMetadata(submission.url, {
       submissionId: submission.id,
       submittedName: submission.name,
+      submittedUrl: submission.url,
       submittedAt: submission.createdAt,
+      parsedTitle: submission.parsedTitle,
+      contact: submission.contact,
+      notes: submission.notes,
     });
     parsedTitle = parsed.parsedTitle || submittedProductTitleFromMeta(parsed.parsedMeta);
     parsedMeta = parsed.parsedMeta;
@@ -3561,6 +3696,14 @@ export async function recordSubmissionProbeResult(
     review_stage: success ? "ready_to_approve" : knownCollector ? "known_collector_probe_failed" : "needs_collector_review",
     support_status: supportStatus,
     support_reason: supportReason,
+  }, {
+    submissionId: submission.id,
+    submittedName: submission.name,
+    submittedUrl: submission.url,
+    submittedAt: submission.createdAt,
+    parsedTitle: submission.parsedTitle,
+    contact: submission.contact,
+    notes: submission.notes,
   });
 
   const { data: updated, error: updateError } = await supabase
@@ -3665,6 +3808,14 @@ export async function queueSubmissionProbeJob(
     review_stage: "probe_queued",
     support_status: "probe_queued",
     support_reason: result.message,
+  }, {
+    submissionId: submission.id,
+    submittedName: submission.name,
+    submittedUrl: submission.url,
+    submittedAt: submission.createdAt,
+    parsedTitle: submission.parsedTitle,
+    contact: submission.contact,
+    notes: submission.notes,
   });
 
   const { data: updated, error: updateError } = await supabase
@@ -3745,13 +3896,18 @@ export async function approveSubmission(
   const submission = mapSubmissionRow(row);
   const manualSourceUrl = normalizeOverrideSourceUrl(overrides.sourceUrl);
   const canonicalSourceUrl = manualSourceUrl || getCanonicalSourceUrl(submission.parsedMeta) || submission.url;
-  const duplicatePending = await findNewerPendingSubmissionByCanonicalUrl(canonicalSourceUrl, {
+  const duplicatePending = await findPreferredPendingSubmissionByCanonicalUrl(canonicalSourceUrl, {
     submissionId: submission.id,
     submittedName: submission.name,
+    submittedUrl: submission.url,
     submittedAt: submission.createdAt,
+    parsedTitle: submission.parsedTitle,
+    contact: submission.contact,
+    notes: submission.notes,
+    currentMeta: submission.parsedMeta,
   });
   if (duplicatePending) {
-    throw new Error(`该渠道已有更新的待审记录：${duplicatePending.name || duplicatePending.parsedTitle || duplicatePending.url}。请处理主记录或拒绝重复提交。`);
+    throw new Error(`该渠道已有信息更完整的待审记录：${duplicatePending.name || duplicatePending.parsedTitle || duplicatePending.url}。请处理主记录或忽略重复提交。`);
   }
   const baseUrl = deriveBaseUrl(canonicalSourceUrl);
   const suggestedMethod = getSuggestedCollectionMethod(submission.parsedMeta);

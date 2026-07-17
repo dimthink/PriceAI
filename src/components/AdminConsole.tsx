@@ -46,7 +46,7 @@ import { AdminUsersPanel } from "@/components/admin/AdminUsersPanel";
 import { InfrastructureOverviewPanel } from "@/components/admin/InfrastructureOverviewPanel";
 import { apiProviderTypeLabels } from "@/lib/api-models";
 import { formatBeijingDateTimeLocalValue, parseBeijingDateTimeLocalValue } from "@/lib/beijing-time";
-import { classifyOffer } from "@/lib/catalog";
+import { classifyOffer, getCanonicalProduct } from "@/lib/catalog";
 import { communityAssetDisplayUrl } from "@/lib/community-asset-url";
 import { safeExternalHttpUrl } from "@/lib/external-url";
 import { shouldCreateFeedbackVerification } from "@/lib/trust-risk";
@@ -158,14 +158,33 @@ type CollectorStatusState = Pick<
 
 const ADMIN_LIST_PREVIEW_ROWS = 8;
 const ADMIN_COLLECTOR_STATUS_REFRESH_MS = 60_000;
+type SubmissionSourceFilter = "all" | "liandongShop" | "yunmaoConsignment" | "qxvx" | "dujiao" | "kami" | "other";
+type SubmissionLinkTypeFilter = "all" | "source" | "product" | "unknown";
+type SubmissionUrlType = Exclude<SubmissionLinkTypeFilter, "all">;
+
 const submissionQualityFilterOptions: Array<{ value: SubmissionQualityFilter; label: string }> = [
   { value: "all", label: "全部" },
   { value: "priority_approve", label: "优先通过" },
   { value: "valuable_lead", label: "有价值线索" },
   { value: "needs_review", label: "待复核" },
-  { value: "low_quality", label: "低质候选" },
-  { value: "duplicate", label: "重复/无优势" },
+  { value: "low_quality", label: "低质/无优势" },
+  { value: "duplicate", label: "重复/已存在" },
   { value: "environment_issue", label: "采集环境问题" },
+];
+const submissionSourceFilterOptions: Array<{ value: SubmissionSourceFilter; label: string }> = [
+  { value: "all", label: "全部来源" },
+  { value: "liandongShop", label: "链动小铺" },
+  { value: "yunmaoConsignment", label: "云猫寄售" },
+  { value: "qxvx", label: "QXVX Pay" },
+  { value: "dujiao", label: "独角数卡" },
+  { value: "kami", label: "异次元" },
+  { value: "other", label: "自研" },
+];
+const submissionLinkTypeFilterOptions: Array<{ value: SubmissionLinkTypeFilter; label: string }> = [
+  { value: "all", label: "全部链接" },
+  { value: "source", label: "店铺链接" },
+  { value: "product", label: "商品链接" },
+  { value: "unknown", label: "待判断" },
 ];
 
 type ProbeOffer = {
@@ -209,6 +228,46 @@ type SubmissionQualitySummary = {
   tone: BadgeTone;
   reasons: string[];
   detail?: string;
+  priceEvidence?: SubmissionPriceEvidence | null;
+};
+
+type SubmissionPriceBenchmarkRow = {
+  productId: string;
+  productName: string;
+  title: string;
+  price: number;
+};
+
+type SubmissionPriceBenchmark = {
+  productId: string;
+  productName: string;
+  prices: number[];
+  rows: SubmissionPriceBenchmarkRow[];
+};
+
+type SubmissionPriceBenchmarkIndex = Map<string, SubmissionPriceBenchmark>;
+
+type SubmissionPriceEvidenceSample = {
+  productId: string;
+  productName: string;
+  title: string;
+  price: number;
+  minPrice: number;
+  top5Price: number;
+  rank: number;
+  gapToMin: number;
+  gapToTop5: number;
+};
+
+type SubmissionPriceEvidence = {
+  comparableOfferCount: number;
+  benchmarkScopeCount: number;
+  lowestHitCount: number;
+  top5HitCount: number;
+  within10PctCount: number;
+  within20PctCount: number;
+  highGapCount: number;
+  sampleScopes: SubmissionPriceEvidenceSample[];
 };
 
 type SubmissionProductPreview = {
@@ -524,6 +583,8 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [submissionQualityFilter, setSubmissionQualityFilter] = useState<SubmissionQualityFilter>("all");
+  const [submissionSourceFilter, setSubmissionSourceFilter] = useState<SubmissionSourceFilter>("all");
+  const [submissionLinkTypeFilter, setSubmissionLinkTypeFilter] = useState<SubmissionLinkTypeFilter>("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -761,6 +822,38 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
         s.url.toLowerCase().includes(q),
     );
   }, [reviewSubmissions, searchQuery]);
+  const submissionPriceBenchmarkIndex = useMemo(
+    () => buildSubmissionPriceBenchmarkIndex(data.rawOffers),
+    [data.rawOffers],
+  );
+  const reviewSourceCounts = useMemo(() => {
+    const counts = createSubmissionSourceCounts();
+    for (const submission of searchFilteredReview) {
+      counts[submissionSourceFilterFor(submission)] += 1;
+    }
+    return counts;
+  }, [searchFilteredReview]);
+  const reviewLinkTypeCounts = useMemo(() => {
+    const counts: Record<SubmissionUrlType, number> = {
+      source: 0,
+      product: 0,
+      unknown: 0,
+    };
+    for (const submission of searchFilteredReview) {
+      if (submissionSourceFilter !== "all" && submissionSourceFilterFor(submission) !== submissionSourceFilter) continue;
+      counts[submissionLinkTypeFor(submission)] += 1;
+    }
+    return counts;
+  }, [searchFilteredReview, submissionSourceFilter]);
+  const scopedReview = useMemo(
+    () =>
+      searchFilteredReview.filter((submission) => {
+        if (submissionSourceFilter !== "all" && submissionSourceFilterFor(submission) !== submissionSourceFilter) return false;
+        if (submissionLinkTypeFilter !== "all" && submissionLinkTypeFor(submission) !== submissionLinkTypeFilter) return false;
+        return true;
+      }),
+    [searchFilteredReview, submissionLinkTypeFilter, submissionSourceFilter],
+  );
 
   const reviewQualityCounts = useMemo(() => {
     const counts: Record<SubmissionQualityKind, number> = {
@@ -771,28 +864,32 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
       duplicate: 0,
       environment_issue: 0,
     };
-    for (const submission of searchFilteredReview) {
+    for (const submission of scopedReview) {
+      const probeResult = probeResults[submission.id] || probeResultFromMeta(submission.parsedMeta || {});
       const summary = buildSubmissionQualitySummary({
         submission,
-        probeResult: probeResults[submission.id] || probeResultFromMeta(submission.parsedMeta || {}),
+        probeResult,
         existingSource: existingSourceForSubmission(submission, sourceById),
+        priceEvidence: buildSubmissionPriceEvidence(probeResult, submissionPriceBenchmarkIndex),
       });
       counts[summary.kind] += 1;
     }
     return counts;
-  }, [probeResults, searchFilteredReview, sourceById]);
+  }, [probeResults, scopedReview, sourceById, submissionPriceBenchmarkIndex]);
 
   const filteredReview = useMemo(() => {
-    if (submissionQualityFilter === "all") return searchFilteredReview;
-    return searchFilteredReview.filter((submission) => {
+    if (submissionQualityFilter === "all") return scopedReview;
+    return scopedReview.filter((submission) => {
+      const probeResult = probeResults[submission.id] || probeResultFromMeta(submission.parsedMeta || {});
       const summary = buildSubmissionQualitySummary({
         submission,
-        probeResult: probeResults[submission.id] || probeResultFromMeta(submission.parsedMeta || {}),
+        probeResult,
         existingSource: existingSourceForSubmission(submission, sourceById),
+        priceEvidence: buildSubmissionPriceEvidence(probeResult, submissionPriceBenchmarkIndex),
       });
       return summary.kind === submissionQualityFilter;
     });
-  }, [probeResults, searchFilteredReview, sourceById, submissionQualityFilter]);
+  }, [probeResults, scopedReview, sourceById, submissionPriceBenchmarkIndex, submissionQualityFilter]);
 
   const filteredTodo = useMemo(() => {
     if (!searchQuery.trim()) return collectorTodoSubmissions;
@@ -3069,7 +3166,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {submissionQualityFilterOptions.map((option) => {
-                      const count = option.value === "all" ? searchFilteredReview.length : reviewQualityCounts[option.value];
+                      const count = option.value === "all" ? scopedReview.length : reviewQualityCounts[option.value];
                       return (
                         <button
                           key={option.value}
@@ -3083,6 +3180,54 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         >
                           {option.label}
                           <span className={submissionQualityFilter === option.value ? "text-white/70" : "text-[#adb3b4]"}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {submissionSourceFilterOptions.map((option) => {
+                      const count = option.value === "all" ? searchFilteredReview.length : reviewSourceCounts[option.value];
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setSubmissionSourceFilter(option.value)}
+                          className={`inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-xs font-medium transition-colors ${
+                            submissionSourceFilter === option.value
+                              ? "border-[#2d3435] bg-[#2d3435] text-white"
+                              : "border-[#adb3b4]/30 bg-white text-[#5a6061] hover:bg-[#f2f4f4]"
+                          }`}
+                        >
+                          {option.label}
+                          <span className={submissionSourceFilter === option.value ? "text-white/70" : "text-[#adb3b4]"}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {submissionLinkTypeFilterOptions.map((option) => {
+                      const sourceScopedCount =
+                        submissionSourceFilter === "all"
+                          ? searchFilteredReview.length
+                          : searchFilteredReview.filter((submission) => submissionSourceFilterFor(submission) === submissionSourceFilter).length;
+                      const count = option.value === "all" ? sourceScopedCount : reviewLinkTypeCounts[option.value];
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setSubmissionLinkTypeFilter(option.value)}
+                          className={`inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-xs font-medium transition-colors ${
+                            submissionLinkTypeFilter === option.value
+                              ? "border-[#2d3435] bg-[#2d3435] text-white"
+                              : "border-[#adb3b4]/30 bg-white text-[#5a6061] hover:bg-[#f2f4f4]"
+                          }`}
+                        >
+                          {option.label}
+                          <span className={submissionLinkTypeFilter === option.value ? "text-white/70" : "text-[#adb3b4]"}>
                             {count}
                           </span>
                         </button>
@@ -3184,6 +3329,10 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
                         existingSource={existingSourceForSubmission(submission, sourceById)}
                         loadingAction={loadingAction}
                         probeResult={probeResults[submission.id]}
+                        priceEvidence={buildSubmissionPriceEvidence(
+                          probeResults[submission.id] || probeResultFromMeta(submission.parsedMeta || {}),
+                          submissionPriceBenchmarkIndex,
+                        )}
                         expanded={expandedId === submission.id}
                         focused={focusedIndex === index}
                         selected={selectedIds.has(submission.id)}
@@ -4115,6 +4264,7 @@ function SubmissionCard({
   existingSource,
   loadingAction,
   probeResult,
+  priceEvidence,
   expanded,
   focused,
   selected,
@@ -4133,6 +4283,7 @@ function SubmissionCard({
   existingSource?: Source | null;
   loadingAction: string | null;
   probeResult?: ProbeResult;
+  priceEvidence?: SubmissionPriceEvidence | null;
   expanded: boolean;
   focused: boolean;
   selected: boolean;
@@ -4171,18 +4322,13 @@ function SubmissionCard({
   const hasValidSourceUrl = Boolean(canonicalSourceUrl || submittedUrlType !== "product");
   const sameChannelPending = Boolean(sameChannelPendingName || sameChannelPendingId);
   const canApprove = hasValidSourceUrl && !probePending && Boolean(existingSource || hasSuccessfulProbe || hasKnownCollector);
-  const sourcePlatform = merchantSourcePlatform({
-    collectorKind: suggestedCollector,
-    sourceId: suggestedSourceId,
-    sourceName: suggestedName || submission.name || submission.parsedTitle,
-    url: submission.url,
-    entryUrl: canonicalSourceUrl || submission.url,
-    host: domain,
-  });
+  const sourceGroup = submissionSourceFilterFor(submission);
+  const linkType = submissionLinkTypeFor(submission);
   const qualitySummary = buildSubmissionQualitySummary({
     submission,
     probeResult: currentProbe,
     existingSource,
+    priceEvidence,
   });
 
   const [mode, setMode] = useState<"idle" | "approve" | "todo" | "reject">("idle");
@@ -4280,14 +4426,16 @@ function SubmissionCard({
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge tone={qualitySummary.tone}>{qualitySummary.label}</Badge>
               {probeStatusBadge}
-              {submittedUrlType === "product" && <Badge tone="info">商品链接</Badge>}
+              <Badge tone={sourceGroup === "other" ? "muted" : "info"}>{submissionSourceFilterLabel(sourceGroup)}</Badge>
+              <Badge tone={linkType === "product" ? "warn" : linkType === "source" ? "info" : "muted"}>
+                {submissionLinkTypeLabel(linkType)}
+              </Badge>
               {canonicalSourceStatus === "resolved" && <Badge tone="info">已反查渠道</Badge>}
               {canonicalSourceStatus === "unresolved" && <Badge tone="warn">未反查渠道</Badge>}
-              {sourcePlatform.hasPlatformAftersalesMechanism && <Badge tone="info">{sourcePlatform.label}</Badge>}
               {platform && <Badge>{platform}</Badge>}
               {productType && <Badge>{productType}</Badge>}
               {existingSource && <Badge tone="info">已有源: {existingSource.name}</Badge>}
-              {sameChannelPending && <Badge tone="warn">同渠道还有提交</Badge>}
+              {sameChannelPending && <Badge tone="warn">重复待处理</Badge>}
               {parseError && <Badge tone="warn">解析失败</Badge>}
             </div>
           </div>
@@ -4363,21 +4511,20 @@ function SubmissionCard({
           <div className="mt-3 grid gap-2 rounded-lg bg-[#f2f4f4] p-3 text-xs text-[#5a6061] sm:grid-cols-2">
             <p><span className="font-medium text-[#2d3435]">建议渠道名：</span>{suggestedName || submission.name || domain || "未识别"}</p>
             <p><span className="font-medium text-[#2d3435]">建议来源 ID：</span>{suggestedSourceId || "自动生成"}</p>
-            {sourcePlatform.hasPlatformAftersalesMechanism && (
-              <p><span className="font-medium text-[#2d3435]">托管平台：</span>{sourcePlatform.label}</p>
-            )}
+            <p><span className="font-medium text-[#2d3435]">渠道来源：</span>{submissionSourceFilterLabel(sourceGroup)}</p>
+            <p><span className="font-medium text-[#2d3435]">提交类型：</span>{submissionLinkTypeLabel(linkType)}</p>
             <p><span className="font-medium text-[#2d3435]">建议采集方式：</span>{collectionMethodLabel(suggestedMethod || "browser")}</p>
             <p><span className="font-medium text-[#2d3435]">建议解析器：</span>{collectorKindLabel(suggestedCollector || "auto")}</p>
             <p><span className="font-medium text-[#2d3435]">初步判断：</span>{supportReason || "已完成基础链接解析。"}</p>
             {canonicalSourceReason && <p><span className="font-medium text-[#2d3435]">渠道解析：</span>{canonicalSourceReason}</p>}
             {existingSource && <p><span className="font-medium text-[#2d3435]">合并目标：</span>{existingSource.name}</p>}
-            {sameChannelPending && <p><span className="font-medium text-[#2d3435]">同渠道提交：</span>{sameChannelPendingName || "还有一条同渠道提交"}</p>}
+            {sameChannelPending && <p><span className="font-medium text-[#2d3435]">重复候选：</span>{sameChannelPendingName || "还有一条同渠道提交"}</p>}
           </div>
 
           {sameChannelPending && (
             <div className="mt-3 flex items-start gap-2 rounded-lg bg-[#fff7e8]/70 px-3 py-2.5 text-xs text-[#7a541b]">
               <Trash2 size={14} className="mt-0.5 shrink-0" />
-              <span>还有一条同渠道提交待处理；这只是提示，不影响当前记录通过。确认要保留另一条时，再忽略当前项。</span>
+              <span>同一渠道还有待审记录。系统默认保留信息更完整的那条，若当前项不是主记录，可直接忽略此项。</span>
             </div>
           )}
 
@@ -4657,6 +4804,23 @@ function SubmissionQualityPanel({ summary }: { summary: SubmissionQualitySummary
           </li>
         ))}
       </ul>
+      {summary.priceEvidence && summary.priceEvidence.comparableOfferCount > 0 ? (
+        <div className="mt-2 rounded-lg bg-white px-2 py-2 text-[11px] leading-5 text-[#5a6061] ring-1 ring-[#adb3b4]/15">
+          <span className="font-medium text-[#2d3435]">价格比较：</span>
+          可比 {summary.priceEvidence.comparableOfferCount} 条，
+          最低 {summary.priceEvidence.lowestHitCount}，
+          前五 {summary.priceEvidence.top5HitCount}，
+          20% 内 {summary.priceEvidence.within20PctCount}
+          {summary.priceEvidence.highGapCount ? `，高价 ${summary.priceEvidence.highGapCount}` : ""}
+          {summary.priceEvidence.sampleScopes[0] ? (
+            <span className="ml-1 text-[#adb3b4]">
+              例：{summary.priceEvidence.sampleScopes[0].productName} 第 {summary.priceEvidence.sampleScopes[0].rank} 位，
+              {formatCurrency(summary.priceEvidence.sampleScopes[0].price)} / 最低 {formatCurrency(summary.priceEvidence.sampleScopes[0].minPrice)}
+              {summary.priceEvidence.sampleScopes[0].gapToMin > 0 ? `（${formatPriceGap(summary.priceEvidence.sampleScopes[0].gapToMin)}）` : ""}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -11297,7 +11461,243 @@ function sameChannelSubmissionReviewerNote(submission: ChannelSubmission): strin
   const sameChannelName = stringMeta(meta, "duplicate_pending_submission_name");
   const sameChannelUrl = stringMeta(meta, "duplicate_pending_submission_url");
   const target = sameChannelName || sameChannelUrl;
-  return target ? `同渠道还有提交，已忽略此项；保留主记录：${target}。` : "同渠道还有提交，已忽略此项；保留主记录。";
+  return target ? `同渠道重复提交，已忽略此项；保留信息更完整的主记录：${target}。` : "同渠道重复提交，已忽略此项；保留信息更完整的主记录。";
+}
+
+function createSubmissionSourceCounts(): Record<SubmissionSourceFilter, number> {
+  return {
+    all: 0,
+    liandongShop: 0,
+    yunmaoConsignment: 0,
+    qxvx: 0,
+    dujiao: 0,
+    kami: 0,
+    other: 0,
+  };
+}
+
+function submissionSourceFilterFor(submission: ChannelSubmission): Exclude<SubmissionSourceFilter, "all"> {
+  const meta = submission.parsedMeta || {};
+  const canonicalSourceUrl = displayableCanonicalSourceUrlForSubmission(submission) || stringMeta(meta, "canonical_source_url");
+  const productPreview = submissionProductPreviewFromMeta(meta);
+  const platform = merchantSourcePlatform({
+    collectorKind: collectorKindMeta(meta, "suggested_collector_kind"),
+    sourceId: stringMeta(meta, "suggested_source_id") || stringMeta(meta, "existing_source_id"),
+    sourceName: stringMeta(meta, "suggested_source_name") || submission.name || submission.parsedTitle,
+    sourceStoreName: productPreview?.sourceName,
+    url: submission.url,
+    entryUrl: canonicalSourceUrl || submission.url,
+    host: stringMeta(meta, "domain") || safeDomain(canonicalSourceUrl || submission.url),
+  });
+
+  if (
+    platform.id === "liandongShop" ||
+    platform.id === "yunmaoConsignment" ||
+    platform.id === "qxvx" ||
+    platform.id === "dujiao" ||
+    platform.id === "kami"
+  ) {
+    return platform.id;
+  }
+
+  return "other";
+}
+
+function submissionSourceFilterLabel(value: SubmissionSourceFilter): string {
+  return submissionSourceFilterOptions.find((option) => option.value === value)?.label || "自研";
+}
+
+function submissionLinkTypeFor(submission: ChannelSubmission): SubmissionUrlType {
+  const meta = submission.parsedMeta || {};
+  const storedType = stringMeta(meta, "submitted_url_type");
+  if (storedType === "source" || storedType === "product") return storedType;
+
+  const parsed = safeUrl(submission.url);
+  if (!parsed) return "unknown";
+
+  const pathname = parsed.pathname;
+  if (/\/shop\/[^/?#]+/i.test(pathname)) return "source";
+  if (/\/item\/[^/?#]+/i.test(pathname) || /\/products\/[^/?#]+/i.test(pathname)) return "product";
+  if (parsed.searchParams.get("commodity") || parsed.searchParams.get("id")) return "product";
+  return pathname === "/" || pathname === "" ? "source" : "unknown";
+}
+
+function submissionLinkTypeLabel(value: SubmissionLinkTypeFilter): string {
+  return submissionLinkTypeFilterOptions.find((option) => option.value === value)?.label || "待判断";
+}
+
+function buildSubmissionPriceBenchmarkIndex(offers: RawOffer[]): SubmissionPriceBenchmarkIndex {
+  const index: SubmissionPriceBenchmarkIndex = new Map();
+
+  for (const offer of offers) {
+    if (!isSubmissionBenchmarkOffer(offer)) continue;
+
+    const product = benchmarkProductFromOffer(offer);
+    if (!product || product.id === "other-product") continue;
+
+    const price = offer.price;
+    if (typeof price !== "number") continue;
+
+    const current = index.get(product.id) || {
+      productId: product.id,
+      productName: product.name,
+      prices: [],
+      rows: [],
+    };
+    current.prices.push(price);
+    current.rows.push({
+      productId: product.id,
+      productName: product.name,
+      title: offer.sourceTitle,
+      price,
+    });
+    index.set(product.id, current);
+  }
+
+  for (const benchmark of index.values()) {
+    benchmark.prices.sort((a, b) => a - b);
+    benchmark.rows.sort((a, b) => a.price - b.price);
+  }
+
+  return index;
+}
+
+function isSubmissionBenchmarkOffer(offer: RawOffer): boolean {
+  if (offer.hidden) return false;
+  if (offer.status === "out_of_stock") return false;
+  if (!offer.url) return false;
+  if (offer.currency && offer.currency.toUpperCase() !== "CNY") return false;
+  if (offer.effectiveStatus === "unavailable" || offer.effectiveStatus === "stale" || offer.effectiveStatus === "failed") return false;
+  if (offer.freshnessStatus === "expired" || offer.freshnessStatus === "failed") return false;
+  if (offer.expiresAt) {
+    const expiresAt = Date.parse(offer.expiresAt);
+    if (Number.isFinite(expiresAt) && expiresAt < Date.now()) return false;
+  }
+  return typeof offer.price === "number" && Number.isFinite(offer.price) && offer.price > 0;
+}
+
+function benchmarkProductFromOffer(offer: RawOffer): { id: string; name: string } | null {
+  if (!offer.sourceTitle) return null;
+  const classified = classifyOffer(offer.sourceTitle, {
+    tags: offer.tags,
+    categorySlug: offer.categorySlug || offer.storedCategorySlug,
+    price: offer.price,
+  });
+  const productId = offer.canonicalProductId || offer.storedCanonicalProductId || classified.id;
+  const product = productId === classified.id ? classified : getCanonicalProduct(productId);
+  return { id: product.id, name: product.displayName };
+}
+
+function buildSubmissionPriceEvidence(
+  probeResult: ProbeResult | null | undefined,
+  benchmarkIndex: SubmissionPriceBenchmarkIndex,
+): SubmissionPriceEvidence | null {
+  if (!probeResult || probeResult.status !== "success" || !Array.isArray(probeResult.offers)) return null;
+
+  const sampleScopes: SubmissionPriceEvidenceSample[] = [];
+  const benchmarkScopes = new Set<string>();
+  let comparableOfferCount = 0;
+  let lowestHitCount = 0;
+  let top5HitCount = 0;
+  let within10PctCount = 0;
+  let within20PctCount = 0;
+  let highGapCount = 0;
+
+  for (const offer of probeResult.offers) {
+    if (!isComparableProbeOffer(offer)) continue;
+
+    const price = offer.price;
+    if (typeof price !== "number") continue;
+
+    const product = classifyOffer(offer.sourceTitle, {
+      tags: offer.tags,
+      price,
+    });
+    if (product.id === "other-product") continue;
+
+    const benchmark = benchmarkIndex.get(product.id);
+    if (!benchmark || !benchmark.prices.length) continue;
+
+    const minPrice = benchmark.prices[0];
+    const top5Price = benchmark.prices[Math.min(4, benchmark.prices.length - 1)];
+    if (!Number.isFinite(minPrice) || minPrice <= 0 || !Number.isFinite(top5Price) || top5Price <= 0) continue;
+
+    benchmarkScopes.add(product.id);
+    comparableOfferCount += 1;
+
+    const rank = 1 + benchmark.prices.filter((value) => value < price).length;
+    const gapToMin = (price - minPrice) / minPrice;
+    const gapToTop5 = (price - top5Price) / top5Price;
+
+    if (price <= minPrice) lowestHitCount += 1;
+    if (price <= top5Price) top5HitCount += 1;
+    if (price <= minPrice * 1.1) within10PctCount += 1;
+    if (price <= minPrice * 1.2) within20PctCount += 1;
+    if (gapToMin >= 0.5 && price > top5Price) highGapCount += 1;
+
+    sampleScopes.push({
+      productId: product.id,
+      productName: product.displayName,
+      title: offer.sourceTitle,
+      price,
+      minPrice,
+      top5Price,
+      rank,
+      gapToMin,
+      gapToTop5,
+    });
+  }
+
+  if (!comparableOfferCount) return null;
+
+  sampleScopes.sort((a, b) => {
+    const top5Delta = Number(a.price > a.top5Price) - Number(b.price > b.top5Price);
+    if (top5Delta) return top5Delta;
+    return a.rank - b.rank || a.gapToMin - b.gapToMin;
+  });
+
+  return {
+    comparableOfferCount,
+    benchmarkScopeCount: benchmarkScopes.size,
+    lowestHitCount,
+    top5HitCount,
+    within10PctCount,
+    within20PctCount,
+    highGapCount,
+    sampleScopes: sampleScopes.slice(0, 5),
+  };
+}
+
+function isComparableProbeOffer(offer: ProbeOffer): boolean {
+  if (offer.status === "out_of_stock") return false;
+  if (offer.currency && offer.currency.toUpperCase() !== "CNY") return false;
+  return typeof offer.price === "number" && Number.isFinite(offer.price) && offer.price > 0;
+}
+
+function submissionPricePositiveReason(priceEvidence: SubmissionPriceEvidence | null | undefined): string | null {
+  if (!priceEvidence || !priceEvidence.comparableOfferCount) return null;
+
+  const total = priceEvidence.comparableOfferCount;
+  if (priceEvidence.lowestHitCount > 0) return `命中库内最低价 ${priceEvidence.lowestHitCount}/${total}`;
+  if (priceEvidence.top5HitCount > 0) return `进入库内前五价 ${priceEvidence.top5HitCount}/${total}`;
+  if (priceEvidence.within10PctCount > 0) return `接近最低价 10% 内 ${priceEvidence.within10PctCount}/${total}`;
+  if (priceEvidence.within20PctCount > 0) return `接近最低价 20% 内 ${priceEvidence.within20PctCount}/${total}`;
+  return null;
+}
+
+function submissionPriceRiskReason(priceEvidence: SubmissionPriceEvidence | null | undefined): string | null {
+  if (!priceEvidence || !priceEvidence.comparableOfferCount) return null;
+
+  const total = priceEvidence.comparableOfferCount;
+  if (priceEvidence.highGapCount > 0) return `可比 ${total} 条，高价偏离 ${priceEvidence.highGapCount} 条`;
+  if (priceEvidence.top5HitCount === 0 && priceEvidence.within20PctCount === 0) return `可比 ${total} 条，未进前五价或最低价 20% 内`;
+  return null;
+}
+
+function formatPriceGap(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  const percent = Math.round(value * 100);
+  return `${percent >= 0 ? "+" : ""}${percent}%`;
 }
 
 function reparseFeedbackText(submission: ChannelSubmission): string {
@@ -11374,22 +11774,25 @@ function buildSubmissionQualitySummary(input: {
   submission: ChannelSubmission;
   probeResult?: ProbeResult | null;
   existingSource?: Source | null;
+  priceEvidence?: SubmissionPriceEvidence | null;
 }): SubmissionQualitySummary {
   const meta = input.submission.parsedMeta || {};
   const probe = input.probeResult || probeResultFromMeta(meta);
   const suggestedCollector = collectorKindMeta(meta, "suggested_collector_kind");
   const sameChannelPending = isSameChannelPendingSubmission(input.submission);
+  const priceEvidence = input.priceEvidence || null;
   const reasons: string[] = [];
 
   if (input.existingSource || sameChannelPending) {
     if (input.existingSource) reasons.push(`已有源：${input.existingSource.name}`);
-    if (sameChannelPending) reasons.push("同渠道还有提交，建议合并或忽略重复项");
+    if (sameChannelPending) reasons.push("同渠道重复提交，默认保留信息更完整的记录");
     return {
       kind: "duplicate",
-      label: "重复/无优势",
+      label: "重复/已存在",
       tone: "warn",
       reasons,
-      detail: "先合并或保留主记录",
+      detail: "合并或忽略重复项",
+      priceEvidence,
     };
   }
 
@@ -11403,6 +11806,7 @@ function buildSubmissionQualitySummary(input: {
         "等待节点回流结果前不按低质处理",
       ],
       detail: stringMeta(meta, "probe_job_id") ? `任务 ${stringMeta(meta, "probe_job_id")}` : undefined,
+      priceEvidence,
     };
   }
 
@@ -11416,31 +11820,68 @@ function buildSubmissionQualitySummary(input: {
         "建议低频重试，不直接拒绝",
       ],
       detail: collectorKindLabel((probe.kind || suggestedCollector || "auto") as CollectorKind),
+      priceEvidence,
     };
   }
 
   if (probe?.status === "success") {
     const duplicateTitleCount = duplicateProbeTitleCount(probe.offers);
-    if (probe.offerCount >= 8 && duplicateTitleCount <= Math.max(2, Math.floor(probe.offerCount * 0.5))) {
+    const hasStrongPriceEvidence = Boolean(
+      priceEvidence &&
+      (
+        priceEvidence.lowestHitCount > 0 ||
+        priceEvidence.top5HitCount >= 2 ||
+        priceEvidence.within10PctCount >= 2
+      ),
+    );
+    const hasModeratePriceEvidence = Boolean(
+      priceEvidence &&
+      (
+        priceEvidence.top5HitCount > 0 ||
+        priceEvidence.within10PctCount > 0 ||
+        priceEvidence.within20PctCount > 0
+      ),
+    );
+    const hasPriceNoAdvantage = Boolean(
+      priceEvidence &&
+      priceEvidence.comparableOfferCount >= 3 &&
+      priceEvidence.top5HitCount === 0 &&
+      priceEvidence.within20PctCount === 0,
+    );
+    if ((hasStrongPriceEvidence || probe.offerCount >= 8) && duplicateTitleCount <= Math.max(2, Math.floor(probe.offerCount * 0.5))) {
       reasons.push(`采到 ${probe.offerCount} 条报价`);
-      reasons.push("覆盖样本相对充足");
+      reasons.push(submissionPricePositiveReason(priceEvidence) || "覆盖样本相对充足");
       return {
         kind: "priority_approve",
         label: "优先通过",
         tone: "success",
         reasons,
-        detail: "后续再补价格排名",
+        detail: hasStrongPriceEvidence ? "价格有前列证据" : "样本充足",
+        priceEvidence,
+      };
+    }
+
+    if (hasPriceNoAdvantage && probe.offerCount >= 3) {
+      reasons.push(submissionPriceRiskReason(priceEvidence) || "可比报价暂无价格优势");
+      reasons.push(`采到 ${probe.offerCount} 条报价`);
+      return {
+        kind: "low_quality",
+        label: "低质/无优势",
+        tone: "danger",
+        reasons,
+        priceEvidence,
       };
     }
 
     if (probe.offerCount <= 2) {
       reasons.push(`仅采到 ${probe.offerCount} 条报价`);
-      reasons.push("样本不足，先观察是否有独特低价");
+      reasons.push(submissionPricePositiveReason(priceEvidence) || "样本不足，先观察是否有独特低价");
       return {
         kind: "valuable_lead",
         label: "有价值线索",
         tone: "info",
         reasons,
+        priceEvidence,
       };
     }
 
@@ -11452,28 +11893,31 @@ function buildSubmissionQualitySummary(input: {
         label: "观察/待复核",
         tone: "warn",
         reasons,
+        priceEvidence,
       };
     }
 
     reasons.push(`采到 ${probe.offerCount} 条报价`);
-    reasons.push("可入库，但仍需人工看价格优势");
+    reasons.push(submissionPricePositiveReason(priceEvidence) || (hasModeratePriceEvidence ? "已有价格前列线索" : "可入库，但仍需人工看价格优势"));
     return {
       kind: "valuable_lead",
       label: "有价值线索",
       tone: "info",
       reasons,
+      priceEvidence,
     };
   }
 
   if (probe?.status === "empty") {
     return {
       kind: "low_quality",
-      label: "低质候选",
+      label: "低质/无优势",
       tone: "danger",
       reasons: [
         "试采集完成但无可比价商品",
         "优先确认是否空店、非目标商品或解析不足",
       ],
+      priceEvidence,
     };
   }
 
@@ -11486,6 +11930,7 @@ function buildSubmissionQualitySummary(input: {
         "暂未识别可用采集器",
         "可转采集器待办或拒绝",
       ],
+      priceEvidence,
     };
   }
 
@@ -11498,6 +11943,7 @@ function buildSubmissionQualitySummary(input: {
         probe.message || "试采集失败",
         "失败原因不明确，先人工复核",
       ],
+      priceEvidence,
     };
   }
 
@@ -11510,6 +11956,7 @@ function buildSubmissionQualitySummary(input: {
         "已识别 shopApi 类型",
         "点击试采集后会入队给轻量节点",
       ],
+      priceEvidence,
     };
   }
 
@@ -11520,6 +11967,7 @@ function buildSubmissionQualitySummary(input: {
     reasons: [
       stringMeta(meta, "support_reason") || "已有基础解析，缺少试采集证据",
     ],
+    priceEvidence,
   };
 }
 
