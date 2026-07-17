@@ -164,6 +164,18 @@ const standardModelMatchers = [
   },
   {
     family: "video",
+    standardModel: "HappyHorse 1.1 I2V",
+    candidates: [
+      "happyhorse-1.1-i2v",
+      "happyhorse-1-1-i2v",
+      "happy house 1.1 i2v",
+      "happyhouse-1.1-i2v",
+      "hh1.1-i2v",
+      "alibaba/hh1.1-i2v",
+    ],
+  },
+  {
+    family: "video",
     standardModel: "Kling 2.5 Turbo",
     candidates: ["kling-2.5-turbo", "kling-2-5-turbo", "kling 2.5 turbo"],
   },
@@ -1046,6 +1058,13 @@ function representativeModelForGroup(group) {
       family: "video",
       standardModel: "Seedance 2.0",
       rawModelName: "seedance-2.0",
+    };
+  }
+  if (/happy\s*horse|happyhorse|happyhouse|hh1[.\-_\s]?1[-_\s]?i2v/.test(text)) {
+    return {
+      family: "video",
+      standardModel: "HappyHorse 1.1 I2V",
+      rawModelName: "happyhorse-1.1-i2v",
     };
   }
   if (/kling[-_\s]?2[.\-_\s]?5[-_\s]?turbo/.test(text)) {

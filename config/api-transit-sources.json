@@ -16,7 +16,7 @@
     "paymentMethods": ["人民币支付"],
     "supportChannels": ["Telegram 群", "QQ 交流群"],
     "riskLabels": ["mixed_pool", "undisclosed_upstream", "pending_feedback"],
-    "summary": "公开模型广场接口可读取，前端为 Zivv 自研 React 控制台，非 New API 默认模板。页面和 site-config 均显示充值汇率为 ¥1 = $1；模型广场公开 Claude MAX、Claude 官转、Codex Pro、Gemini Anti 等分组价格。状态页公开存在，但 PriceAI 尚未使用测试 Key 做真实调用可用性检测。",
+    "summary": "公开模型广场接口可读取，前端为 Zivv 自研 React 控制台，非 New API 默认模板。页面和 site-config 均显示充值汇率为 ¥1 = $1；模型广场公开 Claude MAX、Claude 官转、Codex Pro、Gemini Anti 等分组价格，也公开 GPT Image 2、HappyHorse 等媒体模型固定价。状态页公开存在，但 PriceAI 尚未使用测试 Key 做真实调用可用性检测。",
     "strengths": [
       "公开 /api/models/hub 返回模型、分组、美元/百万 token 价格、上下文和能力标签，可重复采集。",
       "公开站点说明同时支持 OpenAI、Anthropic、Gemini 三大协议，site-config 暴露站点 API Base 和联系方式。",
@@ -25,7 +25,7 @@
     "cautions": [
       "价格来自 Zivv 公开模型广场，尚未用 PriceAI 测试 Key 验证真实扣费和可用性。",
       "分组包含 Claude Anti、Codex Plus 等标注不稳定或上游未完整披露的渠道，需要小额试用。",
-      "GPT Image 2 为固定按次计费，当前不会强行转成 PriceAI 的 token 倍率报价，仅保留在原始快照。"
+      "GPT Image 2、HappyHorse 等媒体模型为固定按次计费，不会强行转成 PriceAI 的 token 倍率报价，前台仅展示标准化后的固定价。"
     ],
     "verificationEvents": [
       {

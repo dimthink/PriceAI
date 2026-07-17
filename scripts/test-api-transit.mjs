@@ -643,6 +643,9 @@ assert.equal(__test.standardizeModelName("google/veo-3.1"), "Veo 3.1");
 assert.equal(__test.standardizeModelName("google/gemini-omni-flash"), "Gemini Omni Flash");
 assert.equal(__test.standardizeModelName("volcengine/video-ds-2.0"), "Seedance 2.0");
 assert.equal(__test.standardizeModelName("bytedance/seedance-2.0"), "Seedance 2.0");
+assert.equal(__test.standardizeModelName("alibaba/hh1.1-i2v"), "HappyHorse 1.1 I2V");
+assert.equal(__test.standardizeModelName("happyhorse-1.1-i2v"), "HappyHorse 1.1 I2V");
+assert.equal(__test.standardizeModelName("Happy House 1.1 I2V"), "HappyHorse 1.1 I2V");
 assert.equal(__test.standardizeModelName("kling/kling-2.5-turbo"), "Kling 2.5 Turbo");
 assert.equal(__test.standardizeModelName("claude-3-5-sonnet-20241022"), null);
 assert.equal(__test.standardizeModelName("openai/gpt-5.6"), "GPT 5.6 Sol");
@@ -2089,6 +2092,34 @@ const zivvParsed = __test.parseZivvModelHubPayload(
           { name: "Claude MAX", input_rate: 3, output_rate: 15, cache_read_rate: 0.3, cache_write_rate: 3.75 },
         ],
       },
+      {
+        id: "gpt-image-2",
+        quota_type: 2,
+        fixed_price: 0.08,
+        groups: [
+          { name: "GPT Image", multiplier: 1, fixed_price: 0.08 },
+          { name: "GPT Image Pro", multiplier: 1.5, fixed_price: 0.12 },
+        ],
+      },
+      {
+        id: "happyhorse-1.1-i2v",
+        provider: "aliyun",
+        quota_type: 5,
+        capabilities: ["video"],
+        features: ["video"],
+        video_rate_720p: 0.45,
+        video_rate_1080p: 0.6,
+        groups: [
+          {
+            id: 25,
+            name: "HappyHorse",
+            description: "官方直连",
+            multiplier: 0.5,
+            video_rate_720p: 0.45,
+            video_rate_1080p: 0.6,
+          },
+        ],
+      },
     ],
   },
   "2026-06-30T08:00:00.000Z",
@@ -2128,11 +2159,27 @@ assert.equal(zivvParsed.station.availability_source_type, "public_status");
 assert.equal(zivvParsed.station.availability_source_label, "公开监测页");
 assert.equal(zivvParsed.availabilitySamples.length, 6);
 assert.equal(zivvParsed.availabilitySamples[0].source_type, "public_status");
+assert.equal(zivvParsed.collectionError, null);
 const codexProOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "Codex Pro");
 assert.equal(codexProOffer.availability_seven_day_samples, 2);
 assert.equal(codexProOffer.availability_seven_day_rate, 0.995);
 assert.equal(codexProOffer.availability_source_type, "public_status");
 const codexPlusOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT 5.4" && offer.group_name === "Codex Plus【目前不稳定】");
 assert.equal(codexPlusOffer.availability_seven_day_samples, 0);
+const zivvImageOffer = zivvParsed.offers.find((offer) => offer.standard_model === "GPT Image 2" && offer.group_name === "GPT Image");
+assert.equal(zivvImageOffer.billing_mode, "fixed");
+assert.equal(zivvImageOffer.model_multiplier, null);
+assert.equal(zivvImageOffer.fixed_price, 0.08);
+assert.equal(zivvImageOffer.fixed_price_unit, "image");
+const zivvHappyHorseOffer = zivvParsed.offers.find((offer) => offer.standard_model === "HappyHorse 1.1 I2V" && offer.group_name === "HappyHorse");
+assert.equal(zivvHappyHorseOffer.family, "video");
+assert.equal(zivvHappyHorseOffer.billing_mode, "fixed");
+assert.equal(zivvHappyHorseOffer.model_multiplier, null);
+assert.equal(zivvHappyHorseOffer.fixed_price, 0.45);
+assert.equal(zivvHappyHorseOffer.fixed_price_unit, "video");
+assert.deepEqual(zivvHappyHorseOffer.fixed_price_tiers, [
+  { label: "720P", price: 0.45, unit: "video" },
+  { label: "1080P", price: 0.6, unit: "video" },
+]);
 
 console.log("api transit collector refresh test passed");

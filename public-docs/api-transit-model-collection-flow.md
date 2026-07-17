@@ -17,7 +17,7 @@
 2. 普通 New API 站点优先读公开 `/api/pricing`，从 `data/list/models`、`group_ratio`、`enable_groups` 等字段还原站点分组。
 3. 每个原始模型名会先走 `standardizeModelName()`，映射到 PriceAI 的标准模型位。
 4. 文本模型如果有官方基准价，会把站内 `model_ratio`、`completion_ratio`、缓存倍率和充值比例折算成可比较的倍率。
-5. 图片/视频模型如果公开接口返回 `quota_type: 1` 和 `model_price`，会作为固定价写入；没有官方可比基准时不参与“综合倍率”排行，只作为公开固定价展示。
+5. 图片/视频模型如果公开接口返回 `model_price`、`fixed_price`、图片尺寸价或视频分辨率价，会作为固定价写入；没有官方可比基准时不参与“综合倍率”排行，只作为公开固定价展示。
 6. 采集结果写入 `api_transit_stations`、`api_transit_offers`，同时保留 `raw_payload` 方便复核原始字段。
 
 ## 3. 当前标准模型覆盖
@@ -31,7 +31,7 @@
 | GLM | `GLM-5.2`、`GLM-5.1` | `glm-5.2`、`glm-5-2`、`zhipu/glm-5.1`。 |
 | DeepSeek | `DeepSeek V4 Flash`、`DeepSeek V4 Pro` | `deepseek-v4-flash`、`deepseek-v4-pro`。 |
 | 图片生成 | `GPT Image 2`、`Grok Image`、`Nano Banana Pro`、`Nano Banana 2`、`Nano Banana`、`Nano Banana Lite` | `gpt-image-2`、`grok-imagine-image`、`grok-image`、`gemini-3-pro-image-preview`、`gemini-3.1-flash-image-preview`、`gemini-2.5-flash-image`、`nano-banana-*`。 |
-| 视频生成 | `Sora 2`、`Sora 2 Pro`、`Grok Video`、`Veo 3.1`、`Veo 3.1 Lite`、`Gemini Omni Flash`、`Seedance 2.0`、`Kling 2.5 Turbo` | `sora-2`、`sora-2-pro`、`grok-imagine-video`、`grok-video`、`veo-3.1`、`gemini-omni-flash`、`seedance-2.0`、`video-ds-2.0`、`kling-2.5-turbo`。 |
+| 视频生成 | `Sora 2`、`Sora 2 Pro`、`Grok Video`、`Veo 3.1`、`Veo 3.1 Lite`、`Gemini Omni Flash`、`Seedance 2.0`、`HappyHorse 1.1 I2V`、`Kling 2.5 Turbo` | `sora-2`、`sora-2-pro`、`grok-imagine-video`、`grok-video`、`veo-3.1`、`gemini-omni-flash`、`seedance-2.0`、`video-ds-2.0`、`happyhorse-1.1-i2v`、`hh1.1-i2v`、`alibaba/hh1.1-i2v`、`kling-2.5-turbo`。 |
 
 暂时只记录但不标准化的公开模型名包括：`Gemini 3 Flash/Pro`、`Gemini 2.5 Flash` 文本模型、`GLM-4.x/5` 非当前标准版本、`DeepSeek v3.x`、Qwen、Doubao、Runway、Luma、Vidu 等。它们需要先补官方基准价或独立标准模型位，否则会污染倍率比较。
 

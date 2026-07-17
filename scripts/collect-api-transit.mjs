@@ -93,6 +93,7 @@ const officialTransitPrices = {
   "Veo 3.1 Lite": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Gemini Omni Flash": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Seedance 2.0": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
+  "HappyHorse 1.1 I2V": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Kling 2.5 Turbo": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
 };
 const modelFamilyByStandard = {
@@ -136,6 +137,7 @@ const modelFamilyByStandard = {
   "Veo 3.1 Lite": "video",
   "Gemini Omni Flash": "video",
   "Seedance 2.0": "video",
+  "HappyHorse 1.1 I2V": "video",
   "Kling 2.5 Turbo": "video",
 };
 const fixedPriceMediaStandards = new Set([
@@ -152,6 +154,7 @@ const fixedPriceMediaStandards = new Set([
   "Veo 3.1 Lite",
   "Gemini Omni Flash",
   "Seedance 2.0",
+  "HappyHorse 1.1 I2V",
   "Kling 2.5 Turbo",
 ]);
 
@@ -698,15 +701,14 @@ function parseZivvModelHubPayload(source, payload, collectedAt) {
     const standard = standardizeModelName(rawName);
     if (!standard) continue;
 
-    if (Number(item?.quota_type) === 2) {
-      skippedFixedPriceModels.push(String(item?.id || standard));
-      continue;
-    }
-
     const groups = normalizeZivvGroups(item);
+    const countBefore = selected.length;
     for (const group of groups) {
       const offer = buildZivvModelHubOfferRow(source, item, group, standard, collectedAt);
       if (offer) selected.push(offer);
+    }
+    if (selected.length === countBefore && isZivvFixedPriceQuota(item)) {
+      skippedFixedPriceModels.push(String(item?.id || standard));
     }
   }
 
@@ -1582,23 +1584,45 @@ function normalizeZivvGroups(item) {
     const raw = group && typeof group === "object" ? group : {};
     const key = stringOrNull(raw.id) || stringOrNull(raw.name) || "default";
     const name = stringOrNull(raw.name) || "default";
+    const multiplier = numberValue(raw.multiplier);
     return {
       key,
       name,
       description: stringOrNull(raw.description),
-      multiplier: numberValue(raw.multiplier),
+      multiplier,
       inputRate: numberValue(raw.input_rate ?? item?.input_rate),
       outputRate: numberValue(raw.output_rate ?? item?.output_rate),
       cacheReadRate: numberValue(raw.cache_read_rate ?? item?.cache_read_rate),
       cacheWriteRate: numberValue(raw.cache_write_rate ?? item?.cache_write_rate),
+      fixedPrice: zivvResolvedGroupFixedPrice(raw, item, multiplier, "fixed_price"),
+      imageRate1k: zivvResolvedGroupFixedPrice(raw, item, multiplier, "image_rate_1k"),
+      imageRate2k: zivvResolvedGroupFixedPrice(raw, item, multiplier, "image_rate_2k"),
+      imageRate4k: zivvResolvedGroupFixedPrice(raw, item, multiplier, "image_rate_4k"),
+      videoRate720p: zivvResolvedGroupFixedPrice(raw, item, multiplier, "video_rate_720p"),
+      videoRate1080p: zivvResolvedGroupFixedPrice(raw, item, multiplier, "video_rate_1080p"),
     };
   });
+}
+
+function zivvResolvedGroupFixedPrice(group, item, multiplier, field) {
+  const groupValue = numberValue(group?.[field]);
+  if (groupValue !== null) return groupValue;
+  const itemValue = numberValue(item?.[field]);
+  if (itemValue === null) return null;
+  return multiplier !== null && multiplier > 0 ? itemValue * multiplier : itemValue;
+}
+
+function isZivvFixedPriceQuota(item) {
+  const quotaType = numberValue(item?.quota_type);
+  return quotaType === 2 || quotaType === 5;
 }
 
 function buildZivvModelHubOfferRow(source, item, group, standard, collectedAt) {
   const family = familyForStandardModel(standard);
   const official = officialTransitPrices[standard];
   if (!official) return null;
+  const rechargeRatio = source.rechargeRatio || DEFAULT_RECHARGE_RATIO;
+  const fixedPrice = zivvFixedPriceInfo(group, standard, rechargeRatio);
 
   const unitPricesUsd = {
     input: group.inputRate,
@@ -1606,14 +1630,42 @@ function buildZivvModelHubOfferRow(source, item, group, standard, collectedAt) {
     cacheRead: group.cacheReadRate,
     cacheWrite: group.cacheWriteRate,
     imageOutput: null,
-    fixedPrice: numberValue(item?.fixed_price),
+    fixedPrice: group.fixedPrice,
+    imageRate1k: group.imageRate1k,
+    imageRate2k: group.imageRate2k,
+    imageRate4k: group.imageRate4k,
+    videoRate720p: group.videoRate720p,
+    videoRate1080p: group.videoRate1080p,
     quotaType: numberValue(item?.quota_type),
   };
   const input = unitRatioValue(unitPricesUsd.input, official.input);
   const output = unitRatioValue(unitPricesUsd.output, official.output);
   const cacheRead = unitRatioValue(unitPricesUsd.cacheRead, official.cacheRead);
   const cacheWrite = unitRatioValue(unitPricesUsd.cacheWrite, official.cacheWrite);
-  if (input === null && output === null && cacheRead === null && cacheWrite === null) return null;
+  const splitMultipliers = fixedPrice
+    ? fixedPriceSplitMultipliers(fixedPrice, "zivv_public_fixed_price")
+    : {
+        model: input ?? output ?? cacheRead ?? cacheWrite,
+        input,
+        output,
+        cacheRead,
+        cacheWrite,
+        imageOutput: null,
+        billingMode: "token",
+        fixedPrice: null,
+        fixedPriceCurrency: "CNY",
+        fixedPriceUnit: null,
+        fixedPriceTiers: [],
+        isFixedPrice: false,
+        basis: "zivv_public_usd_per_million",
+      };
+  if (
+    !splitMultipliers.isFixedPrice &&
+    input === null &&
+    output === null &&
+    cacheRead === null &&
+    cacheWrite === null
+  ) return null;
 
   const groupName = group.name || group.key || "default";
   const sourceText = [item?.id, item?.provider, groupName, group.description].filter(Boolean).join(" ");
@@ -1626,13 +1678,18 @@ function buildZivvModelHubOfferRow(source, item, group, standard, collectedAt) {
     standard_model: standard,
     raw_model_name: String(item?.id || item?.name || standard),
     group_name: groupName,
-    recharge_ratio: source.rechargeRatio || DEFAULT_RECHARGE_RATIO,
-    model_multiplier: round(input ?? output ?? cacheRead ?? cacheWrite, 6),
-    input_price: input === null ? null : round(input, 6),
-    output_price: output === null ? null : round(output, 6),
-    cache_read_price: cacheRead === null ? null : round(cacheRead, 6),
-    cache_write_price: cacheWrite === null ? null : round(cacheWrite, 6),
+    recharge_ratio: rechargeRatio,
+    billing_mode: splitMultipliers.billingMode,
+    model_multiplier: splitMultipliers.model === null ? null : round(splitMultipliers.model, 6),
+    input_price: splitMultipliers.input === null ? null : round(splitMultipliers.input, 6),
+    output_price: splitMultipliers.output === null ? null : round(splitMultipliers.output, 6),
+    cache_read_price: splitMultipliers.cacheRead === null ? null : round(splitMultipliers.cacheRead, 6),
+    cache_write_price: splitMultipliers.cacheWrite === null ? null : round(splitMultipliers.cacheWrite, 6),
     image_output_price: null,
+    fixed_price: splitMultipliers.fixedPrice,
+    fixed_price_currency: splitMultipliers.fixedPrice === null ? "CNY" : splitMultipliers.fixedPriceCurrency,
+    fixed_price_unit: splitMultipliers.fixedPrice === null ? null : splitMultipliers.fixedPriceUnit,
+    fixed_price_tiers: splitMultipliers.fixedPriceTiers,
     currency: "CNY",
     account_pool: inferAccountPool(sourceText),
     channel_type: inferChannelType(sourceText),
@@ -1658,9 +1715,60 @@ function buildZivvModelHubOfferRow(source, item, group, standard, collectedAt) {
         multiplier: group.multiplier,
       },
       unit_prices_usd: unitPricesUsd,
-      multiplier_basis: "zivv_public_usd_per_million",
+      fixed_price: splitMultipliers.fixedPrice,
+      fixed_price_unit: splitMultipliers.fixedPriceUnit,
+      fixed_price_tiers: splitMultipliers.fixedPriceTiers,
+      multiplier_basis: splitMultipliers.basis,
     },
     created_at: collectedAt,
+  };
+}
+
+function zivvFixedPriceInfo(group, standard, rechargeRatio) {
+  if (!fixedPriceMediaStandards.has(standard)) return null;
+  const tiers = zivvFixedPriceTiers(group, standard, rechargeRatio);
+  const directPrice = numberValue(group.fixedPrice);
+  const primaryPrice = directPrice !== null && directPrice > 0
+    ? fixedPriceCnyFromCreditPrice(directPrice, rechargeRatio)
+    : minNumber(tiers.map((tier) => tier.price));
+  if (primaryPrice === null || primaryPrice <= 0) return null;
+
+  const family = familyForStandardModel(standard);
+  return {
+    billingMode: "fixed",
+    fixedPrice: roundFixedPrice(primaryPrice),
+    fixedPriceCurrency: "CNY",
+    fixedPriceUnit: family === "image" ? "image" : "video",
+    fixedPriceTiers: tiers,
+  };
+}
+
+function zivvFixedPriceTiers(group, standard, rechargeRatio) {
+  const family = familyForStandardModel(standard);
+  const fields = family === "video"
+    ? [
+        ["720P", group.videoRate720p],
+        ["1080P", group.videoRate1080p],
+      ]
+    : [
+        ["1K", group.imageRate1k],
+        ["2K", group.imageRate2k],
+        ["4K", group.imageRate4k],
+      ];
+  return fields
+    .map(([label, value]) => zivvFixedPriceTier(label, value, rechargeRatio, family === "image" ? "image" : "video"))
+    .filter(Boolean);
+}
+
+function zivvFixedPriceTier(label, creditPriceValue, rechargeRatio, unit) {
+  const creditPrice = numberValue(creditPriceValue);
+  if (creditPrice === null || creditPrice <= 0) return null;
+  const price = fixedPriceCnyFromCreditPrice(creditPrice, rechargeRatio);
+  if (price === null || price <= 0) return null;
+  return {
+    label,
+    price: roundFixedPrice(price),
+    unit,
   };
 }
 
@@ -1675,6 +1783,11 @@ function compactZivvModelPayload(item) {
     cache_read_rate: numberValue(item.cache_read_rate),
     cache_write_rate: numberValue(item.cache_write_rate),
     fixed_price: numberValue(item.fixed_price),
+    image_rate_1k: numberValue(item.image_rate_1k),
+    image_rate_2k: numberValue(item.image_rate_2k),
+    image_rate_4k: numberValue(item.image_rate_4k),
+    video_rate_720p: numberValue(item.video_rate_720p),
+    video_rate_1080p: numberValue(item.video_rate_1080p),
     context_window: stringOrNull(item.context_window),
     capabilities: Array.isArray(item.capabilities) ? item.capabilities.map(stringOrNull).filter(Boolean) : [],
     features: Array.isArray(item.features) ? item.features.map(stringOrNull).filter(Boolean) : [],
@@ -3062,6 +3175,17 @@ function standardizeModelName(name) {
     value.includes("video-ds-2.0") ||
     value.includes("video-ds-2")
   ) return "Seedance 2.0";
+  if (
+    value.includes("happyhorse-1.1-i2v") ||
+    value.includes("happyhorse-1-1-i2v") ||
+    value.includes("happyhorse 1.1 i2v") ||
+    value.includes("happy house 1.1 i2v") ||
+    value.includes("happyhouse-1.1-i2v") ||
+    value.includes("happyhouse-1-1-i2v") ||
+    value.includes("hh1.1-i2v") ||
+    value.includes("hh1-1-i2v") ||
+    value.includes("alibaba/hh1.1-i2v")
+  ) return "HappyHorse 1.1 I2V";
   if (value.includes("kling-2.5-turbo") || value.includes("kling 2.5 turbo") || value.includes("kling-2-5-turbo")) return "Kling 2.5 Turbo";
 
   if (value.includes("claude") && value.includes("fable")) {

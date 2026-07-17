@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { BrandIcon } from "@/components/BrandIcon";
 
-export type ModelBrandIconKind = "openai" | "gemini" | "grok" | "volcengine" | "kling";
+export type ModelBrandIconKind = "openai" | "gemini" | "grok" | "volcengine" | "alibabacloud" | "kling";
 
 const modelBrandIconByPrefix: { prefix: string; icon: ModelBrandIconKind }[] = [
   { prefix: "gpt image", icon: "openai" },
@@ -12,10 +12,13 @@ const modelBrandIconByPrefix: { prefix: string; icon: ModelBrandIconKind }[] = [
   { prefix: "grok", icon: "grok" },
   { prefix: "composer", icon: "grok" },
   { prefix: "seedance", icon: "volcengine" },
+  { prefix: "happyhorse", icon: "alibabacloud" },
+  { prefix: "happy house", icon: "alibabacloud" },
   { prefix: "kling", icon: "kling" },
 ];
 
 const modelBrandImageSrc: Partial<Record<ModelBrandIconKind, string>> = {
+  alibabacloud: "/brand-icons/alibabacloud.svg",
   gemini: "/brand-icons/gemini.svg",
   kling: "/brand-icons/kling.png",
   volcengine: "/brand-icons/volcengine.png",

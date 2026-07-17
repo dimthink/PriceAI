@@ -136,6 +136,7 @@ export type TransitStandardModel =
   | "Veo 3.1 Lite"
   | "Gemini Omni Flash"
   | "Seedance 2.0"
+  | "HappyHorse 1.1 I2V"
   | "Kling 2.5 Turbo";
 
 export type TransitBillingMode = "token" | "per_request" | "fixed";
@@ -337,6 +338,7 @@ export const TRANSIT_STANDARD_MODELS = [
   "Veo 3.1 Lite",
   "Gemini Omni Flash",
   "Seedance 2.0",
+  "HappyHorse 1.1 I2V",
   "Kling 2.5 Turbo",
 ] as const satisfies readonly TransitStandardModel[];
 
@@ -381,6 +383,7 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
   "Veo 3.1 Lite": "video",
   "Gemini Omni Flash": "video",
   "Seedance 2.0": "video",
+  "HappyHorse 1.1 I2V": "video",
   "Kling 2.5 Turbo": "video",
 };
 
@@ -425,6 +428,7 @@ export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, Trans
   "Veo 3.1 Lite": "video",
   "Gemini Omni Flash": "video",
   "Seedance 2.0": "video",
+  "HappyHorse 1.1 I2V": "video",
   "Kling 2.5 Turbo": "video",
 };
 

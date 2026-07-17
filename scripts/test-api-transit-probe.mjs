@@ -19,6 +19,7 @@ assert.equal(__test.normalizeFamily("zhipu/glm-5.2"), "glm");
 assert.equal(__test.normalizeFamily("deepseek-v4-pro"), "deepseek");
 assert.equal(__test.normalizeFamily("nano-banana-pro"), "image");
 assert.equal(__test.normalizeFamily("sora-2-pro"), "video");
+assert.equal(__test.normalizeFamily("happyhorse-1.1-i2v"), "video");
 assert.equal(__test.normalizeFamily("kling-2.5-turbo"), "video");
 
 assert.deepEqual(__test.keywordsForStandardModel("Claude Sonnet 5"), ["claude", "sonnet", "5"]);
@@ -28,6 +29,7 @@ assert.deepEqual(__test.keywordsForStandardModel("DeepSeek V4 Flash"), ["deepsee
 assert.deepEqual(__test.keywordsForStandardModel("Nano Banana"), ["nano", "banana"]);
 assert.deepEqual(__test.keywordsForStandardModel("Nano Banana Lite"), ["nano", "banana", "lite"]);
 assert.deepEqual(__test.keywordsForStandardModel("Sora 2 Pro"), ["sora", "pro", "2"]);
+assert.deepEqual(__test.keywordsForStandardModel("HappyHorse 1.1 I2V"), ["happyhorse", "1.1"]);
 
 const claudeTargets = __test.selectProbeTargets({
   profileFamily: "claude",
@@ -374,6 +376,14 @@ assert.deepEqual(
   },
 );
 assert.deepEqual(
+  sub2ApiTest.representativeModelForGroup({ name: "HappyHorse 官方直连 视频池", platform: "aliyun" }),
+  {
+    family: "video",
+    standardModel: "HappyHorse 1.1 I2V",
+    rawModelName: "happyhorse-1.1-i2v",
+  },
+);
+assert.deepEqual(
   sub2ApiTest
     .standardModelsFromAvailableModels([
       "nano-banana-pro",
@@ -383,6 +393,7 @@ assert.deepEqual(
       "veo-3.1-lite",
       "gemini-omni-flash",
       "seedance-2.0",
+      "alibaba/hh1.1-i2v",
       "kling-2.5-turbo",
     ])
     .map((model) => [model.family, model.standardModel, model.rawModelName]),
@@ -394,6 +405,7 @@ assert.deepEqual(
     ["video", "Veo 3.1 Lite", "veo-3.1-lite"],
     ["video", "Gemini Omni Flash", "gemini-omni-flash"],
     ["video", "Seedance 2.0", "seedance-2.0"],
+    ["video", "HappyHorse 1.1 I2V", "alibaba/hh1.1-i2v"],
     ["video", "Kling 2.5 Turbo", "kling-2.5-turbo"],
   ],
 );

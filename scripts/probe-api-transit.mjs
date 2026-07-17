@@ -1640,6 +1640,7 @@ function keywordsForStandardModel(value) {
   if (text.includes("veo")) keywords.push("veo");
   if (text.includes("omni")) keywords.push("omni");
   if (text.includes("seedance")) keywords.push("seedance");
+  if (text.includes("happyhorse") || text.includes("happy horse")) keywords.push("happyhorse");
   if (text.includes("kling")) keywords.push("kling");
   if (text.includes("video")) keywords.push("video");
   if (text.includes("flash")) keywords.push("flash");
@@ -1656,6 +1657,9 @@ function normalizeFamily(value) {
     text.includes("veo") ||
     text.includes("omni") ||
     text.includes("seedance") ||
+    text.includes("happyhorse") ||
+    text.includes("happy horse") ||
+    text.includes("hh1.1-i2v") ||
     text.includes("kling") ||
     text.includes("video") ||
     text.includes("视频")

@@ -172,6 +172,7 @@ function getTransitModelPriority(model: TransitModelPrice["standardModel"]): num
   if (model === "Veo 3.1 Lite") return 587;
   if (model === "Gemini Omni Flash") return 586;
   if (model === "Seedance 2.0") return 585;
+  if (model === "HappyHorse 1.1 I2V") return 584.5;
   if (model === "Kling 2.5 Turbo") return 584;
   if (model === "GPT 5.6 Sol") return 506;
   if (model === "GPT 5.6 Terra") return 505.8;
@@ -226,6 +227,7 @@ const xaiVideoDocsUrl = "https://docs.x.ai/developers/models/grok-imagine-video"
 const glmPricingUrl = "https://bigmodel.cn/pricing";
 const deepseekPricingUrl = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing";
 const seedanceDocsUrl = "https://docs.byteplus.com/en/docs/ModelArk/1520757";
+const happyHorseDocsUrl = "https://developers.cloudflare.com/ai/models/alibaba/hh1.1-i2v/";
 const klingDocsUrl = "https://app.klingai.com/global/dev/document-api/apiReference/model/video";
 
 function unpricedOfficialModel(
@@ -487,6 +489,7 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
   "Veo 3.1 Lite": unpricedOfficialModel("Google Gemini API", geminiModelDocsUrl),
   "Gemini Omni Flash": unpricedOfficialModel("Google Gemini API", geminiModelDocsUrl),
   "Seedance 2.0": unpricedOfficialModel("BytePlus ModelArk", seedanceDocsUrl),
+  "HappyHorse 1.1 I2V": unpricedOfficialModel("Alibaba HappyHorse", happyHorseDocsUrl),
   "Kling 2.5 Turbo": unpricedOfficialModel("Kling API", klingDocsUrl),
 };
 

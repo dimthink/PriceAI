@@ -229,11 +229,13 @@ const geminiApiPricingUrl = "https://ai.google.dev/gemini-api/docs/pricing";
 const googleAiPlansUrl = "https://one.google.com/intl/en_us/about/google-ai-plans/";
 const geminiModelDocsUrl = "https://ai.google.dev/gemini-api/docs/models";
 const bytePlusSeedancePricingUrl = "https://docs.byteplus.com/en/docs/ModelArk/2191775";
+const happyHorseDocsUrl = "https://developers.cloudflare.com/ai/models/alibaba/hh1.1-i2v/";
 const klingPricingUrl = "https://kling.ai/dev/pricing";
 
 export const apiModelUpdatedAt = "2026-06-07";
 export const apiMediaModelUpdatedAt = "2026-07-03";
 export const apiOfficialPlatformUpdatedAt = "2026-07-06";
+const happyHorseUpdatedAt = "2026-07-17";
 
 export const apiModelFxSummary: ApiModelFxSummary = {
   baseCurrency: "USD",
@@ -975,6 +977,18 @@ export const apiModels: ApiModel[] = [
     updatedAt: apiOfficialPlatformUpdatedAt,
   },
   {
+    id: "happyhorse-1-1-i2v",
+    displayName: "HappyHorse 1.1 I2V",
+    family: "视频生成",
+    modelId: "happyhorse-1.1-i2v",
+    description: "Alibaba HappyHorse 1.1 图生视频模型，可用参考图和提示词生成 720P/1080P 视频。",
+    sourceUrl: happyHorseDocsUrl,
+    sourceLabel: "Cloudflare AI HappyHorse 1.1 I2V",
+    capabilities: ["video-generation", "multimodal"],
+    suitableTools: ["自建应用", "Alibaba API", "Cloudflare AI"],
+    updatedAt: happyHorseUpdatedAt,
+  },
+  {
     id: "kling-2-5-turbo",
     displayName: "Kling 2.5 Turbo",
     family: "视频生成",
@@ -1324,6 +1338,20 @@ export const apiProviders: ApiProvider[] = [
     limitations: "分辨率、是否包含视频输入和模型版本会影响 token 单价；主表展示已解析的公开价格区间。",
     sourceLabel: "BytePlus ModelArk Seedance Pricing",
     updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "alibaba-happyhorse",
+    name: "Alibaba HappyHorse",
+    type: "official",
+    billingMode: "按量计费",
+    url: "https://www.alibabacloud.com/product/modelstudio",
+    pricingUrl: happyHorseDocsUrl,
+    logoUrl: "/brand-icons/alibabacloud.svg",
+    description: "Alibaba HappyHorse 图生视频模型服务。当前用于定位 HappyHorse 1.1 I2V 的公开视频生成模型文档和中转标准模型位。",
+    limitSummary: "模型文档公开支持 720P/1080P 视频生成；具体额度和扣费以接入平台控制台为准。",
+    limitations: "主表先收录模型身份和中转公开固定价；官方价格单位需要继续核验后再折算为统一基准。",
+    sourceLabel: "Cloudflare AI HappyHorse 1.1 I2V",
+    updatedAt: happyHorseUpdatedAt,
   },
   {
     id: "kling-api",
@@ -3210,6 +3238,18 @@ function officialMediaGenerationOffers(): ApiModelOffer[] {
       sourceLabel: "BytePlus ModelArk Seedance Pricing",
       pricingUrl: bytePlusSeedancePricingUrl,
       updatedAt: apiOfficialPlatformUpdatedAt,
+    }),
+    offer("alibaba-happyhorse-1-1-i2v", "happyhorse-1-1-i2v", "alibaba-happyhorse", {
+      ...pendingVideoPrice,
+      routeModelId: "alibaba/hh1.1-i2v",
+      freeOrPlan: "公开视频生成模型已收录；官方价格单位未结构化前，先用于中转站固定价对齐。",
+      limitSummary: "HappyHorse 1.1 I2V 支持 720P/1080P 图生视频，时长和分辨率以接入平台文档为准。",
+      limitations: "中转站公开价按 Zivv 等来源返回的 720P/1080P 固定价展示；官方对照价后续再补充。",
+      compatibility: ["官方 API", "视频生成", "Alibaba HappyHorse"],
+      suitableTools: ["自建应用", "Alibaba API", "Cloudflare AI"],
+      sourceLabel: "Cloudflare AI HappyHorse 1.1 I2V",
+      pricingUrl: happyHorseDocsUrl,
+      updatedAt: happyHorseUpdatedAt,
     }),
     offer("kling-2-5-turbo", "kling-2-5-turbo", "kling-api", {
       routeModelId: "kling-2.5-turbo",
