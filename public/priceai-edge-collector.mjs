@@ -24,7 +24,9 @@ const DEFAULT_SPOOL_REPLAY_LIMIT = 20;
 const MAX_DISCOVERED_TOKENS = 3;
 const MAX_CATEGORY_PAGES = 10;
 const SHOP_API_LIST_PAGE_SIZE = 100;
-const SHOP_API_DEFAULT_PRICE_SAMPLE_SIZE = 5;
+const SHOP_API_DEFAULT_PRICE_SAMPLE_SIZE = 1;
+const SHOP_API_FEE_PROBE_MIN_LISTED_PRICE = 10;
+const SHOP_API_FEE_PROBE_MAX_LISTED_PRICE = 10_000;
 const SHOP_API_FIXED_FEE_RATE = 0.03;
 const SHOP_API_CENT_TOLERANCE = 0.011;
 
@@ -731,8 +733,10 @@ async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items
   const summary = {
     sampleSize: sampleItems.length,
     resolvedSampleSize: sampleResults.length,
+    sampleSelection: sampleSize > 0 ? "high_price_probe" : "disabled",
     strategy: model ? model.kind : "listed_fallback",
     rate: model?.rate ?? null,
+    probes: sampleResults.map(shopApiPriceProbeSummary),
   };
 
   return {
@@ -759,14 +763,10 @@ function selectShopApiPriceSampleItems(items, sampleSize) {
       item,
       listedPrice: numberOrNull(item.price ?? item.real_price),
       stockCount: numberOrNull(item.extend?.stock_count),
+      status: numberOrNull(item.status),
     }))
     .filter((entry) => entry.listedPrice !== null && entry.listedPrice > 0)
-    .sort((left, right) => {
-      const leftInStock = Number(left.stockCount ?? 1) > 0 ? 1 : 0;
-      const rightInStock = Number(right.stockCount ?? 1) > 0 ? 1 : 0;
-      if (leftInStock !== rightInStock) return rightInStock - leftInStock;
-      return left.listedPrice - right.listedPrice;
-    });
+    .sort(compareShopApiFeeProbeCandidates);
   if (candidates.length <= sampleSize) return candidates.map((entry) => entry.item);
 
   const selected = new Map();
@@ -775,8 +775,12 @@ function selectShopApiPriceSampleItems(items, sampleSize) {
     selected.set(String(entry.item.goods_key), entry.item);
   };
   add(candidates[0]);
-  add(candidates[Math.floor(candidates.length / 2)]);
-  add(candidates[candidates.length - 1]);
+
+  if (sampleSize > 1) {
+    const priceOrdered = [...candidates].sort((left, right) => left.listedPrice - right.listedPrice);
+    add(priceOrdered[Math.floor(priceOrdered.length / 2)]);
+    add(priceOrdered[0]);
+  }
 
   for (const entry of candidates) {
     if (selected.size >= sampleSize) break;
@@ -784,6 +788,44 @@ function selectShopApiPriceSampleItems(items, sampleSize) {
   }
 
   return Array.from(selected.values()).slice(0, sampleSize);
+}
+
+function compareShopApiFeeProbeCandidates(left, right) {
+  const leftAvailable = shopApiFeeProbeCandidateAvailable(left) ? 1 : 0;
+  const rightAvailable = shopApiFeeProbeCandidateAvailable(right) ? 1 : 0;
+  if (leftAvailable !== rightAvailable) return rightAvailable - leftAvailable;
+
+  const leftRank = shopApiFeeProbePriceRank(left.listedPrice);
+  const rightRank = shopApiFeeProbePriceRank(right.listedPrice);
+  if (leftRank !== rightRank) return rightRank - leftRank;
+
+  if (leftRank === 1) return left.listedPrice - right.listedPrice;
+  return right.listedPrice - left.listedPrice;
+}
+
+function shopApiFeeProbeCandidateAvailable(entry) {
+  return Number(entry?.status ?? 1) === 1 && Number(entry?.stockCount ?? 1) > 0;
+}
+
+function shopApiFeeProbePriceRank(listedPrice) {
+  if (listedPrice >= SHOP_API_FEE_PROBE_MIN_LISTED_PRICE && listedPrice <= SHOP_API_FEE_PROBE_MAX_LISTED_PRICE) return 2;
+  if (listedPrice > SHOP_API_FEE_PROBE_MAX_LISTED_PRICE) return 1;
+  return 0;
+}
+
+function shopApiPriceProbeSummary(result) {
+  const listedPrice = numberOrNull(result.effectivePrice?.listedPrice) ?? result.listedPrice;
+  const feeAmount = numberOrNull(result.effectivePrice?.feeAmount);
+  return {
+    goodsKey: result.item?.goods_key ? String(result.item.goods_key) : null,
+    listedPrice,
+    feeAmount,
+    price: numberOrNull(result.effectivePrice?.price),
+    observedRate: feeAmount !== null && listedPrice > 0
+      ? Math.round((feeAmount / listedPrice) * 10_000) / 10_000
+      : null,
+    priceBasis: result.effectivePrice?.priceBasis || null,
+  };
 }
 
 function inferShopApiFeeModel(sampleResults) {
@@ -1180,6 +1222,10 @@ async function postCollectorHeartbeat(status, input = {}) {
       directTimeoutMs: config.directTimeoutMs,
       shardCount: config.shardCount,
       shardIndex: config.shardIndex,
+      shopApiListMode: shopApiAllGoodsListEnabled() ? "all_goods" : "category",
+      shopApiPriceSampleSize: config.shopApiPriceSampleSize,
+      shopApiPriceSampleSelection: config.shopApiPriceSampleSize > 0 ? "high_price_probe" : "disabled",
+      shopApiFeeModel: config.shopApiFeeModel || null,
       round: config.round,
       loop: config.loop,
       controlPlane: controlPlaneDetails(),
