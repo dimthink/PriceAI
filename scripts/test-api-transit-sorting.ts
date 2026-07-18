@@ -1,6 +1,7 @@
 import {
   buildTransitAvailabilityBars,
   compareStations,
+  compactTransitStationsForList,
   getActiveTransitCommercialOffers,
   getFamilyRateSummary,
   getStationComparisonSummary,
@@ -699,6 +700,23 @@ const fullFallbackAvailabilityBars = buildTransitAvailabilityBars({
 });
 assertEqual(fullFallbackAvailabilityBars.length, 20);
 assertEqual(fullFallbackAvailabilityBars.filter((tone) => tone === "empty").length, 0);
+
+const compactRecentSamplesStation = station({
+  id: "compact-recent-samples-station",
+  name: "Compact Recent Samples Station",
+  claudeRate: 0.42,
+  availabilityRate: 0.98,
+  availabilitySamples: 480,
+});
+compactRecentSamplesStation.availability.recentSamples = recentTimeline;
+compactRecentSamplesStation.prices[0]!.availability.recentSamples = recentTimeline.slice(0, 12);
+const compactedRecentSamplesStation = compactTransitStationsForList([compactRecentSamplesStation])[0]!;
+assertEqual(compactedRecentSamplesStation.availability.recentSampleBits, undefined);
+assertEqual(compactedRecentSamplesStation.availability.recentSamples?.length, 60);
+assertEqual(compactedRecentSamplesStation.availability.recentSamples?.[0]?.checkedAt, "2026-07-02T07:03:00.000Z");
+const compactedPublishedAvailability = getStationPublishedAvailabilitySummary(compactedRecentSamplesStation);
+assertEqual(compactedPublishedAvailability.recentSamples?.length, 60);
+assertEqual(compactedPublishedAvailability.recentSamples?.[0]?.checkedAt, "2026-07-02T07:03:00.000Z");
 
 mixedAvailabilityStation.prices[0]!.availability.recentSamples = [
   { ok: true, checkedAt: "2026-07-02T06:00:00.000Z" },

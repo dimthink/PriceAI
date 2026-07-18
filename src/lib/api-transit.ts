@@ -774,11 +774,11 @@ export function compactTransitStationsForList(stations: TransitStation[]): Trans
 }
 
 function compactTransitAvailability(availability: TransitAvailability): TransitAvailability {
-  const samples = transitAvailabilityRecentSamples(availability);
+  const samples = normalizeRecentAvailabilitySamples(transitAvailabilityRecentSamples(availability) || []);
   return {
     ...availability,
-    recentSamples: undefined,
-    recentSampleBits: samples?.map((sample) => sample.ok ? "1" : "0").join("") || undefined,
+    recentSamples: samples,
+    recentSampleBits: undefined,
   };
 }
 
@@ -1123,13 +1123,17 @@ export function getStationPublishedAvailabilitySummary(station: TransitStation):
       .filter((value): value is string => Boolean(value))
       .sort()
       .at(-1) ?? null;
+  const stationRecentSamples = normalizeRecentAvailabilitySamples(
+    transitAvailabilityRecentSamples(station.availability) || []
+  );
+  const summaryRecentSamples = getRecentTransitAvailabilitySamplesFromSummaries(summaries);
 
   return {
     sevenDayRate: roundAvailabilityRate(weightedRate),
     sevenDaySamples: samples,
     firstCheckedAt,
     lastCheckedAt,
-    recentSamples: getRecentTransitAvailabilitySamplesFromSummaries(summaries),
+    recentSamples: stationRecentSamples || summaryRecentSamples,
     latestLatencyMs: latestLatencyFromSummaries(summaries),
     avgLatency7dMs: weightedAverageLatencyFromSummaries(summaries),
     note: `按当前公开模型分组汇总：${formatPercent(roundAvailabilityRate(weightedRate))} · 样本 ${samples}`,
