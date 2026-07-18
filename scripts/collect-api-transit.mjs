@@ -33,6 +33,7 @@ const ZIVV_MODEL_HUB_COLLECTORS = new Set(["zivv_model_hub"]);
 const AI_TRANSIT_SNAPSHOT_COLLECTORS = new Set(["ai_transit_snapshot"]);
 const MAX_PUBLIC_AVAILABILITY_SAMPLE_COUNT = 60;
 const AVAILABILITY_SNAPSHOT_DELETE_BATCH_SIZE = 500;
+const AVAILABILITY_SNAPSHOT_DELETE_MAX_BATCHES = 20;
 const SOURCE_SKIPPED = Symbol("source_skipped");
 const AVAILABILITY_SOURCES = {
   publicStatus: {
@@ -3437,7 +3438,7 @@ async function postRows(rows, options) {
 
 async function deleteSupersededAvailabilitySampleSnapshots(supabase, snapshots) {
   for (const snapshot of snapshots) {
-    while (true) {
+    for (let batch = 0; batch < AVAILABILITY_SNAPSHOT_DELETE_MAX_BATCHES; batch += 1) {
       const { data, error: readError } = await supabase
         .from("api_transit_availability_samples")
         .select("id")
