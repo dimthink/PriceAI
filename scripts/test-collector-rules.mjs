@@ -11,6 +11,7 @@ import {
   isShopApiExitErrorMessage,
   isShopApiProxyTransportErrorMessage,
   shopApiFeeModelFromChannelRate,
+  shopApiProxyParallelismFor,
   shopApiStoredFeePolicy,
 } from "./collect-prices.mjs";
 
@@ -32,6 +33,10 @@ assert.equal(isShopApiProxyTransportErrorMessage("fetch failed: ECONNRESET: sock
 assert.equal(isShopApiProxyTransportErrorMessage("fetch failed: UND_ERR_CONNECT_TIMEOUT"), true);
 assert.equal(isShopApiProxyTransportErrorMessage("fetch failed"), false);
 assert.equal(isShopApiProxyTransportErrorMessage("Shop info unavailable for token shop"), false);
+assert.equal(shopApiProxyParallelismFor({ shopApiProxyParallelism: "auto" }, 9), 1);
+assert.equal(shopApiProxyParallelismFor({ shopApiProxyParallelism: "auto" }, 30), 1);
+assert.equal(shopApiProxyParallelismFor({ shopApiProxyParallelism: "auto" }, 31), 2);
+assert.equal(shopApiProxyParallelismFor({ shopApiProxyParallelism: "auto" }, 90), 2);
 
 const proxyLease = extractProxyLeaseFromPayload(
   JSON.stringify({ data: [{ ip: "203.0.113.10:54103", expireTimeMillis: Date.now() + 600_000 }] }),

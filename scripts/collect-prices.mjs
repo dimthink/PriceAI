@@ -49,6 +49,8 @@ const DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS = 55_000;
 const SHOP_API_PROXY_EXPIRY_SAFETY_MS = 45_000;
 const SHOP_API_PROXY_ROTATION_WINDOW_MS = 10 * 60 * 1000;
 const SHOP_API_PROXY_MAX_ROTATIONS_PER_WINDOW = 2;
+const SHOP_API_PROXY_AUTO_TARGETS_PER_LANE = 30;
+const SHOP_API_PROXY_AUTO_MAX_LANES = 2;
 const DEFAULT_SHOP_API_PROXY_PARALLELISM = 1;
 const DEFAULT_SHOP_API_PROXY_MODE = "always";
 const DEFAULT_SHOP_API_EXIT_ERROR_FAMILY_PAUSE = false;
@@ -126,6 +128,13 @@ export async function runPriceCollection(options = {}) {
 
   const shopSchedule = await applyShopCollectionScheduler(selectedTargets, options, logger);
   selectedTargets = shopSchedule.targets;
+  const proxyTargetCount = selectedTargets.filter((target) => {
+    const host = normalizeHostname(target.baseUrl || target.sourceUrl);
+    return target.kind === "shopApi" && shopApiProxyHostsFor(options).has(host);
+  }).length;
+  const proxyParallelism = shopApiProxyParallelismFor(options, proxyTargetCount);
+  options = { ...options, shopApiProxyParallelism: proxyParallelism };
+  logger?.log(`Shop API proxy lanes: ${proxyParallelism} for ${proxyTargetCount} eligible source(s).`);
   const planMode = isShopCollectionSchedulerPlanMode(options);
   const lockOwner = collectionLockOwner(options);
   const familyState = options.collectionFamilyState || createCollectionFamilyState(options);
@@ -621,6 +630,7 @@ export {
   loadTargets,
   selectTargets,
   shopApiFeeModelFromChannelRate,
+  shopApiProxyParallelismFor,
   shopApiStoredFeePolicy,
 };
 
@@ -3457,8 +3467,7 @@ function collectionGroupKeyForTarget(target, options = {}) {
   if (
     proxyParallelism <= 1 ||
     !collectionFamilyForTarget(target) ||
-    !hasShopApiProxyConfigured(options) ||
-    shopApiProxyModeFor(options) !== "always"
+    !hasShopApiProxyConfigured(options)
   ) {
     return host;
   }
@@ -3470,7 +3479,7 @@ function collectionGroupKeyForTarget(target, options = {}) {
 function shopApiProxyPoolKeyForTarget(target, options = {}) {
   const host = normalizeHostname(target.baseUrl || target.sourceUrl) || target.sourceId;
   const proxyParallelism = shopApiProxyParallelismFor(options);
-  if (proxyParallelism <= 1 || shopApiProxyModeFor(options) !== "always") return host;
+  if (proxyParallelism <= 1) return host;
 
   const lane = stableHashInt("shop-api-proxy-lane", target.sourceId || target.sourceName || "") % proxyParallelism;
   return `${host}:proxy-lane:${lane}`;
@@ -5146,11 +5155,18 @@ function shopApiProxyReuseTtlMsFor(options = {}) {
   return integerInRange(raw, 1_000, 10 * 60 * 1000, DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS);
 }
 
-function shopApiProxyParallelismFor(options = {}) {
+function shopApiProxyParallelismFor(options = {}, targetCount = null) {
   const raw =
     optionValue(options, "shopApiProxyParallelism", "shop-api-proxy-parallelism") ||
     runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_PARALLELISM") ||
     DEFAULT_SHOP_API_PROXY_PARALLELISM;
+  if (String(raw).trim().toLowerCase() === "auto") {
+    const count = Math.max(0, Math.trunc(Number(targetCount) || 0));
+    return Math.max(
+      1,
+      Math.min(SHOP_API_PROXY_AUTO_MAX_LANES, Math.ceil(count / SHOP_API_PROXY_AUTO_TARGETS_PER_LANE)),
+    );
+  }
   return integerInRange(raw, 1, 8, DEFAULT_SHOP_API_PROXY_PARALLELISM);
 }
 
