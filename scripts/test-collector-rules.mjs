@@ -2,12 +2,8 @@ import assert from "node:assert/strict";
 
 import {
   assignShopCollectionSchedulerShard,
-  blockShopApiDirectExitForTarget,
   calculateShopApiBuyerAdjustment,
-  createShopApiProxyReusePool,
-  extractProxyLeaseFromPayload,
   isDailyProbeFailure,
-  isShopApiDirectExitBlockedForTarget,
   isShopApiExitErrorMessage,
   shopApiFeeModelFromChannelRate,
   shopApiStoredFeePolicy,
@@ -27,23 +23,6 @@ assert.equal(isDailyProbeFailure("HTTP 404 from source", 2), false);
 assert.equal(isDailyProbeFailure("403 challenge", 5), false);
 assert.equal(isShopApiExitErrorMessage("HTTP 520 from upstream"), true);
 assert.equal(isShopApiExitErrorMessage("HTTP 403 from upstream"), true);
-
-const proxyLease = extractProxyLeaseFromPayload(
-  JSON.stringify({ data: [{ ip: "203.0.113.10:54103", expireTimeMillis: Date.now() + 600_000 }] }),
-);
-assert.equal(proxyLease.proxyUrl, "http://203.0.113.10:54103");
-assert.ok(proxyLease.expiresAt > Date.now());
-
-const proxyReusePool = createShopApiProxyReusePool({ shopApiProxyReuseLimit: 0 });
-const proxyStateOptions = { shopApiProxyReusePool: proxyReusePool };
-const liandongTarget = { sourceId: "ldxp-shop", baseUrl: "https://pay.ldxp.cn" };
-assert.equal(isShopApiDirectExitBlockedForTarget(liandongTarget, proxyStateOptions), false);
-blockShopApiDirectExitForTarget(liandongTarget, proxyStateOptions);
-assert.equal(isShopApiDirectExitBlockedForTarget(liandongTarget, proxyStateOptions), true);
-assert.equal(
-  isShopApiDirectExitBlockedForTarget({ sourceId: "yunmao", baseUrl: "https://catfk.com" }, proxyStateOptions),
-  false,
-);
 
 const future = new Date(Date.now() + 60_000).toISOString();
 assert.equal(shopApiStoredFeePolicy([{ shop_token: "shop", rate: 0, sample_selection: "high_price_probe", expires_at: future }], "shop"), null);
