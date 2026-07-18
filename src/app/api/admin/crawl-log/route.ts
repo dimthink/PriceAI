@@ -196,6 +196,13 @@ async function saveCrawlLogRun(
     const seenOfferIds = seenOfferIdsFromDetails(payload.details) || offers.map(rawOfferInputId);
     const fullSnapshot = fullSnapshotFromDetails(payload.details, payload.status, offers.length);
     const collectionStatus = normalizeCrawlLogCollectionStatus(payload, fullSnapshot, offers.length);
+    const hideMissingOffersImmediately = shouldHideMissingOffersImmediately(
+      payload.details,
+      collectionStatus,
+      offers.length,
+      fullSnapshot,
+      seenOfferIds,
+    );
     const changedByPayload = upsertResult.writtenCount > 0 || upsertResult.refreshedCount > 0;
     const affectedOfferIds = changedByPayload ? offers.map(rawOfferInputId) : [];
     const affectedProductIds = changedByPayload ? offers.map(productIdFromCrawlOffer) : [];
@@ -207,6 +214,7 @@ async function saveCrawlLogRun(
       message: payload.message || null,
       seenOfferIds,
       fullSnapshot,
+      hideMissingOffersImmediately,
     });
 
     const crawlRunRow = {
@@ -234,6 +242,9 @@ async function saveCrawlLogRun(
           unchangedCount: upsertResult.unchangedCount,
           refreshedCount: upsertResult.refreshedCount,
           confirmedCount: upsertResult.confirmedCount,
+        },
+        missingOfferReconciliation: {
+          hideImmediately: hideMissingOffersImmediately,
         },
       },
     };
@@ -921,6 +932,40 @@ function fullSnapshotFromDetails(details: Record<string, unknown> | undefined, s
   return status === "success";
 }
 
+function shouldHideMissingOffersImmediately(
+  details: Record<string, unknown> | undefined,
+  status: CrawlLogStatus,
+  offerCount: number,
+  fullSnapshot: boolean,
+  seenOfferIds: string[],
+): boolean {
+  if (status !== "success" || !fullSnapshot) return false;
+  if (collectorKindFromDetails(details) !== "shopApi") return false;
+  if (!Array.isArray(details?.seenOfferIds) || !seenOfferIds.length) return false;
+
+  const fetchedItemCount = nonNegativeIntegerFromDetails(details, "fetchedItemCount");
+  const rawSeenOfferCount = nonNegativeIntegerFromDetails(details, "rawSeenOfferCount");
+  const publishedItemCount = nonNegativeIntegerFromDetails(details, "publishedItemCount");
+  const reportedGoodsCount = nonNegativeIntegerFromDetails(details, "reportedGoodsCount");
+
+  if (
+    fetchedItemCount === null ||
+    rawSeenOfferCount === null ||
+    publishedItemCount === null ||
+    reportedGoodsCount === null
+  ) {
+    return false;
+  }
+
+  return (
+    reportedGoodsCount === fetchedItemCount &&
+    fetchedItemCount >= rawSeenOfferCount &&
+    rawSeenOfferCount >= publishedItemCount &&
+    publishedItemCount >= offerCount &&
+    seenOfferIds.length >= rawSeenOfferCount
+  );
+}
+
 function seenOfferIdsFromDetails(details: Record<string, unknown> | undefined): string[] | null {
   const value = details?.seenOfferIds;
   if (!Array.isArray(value)) return null;
@@ -953,6 +998,13 @@ function positiveIntegerFromDetails(details: Record<string, unknown> | undefined
   const value = details?.[key];
   const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   if (!Number.isInteger(number) || number < 1) return null;
+  return number;
+}
+
+function nonNegativeIntegerFromDetails(details: Record<string, unknown> | undefined, key: string): number | null {
+  const value = details?.[key];
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isInteger(number) || number < 0) return null;
   return number;
 }
 

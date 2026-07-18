@@ -70,7 +70,8 @@ const RAW_OFFER_WRITE_CHUNK_SIZE = 25;
 const RAW_OFFER_CONFIRMATION_WRITE_CHUNK_SIZE = 100;
 const MISSING_OFFER_HIDE_CHUNK_SIZE = 25;
 const MAX_MISSING_OFFERS_TO_HIDE_PER_COLLECTION = 100;
-const MISSING_OFFER_SYSTEM_HIDE_REASON = "连续两次完整采集未再返回该商品，疑似已下架；如源站后续重新返回会自动恢复展示。";
+const MISSING_OFFER_SYSTEM_HIDE_REASON = "完整采集未再返回该商品，疑似已下架；如源站后续重新返回会自动恢复展示。";
+const MISSING_OFFER_CONFIRMED_SYSTEM_HIDE_REASON = "连续两次完整采集未再返回该商品，疑似已下架；如源站后续重新返回会自动恢复展示。";
 const MISSING_OFFER_CANDIDATE_REASON = "完整采集首次未再返回该商品，等待下一次完整采集确认。";
 const STALE_OFFER_FAILURE_THRESHOLD = 3;
 const STALE_OFFER_FAILURE_AGE_MS = 24 * 60 * 60 * 1000;
@@ -1057,6 +1058,7 @@ export async function recordSourceCollectionResult(input: {
   message?: string | null;
   seenOfferIds?: string[];
   fullSnapshot?: boolean;
+  hideMissingOffersImmediately?: boolean;
 }): Promise<{ changedOfferCount: number }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) throw new Error("Supabase 尚未配置，无法记录来源采集状态。");
@@ -1125,7 +1127,12 @@ export async function recordSourceCollectionResult(input: {
   }
 
   if (input.status === "success" && input.fullSnapshot && seenOfferIds) {
-    changedOfferCount += await reconcileMissingOffersFromFullSnapshot(input.sourceId, seenOfferIds, input.checkedAt);
+    changedOfferCount += await reconcileMissingOffersFromFullSnapshot(
+      input.sourceId,
+      seenOfferIds,
+      input.checkedAt,
+      { hideImmediately: input.hideMissingOffersImmediately === true },
+    );
   }
 
   return { changedOfferCount };
@@ -1241,6 +1248,7 @@ async function reconcileMissingOffersFromFullSnapshot(
   sourceId: string,
   seenOfferIds: string[],
   checkedAt: string,
+  options: { hideImmediately?: boolean } = {},
 ): Promise<number> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return 0;
@@ -1257,6 +1265,14 @@ async function reconcileMissingOffersFromFullSnapshot(
 
   const candidates = await selectMissingOfferCandidateRows(supabase, sourceId, missingIds);
   if (!candidates) return 0;
+
+  if (options.hideImmediately) {
+    const changedCount = await hideMissingOfferRows(sourceId, missingIds, checkedAt, MISSING_OFFER_SYSTEM_HIDE_REASON);
+    if (missingIds.length) {
+      await upsertMissingOfferCandidatesHidden(sourceId, missingIds, checkedAt, 1, MISSING_OFFER_SYSTEM_HIDE_REASON);
+    }
+    return changedCount;
+  }
 
   const candidateByOfferId = new Map(candidates.map((row) => [String(row.raw_offer_id), row]));
   const idsToHide: string[] = [];
@@ -1280,8 +1296,31 @@ async function reconcileMissingOffersFromFullSnapshot(
     if (!staged && !idsToHide.length) return 0;
   }
 
+  const changedCount = await hideMissingOfferRows(
+    sourceId,
+    idsToHide,
+    checkedAt,
+    MISSING_OFFER_CONFIRMED_SYSTEM_HIDE_REASON,
+  );
+
+  if (idsToHide.length) {
+    await markMissingOfferCandidatesHidden(sourceId, idsToHide, checkedAt, MISSING_OFFER_CONFIRMED_SYSTEM_HIDE_REASON);
+  }
+
+  return changedCount;
+}
+
+async function hideMissingOfferRows(
+  sourceId: string,
+  rawOfferIds: string[],
+  checkedAt: string,
+  reason: string,
+): Promise<number> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase || !rawOfferIds.length) return 0;
+
   let changedCount = 0;
-  for (const ids of chunks(idsToHide, MISSING_OFFER_HIDE_CHUNK_SIZE)) {
+  for (const ids of chunks(rawOfferIds, MISSING_OFFER_HIDE_CHUNK_SIZE)) {
     const { count, error: updateError } = await supabase
       .from("raw_offers")
       .update({
@@ -1292,7 +1331,7 @@ async function reconcileMissingOffersFromFullSnapshot(
         freshness_status: "fresh",
         verified_at: checkedAt,
         last_failed_at: null,
-        failure_reason: MISSING_OFFER_SYSTEM_HIDE_REASON,
+        failure_reason: reason,
         updated_at: checkedAt,
       }, { count: "exact" })
       .eq("source_id", sourceId)
@@ -1302,10 +1341,6 @@ async function reconcileMissingOffersFromFullSnapshot(
 
     if (updateError) throw updateError;
     changedCount += count || 0;
-  }
-
-  if (idsToHide.length) {
-    await markMissingOfferCandidatesHidden(sourceId, idsToHide, checkedAt);
   }
 
   return changedCount;
@@ -1369,6 +1404,7 @@ async function markMissingOfferCandidatesHidden(
   sourceId: string,
   rawOfferIds: string[],
   checkedAt: string,
+  reason: string = MISSING_OFFER_CONFIRMED_SYSTEM_HIDE_REASON,
 ): Promise<void> {
   const supabase = getSupabaseServerClient();
   if (!supabase) return;
@@ -1380,11 +1416,43 @@ async function markMissingOfferCandidatesHidden(
         status: "resolved_hidden",
         latest_missing_at: checkedAt,
         missing_count: 2,
-        reason: MISSING_OFFER_SYSTEM_HIDE_REASON,
+        reason,
         updated_at: checkedAt,
       })
       .eq("source_id", sourceId)
       .in("raw_offer_id", ids);
+
+    if (error) {
+      if (isMissingRawOfferMissingCandidatesTableError(error)) return;
+      throw error;
+    }
+  }
+}
+
+async function upsertMissingOfferCandidatesHidden(
+  sourceId: string,
+  rawOfferIds: string[],
+  checkedAt: string,
+  missingCount: number,
+  reason: string,
+): Promise<void> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return;
+
+  for (const ids of chunks(rawOfferIds, MISSING_OFFER_HIDE_CHUNK_SIZE)) {
+    const rows = ids.map((id) => ({
+      raw_offer_id: id,
+      source_id: sourceId,
+      first_missing_at: checkedAt,
+      latest_missing_at: checkedAt,
+      missing_count: missingCount,
+      status: "resolved_hidden",
+      reason,
+      updated_at: checkedAt,
+    }));
+    const { error } = await supabase
+      .from("raw_offer_missing_candidates")
+      .upsert(rows, { onConflict: "raw_offer_id" });
 
     if (error) {
       if (isMissingRawOfferMissingCandidatesTableError(error)) return;
