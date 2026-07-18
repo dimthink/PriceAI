@@ -4,6 +4,7 @@ import {
   type WholesaleSubmissionDirection,
   type WholesaleSubmissionRole,
 } from "@/lib/wholesale-submissions";
+import { validateWholesaleLead } from "@/lib/wholesale";
 import {
   checkPublicWriteRateLimit,
   getPublicClientFingerprint,
@@ -54,23 +55,30 @@ export async function POST(request: Request) {
 
     const payload = schema.parse(await readJsonWithLimit(request));
     if (payload.website) return Response.json({ ok: true });
+    const assessment = validateWholesaleLead({
+      role: payload.role,
+      direction: payload.direction,
+      title: payload.title,
+      details: payload.details,
+      proofUrl: payload.proofUrl,
+    });
 
     const result = await createWholesaleSubmission({
       role: payload.role as WholesaleSubmissionRole,
       direction: payload.direction as WholesaleSubmissionDirection,
       title: payload.title,
       contact: payload.contact,
-      identityType: payload.identityType ?? null,
-      target: payload.target || payload.details,
-      volume: payload.volume ?? null,
-      budget: payload.budget ?? null,
-      acceptableSources: payload.acceptableSources ?? null,
-      sourceDescription: payload.sourceDescription ?? null,
-      minimumOrder: payload.minimumOrder ?? null,
-      pricing: payload.pricing ?? null,
-      testRequirement: payload.testRequirement ?? null,
-      afterSales: payload.afterSales ?? null,
-      evidenceSummary: payload.evidenceSummary ?? null,
+      identityType: payload.identityType || assessment.details.identityType,
+      target: payload.target || assessment.details.target,
+      volume: payload.volume || assessment.details.volume,
+      budget: payload.budget || assessment.details.budget,
+      acceptableSources: payload.acceptableSources || assessment.details.acceptableSources,
+      sourceDescription: payload.sourceDescription || assessment.details.sourceDescription,
+      minimumOrder: payload.minimumOrder || assessment.details.minimumOrder,
+      pricing: payload.pricing || assessment.details.pricing,
+      testRequirement: payload.testRequirement || assessment.details.testRequirement,
+      afterSales: payload.afterSales || assessment.details.afterSales,
+      evidenceSummary: payload.evidenceSummary || assessment.details.evidenceSummary,
       proofUrl: payload.proofUrl ?? null,
       notes: payload.notes || payload.details,
       submitterIp,
@@ -101,6 +109,7 @@ function getErrorStatus(error: unknown, message: string): number {
   if (message.includes("尚未配置")) return 503;
   if (message.includes("过于频繁")) return 429;
   if (message.includes("链接仅支持")) return 400;
+  if (message.includes("还需要补充")) return 400;
   return 500;
 }
 

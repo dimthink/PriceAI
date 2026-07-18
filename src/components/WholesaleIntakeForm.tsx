@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import {
   CheckCircle2,
@@ -10,10 +10,15 @@ import {
   PackageSearch,
   Send,
   Store,
+  TriangleAlert,
 } from "lucide-react";
-
-type WholesaleRole = "buyer" | "seller";
-type WholesaleDirection = "api_transit" | "subscription_channel" | "other";
+import {
+  assessWholesaleLead,
+  isDefaultWholesaleTemplate,
+  wholesaleTemplate,
+  type WholesaleDirection,
+  type WholesaleRole,
+} from "@/lib/wholesale";
 
 type FormState = {
   role: WholesaleRole;
@@ -29,26 +34,6 @@ type SubmitState =
   | { type: "success"; message: string }
   | { type: "error"; message: string }
   | null;
-
-const BUYER_TEMPLATE = `采购身份：
-想要什么：
-预计量：
-预算/结算方式：
-可接受的来源：
-验真/测试要求：
-联系方式：
-补充说明：`;
-
-const SELLER_TEMPLATE = `源头类型：
-可供给内容：
-稳定供给量：
-起批门槛：
-批发价格/结算方式：
-可提供的证明：
-测试方式：
-售后/风险边界：
-联系方式：
-补充说明：`;
 
 const DIRECTION_OPTIONS: Array<{ value: WholesaleDirection; label: string }> = [
   { value: "api_transit", label: "API 中转" },
@@ -91,7 +76,7 @@ const INITIAL_FORM: FormState = {
   title: "",
   contact: "",
   proofUrl: "",
-  details: BUYER_TEMPLATE,
+  details: wholesaleTemplate("buyer", "api_transit"),
   website: "",
 };
 
@@ -101,6 +86,16 @@ export function WholesaleIntakeForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const copy = ROLE_COPY[form.role];
+  const assessment = useMemo(
+    () => assessWholesaleLead({
+      role: form.role,
+      direction: form.direction,
+      title: form.title,
+      details: form.details,
+      proofUrl: form.proofUrl,
+    }),
+    [form.details, form.direction, form.proofUrl, form.role, form.title],
+  );
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -111,9 +106,18 @@ export function WholesaleIntakeForm() {
       ...current,
       role,
       details: shouldReplaceTemplate(current.details)
-        ? role === "buyer"
-          ? BUYER_TEMPLATE
-          : SELLER_TEMPLATE
+        ? wholesaleTemplate(role, current.direction)
+        : current.details,
+    }));
+    setSubmitState(null);
+  }
+
+  function selectDirection(direction: WholesaleDirection) {
+    setForm((current) => ({
+      ...current,
+      direction,
+      details: shouldReplaceTemplate(current.details)
+        ? wholesaleTemplate(current.role, direction)
         : current.details,
     }));
     setSubmitState(null);
@@ -122,6 +126,13 @@ export function WholesaleIntakeForm() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitState(null);
+    if (assessment.quality === "insufficient") {
+      setSubmitState({
+        type: "error",
+        message: `还需要补充：${assessment.missing.join("、")}。`,
+      });
+      return;
+    }
     setIsSubmitting(true);
 
     try {
@@ -151,7 +162,7 @@ export function WholesaleIntakeForm() {
         ...INITIAL_FORM,
         role: current.role,
         direction: current.direction,
-        details: current.role === "buyer" ? BUYER_TEMPLATE : SELLER_TEMPLATE,
+        details: wholesaleTemplate(current.role, current.direction),
       }));
     } catch (error) {
       setSubmitState({
@@ -221,7 +232,7 @@ export function WholesaleIntakeForm() {
           <select
             className="mt-1 block min-h-11 w-full rounded-lg border border-[#c8d0d1] bg-white px-3 py-2 text-sm text-[#202829] outline-none transition focus:border-[#2d3435] focus:ring-2 focus:ring-[#dfe4e5]"
             name="direction"
-            onChange={(event) => updateField("direction", event.target.value as WholesaleDirection)}
+            onChange={(event) => selectDirection(event.target.value as WholesaleDirection)}
             value={form.direction}
           >
             {DIRECTION_OPTIONS.map((option) => (
@@ -245,6 +256,26 @@ export function WholesaleIntakeForm() {
             value={form.details}
           />
         </label>
+      </div>
+
+      <div
+        className={`mt-3 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs leading-5 ${
+          assessment.quality === "insufficient"
+            ? "border-[#f0d7aa] bg-[#fff7e8] text-[#7a541b]"
+            : "border-[#cbe7d4] bg-[#e8f3ec] text-[#2f7a4b]"
+        }`}
+        aria-live="polite"
+      >
+        {assessment.quality === "insufficient" ? (
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        ) : (
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        )}
+        <span>
+          {assessment.quality === "insufficient"
+            ? `提交前还需要补充：${assessment.missing.join("、")}。`
+            : "信息已达到人工初筛要求，提交后会进入批发线索池。"}
+        </span>
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -351,5 +382,5 @@ function TextField({
 
 function shouldReplaceTemplate(value: string) {
   const normalized = value.trim();
-  return !normalized || normalized === BUYER_TEMPLATE || normalized === SELLER_TEMPLATE;
+  return !normalized || isDefaultWholesaleTemplate(normalized);
 }

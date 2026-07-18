@@ -32,6 +32,8 @@ import type {
   ApiTransitSubmissionType,
   ApiTransitUsageAdvice,
   ApiTransitVerificationEvent,
+  WholesaleAdminMatch,
+  WholesaleMatchStatus,
 } from "@/lib/api-transit-admin-types";
 import {
   TRANSIT_STANDARD_MODELS,
@@ -78,10 +80,11 @@ export async function getApiTransitAdminData(input: {
   if (!supabase) return getEmptyApiTransitAdminData(true, "Supabase 尚未配置。");
 
   const loadErrors: ApiTransitAdminLoadError[] = [];
-  const [stations, offers, submissions, runs] = await Promise.all([
+  const [stations, offers, submissions, wholesaleMatches, runs] = await Promise.all([
     adminLoad("stations", "中转站", listAdminTransitStations(), [], loadErrors),
     adminLoad("offers", "中转站报价", listAdminTransitOffers(), [], loadErrors),
     adminLoad("submissions", "中转站提交", listAdminTransitSubmissions(), [], loadErrors),
+    adminLoad("wholesale-matches", "批发撮合记录", listAdminWholesaleMatches(), [], loadErrors),
     adminLoad("runs", "中转站检测记录", listAdminTransitRuns(), [], loadErrors),
   ]);
 
@@ -95,6 +98,7 @@ export async function getApiTransitAdminData(input: {
     offers,
     offerCandidates: buildOfferCandidates(offers),
     submissions,
+    wholesaleMatches,
     runs,
   };
 }
@@ -125,8 +129,77 @@ export function getEmptyApiTransitAdminData(
     offers: [],
     offerCandidates: [],
     submissions: [],
+    wholesaleMatches: [],
     runs: [],
   };
+}
+
+export async function createWholesaleMatch(input: {
+  demandSubmissionId: string;
+  supplySubmissionId: string;
+  matchScore: number;
+  matchReasons: string[];
+  adminNote?: string | null;
+}): Promise<WholesaleAdminMatch> {
+  const supabase = getSupabaseOrThrow();
+  const [demand, supply] = await Promise.all([
+    getAdminTransitSubmissionById(input.demandSubmissionId),
+    getAdminTransitSubmissionById(input.supplySubmissionId),
+  ]);
+  if (!isWholesaleAdminSubmission(demand) || !isWholesaleAdminSubmission(supply)) {
+    throw new Error("撮合双方必须都是批发线索。");
+  }
+  if (demand.submittedMeta.wholesaleRole !== "buyer" || supply.submittedMeta.wholesaleRole !== "seller") {
+    throw new Error("撮合记录必须由一条买方需求和一条源头供给组成。");
+  }
+
+  const row = {
+    id: stableId("wholesale-match", demand.id, supply.id),
+    demand_submission_id: demand.id,
+    supply_submission_id: supply.id,
+    status: "draft" satisfies WholesaleMatchStatus,
+    match_score: Math.max(0, Math.min(100, Math.round(input.matchScore))),
+    match_reasons: uniqueText(input.matchReasons).slice(0, 10),
+    admin_note: cleanNullable(input.adminNote),
+  };
+  const { data, error } = await supabase
+    .from("wholesale_matches")
+    .upsert(row, { onConflict: "demand_submission_id,supply_submission_id", ignoreDuplicates: true })
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  if (data) return mapWholesaleMatch(data as DbRow);
+
+  const { data: existing, error: existingError } = await supabase
+    .from("wholesale_matches")
+    .select("*")
+    .eq("demand_submission_id", demand.id)
+    .eq("supply_submission_id", supply.id)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (!existing) throw new Error("创建撮合记录失败。");
+  return mapWholesaleMatch(existing as DbRow);
+}
+
+export async function updateWholesaleMatch(input: {
+  id: string;
+  status: WholesaleMatchStatus;
+  adminNote?: string | null;
+  nextFollowUpAt?: string | null;
+}): Promise<WholesaleAdminMatch> {
+  const supabase = getSupabaseOrThrow();
+  const row: DbRow = { status: input.status };
+  if (input.adminNote !== undefined) row.admin_note = cleanNullable(input.adminNote);
+  if (input.nextFollowUpAt !== undefined) row.next_follow_up_at = cleanNullable(input.nextFollowUpAt);
+  const { data, error } = await supabase
+    .from("wholesale_matches")
+    .update(row)
+    .eq("id", input.id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("撮合记录不存在。");
+  return mapWholesaleMatch(data as DbRow);
 }
 
 export async function updateApiTransitStation(input: {
@@ -845,6 +918,18 @@ async function listAdminTransitSubmissions(): Promise<ApiTransitAdminSubmission[
   return dbRows(data).map(mapSubmission);
 }
 
+async function listAdminWholesaleMatches(): Promise<WholesaleAdminMatch[]> {
+  const supabase = getSupabaseOrThrow();
+  const { data, error } = await supabase
+    .from("wholesale_matches")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) throw error;
+  return dbRows(data).map(mapWholesaleMatch);
+}
+
 async function listAdminTransitRuns(): Promise<ApiTransitAdminRun[]> {
   const supabase = getSupabaseOrThrow();
   const { data, error } = await supabase
@@ -1083,6 +1168,21 @@ function mapSubmission(row: DbRow): ApiTransitAdminSubmission {
     duplicateOf: nullableString(row.duplicate_of),
     duplicateCount: numberValue(row.duplicate_count) || 0,
     adminNote: nullableString(row.admin_note),
+    createdAt: timestampValue(row.created_at),
+    updatedAt: nullableString(row.updated_at),
+  };
+}
+
+function mapWholesaleMatch(row: DbRow): WholesaleAdminMatch {
+  return {
+    id: stringValue(row.id),
+    demandSubmissionId: stringValue(row.demand_submission_id),
+    supplySubmissionId: stringValue(row.supply_submission_id),
+    status: wholesaleMatchStatus(row.status),
+    matchScore: Math.max(0, Math.min(100, Math.round(numberValue(row.match_score) || 0))),
+    matchReasons: stringArray(row.match_reasons),
+    adminNote: nullableString(row.admin_note),
+    nextFollowUpAt: nullableString(row.next_follow_up_at),
     createdAt: timestampValue(row.created_at),
     updatedAt: nullableString(row.updated_at),
   };
@@ -1747,6 +1847,13 @@ function reviewStatus(value: unknown): ApiTransitSubmissionReviewStatus {
 function runStatus(value: unknown): ApiTransitRunStatus {
   const text = stringValue(value);
   return text === "success" || text === "partial" || text === "failed" ? text : "failed";
+}
+
+function wholesaleMatchStatus(value: unknown): WholesaleMatchStatus {
+  const text = stringValue(value);
+  return text === "draft" || text === "consent_pending" || text === "connected" || text === "trial" || text === "deal" || text === "closed"
+    ? text
+    : "draft";
 }
 
 function isMissingColumnError(error: unknown, columnName?: string): boolean {

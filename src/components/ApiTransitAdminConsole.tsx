@@ -40,6 +40,8 @@ import type {
   ApiTransitOperatorType,
   ApiTransitSubmissionReviewStatus,
   ApiTransitVerificationEvent,
+  WholesaleAdminMatch,
+  WholesaleMatchStatus,
 } from "@/lib/api-transit-admin-types";
 import {
   TRANSIT_ACCOUNT_POOL_LABELS,
@@ -54,12 +56,21 @@ import {
 } from "@/data/api-transit/types";
 import { apiTransitLogoDisplayUrl } from "@/lib/api-transit-logo-url";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
+import {
+  assessWholesaleLead,
+  buildWholesaleMatchCandidates,
+  groupWholesaleLeads,
+  type WholesaleLeadAssessment,
+  type WholesaleLeadQuality,
+  type WholesaleMatchCandidate,
+} from "@/lib/wholesale";
 
 export type ApiTransitAdminTab = "stations" | "candidates" | "rawOffers" | "submissions" | "runs";
 type StationBucket = "published" | "pending" | "removed";
 type WholesaleLeadRoleFilter = "all" | "buyer" | "seller";
 type WholesaleLeadDirectionFilter = "all" | "api_transit" | "subscription_channel" | "other";
 type WholesaleLeadStatusFilter = "all" | ApiTransitSubmissionReviewStatus;
+type WholesaleLeadQualityFilter = "all" | WholesaleLeadQuality;
 type Message = {
   type: "success" | "error" | "info";
   text: string;
@@ -102,6 +113,15 @@ type ApiTransitStationEditInput = {
   commercialOffers: ApiTransitCommercialOffer[];
   verificationEvents: ApiTransitVerificationEvent[];
 };
+
+const WHOLESALE_MATCH_STATUS_OPTIONS: Array<{ value: WholesaleMatchStatus; label: string }> = [
+  { value: "draft", label: "待确认双方意愿" },
+  { value: "consent_pending", label: "确认意愿中" },
+  { value: "connected", label: "已建立联系" },
+  { value: "trial", label: "试单中" },
+  { value: "deal", label: "已成交" },
+  { value: "closed", label: "已关闭" },
+];
 type ApiTransitOfferEditInput = {
   id: string;
   family: string;
@@ -142,6 +162,7 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
   const [roleFilter, setRoleFilter] = useState<WholesaleLeadRoleFilter>("all");
   const [directionFilter, setDirectionFilter] = useState<WholesaleLeadDirectionFilter>("all");
   const [statusFilter, setStatusFilter] = useState<WholesaleLeadStatusFilter>("all");
+  const [qualityFilter, setQualityFilter] = useState<WholesaleLeadQualityFilter>("all");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [adminNoteDrafts, setAdminNoteDrafts] = useState<Record<string, string>>({});
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -149,8 +170,15 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
 
   const normalizedQuery = query.trim().toLowerCase();
   const wholesaleLeads = useMemo(
-    () => groupVisibleSubmissions(data.submissions).filter(isWholesaleSubmission),
+    () => groupWholesaleLeads(
+      data.submissions.filter(isWholesaleSubmission),
+      (lead) => ({ id: lead.id, duplicateOf: lead.duplicateOf, duplicateCount: lead.duplicateCount }),
+    ),
     [data.submissions],
+  );
+  const leadAssessments = useMemo(
+    () => new Map(wholesaleLeads.map((lead) => [lead.id, assessWholesaleSubmission(lead)])),
+    [wholesaleLeads],
   );
 
   const filteredLeads = useMemo(
@@ -158,9 +186,11 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
       wholesaleLeads.filter((lead) => {
         const role = wholesaleRoleValue(lead.submittedMeta);
         const direction = wholesaleDirectionValue(lead.submittedMeta);
+        const assessment = leadAssessments.get(lead.id);
         if (roleFilter !== "all" && role !== roleFilter) return false;
         if (directionFilter !== "all" && direction !== directionFilter) return false;
         if (statusFilter !== "all" && lead.reviewStatus !== statusFilter) return false;
+        if (qualityFilter !== "all" && assessment?.quality !== qualityFilter) return false;
         return matchesQuery(normalizedQuery, [
           lead.submittedName,
           lead.contact,
@@ -176,7 +206,7 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
           stringMeta(lead.submittedMeta, "proofUrl"),
         ]);
       }),
-    [directionFilter, normalizedQuery, roleFilter, statusFilter, wholesaleLeads],
+    [directionFilter, leadAssessments, normalizedQuery, qualityFilter, roleFilter, statusFilter, wholesaleLeads],
   );
 
   const selectedLead =
@@ -186,11 +216,25 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
   const selectedAdminNoteDraft = selectedLead
     ? adminNoteDrafts[selectedLead.id] ?? selectedLead.adminNote ?? ""
     : "";
+  const selectedAssessment = selectedLead ? leadAssessments.get(selectedLead.id) || null : null;
+  const selectedCandidates = useMemo(
+    () => selectedLead
+      ? buildWholesaleMatchCandidates(selectedLead, wholesaleLeads, readWholesaleSubmissionForMatch)
+      : [],
+    [selectedLead, wholesaleLeads],
+  );
+  const selectedMatches = selectedLead
+    ? data.wholesaleMatches.filter(
+      (match) => match.demandSubmissionId === selectedLead.id || match.supplySubmissionId === selectedLead.id,
+    )
+    : [];
 
   const pendingCount = wholesaleLeads.filter((lead) => lead.reviewStatus === "pending").length;
   const followUpCount = wholesaleLeads.filter((lead) => lead.reviewStatus === "collector_todo").length;
   const buyerCount = wholesaleLeads.filter((lead) => wholesaleRoleValue(lead.submittedMeta) === "buyer").length;
   const sellerCount = wholesaleLeads.filter((lead) => wholesaleRoleValue(lead.submittedMeta) === "seller").length;
+  const insufficientCount = wholesaleLeads.filter((lead) => leadAssessments.get(lead.id)?.quality === "insufficient").length;
+  const matchableCount = wholesaleLeads.filter((lead) => leadAssessments.get(lead.id)?.quality === "matchable").length;
 
   async function updateWholesaleLead(
     lead: ApiTransitAdminSubmission,
@@ -200,7 +244,7 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
     const result = await requestJson("/api/admin/api-transit/submissions", "PATCH", {
       id: lead.id,
       reviewStatus,
-      adminNote: defaultSubmissionNote(reviewStatus, true),
+      adminNote: lead.adminNote || defaultSubmissionNote(reviewStatus, true),
     });
     if (result.ok) {
       setMessage({ type: "success", text: wholesaleStatusSuccessText(reviewStatus) });
@@ -239,6 +283,44 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
     }
   }
 
+  async function createMatch(candidate: WholesaleMatchCandidate<ApiTransitAdminSubmission>) {
+    if (!selectedLead) return;
+    const selectedRole = wholesaleRoleValue(selectedLead.submittedMeta);
+    const candidateRole = wholesaleRoleValue(candidate.lead.submittedMeta);
+    const demand = selectedRole === "buyer" ? selectedLead : candidateRole === "buyer" ? candidate.lead : null;
+    const supply = selectedRole === "seller" ? selectedLead : candidateRole === "seller" ? candidate.lead : null;
+    if (!demand || !supply) return;
+    setLoadingAction(`wholesale-match-${candidate.lead.id}`);
+    const result = await requestJson("/api/admin/wholesale-matches", "POST", {
+      demandSubmissionId: demand.id,
+      supplySubmissionId: supply.id,
+      matchScore: candidate.score,
+      matchReasons: candidate.reasons,
+    });
+    if (result.ok) {
+      setMessage({ type: "success", text: "已创建撮合记录，下一步先分别确认双方意愿。" });
+      router.refresh();
+    } else {
+      setMessage({ type: "error", text: result.message || "创建撮合记录失败。" });
+    }
+    setLoadingAction(null);
+  }
+
+  async function updateMatchStatus(match: WholesaleAdminMatch, status: WholesaleMatchStatus) {
+    setLoadingAction(`wholesale-match-status-${match.id}`);
+    const result = await requestJson("/api/admin/wholesale-matches", "PATCH", {
+      id: match.id,
+      status,
+    });
+    if (result.ok) {
+      setMessage({ type: "success", text: "撮合进度已更新。" });
+      router.refresh();
+    } else {
+      setMessage({ type: "error", text: result.message || "更新撮合进度失败。" });
+    }
+    setLoadingAction(null);
+  }
+
   return (
     <section className="space-y-4">
       {message ? <MessageBox message={message} onDismiss={() => setMessage(null)} /> : null}
@@ -259,6 +341,8 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
             <span className="rounded-lg bg-[#f2f4f4] px-3 py-2 font-medium text-[#2d3435]">全部 {wholesaleLeads.length}</span>
             <span className="rounded-lg bg-[#eef3f8] px-3 py-2 font-medium text-[#47657a]">买方 {buyerCount}</span>
             <span className="rounded-lg bg-[#e8f3ec] px-3 py-2 font-medium text-[#2f7a4b]">源头 {sellerCount}</span>
+            <span className="rounded-lg bg-[#fff7e8] px-3 py-2 font-medium text-[#7a541b]">需补充 {insufficientCount}</span>
+            <span className="rounded-lg bg-[#e8f3ec] px-3 py-2 font-medium text-[#2f7a4b]">可撮合 {matchableCount}</span>
             <span className="rounded-lg bg-[#fff7e8] px-3 py-2 font-medium text-[#7a541b]">筛选 {filteredLeads.length}</span>
           </div>
         </div>
@@ -294,6 +378,13 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
           <WholesaleFilterButton active={statusFilter === "approved"} onClick={() => setStatusFilter("approved")}>初筛通过</WholesaleFilterButton>
           <WholesaleFilterButton active={statusFilter === "rejected"} onClick={() => setStatusFilter("rejected")}>已拒绝</WholesaleFilterButton>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#edf0f1] pt-3">
+          <span className="text-xs font-semibold text-[#5a6061]">资料质量</span>
+          <WholesaleFilterButton active={qualityFilter === "all"} onClick={() => setQualityFilter("all")}>全部</WholesaleFilterButton>
+          <WholesaleFilterButton active={qualityFilter === "insufficient"} onClick={() => setQualityFilter("insufficient")}>需补充</WholesaleFilterButton>
+          <WholesaleFilterButton active={qualityFilter === "review"} onClick={() => setQualityFilter("review")}>待判断</WholesaleFilterButton>
+          <WholesaleFilterButton active={qualityFilter === "matchable"} onClick={() => setQualityFilter("matchable")}>可撮合</WholesaleFilterButton>
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -310,6 +401,7 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
               <WholesaleLeadRow
                 key={lead.id}
                 lead={lead}
+                assessment={leadAssessments.get(lead.id) || assessWholesaleSubmission(lead)}
                 selected={selectedLead?.id === lead.id}
                 loadingAction={loadingAction}
                 onSelect={() => setSelectedLeadId(lead.id)}
@@ -323,6 +415,9 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
 
         <WholesaleLeadDetailPanel
           lead={selectedLead}
+          assessment={selectedAssessment}
+          candidates={selectedCandidates}
+          matches={selectedMatches}
           adminNoteDraft={selectedAdminNoteDraft}
           loadingAction={loadingAction}
           onAdminNoteDraftChange={(value) => {
@@ -331,6 +426,8 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
           }}
           onCopyContact={selectedLead ? () => copyContact(selectedLead) : undefined}
           onSaveAdminNote={saveAdminNote}
+          onCreateMatch={createMatch}
+          onUpdateMatchStatus={updateMatchStatus}
           onUpdate={selectedLead ? (reviewStatus) => updateWholesaleLead(selectedLead, reviewStatus) : undefined}
         />
       </div>
@@ -1462,6 +1559,7 @@ function WholesaleFilterButton({
 }
 
 function WholesaleLeadRow({
+  assessment,
   lead,
   loadingAction,
   onCopyContact,
@@ -1469,6 +1567,7 @@ function WholesaleLeadRow({
   onUpdate,
   selected,
 }: {
+  assessment: WholesaleLeadAssessment;
   lead: ApiTransitAdminSubmission;
   loadingAction: string | null;
   onCopyContact: () => void;
@@ -1506,6 +1605,7 @@ function WholesaleLeadRow({
           <StatusBadge tone={wholesaleStatusTone(lead.reviewStatus)}>{wholesaleReviewStatusLabel(lead.reviewStatus)}</StatusBadge>
           <StatusBadge tone={wholesaleRoleValue(meta) === "seller" ? "success" : "info"}>{wholesaleRoleLabel(meta) || "批发线索"}</StatusBadge>
           <StatusBadge tone="muted">{wholesaleDirectionLabel(meta) || "未分类"}</StatusBadge>
+          <StatusBadge tone={wholesaleQualityTone(assessment.quality)}>{wholesaleQualityLabel(assessment.quality)}</StatusBadge>
         </div>
         <p className="mt-2 line-clamp-2 text-sm leading-6 text-[#2d3435]">{primaryText || "暂无摘要内容"}</p>
         {secondaryRows.length ? (
@@ -1581,20 +1681,30 @@ function WholesaleLeadRow({
 
 function WholesaleLeadDetailPanel({
   adminNoteDraft,
+  assessment,
+  candidates,
   lead,
   loadingAction,
+  matches,
   onAdminNoteDraftChange,
   onCopyContact,
+  onCreateMatch,
   onSaveAdminNote,
   onUpdate,
+  onUpdateMatchStatus,
 }: {
   adminNoteDraft: string;
+  assessment: WholesaleLeadAssessment | null;
+  candidates: Array<WholesaleMatchCandidate<ApiTransitAdminSubmission>>;
   lead: ApiTransitAdminSubmission | null;
   loadingAction: string | null;
+  matches: WholesaleAdminMatch[];
   onAdminNoteDraftChange: (value: string) => void;
   onCopyContact?: () => void;
+  onCreateMatch: (candidate: WholesaleMatchCandidate<ApiTransitAdminSubmission>) => void;
   onSaveAdminNote: () => void;
   onUpdate?: (reviewStatus: ApiTransitSubmissionReviewStatus) => void;
+  onUpdateMatchStatus: (match: WholesaleAdminMatch, status: WholesaleMatchStatus) => void;
 }) {
   if (!lead) {
     return (
@@ -1633,6 +1743,7 @@ function WholesaleLeadDetailPanel({
               <StatusBadge tone={wholesaleStatusTone(lead.reviewStatus)}>{wholesaleReviewStatusLabel(lead.reviewStatus)}</StatusBadge>
               <StatusBadge tone="info">{wholesaleDirectionLabel(meta) || "未分类"}</StatusBadge>
               <StatusBadge tone={wholesaleRoleValue(meta) === "seller" ? "success" : "muted"}>{wholesaleRoleLabel(meta) || "批发线索"}</StatusBadge>
+              {assessment ? <StatusBadge tone={wholesaleQualityTone(assessment.quality)}>{wholesaleQualityLabel(assessment.quality)}</StatusBadge> : null}
             </div>
           </div>
           <span className="shrink-0 text-xs text-[#5a6061]">{formatRelativeTime(lead.createdAt)}</span>
@@ -1688,6 +1799,84 @@ function WholesaleLeadDetailPanel({
           </button>
         </div>
       </section>
+
+      {assessment ? (
+        <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-[#202829]">资料完整度</div>
+            <span className="text-xs font-semibold text-[#5a6061]">{assessment.score}/100</span>
+          </div>
+          {assessment.missing.length ? (
+            <p className="mt-2 text-xs leading-5 text-[#7a541b]">需补充：{assessment.missing.join("、")}</p>
+          ) : (
+            <p className="mt-2 text-xs leading-5 text-[#2f7a4b]">关键供需信息已完整，可以进入人工撮合判断。</p>
+          )}
+          {assessment.riskFlags.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {assessment.riskFlags.map((flag) => <StatusBadge key={flag} tone="warn">{flag}</StatusBadge>)}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[#202829]">
+          <ClipboardList size={15} />
+          推荐匹配
+        </div>
+        <p className="mt-1 text-xs leading-5 text-[#5a6061]">系统只给出候选和依据，创建撮合后仍需分别确认双方意愿。</p>
+        <div className="mt-3 space-y-2">
+          {candidates.map((candidate) => {
+            const alreadyMatched = matches.some((match) =>
+              match.demandSubmissionId === candidate.lead.id || match.supplySubmissionId === candidate.lead.id,
+            );
+            return (
+              <div key={candidate.lead.id} className="rounded-lg bg-[#f8fafa] px-3 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[#202829]">{candidate.lead.submittedName || "批发线索"}</div>
+                    <p className="mt-1 text-xs leading-5 text-[#5a6061]">{candidate.reasons.join("；") || "资料方向可进一步判断"}</p>
+                    {candidate.conflicts.length ? <p className="mt-1 text-xs leading-5 text-[#7a541b]">注意：{candidate.conflicts.join("；")}</p> : null}
+                  </div>
+                  <span className="shrink-0 text-xs font-semibold text-[#47657a]">{candidate.score}</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={alreadyMatched || loadingAction === `wholesale-match-${candidate.lead.id}`}
+                  onClick={() => onCreateMatch(candidate)}
+                  className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:cursor-not-allowed disabled:bg-[#adb3b4]"
+                >
+                  {loadingAction === `wholesale-match-${candidate.lead.id}` ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                  {alreadyMatched ? "已有撮合" : "创建撮合"}
+                </button>
+              </div>
+            );
+          })}
+          {!candidates.length ? <p className="rounded-lg bg-[#f8fafa] px-3 py-3 text-xs leading-5 text-[#5a6061]">暂无达到推荐门槛的相反角色线索。</p> : null}
+        </div>
+      </section>
+
+      {matches.length ? (
+        <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4">
+          <div className="text-sm font-semibold text-[#202829]">撮合进度</div>
+          <div className="mt-3 space-y-2">
+            {matches.map((match) => (
+              <label key={match.id} className="grid gap-1 rounded-lg bg-[#f8fafa] px-3 py-2">
+                <span className="text-xs font-medium text-[#5a6061]">匹配度 {match.matchScore} · {match.matchReasons.slice(0, 2).join("、")}</span>
+                <select
+                  value={match.status}
+                  disabled={loadingAction === `wholesale-match-status-${match.id}`}
+                  onChange={(event) => onUpdateMatchStatus(match, event.target.value as WholesaleMatchStatus)}
+                  className="h-9 rounded-lg border border-[#adb3b4]/30 bg-white px-2 text-xs font-semibold text-[#202829] outline-none focus:border-[#2d3435]"
+                  aria-label="更新撮合进度"
+                >
+                  {WHOLESALE_MATCH_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
         <div className="flex items-center gap-2 text-sm font-semibold text-[#202829]">
@@ -2904,6 +3093,42 @@ function wholesaleDirectionLabel(meta: Record<string, unknown>): string | null {
   if (value === "subscription_channel") return "卡网/订阅渠道批发";
   if (value === "other") return "其他源头";
   return explicitLabel;
+}
+
+function assessWholesaleSubmission(submission: ApiTransitAdminSubmission): WholesaleLeadAssessment {
+  const role = wholesaleRoleValue(submission.submittedMeta) || (submission.submissionType === "merchant" ? "seller" : "buyer");
+  const direction = wholesaleDirectionValue(submission.submittedMeta) || "other";
+  return assessWholesaleLead({
+    role,
+    direction,
+    title: submission.submittedName,
+    details: submission.notes || stringMeta(submission.submittedMeta, "target") || "",
+    proofUrl: wholesaleProofUrl(submission),
+  });
+}
+
+function readWholesaleSubmissionForMatch(submission: ApiTransitAdminSubmission) {
+  return {
+    id: submission.id,
+    role: wholesaleRoleValue(submission.submittedMeta),
+    direction: wholesaleDirectionValue(submission.submittedMeta),
+    title: submission.submittedName || "",
+    details: submission.notes || stringMeta(submission.submittedMeta, "target") || "",
+    proofUrl: wholesaleProofUrl(submission),
+    reviewStatus: submission.reviewStatus,
+  };
+}
+
+function wholesaleQualityLabel(value: WholesaleLeadQuality): string {
+  if (value === "matchable") return "可撮合";
+  if (value === "review") return "待判断";
+  return "需补充";
+}
+
+function wholesaleQualityTone(value: WholesaleLeadQuality): "success" | "warn" | "info" {
+  if (value === "matchable") return "success";
+  if (value === "review") return "info";
+  return "warn";
 }
 
 function wholesaleReviewStatusLabel(value: ApiTransitSubmissionReviewStatus): string {

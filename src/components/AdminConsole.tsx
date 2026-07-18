@@ -50,6 +50,7 @@ import { classifyOffer, getCanonicalProduct } from "@/lib/catalog";
 import { communityAssetDisplayUrl } from "@/lib/community-asset-url";
 import { safeExternalHttpUrl } from "@/lib/external-url";
 import { shouldCreateFeedbackVerification } from "@/lib/trust-risk";
+import { groupWholesaleLeads } from "@/lib/wholesale";
 import {
   collectorKindLabel,
   collectorKindOptions,
@@ -565,11 +566,10 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   );
   const wholesalePendingLeadCount = useMemo(
     () =>
-      data.apiTransit.submissions.filter(
-        (submission) =>
-          submission.submittedMeta.workflow === "wholesale" &&
-          submission.reviewStatus === "pending",
-      ).length,
+      groupWholesaleLeads(
+        data.apiTransit.submissions.filter((submission) => submission.submittedMeta.workflow === "wholesale"),
+        (submission) => ({ id: submission.id, duplicateOf: submission.duplicateOf, duplicateCount: submission.duplicateCount }),
+      ).filter((submission) => submission.reviewStatus === "pending").length,
     [data.apiTransit.submissions],
   );
   const apiTransitPendingSubmissionCount = useMemo(
@@ -3073,7 +3073,7 @@ export function AdminConsole({ data }: { data: AdminSummary }) {
   return (
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
       {/* Header */}
-      <header className="border-b border-[#adb3b4]/30 bg-white">
+      <header className="sticky top-0 z-40 border-b border-[#adb3b4]/30 bg-white/95 backdrop-blur-[14px]">
         <div className="mx-auto flex max-w-none items-center justify-between gap-4 px-4 py-3 sm:px-5 lg:px-6 2xl:px-8">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm font-medium text-[#5a6061] transition-colors hover:text-[#2d3435]">

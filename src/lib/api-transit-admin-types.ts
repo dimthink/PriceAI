@@ -17,6 +17,7 @@ export type ApiTransitSubmissionType = "user" | "merchant";
 export type ApiTransitProbeStatus = "pending" | "public_pricing_found" | "needs_login" | "failed";
 export type ApiTransitParseStatus = "pending" | "parsed" | "failed";
 export type ApiTransitRunStatus = "success" | "partial" | "failed";
+export type WholesaleMatchStatus = "draft" | "consent_pending" | "connected" | "trial" | "deal" | "closed";
 
 export type ApiTransitCommercialOffer = {
   id: string;
@@ -208,6 +209,19 @@ export type ApiTransitAdminRun = {
   finishedAt: string | null;
 };
 
+export type WholesaleAdminMatch = {
+  id: string;
+  demandSubmissionId: string;
+  supplySubmissionId: string;
+  status: WholesaleMatchStatus;
+  matchScore: number;
+  matchReasons: string[];
+  adminNote: string | null;
+  nextFollowUpAt: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+};
+
 export type ApiTransitAdminMetrics = {
   totalStations: number;
   publishedStations: number;
@@ -232,5 +246,6 @@ export type ApiTransitAdminData = {
   offers: ApiTransitAdminOffer[];
   offerCandidates: ApiTransitOfferCandidate[];
   submissions: ApiTransitAdminSubmission[];
+  wholesaleMatches: WholesaleAdminMatch[];
   runs: ApiTransitAdminRun[];
 };

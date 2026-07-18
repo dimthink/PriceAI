@@ -1,8 +1,8 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 export type AdminNavItem = {
   id: string;
@@ -27,6 +27,8 @@ type AdminShellProps = {
 
 const SIDEBAR_COLLAPSED_KEY = "priceai-admin-sidebar-collapsed";
 const SIDEBAR_COLLAPSED_EVENT = "priceai-admin-sidebar-collapsed-change";
+const SIDEBAR_SECTIONS_KEY = "priceai-admin-sidebar-expanded-sections";
+const SIDEBAR_SECTIONS_EVENT = "priceai-admin-sidebar-expanded-sections-change";
 
 export function AdminShell({ sections, activeItemId, onSelectItem, children }: AdminShellProps) {
   const sidebarCollapsed = useSyncExternalStore(
@@ -34,8 +36,39 @@ export function AdminShell({ sections, activeItemId, onSelectItem, children }: A
     getSidebarCollapsedSnapshot,
     getServerSidebarCollapsedSnapshot,
   );
+  const expandedSectionsSnapshot = useSyncExternalStore(
+    subscribeExpandedSections,
+    getExpandedSectionsSnapshot,
+    getServerExpandedSectionsSnapshot,
+  );
   const activeSection = sections.find((section) => section.items.some((item) => item.id === activeItemId));
   const activeItem = activeSection?.items.find((item) => item.id === activeItemId);
+  const storedExpandedState = useMemo(
+    () => parseExpandedSections(expandedSectionsSnapshot),
+    [expandedSectionsSnapshot],
+  );
+  const expandedSectionIds = useMemo(() => {
+    const next = new Set(
+      storedExpandedState.expanded.filter((id) => sections.some((section) => section.id === id)),
+    );
+    if (!expandedSectionsSnapshot && activeSection) next.add(activeSection.id);
+    if (storedExpandedState.activeItemId !== activeItemId && activeSection) next.add(activeSection.id);
+    return next;
+  }, [activeItemId, activeSection, expandedSectionsSnapshot, sections, storedExpandedState.activeItemId, storedExpandedState.expanded]);
+
+  const toggleSection = useCallback((sectionId: string) => {
+    const current = parseExpandedSections(getExpandedSectionsSnapshot());
+    const next = new Set([...current.expanded, ...expandedSectionIds]);
+    if (expandedSectionIds.has(sectionId)) next.delete(sectionId);
+    else next.add(sectionId);
+    writeExpandedSections({ expanded: Array.from(next), activeItemId });
+  }, [activeItemId, expandedSectionIds]);
+
+  const selectItem = useCallback((sectionId: string, itemId: string) => {
+    const current = parseExpandedSections(getExpandedSectionsSnapshot());
+    writeExpandedSections({ expanded: Array.from(new Set([...current.expanded, sectionId])), activeItemId: itemId });
+    onSelectItem(itemId);
+  }, [onSelectItem]);
 
   const toggleSidebarCollapsed = useCallback(() => {
     const nextValue = !getSidebarCollapsedSnapshot();
@@ -49,10 +82,10 @@ export function AdminShell({ sections, activeItemId, onSelectItem, children }: A
 
   return (
     <div className={`grid gap-4 lg:gap-5 ${sidebarCollapsed ? "lg:grid-cols-[56px_minmax(0,1fr)]" : "lg:grid-cols-[264px_minmax(0,1fr)]"}`}>
-      <aside className="lg:sticky lg:top-5 lg:self-start">
+      <aside className="lg:sticky lg:top-[72px] lg:self-start">
         <nav
           aria-label="后台分区导航"
-          className={`rounded-lg border border-[#adb3b4]/20 bg-white shadow-[0_3px_8px_rgba(45,52,53,0.025)] ${sidebarCollapsed ? "lg:p-2" : "p-3"}`}
+          className={`flex flex-col rounded-lg border border-[#adb3b4]/20 bg-white shadow-[0_3px_8px_rgba(45,52,53,0.025)] lg:max-h-[calc(100dvh-88px)] ${sidebarCollapsed ? "lg:p-2" : "p-3"}`}
         >
           <div className={`mb-3 flex items-center border-b border-[#adb3b4]/15 pb-3 ${sidebarCollapsed ? "lg:justify-center" : "justify-between"}`}>
             <div className={sidebarCollapsed ? "lg:hidden" : ""}>
@@ -80,13 +113,27 @@ export function AdminShell({ sections, activeItemId, onSelectItem, children }: A
               <span className={sidebarCollapsed ? "lg:hidden" : ""}>退出后台</span>
             </button>
           </form>
-          <div className={`grid min-w-0 gap-3 md:grid-cols-2 lg:block ${sidebarCollapsed ? "lg:space-y-2" : "lg:space-y-4"}`}>
+          <div className={`grid min-w-0 gap-2 overflow-y-auto overscroll-contain pr-0.5 md:grid-cols-2 lg:block lg:[scrollbar-gutter:stable] ${sidebarCollapsed ? "lg:space-y-2" : "lg:space-y-2"}`}>
             {sections.map((section) => (
               <section key={section.id} className="min-w-0">
-                <p className={`mb-1.5 px-2 text-[11px] font-semibold text-[#5a6061] ${sidebarCollapsed ? "lg:sr-only" : ""}`}>
-                  {section.label}
-                </p>
-                <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section.id)}
+                  className={`mb-1 flex min-h-8 w-full items-center justify-between gap-2 rounded-lg px-2 text-left text-[11px] font-semibold text-[#5a6061] transition-colors hover:bg-[#f2f4f4] hover:text-[#202829] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2d3435]/20 ${sidebarCollapsed ? "lg:hidden" : ""}`}
+                  aria-expanded={expandedSectionIds.has(section.id)}
+                  aria-controls={`admin-nav-section-${section.id}`}
+                >
+                  <span>{section.label}</span>
+                  <ChevronDown
+                    size={14}
+                    className={`shrink-0 transition-transform duration-200 ${expandedSectionIds.has(section.id) ? "rotate-180" : ""}`}
+                    aria-hidden="true"
+                  />
+                </button>
+                <div
+                  id={`admin-nav-section-${section.id}`}
+                  className={`space-y-1 ${expandedSectionIds.has(section.id) ? "block" : "hidden"} ${sidebarCollapsed ? "lg:block" : ""}`}
+                >
                   {section.items.map((item) => {
                     const active = item.id === activeItemId;
                     const countLabel = formatNavCount(item.count, sidebarCollapsed);
@@ -96,7 +143,7 @@ export function AdminShell({ sections, activeItemId, onSelectItem, children }: A
                         type="button"
                         aria-current={active ? "page" : undefined}
                         title={item.description ? `${item.label}: ${item.description}` : item.label}
-                        onClick={() => onSelectItem(item.id)}
+                        onClick={() => selectItem(section.id, item.id)}
                         className={`group/nav relative flex min-h-10 w-full items-center gap-2 rounded-lg text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[#2d3435]/20 ${
                           sidebarCollapsed ? "lg:justify-center lg:px-0 lg:py-2" : "px-2.5 py-2"
                         } ${
@@ -183,4 +230,56 @@ function subscribeSidebarCollapsed(listener: () => void): () => void {
     window.removeEventListener("storage", handleStorage);
     window.removeEventListener(SIDEBAR_COLLAPSED_EVENT, handleLocalChange);
   };
+}
+
+type ExpandedSectionsState = {
+  expanded: string[];
+  activeItemId: string;
+};
+
+function parseExpandedSections(value: string): ExpandedSectionsState {
+  try {
+    const parsed = JSON.parse(value) as Partial<ExpandedSectionsState>;
+    return {
+      expanded: Array.isArray(parsed.expanded) ? parsed.expanded.filter((id): id is string => typeof id === "string") : [],
+      activeItemId: typeof parsed.activeItemId === "string" ? parsed.activeItemId : "",
+    };
+  } catch {
+    return { expanded: [], activeItemId: "" };
+  }
+}
+
+function getExpandedSectionsSnapshot(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(SIDEBAR_SECTIONS_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function getServerExpandedSectionsSnapshot(): string {
+  return "";
+}
+
+function subscribeExpandedSections(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === SIDEBAR_SECTIONS_KEY) listener();
+  };
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener(SIDEBAR_SECTIONS_EVENT, listener);
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener(SIDEBAR_SECTIONS_EVENT, listener);
+  };
+}
+
+function writeExpandedSections(state: ExpandedSectionsState) {
+  try {
+    window.localStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify(state));
+    window.dispatchEvent(new Event(SIDEBAR_SECTIONS_EVENT));
+  } catch {
+    // The accordion remains usable when storage is unavailable.
+  }
 }
