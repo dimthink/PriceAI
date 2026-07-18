@@ -1637,8 +1637,9 @@ function mapSubmissionRow(row: Record<string, unknown>): ChannelSubmission {
   const parsedMeta = row.parsed_meta && typeof row.parsed_meta === "object"
     ? (row.parsed_meta as Record<string, unknown>)
     : {};
-  const duplicateOfSubmissionId = row.duplicate_of_submission_id
-    ? String(row.duplicate_of_submission_id)
+  const duplicateColumnPresent = Object.prototype.hasOwnProperty.call(row, "duplicate_of_submission_id");
+  const duplicateOfSubmissionId = duplicateColumnPresent
+    ? (row.duplicate_of_submission_id ? String(row.duplicate_of_submission_id) : null)
     : stringValue(parsedMeta.duplicate_pending_submission_id);
   const safeDuplicateId = duplicateOfSubmissionId && duplicateOfSubmissionId !== String(row.id)
     ? duplicateOfSubmissionId

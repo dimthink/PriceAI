@@ -1759,6 +1759,18 @@ create unique index if not exists channel_submissions_pending_root_key_uidx
   on channel_submissions(canonical_channel_key)
   where status = 'pending' and duplicate_of_submission_id is null and canonical_channel_key is not null;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'channel_submissions_duplicate_not_self'
+  ) then
+    alter table channel_submissions
+      add constraint channel_submissions_duplicate_not_self
+      check (duplicate_of_submission_id is null or duplicate_of_submission_id <> id);
+  end if;
+end;
+$$;
+
 alter table channel_submissions enable row level security;
 
 create table if not exists public_user_profiles (
