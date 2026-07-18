@@ -774,11 +774,12 @@ export function compactTransitStationsForList(stations: TransitStation[]): Trans
 }
 
 function compactTransitAvailability(availability: TransitAvailability): TransitAvailability {
-  const samples = normalizeRecentAvailabilitySamples(transitAvailabilityRecentSamples(availability) || []);
+  const { recentSampleBits: _recentSampleBits, ...rest } = availability;
+  void _recentSampleBits;
+  const samples = normalizeRecentAvailabilitySamples(transitAvailabilityRecentSamples(rest) || []);
   return {
-    ...availability,
+    ...rest,
     recentSamples: samples,
-    recentSampleBits: undefined,
   };
 }
 
