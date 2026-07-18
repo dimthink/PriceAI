@@ -44,8 +44,11 @@ const DAILY_PROBE_FAILURE_THRESHOLD = 3;
 const DAILY_PROBE_INTERVAL_MINUTES = 24 * 60;
 const DEFAULT_SHOP_API_PROXY_HOSTS = ["pay.ldxp.cn", "ldxp.cn"];
 const SHOP_API_PROXY_REQUEST_TIMEOUT_MS = 20_000;
-const DEFAULT_SHOP_API_PROXY_REUSE_LIMIT = 1;
+const DEFAULT_SHOP_API_PROXY_REUSE_LIMIT = 0;
 const DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS = 55_000;
+const SHOP_API_PROXY_EXPIRY_SAFETY_MS = 45_000;
+const SHOP_API_PROXY_ROTATION_WINDOW_MS = 10 * 60 * 1000;
+const SHOP_API_PROXY_MAX_ROTATIONS_PER_WINDOW = 2;
 const DEFAULT_SHOP_API_PROXY_PARALLELISM = 1;
 const DEFAULT_SHOP_API_PROXY_MODE = "always";
 const DEFAULT_SHOP_API_EXIT_ERROR_FAMILY_PAUSE = false;
@@ -607,9 +610,14 @@ function probeSuccessResponse(target, offers, startedAt, limit, extra = {}) {
 
 export {
   assignShopCollectionSchedulerShard,
+  blockShopApiDirectExitForTarget,
   calculateShopApiBuyerAdjustment,
+  createShopApiProxyReusePool,
+  extractProxyLeaseFromPayload,
   isDailyProbeFailure,
+  isShopApiDirectExitBlockedForTarget,
   isShopApiExitErrorMessage,
+  isShopApiProxyTransportErrorMessage,
   loadTargets,
   selectTargets,
   shopApiFeeModelFromChannelRate,
@@ -665,12 +673,18 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
   const maxAttempts = maxAttemptsFor(options);
   const attempts = [];
   let lastError = null;
-  let shopApiProxyActive = shopApiProxyModeFor(options) !== "on_exit";
+  let shopApiProxyActive =
+    shopApiProxyModeFor(options) !== "on_exit" ||
+    isShopApiDirectExitBlockedForTarget(target, options);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const startedAt = Date.now();
-    const attemptOptions = target.kind === "shopApi" && !shopApiProxyActive
-      ? { ...options, shopApiProxyDisabled: true }
+    const attemptOptions = target.kind === "shopApi"
+      ? {
+          ...options,
+          shopApiProxyLogger: logger,
+          ...(shopApiProxyActive ? {} : { shopApiProxyDisabled: true }),
+        }
       : options;
 
     try {
@@ -701,13 +715,25 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
         message,
       });
       lastError = error;
-      await discardShopApiProxyReuseForTarget(target, options);
-      if (collectionFamilyForTarget(target) && isShopApiExitErrorMessage(message)) {
+      const exitError = isShopApiExitErrorMessage(message);
+      const proxyTransportError = isShopApiProxyTransportErrorMessage(message);
+      const proxyWasActive =
+        target.kind === "shopApi" &&
+        shopApiProxyActive &&
+        hasShopApiProxyConfigured(options);
+
+      if (proxyWasActive && (exitError || proxyTransportError)) {
+        await discardShopApiProxyReuseForTarget(target, options, {
+          logger,
+          reason: exitError ? "upstream-exit-error" : "proxy-transport-error",
+        });
+      }
+
+      if (collectionFamilyForTarget(target) && exitError) {
         if (shopApiProxyModeFor(options) === "on_exit" && hasShopApiProxyConfigured(options) && !shopApiProxyActive) {
           shopApiProxyActive = true;
+          blockShopApiDirectExitForTarget(target, options);
           logger?.log("Shop API direct exit returned wind-control/server pressure; switching the next retry to the proxy pool.");
-        } else {
-          logger?.log("Shop API exit returned wind-control/server pressure; the next retry will use a fresh exit when a proxy pool is configured.");
         }
       }
     }
@@ -3441,6 +3467,15 @@ function collectionGroupKeyForTarget(target, options = {}) {
   return `${host}:proxy-lane:${lane}`;
 }
 
+function shopApiProxyPoolKeyForTarget(target, options = {}) {
+  const host = normalizeHostname(target.baseUrl || target.sourceUrl) || target.sourceId;
+  const proxyParallelism = shopApiProxyParallelismFor(options);
+  if (proxyParallelism <= 1 || shopApiProxyModeFor(options) !== "always") return host;
+
+  const lane = stableHashInt("shop-api-proxy-lane", target.sourceId || target.sourceName || "") % proxyParallelism;
+  return `${host}:proxy-lane:${lane}`;
+}
+
 function sortTargetsForCollectionGroup(targets) {
   if (targets.length <= 1) return targets;
   if (!targets.some((target) => collectionFamilyForTarget(target))) return targets;
@@ -4674,6 +4709,12 @@ function isShopApiExitErrorMessage(message) {
   return /HTTP\s*(?:403|520)|status\s*(?:403|520)|denied by (?:ip_access_rule|http_ratelimit)|ip_access_rule|http_ratelimit|proxy-status:\s*esa|response_incomplete|challenge|captcha|验证码|风控|acw_tc|cdn_sec_tc/i.test(String(message || ""));
 }
 
+function isShopApiProxyTransportErrorMessage(message) {
+  return /UND_ERR_(?:CONNECT_TIMEOUT|HEADERS_TIMEOUT|SOCKET)|ECONNRESET|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|socket hang up|other side closed|proxy connection/i.test(
+    String(message || ""),
+  );
+}
+
 function shouldStopRetryingTarget(target, error) {
   if (!collectionFamilyForTarget(target)) return false;
   if (isShopApiExitErrorMessage(errorMessage(error))) return false;
@@ -4939,36 +4980,66 @@ async function createShopApiProxyContext(target, options = {}) {
   const hosts = shopApiProxyHostsFor(options);
   const host = normalizeHostname(target.baseUrl || target.sourceUrl);
   if (!hosts.has(host)) return null;
+  const poolKey = shopApiProxyPoolKeyForTarget(target, options);
 
-  const sharedProxyContext = await shopApiProxyContextFromReusePool(host, options);
+  const sharedProxyContext = await shopApiProxyContextFromReusePool(poolKey, options);
   if (sharedProxyContext) return sharedProxyContext;
 
-  const proxyUrl = await resolveShopApiProxyUrl(options);
-  if (!proxyUrl) return null;
+  const proxyLease = await resolveShopApiProxyUrl(options);
+  if (!proxyLease) return null;
 
   return {
-    proxyUrl,
-    dispatcher: new ProxyAgent(proxyUrl),
+    ...proxyLease,
+    dispatcher: new ProxyAgent(proxyLease.proxyUrl),
   };
 }
 
 function createShopApiProxyReusePool(options = {}) {
   return {
-    enabled: shopApiProxyReuseLimitFor(options) > 1,
+    enabled: true,
     limit: shopApiProxyReuseLimitFor(options),
     ttlMs: shopApiProxyReuseTtlMsFor(options),
     entries: new Map(),
+    blockedDirectExits: new Set(),
+    rotationStates: new Map(),
+    nextAcquireReasons: new Map(),
   };
 }
 
-async function shopApiProxyContextFromReusePool(host, options = {}) {
+function isShopApiDirectExitBlockedForTarget(target, options = {}) {
+  const blocked = options.shopApiProxyReusePool?.blockedDirectExits;
+  return blocked instanceof Set && blocked.has(shopApiDirectExitKeyForTarget(target));
+}
+
+function blockShopApiDirectExitForTarget(target, options = {}) {
+  const blocked = options.shopApiProxyReusePool?.blockedDirectExits;
+  if (blocked instanceof Set) blocked.add(shopApiDirectExitKeyForTarget(target));
+}
+
+function shopApiDirectExitKeyForTarget(target) {
+  return normalizeHostname(target.baseUrl || target.sourceUrl) || String(target.sourceId || "unknown");
+}
+
+async function shopApiProxyContextFromReusePool(poolKey, options = {}) {
   const pool = options.shopApiProxyReusePool;
   if (!pool?.enabled) return null;
 
   const now = Date.now();
-  const existing = pool.entries.get(host);
-  if (existing && existing.remaining > 0 && existing.expiresAt > now) {
-    existing.remaining -= 1;
+  const logger = options.shopApiProxyLogger;
+  const rotationState = shopApiProxyRotationState(pool, poolKey, now);
+  if (rotationState.cooldownUntil > now) {
+    const remainingSeconds = Math.max(1, Math.ceil((rotationState.cooldownUntil - now) / 1000));
+    throw new Error(`Shop API proxy rotation cooling down for ${remainingSeconds}s after repeated exit failures.`);
+  }
+
+  const existing = pool.entries.get(poolKey);
+  if (
+    existing &&
+    (existing.remaining === null || existing.remaining > 0) &&
+    existing.expiresAt > now + SHOP_API_PROXY_EXPIRY_SAFETY_MS
+  ) {
+    if (existing.remaining !== null) existing.remaining -= 1;
+    logger?.log(`Shop API proxy lease reused for ${poolKey}; expires at ${new Date(existing.expiresAt).toISOString()}.`);
     return {
       ...existing.context,
       shared: true,
@@ -4977,21 +5048,26 @@ async function shopApiProxyContextFromReusePool(host, options = {}) {
 
   if (existing) {
     await closeShopApiProxyReuseEntry(existing);
-    pool.entries.delete(host);
+    pool.entries.delete(poolKey);
+    pool.nextAcquireReasons.set(poolKey, "lease-expired");
   }
 
-  const proxyUrl = await resolveShopApiProxyUrl(options);
-  if (!proxyUrl) return null;
+  const proxyLease = await resolveShopApiProxyUrl(options);
+  if (!proxyLease) return null;
+  const limit = pool.limit > 0 ? pool.limit : null;
 
   const entry = {
     context: {
-      proxyUrl,
-      dispatcher: new ProxyAgent(proxyUrl),
+      ...proxyLease,
+      dispatcher: new ProxyAgent(proxyLease.proxyUrl),
     },
-    expiresAt: now + pool.ttlMs,
-    remaining: pool.limit - 1,
+    expiresAt: proxyLease.expiresAt || now + pool.ttlMs,
+    remaining: limit === null ? null : limit - 1,
   };
-  pool.entries.set(host, entry);
+  pool.entries.set(poolKey, entry);
+  const acquireReason = pool.nextAcquireReasons.get(poolKey) || "initial";
+  pool.nextAcquireReasons.delete(poolKey);
+  logger?.log(`Shop API proxy lease acquired for ${poolKey}; reason=${acquireReason}; expires at ${new Date(entry.expiresAt).toISOString()}.`);
 
   return {
     ...entry.context,
@@ -4999,16 +5075,48 @@ async function shopApiProxyContextFromReusePool(host, options = {}) {
   };
 }
 
-async function discardShopApiProxyReuseForTarget(target, options = {}) {
+async function discardShopApiProxyReuseForTarget(target, options = {}, details = {}) {
   const pool = options.shopApiProxyReusePool;
-  if (!pool?.enabled) return;
+  if (!pool?.enabled) return false;
 
-  const host = normalizeHostname(target.baseUrl || target.sourceUrl);
-  const entry = pool.entries.get(host);
-  if (!entry) return;
+  const poolKey = shopApiProxyPoolKeyForTarget(target, options);
+  const entry = pool.entries.get(poolKey);
+  if (!entry) return false;
+
+  const now = Date.now();
+  const rotationState = shopApiProxyRotationState(pool, poolKey, now);
 
   await closeShopApiProxyReuseEntry(entry);
-  pool.entries.delete(host);
+  pool.entries.delete(poolKey);
+
+  if (rotationState.count >= SHOP_API_PROXY_MAX_ROTATIONS_PER_WINDOW) {
+    rotationState.cooldownUntil = rotationState.windowStartedAt + SHOP_API_PROXY_ROTATION_WINDOW_MS;
+    const remainingSeconds = Math.max(1, Math.ceil((rotationState.cooldownUntil - now) / 1000));
+    details.logger?.log(
+      `Shop API proxy rotation budget exhausted for ${poolKey}; cooling down for ${remainingSeconds}s without acquiring another IP.`,
+    );
+    return false;
+  }
+
+  rotationState.count += 1;
+  pool.nextAcquireReasons.set(poolKey, details.reason || "exit-failure");
+  details.logger?.log(
+    `Shop API proxy lease discarded for ${poolKey}; reason=${details.reason || "exit-failure"}; rotation ${rotationState.count}/${SHOP_API_PROXY_MAX_ROTATIONS_PER_WINDOW}.`,
+  );
+  return true;
+}
+
+function shopApiProxyRotationState(pool, poolKey, now = Date.now()) {
+  let state = pool.rotationStates.get(poolKey);
+  if (!state || now >= state.windowStartedAt + SHOP_API_PROXY_ROTATION_WINDOW_MS) {
+    state = {
+      windowStartedAt: now,
+      count: 0,
+      cooldownUntil: 0,
+    };
+    pool.rotationStates.set(poolKey, state);
+  }
+  return state;
 }
 
 async function closeShopApiProxyReusePool(pool) {
@@ -5027,7 +5135,7 @@ function shopApiProxyReuseLimitFor(options = {}) {
     optionValue(options, "shopApiProxyReuseLimit", "shop-api-proxy-reuse-limit") ||
     runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_REUSE_LIMIT") ||
     DEFAULT_SHOP_API_PROXY_REUSE_LIMIT;
-  return integerInRange(raw, 1, 20, DEFAULT_SHOP_API_PROXY_REUSE_LIMIT);
+  return integerInRange(raw, 0, 100, DEFAULT_SHOP_API_PROXY_REUSE_LIMIT);
 }
 
 function shopApiProxyReuseTtlMsFor(options = {}) {
@@ -5062,10 +5170,10 @@ function hasShopApiProxyConfigured(options = {}) {
 
 async function resolveShopApiProxyUrl(options = {}) {
   const proxyApiUrl = shopApiProxyApiUrlFor(options);
-  if (proxyApiUrl) return fetchShopApiProxyUrl(proxyApiUrl);
+  if (proxyApiUrl) return fetchShopApiProxyLease(proxyApiUrl);
 
   const proxyUrl = shopApiProxyUrlFor(options);
-  if (proxyUrl) return proxyUrl;
+  if (proxyUrl) return { proxyUrl, expiresAt: null };
 
   return null;
 }
@@ -5094,8 +5202,9 @@ function shopApiProxyUrlFor(options = {}) {
   return optionValue(options, "shopApiProxyUrl", "shop-api-proxy-url") || runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_URL");
 }
 
-async function fetchShopApiProxyUrl(proxyApiUrl) {
-  const response = await safeFetch(proxyApiUrl, {
+async function fetchShopApiProxyLease(proxyApiUrl) {
+  const requestUrl = proxyApiUrlWithExpiryField(proxyApiUrl);
+  const response = await safeFetch(requestUrl, {
     headers: {
       accept: "application/json, text/plain, */*",
       "user-agent": defaultHeaders(proxyApiUrl)["user-agent"],
@@ -5108,15 +5217,28 @@ async function fetchShopApiProxyUrl(proxyApiUrl) {
     throw new Error(`Proxy API returned HTTP ${response.status}${text ? `: ${text.slice(0, 120)}` : ""}`);
   }
 
-  const proxyUrl = extractProxyUrlFromPayload(text);
-  if (!proxyUrl) {
-    throw new Error(`Proxy API response from ${proxyApiUrl} did not contain a usable proxy address.`);
+  const lease = extractProxyLeaseFromPayload(text);
+  if (!lease) {
+    throw new Error(`Proxy API response from ${requestUrl} did not contain a usable proxy address.`);
   }
 
-  return proxyUrlWithApiAuth(proxyUrl, proxyApiUrl);
+  return {
+    ...lease,
+    proxyUrl: proxyUrlWithApiAuth(lease.proxyUrl, proxyApiUrl),
+  };
 }
 
-function extractProxyUrlFromPayload(text) {
+function proxyApiUrlWithExpiryField(proxyApiUrl) {
+  try {
+    const url = new URL(proxyApiUrl);
+    if (!url.searchParams.has("field")) url.searchParams.set("field", "ipport,expiretime");
+    return url.toString();
+  } catch {
+    return proxyApiUrl;
+  }
+}
+
+function extractProxyLeaseFromPayload(text) {
   const trimmed = String(text || "").trim();
   if (!trimmed) return null;
 
@@ -5127,13 +5249,23 @@ function extractProxyUrlFromPayload(text) {
     parsed = null;
   }
 
-  const fromJson = extractProxyUrlCandidate(parsed);
+  const fromJson = extractProxyLeaseCandidate(parsed);
   if (fromJson) return fromJson;
 
-  const fromText = extractProxyUrlCandidate(trimmed);
+  const fromText = extractProxyLeaseCandidate(trimmed);
   if (fromText) return fromText;
 
   return null;
+}
+
+function extractProxyLeaseCandidate(value) {
+  const proxyUrl = extractProxyUrlCandidate(value);
+  if (!proxyUrl) return null;
+
+  return {
+    proxyUrl,
+    expiresAt: extractProxyExpiry(value),
+  };
 }
 
 function extractProxyUrlCandidate(value) {
@@ -5153,6 +5285,9 @@ function extractProxyUrlCandidate(value) {
   if (typeof value.url === "string") return normalizeProxyUrl(value.url);
   if (typeof value.ipport === "string") return normalizeProxyUrl(value.ipport);
 
+  if (typeof value.ip === "string" && value.ip.includes(":")) return normalizeProxyUrl(value.ip);
+  if (typeof value.IP === "string" && value.IP.includes(":")) return normalizeProxyUrl(value.IP);
+
   const data = value.data ?? value.result ?? value.items ?? null;
   const nested = extractProxyUrlCandidate(data);
   if (nested) return nested;
@@ -5160,6 +5295,36 @@ function extractProxyUrlCandidate(value) {
   const ip = value.IP || value.ip || value.host;
   const port = value.Port || value.port;
   if (ip && port) return normalizeProxyUrl(`${ip}:${port}`);
+
+  return null;
+}
+
+function extractProxyExpiry(value) {
+  if (!value || typeof value !== "object") return null;
+
+  const raw = value.expireTimeMillis ?? value.expire_time_millis ?? value.expireTime ?? value.expire_time;
+  if (raw !== undefined && raw !== null && String(raw).trim()) {
+    const number = Number(raw);
+    if (Number.isFinite(number)) {
+      const timestamp = number < 10_000_000_000 ? number * 1000 : number;
+      if (timestamp > Date.now()) return timestamp;
+    }
+
+    const parsed = Date.parse(String(raw));
+    if (Number.isFinite(parsed) && parsed > Date.now()) return parsed;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const expiry = extractProxyExpiry(item);
+      if (expiry) return expiry;
+    }
+  }
+
+  if (typeof value === "object") {
+    const nested = value.data ?? value.result ?? value.items ?? null;
+    if (nested) return extractProxyExpiry(nested);
+  }
 
   return null;
 }
@@ -5456,8 +5621,20 @@ function isMissingColumnError(error, column) {
 }
 
 function errorMessage(error) {
-  if (error instanceof Error) return error.message;
-  return String(error);
+  if (!(error instanceof Error)) return String(error);
+  const cause = error.cause;
+  if (cause && typeof cause === "object") {
+    const code = typeof cause.code === "string" ? cause.code : "";
+    const message = typeof cause.message === "string" ? redactErrorCredentials(cause.message) : "";
+    if (code || message) return [error.message, code, message].filter(Boolean).join(": ");
+  }
+  return redactErrorCredentials(error.message);
+}
+
+function redactErrorCredentials(value) {
+  return String(value || "")
+    .replace(/([a-z][a-z\d+.-]*:\/\/)[^@\s/]+@/gi, "$1[redacted]@")
+    .replace(/([?&](?:accessPassword|accessName|password|rid|uid|skey)=)[^&\s]+/gi, "$1[redacted]");
 }
 
 function parseArgs(values) {

@@ -36,8 +36,8 @@ cp .env.example .env.local
 | `CRON_PUBLIC_BASE_URL` | 线上站点地址，例如 `https://priceai.cc` |
 | `PRICEAI_SHOPAPI_PROXY_API_URL` | 可选，51代理之类的取代理 API 链接，仅给 `shopApi` 采集用；如果返回裸 `IP:Port` 且链接含 `accessName/accessPassword`，采集器会自动补代理鉴权 |
 | `PRICEAI_SHOPAPI_PROXY_HOSTS` | 可选，走代理的主机名，默认 `pay.ldxp.cn,ldxp.cn` |
-| `PRICEAI_SHOPAPI_PROXY_REUSE_LIMIT` | 可选，单个代理最多复用的 `shopApi` 店铺数，默认 `1`；临时降成本可设为 `2` 或 `3` |
-| `PRICEAI_SHOPAPI_PROXY_REUSE_TTL_MS` | 可选，单个代理最长复用毫秒数，默认 `55000`，应小于代理稳定时长 |
+| `PRICEAI_SHOPAPI_PROXY_REUSE_LIMIT` | 可选，代理最多复用的 `shopApi` 店铺数；设为 `0` 表示只按代理 API 返回的过期时间复用，默认 `0` |
+| `PRICEAI_SHOPAPI_PROXY_REUSE_TTL_MS` | 可选，代理 API 没有返回过期时间时的兜底复用毫秒数，默认 `55000` |
 | `NEXT_PUBLIC_GA_MEASUREMENT_ID` | 可选，Google Analytics 4 Measurement ID |
 | `NEXT_PUBLIC_UMAMI_WEBSITE_ID` | 可选，Umami Website ID |
 | `NEXT_PUBLIC_UMAMI_SCRIPT_URL` | 可选，Umami 统计脚本地址 |
