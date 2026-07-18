@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const VERSION = "0.1.5";
+const VERSION = "0.1.6";
 const DEFAULT_ENDPOINT = "https://priceai.cc";
 const DEFAULT_KIND = "shopApi";
 const DEFAULT_FAMILY = "shopApi";
@@ -24,11 +24,12 @@ const DEFAULT_SPOOL_REPLAY_LIMIT = 20;
 const MAX_DISCOVERED_TOKENS = 3;
 const MAX_CATEGORY_PAGES = 10;
 const SHOP_API_LIST_PAGE_SIZE = 100;
-const SHOP_API_DEFAULT_PRICE_SAMPLE_SIZE = 1;
+const SHOP_API_DEFAULT_PRICE_SAMPLE_SIZE = 3;
 const SHOP_API_FEE_PROBE_MIN_LISTED_PRICE = 10;
 const SHOP_API_FEE_PROBE_MAX_LISTED_PRICE = 10_000;
 const SHOP_API_FIXED_FEE_RATE = 0.03;
 const SHOP_API_CENT_TOLERANCE = 0.011;
+const SHOP_API_PRODUCT_LEVEL_FEE_HOSTS = new Set(["catfk.com"]);
 
 const args = parseArgs(process.argv.slice(2));
 const explicitMaxCycles = args.maxCycles || args["max-cycles"] || process.env.PRICEAI_AGENT_MAX_CYCLES;
@@ -480,7 +481,6 @@ async function collectShopApi(target) {
       fetchedItemCount += listResult.items.length;
 
       const priceResolver = await createShopApiSampledPriceResolver({
-        target,
         base,
         token,
         sourceUrl,
@@ -513,11 +513,7 @@ async function collectShopApi(target) {
       continue;
     }
 
-    const cachedPolicyResolver = createShopApiPersistedPriceResolver(target, token, sourceUrl);
-    if (cachedPolicyResolver) pricingSummaries.push(cachedPolicyResolver.summary);
-    const defaultChannelId = cachedPolicyResolver
-      ? 0
-      : await getShopApiDefaultChannelId(base, token, sourceUrl);
+    const defaultChannelId = await getShopApiDefaultChannelId(base, token, sourceUrl);
     const categoriesPayload = await postJson(
       `${base}/shopApi/Shop/categoryList`,
       { token, goods_type: "card", category_key: "" },
@@ -560,15 +556,13 @@ async function collectShopApi(target) {
         const rawSeenOfferId = stableShopApiOfferIdFromUrl(itemUrl);
         if (rawSeenOfferId) rawSeenOfferIds.add(rawSeenOfferId);
 
-        const effectivePrice = cachedPolicyResolver
-          ? null
-          : await resolveShopApiEffectivePrice({
-              base,
-              goodsKey: item.goods_key,
-              listedPrice,
-              channelId: defaultChannelId,
-              referer: item.link || sourceUrl,
-            });
+        const effectivePrice = await resolveShopApiEffectivePrice({
+          base,
+          goodsKey: item.goods_key,
+          listedPrice,
+          channelId: defaultChannelId,
+          referer: item.link || sourceUrl,
+        });
         const offer = makeShopApiOfferFromItem({
           target,
           base,
@@ -578,9 +572,7 @@ async function collectShopApi(target) {
           shopCreatedAt,
           shopAvailability,
           priceResolver: {
-            priceFor: cachedPolicyResolver
-              ? (entry, entryListedPrice) => cachedPolicyResolver.priceFor(entry, entryListedPrice)
-              : () => effectivePrice,
+            priceFor: () => effectivePrice,
           },
         });
         if (!offer) continue;
@@ -697,18 +689,15 @@ async function fetchShopApiGoodsListPages({ base, token, sourceUrl, categoryId }
   return { items, partialReasons };
 }
 
-async function createShopApiSampledPriceResolver({ target, base, token, sourceUrl, items }) {
+async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items }) {
   const forcedModel = shopApiForcedFeeModel();
   if (forcedModel) {
     return {
       summary: {
         sampleSize: 0,
         resolvedSampleSize: 0,
-        sampleSelection: "forced",
         strategy: `${forcedModel.kind}_forced`,
         rate: forcedModel.rate,
-        shopToken: token,
-        shopUrl: sourceUrl,
       },
       priceFor(_item, listedPrice) {
         return applyShopApiFeeModel(listedPrice, forcedModel);
@@ -716,17 +705,27 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
     };
   }
 
-  const persistedResolver = createShopApiPersistedPriceResolver(target, token, sourceUrl);
-  if (persistedResolver) return persistedResolver;
-
   const sampleSize = shopApiPriceSampleSizeFor();
   const sampleItems = selectShopApiPriceSampleItems(items, sampleSize);
   const sampledPrices = new Map();
   const sampleResults = [];
-  let channelId = 0;
+  const channel = await getShopApiDefaultChannel(base, token, sourceUrl);
+  const channelId = channel.id;
 
-  if (sampleItems.length) {
-    channelId = await getShopApiDefaultChannelId(base, token, sourceUrl);
+  if (SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base))) {
+    for (const item of items) {
+      const listedPrice = numberOrNull(item.price ?? item.real_price);
+      if (listedPrice === null || !item.goods_key) continue;
+      const effectivePrice = await resolveShopApiEffectivePrice({
+        base,
+        goodsKey: item.goods_key,
+        listedPrice,
+        channelId,
+        referer: item.link || sourceUrl,
+        normalizePriceWithFee: true,
+      });
+      sampledPrices.set(String(item.goods_key), effectivePrice);
+    }
   }
 
   for (const item of sampleItems) {
@@ -744,17 +743,18 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
     sampleResults.push({ item, listedPrice, effectivePrice });
   }
 
-  const model = inferShopApiFeeModel(sampleResults);
+  const model = channel.rate !== null && channel.rate >= 0
+    ? shopApiFeeModelFromChannelRate(channel.rate)
+    : inferShopApiFeeModel(sampleResults);
   const summary = {
     sampleSize: sampleItems.length,
     resolvedSampleSize: sampleResults.length,
     sampleSelection: sampleSize > 0 ? "high_price_probe" : "disabled",
     strategy: model ? model.kind : "listed_fallback",
     rate: model?.rate ?? null,
-    shopToken: token,
-    shopUrl: sourceUrl,
-    policySource: "sampled_probe",
-    observedAt: new Date().toISOString(),
+    channelId,
+    channelRate: channel.rate,
+    policySource: channel.rate !== null ? "channel_config" : "sampled_probe",
     probes: sampleResults.map(shopApiPriceProbeSummary),
   };
 
@@ -774,71 +774,12 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
   };
 }
 
-function createShopApiPersistedPriceResolver(target, token, sourceUrl) {
-  const model = shopApiPersistedFeeModel(target, token);
-  if (!model) return null;
-
-  return {
-    summary: {
-      sampleSize: 0,
-      resolvedSampleSize: 0,
-      sampleSelection: "cached_policy",
-      strategy: model.kind,
-      rate: model.rate,
-      shopToken: model.shopToken || token,
-      shopUrl: sourceUrl,
-      policySource: "persisted",
-      policyObservedAt: model.observedAt,
-      policyExpiresAt: model.expiresAt,
-    },
-    priceFor(_item, listedPrice) {
-      return applyShopApiFeeModel(listedPrice, model);
-    },
-  };
-}
-
-function shopApiPersistedFeeModel(target, token) {
-  const policies = Array.isArray(target?.shopApiFeePolicies) ? target.shopApiFeePolicies : [];
-  if (!policies.length) return null;
-
-  const normalizedToken = String(token || "").trim();
-  const active = policies
-    .map(normalizeShopApiFeePolicy)
-    .filter(Boolean)
-    .filter((policy) => new Date(policy.expiresAt).getTime() > Date.now());
-  if (!active.length) return null;
-
-  const selected =
-    active.find((policy) => policy.shopToken === normalizedToken) ||
-    active.find((policy) => policy.shopToken === "source") ||
-    (active.length === 1 ? active[0] : null);
-  if (!selected) return null;
-
-  return {
-    kind: selected.strategy,
-    rate: selected.rate,
-    shopToken: selected.shopToken,
-    observedAt: selected.observedAt,
-    expiresAt: selected.expiresAt,
-  };
-}
-
-function normalizeShopApiFeePolicy(policy) {
-  if (!policy || typeof policy !== "object") return null;
-  const strategy = String(policy.strategy || "").trim();
-  if (!["no_fee", "fixed_3pct", "observed_rate"].includes(strategy)) return null;
-  const rate = numberOrNull(policy.rate);
-  if (rate === null || rate < 0 || rate > 0.2) return null;
-  const observedAt = isoDateOrNull(policy.observedAt || policy.observed_at);
-  const expiresAt = isoDateOrNull(policy.expiresAt || policy.expires_at);
-  if (!observedAt || !expiresAt) return null;
-  return {
-    shopToken: String(policy.shopToken || policy.shop_token || "source").trim() || "source",
-    strategy,
-    rate,
-    observedAt,
-    expiresAt,
-  };
+function shopApiFeeModelFromChannelRate(rate) {
+  const normalizedRate = Math.round(Number(rate) * 100) / 100;
+  if (!Number.isFinite(normalizedRate) || normalizedRate < 0 || normalizedRate > 20) return null;
+  if (Math.abs(normalizedRate) <= 0.011) return { kind: "no_fee", rate: 0 };
+  if (Math.abs(normalizedRate - 3) <= 0.011) return { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE };
+  return { kind: "observed_rate", rate: normalizedRate / 100 };
 }
 
 function selectShopApiPriceSampleItems(items, sampleSize) {
@@ -952,7 +893,7 @@ function applyShopApiFeeModel(listedPrice, model) {
     price: roundCurrency(listedPrice + feeAmount),
     listedPrice,
     feeAmount,
-    priceBasis: "settled",
+    priceBasis: "modeled",
   };
 }
 
@@ -1412,7 +1353,6 @@ function normalizeTask(task) {
     baseUrl,
     kind: String(task.collectorKind || DEFAULT_KIND),
     rawOfferUrls: Array.isArray(task.rawOfferUrls) ? task.rawOfferUrls.map(String) : [],
-    shopApiFeePolicies: Array.isArray(task.shopApiFeePolicies) ? task.shopApiFeePolicies : [],
     collectionJobId: task.collectionJobId ? String(task.collectionJobId) : null,
     collectionJobRequestedBy: task.collectionJobRequestedBy ? String(task.collectionJobRequestedBy) : null,
     collectionJobCreatedAt: task.collectionJobCreatedAt ? String(task.collectionJobCreatedAt) : null,
@@ -1421,7 +1361,7 @@ function normalizeTask(task) {
   };
 }
 
-async function getShopApiDefaultChannelId(base, token, referer) {
+async function getShopApiDefaultChannel(base, token, referer) {
   await delay(config.pageDelayMs);
   const payload = await postJson(
     `${base}/shopApi/Shop/getUserChannel`,
@@ -1434,10 +1374,17 @@ async function getShopApiDefaultChannelId(base, token, referer) {
     channels.find((channel) => Number(channel.status ?? 1) === 1 && Number(channel.custom_status ?? 1) === 1) ||
     channels[0];
   const channelId = numberOrNull(defaultChannel?.id);
-  return channelId === null ? 0 : channelId;
+  return {
+    id: channelId === null ? 0 : channelId,
+    rate: numberOrNull(defaultChannel?.rate),
+  };
 }
 
-async function resolveShopApiEffectivePrice({ base, goodsKey, listedPrice, channelId, referer, normalizePriceWithFee = false }) {
+async function getShopApiDefaultChannelId(base, token, referer) {
+  return (await getShopApiDefaultChannel(base, token, referer)).id;
+}
+
+async function resolveShopApiEffectivePrice({ base, goodsKey, listedPrice, channelId, referer }) {
   if (!goodsKey) {
     return {
       price: listedPrice,
@@ -1463,9 +1410,7 @@ async function resolveShopApiEffectivePrice({ base, goodsKey, listedPrice, chann
   if (payload?.code === 1 && totalAmount !== null) {
     const originalAmount = numberOrNull(payload.data.original_amount) ?? listedPrice;
     const buyerAdjustmentAmount = roundCurrency(totalAmount - originalAmount);
-    const feeAmount = normalizePriceWithFee
-      ? buyerAdjustmentAmount
-      : numberOrNull(payload.data.fee);
+    const feeAmount = buyerAdjustmentAmount;
     return {
       price: totalAmount,
       listedPrice: originalAmount,
@@ -1880,12 +1825,6 @@ function timestampFromShopApiValue(value) {
   if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now() + 86_400_000) return null;
 
   return date.toISOString();
-}
-
-function isoDateOrNull(value) {
-  const time = new Date(String(value || "")).getTime();
-  if (!Number.isFinite(time)) return null;
-  return new Date(time).toISOString();
 }
 
 function compact(values) {

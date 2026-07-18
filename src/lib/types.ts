@@ -70,7 +70,7 @@ export type RawOffer = {
   price: number | null;
   listedPrice?: number | null;
   feeAmount?: number | null;
-  priceBasis?: "settled" | "listed" | "listed_fallback" | null;
+  priceBasis?: "settled" | "modeled" | "listed" | "listed_fallback" | null;
   currency: string;
   status: OfferStatus;
   url: string;
@@ -986,7 +986,7 @@ export type OfferInput = {
   price?: number | null;
   listedPrice?: number | null;
   feeAmount?: number | null;
-  priceBasis?: "settled" | "listed" | "listed_fallback" | null;
+  priceBasis?: "settled" | "modeled" | "listed" | "listed_fallback" | null;
   currency?: string;
   status?: OfferStatus;
   effectiveStatus?: EffectiveOfferStatus | null;

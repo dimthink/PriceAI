@@ -17,7 +17,7 @@ const CURRENCY_PRICE_RE = new RegExp(String.raw`[¥￥]\s*${PRICE_VALUE_PATTERN}
 const SUFFIX_PRICE_RE = new RegExp(String.raw`${PRICE_VALUE_PATTERN}\s*(?:CNY|RMB|元)`, "i");
 const DEFAULT_COOLDOWN_MINUTES = 25;
 const DEFAULT_LOCK_SECONDS = 10 * 60;
-const DEFAULT_LIANDONG_SHOP_BULK_LIMIT = 20;
+const DEFAULT_LIANDONG_SHOP_BULK_LIMIT = 0;
 const DEFAULT_LIANDONG_SHOP_BULK_DELAY_MS = 15_000;
 const DEFAULT_LIANDONG_SHOP_BREAKER_MINUTES = 30;
 const DEFAULT_LIANDONG_SHOP_HTTP_403_COOLDOWN_MINUTES = 5;
@@ -34,15 +34,48 @@ const DEFAULT_FULL_SNAPSHOT_OFFER_LIMIT = 200;
 const SHOP_API_FULL_SNAPSHOT_OFFER_LIMIT = 500;
 const SHOP_API_MAX_CATEGORY_PAGES = 10;
 const SHOP_API_LIST_PAGE_SIZE = 100;
-const SHOP_API_DEFAULT_PRICE_SAMPLE_SIZE = 1;
+const SHOP_API_DEFAULT_PRICE_SAMPLE_SIZE = 3;
 const SHOP_API_FEE_PROBE_MIN_LISTED_PRICE = 10;
 const SHOP_API_FEE_PROBE_MAX_LISTED_PRICE = 10_000;
 const SHOP_API_FIXED_FEE_RATE = 0.03;
 const SHOP_API_CENT_TOLERANCE = 0.011;
+const SHOP_API_PRODUCT_LEVEL_FEE_HOSTS = new Set(["catfk.com"]);
+const DAILY_PROBE_FAILURE_THRESHOLD = 3;
+const DAILY_PROBE_INTERVAL_MINUTES = 24 * 60;
 const DEFAULT_SHOP_API_PROXY_HOSTS = ["pay.ldxp.cn", "ldxp.cn"];
 const SHOP_API_PROXY_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_SHOP_API_PROXY_REUSE_LIMIT = 1;
 const DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS = 55_000;
+const DEFAULT_SHOP_API_PROXY_PARALLELISM = 1;
+const DEFAULT_SHOP_API_PROXY_MODE = "always";
+const DEFAULT_SHOP_API_EXIT_ERROR_FAMILY_PAUSE = false;
+const SHOP_COLLECTION_SCHEDULER_CRAWL_RUN_SELECT =
+  "id,source_id,source_name,mode,status,started_at,finished_at,success_count,failure_count,message,details";
+const SHOP_COLLECTION_SCHEDULER_SOURCE_SELECT =
+  "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,shop_created_at,updated_at";
+const SHOP_COLLECTION_SCHEDULER_SOURCE_LEGACY_SELECT =
+  "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,updated_at";
+const SHOP_COLLECTION_SCHEDULER_CRAWL_RUN_CHUNK_SIZE = 100;
+const DEFAULT_SHOP_COLLECTION_SCHEDULER_BUCKET_MINUTES = 30;
+const DEFAULT_SHOP_COLLECTION_SCHEDULER_SHARD_COUNT = 1;
+const DEFAULT_SHOP_COLLECTION_SCHEDULER_SHARD_INDEX = 0;
+const HOT_SHOP_COLLECTION_PRODUCT_IDS = new Set([
+  "chatgpt-plus",
+  "chatgpt-team-business",
+  "super-grok",
+  "gemini-pro-recharge",
+  "chatgpt-free-account",
+]);
+const SHOP_COLLECTION_TIER_DEFINITIONS = [
+  { tier: "new_source_bootstrap", label: "新店初始化", intervalMinutes: 30, requestWeight: 8 },
+  { tier: "core_30m", label: "30m 核心", intervalMinutes: 30, requestWeight: 6 },
+  { tier: "watch_1h", label: "1h 观察", intervalMinutes: 60, requestWeight: 3 },
+  { tier: "lowprice_guard_1h", label: "1h 低价守护", intervalMinutes: 60, requestWeight: 3 },
+  { tier: "low_3h", label: "3h 低频", intervalMinutes: 180, requestWeight: 1 },
+  { tier: "retry_priority", label: "优先重试", intervalMinutes: 60, requestWeight: 1 },
+  { tier: "retry_cooldown", label: "冷却重试", intervalMinutes: 180, requestWeight: 1 },
+  { tier: "daily_probe", label: "每日复检", intervalMinutes: DAILY_PROBE_INTERVAL_MINUTES, requestWeight: 1 },
+];
 const STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT = 600;
 const STRUCTURED_FULL_SNAPSHOT_COLLECTORS = new Set(["kami", "shopApi"]);
 const EMPTY_FULL_SNAPSHOT_COLLECTORS = new Set(["kami"]);
@@ -76,22 +109,55 @@ const BUILTIN_SOURCES = [
 export async function runPriceCollection(options = {}) {
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
+  const logger = options.silent ? null : console;
   const targets = await loadTargets();
-  const selectedTargets = selectTargets(targets, options);
+  let selectedTargets = selectTargets(targets, options);
   if (!selectedTargets.length) {
     selectedTargets.push(...selectBuiltinTargets(options));
   }
-  const logger = options.silent ? null : console;
-  const lockOwner = collectionLockOwner(options);
-  const familyState = options.collectionFamilyState || createCollectionFamilyState(options);
-  const writeQueue = options.post ? createCrawlLogWriteQueue(options, logger) : null;
+  const candidateTargetCount = selectedTargets.length;
 
   if (!selectedTargets.length) {
     throw new Error("No matching supported sources. Use --list to inspect available collectors.");
   }
 
-  const groups = targetGroupsForCollection(selectedTargets);
+  const shopSchedule = await applyShopCollectionScheduler(selectedTargets, options, logger);
+  selectedTargets = shopSchedule.targets;
+  const planMode = isShopCollectionSchedulerPlanMode(options);
+  const lockOwner = collectionLockOwner(options);
+  const familyState = options.collectionFamilyState || createCollectionFamilyState(options);
+  const writeQueue = options.post && !planMode ? createCrawlLogWriteQueue(options, logger) : null;
+
+  const groups = targetGroupsForCollection(selectedTargets, options);
   const concurrency = concurrencyFor(options);
+  if (planMode) {
+    const finishedAt = new Date().toISOString();
+    const performance = buildCollectionPerformanceReport({
+      summary: [],
+      targets: selectedTargets,
+      groups,
+      concurrency,
+      startedAt,
+      finishedAt,
+      durationMs: Date.now() - startedAtMs,
+      shopSchedule: shopSchedule.summary,
+    });
+
+    return {
+      summary: [],
+      performance,
+      scheduler: shopSchedule.summary,
+      targetCount: selectedTargets.length,
+      candidateTargetCount,
+      successCount: 0,
+      failureCount: 0,
+      skippedCount: shopSchedule.summary.skippedCount || 0,
+      offerCount: 0,
+      startedAt,
+      finishedAt,
+    };
+  }
+
   let summary;
   try {
     if (writeQueue) {
@@ -108,6 +174,7 @@ export async function runPriceCollection(options = {}) {
           targetCount: selectedTargets.length,
           groupCount: groups.length,
           concurrency,
+          shopScheduler: shopSchedule.summary,
         },
       }).catch((error) => {
         logger?.error(`Failed to post collector heartbeat: ${errorMessage(error)}`);
@@ -149,6 +216,7 @@ export async function runPriceCollection(options = {}) {
           phase: "collection",
           targetCount: selectedTargets.length,
           groupCount: groups.length,
+          shopScheduler: shopSchedule.summary,
         },
       }).catch((heartbeatError) => {
         logger?.error(`Failed to post collector failure heartbeat: ${errorMessage(heartbeatError)}`);
@@ -170,6 +238,7 @@ export async function runPriceCollection(options = {}) {
               phase: "crawl-log-final-flush",
               targetCount: selectedTargets.length,
               groupCount: groups.length,
+              shopScheduler: shopSchedule.summary,
             },
           }).catch((heartbeatError) => {
             logger?.error(`Failed to post collector failure heartbeat: ${errorMessage(heartbeatError)}`);
@@ -193,6 +262,7 @@ export async function runPriceCollection(options = {}) {
           phase: "crawl-log-flush",
           targetCount: selectedTargets.length,
           groupCount: groups.length,
+          shopScheduler: shopSchedule.summary,
         },
       }).catch((heartbeatError) => {
         logger?.error(`Failed to post collector failure heartbeat: ${errorMessage(heartbeatError)}`);
@@ -210,15 +280,19 @@ export async function runPriceCollection(options = {}) {
     startedAt,
     finishedAt,
     durationMs: Date.now() - startedAtMs,
+    shopSchedule: shopSchedule.summary,
   });
+  const scheduleSkippedCount = shopSchedule.summary.skippedCount || 0;
 
   const result = {
     summary,
     performance,
+    scheduler: shopSchedule.summary,
     targetCount: selectedTargets.length,
+    candidateTargetCount,
     successCount: summary.filter((item) => item.status === "success").length,
     failureCount: summary.filter((item) => item.status !== "success" && item.status !== "skipped").length,
-    skippedCount: summary.filter((item) => item.status === "skipped").length,
+    skippedCount: summary.filter((item) => item.status === "skipped").length + scheduleSkippedCount,
     offerCount: summary.reduce((sum, item) => sum + item.offers, 0),
     startedAt,
     finishedAt,
@@ -238,6 +312,7 @@ export async function runPriceCollection(options = {}) {
         durationMs: performance.durationMs,
         byKind: performance.byKind,
         byStatus: performance.byStatus,
+        shopScheduler: shopSchedule.summary,
       },
     }).catch((error) => {
       logger?.error(`Failed to post collector heartbeat: ${errorMessage(error)}`);
@@ -530,7 +605,14 @@ function probeSuccessResponse(target, offers, startedAt, limit, extra = {}) {
   };
 }
 
-export { loadTargets, selectTargets };
+export {
+  assignShopCollectionSchedulerShard,
+  calculateShopApiBuyerAdjustment,
+  isDailyProbeFailure,
+  loadTargets,
+  selectTargets,
+  shopApiFeeModelFromChannelRate,
+};
 
 if (isCli()) {
   const args = parseArgs(process.argv.slice(2));
@@ -581,12 +663,16 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
   const maxAttempts = maxAttemptsFor(options);
   const attempts = [];
   let lastError = null;
+  let shopApiProxyActive = shopApiProxyModeFor(options) !== "on_exit";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const startedAt = Date.now();
+    const attemptOptions = target.kind === "shopApi" && !shopApiProxyActive
+      ? { ...options, shopApiProxyDisabled: true }
+      : options;
 
     try {
-      const collected = await collectTarget(target, options);
+      const collected = await collectTarget(target, attemptOptions);
       const collectionDetails = collected?.collectionDetails || null;
       const offers = dedupeOffers(collected);
       const message = offers.length ? `采集到 ${offers.length} 条报价。` : "采集结果为空。";
@@ -614,6 +700,14 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
       });
       lastError = error;
       await discardShopApiProxyReuseForTarget(target, options);
+      if (collectionFamilyForTarget(target) && isShopApiExitErrorMessage(message)) {
+        if (shopApiProxyModeFor(options) === "on_exit" && hasShopApiProxyConfigured(options) && !shopApiProxyActive) {
+          shopApiProxyActive = true;
+          logger?.log("Shop API direct exit returned wind-control/server pressure; switching the next retry to the proxy pool.");
+        } else {
+          logger?.log("Shop API exit returned wind-control/server pressure; the next retry will use a fresh exit when a proxy pool is configured.");
+        }
+      }
     }
 
     if (attempt < maxAttempts) {
@@ -735,7 +829,6 @@ async function collectShopApi(target, options = {}) {
     const offers = [];
     const rawSeenOfferIds = new Set();
     const partialReasons = [];
-    const pricingSummaries = [];
     let fetchedItemCount = 0;
     let publishedItemCount = 0;
     let reportedGoodsCount = 0;
@@ -757,6 +850,7 @@ async function collectShopApi(target, options = {}) {
       const sourceUrl = shopInfo.data.link || `${base}/shop/${token}`;
       const shopCreatedAt = timestampFromShopApiValue(shopInfo.data.create_time);
       const useAllGoodsList = shopApiAllGoodsListEnabled(options);
+      const pricingSummaries = [];
 
       if (useAllGoodsList) {
         const reportedGoods = shopApiReportedGoodsCount(shopInfo.data);
@@ -777,7 +871,6 @@ async function collectShopApi(target, options = {}) {
         fetchedItemCount += listResult.items.length;
 
         const priceResolver = await createShopApiSampledPriceResolver({
-          target,
           base,
           token,
           sourceUrl,
@@ -820,11 +913,7 @@ async function collectShopApi(target, options = {}) {
         continue;
       }
 
-      const cachedPolicyResolver = createShopApiPersistedPriceResolver(target, token, sourceUrl);
-      if (cachedPolicyResolver) pricingSummaries.push(cachedPolicyResolver.summary);
-      const defaultChannelId = cachedPolicyResolver
-        ? 0
-        : await getShopApiDefaultChannelId(base, token, sourceUrl, options, requestOptions);
+      const defaultChannelId = await getShopApiDefaultChannelId(base, token, sourceUrl, options, requestOptions);
       const categoriesPayload = await postJson(
         `${base}/shopApi/Shop/categoryList`,
         { token, goods_type: "card", category_key: "" },
@@ -887,17 +976,15 @@ async function collectShopApi(target, options = {}) {
             const rawSeenOfferId = stableShopApiOfferIdFromUrl(itemUrl);
             if (rawSeenOfferId) rawSeenOfferIds.add(rawSeenOfferId);
 
-            const effectivePrice = cachedPolicyResolver
-              ? null
-              : await resolveShopApiEffectivePrice({
-                  base,
-                  goodsKey: item.goods_key,
-                  listedPrice,
-                  channelId: defaultChannelId,
-                  referer: item.link || sourceUrl,
-                  options,
-                  requestOptions,
-                });
+            const effectivePrice = await resolveShopApiEffectivePrice({
+              base,
+              goodsKey: item.goods_key,
+              listedPrice,
+              channelId: defaultChannelId,
+              referer: item.link || sourceUrl,
+              options,
+              requestOptions,
+            });
 
             const offer = makeShopApiOfferFromItem({
               target,
@@ -908,9 +995,7 @@ async function collectShopApi(target, options = {}) {
               shopCreatedAt,
               shopAvailability,
               priceResolver: {
-                priceFor: cachedPolicyResolver
-                  ? (entry, entryListedPrice) => cachedPolicyResolver.priceFor(entry, entryListedPrice)
-                  : () => effectivePrice,
+                priceFor: () => effectivePrice,
               },
             });
             if (!offer) continue;
@@ -939,7 +1024,7 @@ async function collectShopApi(target, options = {}) {
       reportedGoodsCount: hasReportedGoodsCount ? reportedGoodsCount : null,
       partialReason: partialReasons.join(" "),
       shopApiListMode: shopApiAllGoodsListEnabled(options) ? "all_goods" : "category",
-      shopApiPricing: pricingSummaries,
+      shopApiPricing: offers.collectionDetails?.shopApiPricing,
     };
 
     return offers;
@@ -1047,18 +1132,15 @@ async function fetchShopApiGoodsListPages({ base, token, sourceUrl, categoryId, 
   return { items, partialReasons };
 }
 
-async function createShopApiSampledPriceResolver({ target, base, token, sourceUrl, items, options = {}, requestOptions = null }) {
+async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items, options = {}, requestOptions = null }) {
   const forcedModel = shopApiForcedFeeModel(options);
   if (forcedModel) {
     return {
       summary: {
         sampleSize: 0,
         resolvedSampleSize: 0,
-        sampleSelection: "forced",
         strategy: `${forcedModel.kind}_forced`,
         rate: forcedModel.rate,
-        shopToken: token,
-        shopUrl: sourceUrl,
       },
       priceFor(_item, listedPrice) {
         return applyShopApiFeeModel(listedPrice, forcedModel);
@@ -1066,23 +1148,35 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
     };
   }
 
-  const persistedResolver = createShopApiPersistedPriceResolver(target, token, sourceUrl);
-  if (persistedResolver) return persistedResolver;
-
   const sampleSize = shopApiPriceSampleSizeFor(options);
   const sampleItems = selectShopApiPriceSampleItems(items, sampleSize);
   const sampledPrices = new Map();
   const sampleResults = [];
-  let channelId = 0;
+  const channel = await getShopApiDefaultChannel(base, token, sourceUrl, options, requestOptions);
+  const channelId = channel.id;
 
-  if (sampleItems.length) {
-    channelId = await getShopApiDefaultChannelId(base, token, sourceUrl, options, requestOptions);
+  if (shopApiNeedsProductLevelFee(base)) {
+    for (const item of items) {
+      const listedPrice = numberOrNull(item.price ?? item.real_price);
+      if (listedPrice === null || !item.goods_key) continue;
+      const effectivePrice = await resolveShopApiEffectivePrice({
+        base,
+        goodsKey: item.goods_key,
+        listedPrice,
+        channelId,
+        referer: item.link || sourceUrl,
+        options,
+        requestOptions,
+        normalizePriceWithFee: true,
+      });
+      sampledPrices.set(String(item.goods_key), effectivePrice);
+    }
   }
 
   for (const item of sampleItems) {
     const listedPrice = numberOrNull(item.price ?? item.real_price);
     if (listedPrice === null) continue;
-    const effectivePrice = await resolveShopApiEffectivePrice({
+    const effectivePrice = sampledPrices.get(String(item.goods_key)) || await resolveShopApiEffectivePrice({
       base,
       goodsKey: item.goods_key,
       listedPrice,
@@ -1096,17 +1190,18 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
     sampleResults.push({ item, listedPrice, effectivePrice });
   }
 
-  const model = inferShopApiFeeModel(sampleResults);
+  const model = channel.rate !== null && channel.rate >= 0
+    ? shopApiFeeModelFromChannelRate(channel.rate)
+    : inferShopApiFeeModel(sampleResults);
   const summary = {
     sampleSize: sampleItems.length,
     resolvedSampleSize: sampleResults.length,
     sampleSelection: sampleSize > 0 ? "high_price_probe" : "disabled",
     strategy: model ? model.kind : "listed_fallback",
     rate: model?.rate ?? null,
-    shopToken: token,
-    shopUrl: sourceUrl,
-    policySource: "sampled_probe",
-    observedAt: new Date().toISOString(),
+    channelId,
+    channelRate: channel.rate,
+    policySource: channel.rate !== null ? "channel_config" : "sampled_probe",
     probes: sampleResults.map(shopApiPriceProbeSummary),
   };
 
@@ -1126,71 +1221,23 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
   };
 }
 
-function createShopApiPersistedPriceResolver(target, token, sourceUrl) {
-  const model = shopApiPersistedFeeModel(target, token);
-  if (!model) return null;
-
-  return {
-    summary: {
-      sampleSize: 0,
-      resolvedSampleSize: 0,
-      sampleSelection: "cached_policy",
-      strategy: model.kind,
-      rate: model.rate,
-      shopToken: model.shopToken || token,
-      shopUrl: sourceUrl,
-      policySource: "persisted",
-      policyObservedAt: model.observedAt,
-      policyExpiresAt: model.expiresAt,
-    },
-    priceFor(_item, listedPrice) {
-      return applyShopApiFeeModel(listedPrice, model);
-    },
-  };
+function shopApiNeedsProductLevelFee(base) {
+  return SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base));
 }
 
-function shopApiPersistedFeeModel(target, token) {
-  const policies = Array.isArray(target?.shopApiFeePolicies) ? target.shopApiFeePolicies : [];
-  if (!policies.length) return null;
-
-  const normalizedToken = String(token || "").trim();
-  const active = policies
-    .map(normalizeShopApiFeePolicy)
-    .filter(Boolean)
-    .filter((policy) => new Date(policy.expiresAt).getTime() > Date.now());
-  if (!active.length) return null;
-
-  const selected =
-    active.find((policy) => policy.shopToken === normalizedToken) ||
-    active.find((policy) => policy.shopToken === "source") ||
-    (active.length === 1 ? active[0] : null);
-  if (!selected) return null;
-
-  return {
-    kind: selected.strategy,
-    rate: selected.rate,
-    shopToken: selected.shopToken,
-    observedAt: selected.observedAt,
-    expiresAt: selected.expiresAt,
-  };
+function shopApiFeeModelFromChannelRate(rate) {
+  const normalizedRate = Math.round(Number(rate) * 100) / 100;
+  if (!Number.isFinite(normalizedRate) || normalizedRate < 0 || normalizedRate > 20) return null;
+  if (closeCurrency(normalizedRate, 0)) return { kind: "no_fee", rate: 0 };
+  if (closeCurrency(normalizedRate, 3)) return { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE };
+  return { kind: "observed_rate", rate: normalizedRate / 100 };
 }
 
-function normalizeShopApiFeePolicy(policy) {
-  if (!policy || typeof policy !== "object") return null;
-  const strategy = String(policy.strategy || "").trim();
-  if (!["no_fee", "fixed_3pct", "observed_rate"].includes(strategy)) return null;
-  const rate = numberOrNull(policy.rate);
-  if (rate === null || rate < 0 || rate > 0.2) return null;
-  const observedAt = isoDateOrNull(policy.observedAt || policy.observed_at);
-  const expiresAt = isoDateOrNull(policy.expiresAt || policy.expires_at);
-  if (!observedAt || !expiresAt) return null;
-  return {
-    shopToken: String(policy.shopToken || policy.shop_token || "source").trim() || "source",
-    strategy,
-    rate,
-    observedAt,
-    expiresAt,
-  };
+function calculateShopApiBuyerAdjustment(totalAmount, originalAmount) {
+  const total = numberOrNull(totalAmount);
+  const original = numberOrNull(originalAmount);
+  if (total === null || original === null) return null;
+  return roundCurrency(Math.max(0, total - original));
 }
 
 function selectShopApiPriceSampleItems(items, sampleSize) {
@@ -1304,7 +1351,7 @@ function applyShopApiFeeModel(listedPrice, model) {
     price: roundCurrency(listedPrice + feeAmount),
     listedPrice,
     feeAmount,
-    priceBasis: "settled",
+    priceBasis: "modeled",
   };
 }
 
@@ -1335,7 +1382,7 @@ function shopApiForcedFeeModel(options = {}) {
   return null;
 }
 
-async function getShopApiDefaultChannelId(base, token, referer, options = {}, requestOptions = null) {
+async function getShopApiDefaultChannel(base, token, referer, options = {}, requestOptions = null) {
   await waitBetweenPages(options);
   const payload = await postJson(
     `${base}/shopApi/Shop/getUserChannel`,
@@ -1349,7 +1396,15 @@ async function getShopApiDefaultChannelId(base, token, referer, options = {}, re
     channels.find((channel) => Number(channel.status ?? 1) === 1 && Number(channel.custom_status ?? 1) === 1) ||
     channels[0];
   const channelId = numberOrNull(defaultChannel?.id);
-  return channelId === null ? 0 : channelId;
+  const channelRate = numberOrNull(defaultChannel?.rate);
+  return {
+    id: channelId === null ? 0 : channelId,
+    rate: channelRate,
+  };
+}
+
+async function getShopApiDefaultChannelId(base, token, referer, options = {}, requestOptions = null) {
+  return (await getShopApiDefaultChannel(base, token, referer, options, requestOptions)).id;
 }
 
 async function resolveShopApiEffectivePrice({
@@ -1360,7 +1415,6 @@ async function resolveShopApiEffectivePrice({
   referer,
   options = {},
   requestOptions = null,
-  normalizePriceWithFee = false,
 }) {
   if (!goodsKey) {
     return {
@@ -1387,10 +1441,8 @@ async function resolveShopApiEffectivePrice({
   const totalAmount = numberOrNull(payload?.data?.total_amount);
   if (payload?.code === 1 && totalAmount !== null) {
     const originalAmount = numberOrNull(payload.data.original_amount) ?? listedPrice;
-    const buyerAdjustmentAmount = roundCurrency(totalAmount - originalAmount);
-    const feeAmount = normalizePriceWithFee
-      ? buyerAdjustmentAmount
-      : numberOrNull(payload.data.fee);
+    const buyerAdjustmentAmount = calculateShopApiBuyerAdjustment(totalAmount, originalAmount);
+    const feeAmount = buyerAdjustmentAmount;
     return {
       price: totalAmount,
       listedPrice: originalAmount,
@@ -2316,12 +2368,11 @@ async function discoverShopTokens(target, options = {}, requestOptions = null) {
 async function loadTargets() {
   let sources = BUILTIN_SOURCES;
   let rawOffers = [];
-  let feePoliciesBySource = new Map();
 
   const supabase = getSupabaseClient();
   if (supabase) {
     const [sourcesResult, offersResult] = await Promise.all([
-      supabase.from("sources").select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,last_success_at,last_checked_at").eq("enabled", true),
+      selectCollectorSourceRows(supabase),
       supabase.from("raw_offers").select("source_id,source_name,source_store_name,source_title,url").limit(5000),
     ]);
 
@@ -2330,7 +2381,6 @@ async function loadTargets() {
 
     sources = sourcesResult.data || [];
     rawOffers = offersResult.data || [];
-    feePoliciesBySource = await loadShopApiFeePolicies(supabase, sources.map((source) => source.id));
   }
 
   const rawBySource = new Map();
@@ -2350,38 +2400,23 @@ async function loadTargets() {
 
   return sources
     .filter((source) => source.collection_method !== "public_json")
-    .map((source) => buildTarget(source, rawBySource.get(source.id) || [], feePoliciesBySource.get(source.id) || []));
+    .map((source) => buildTarget(source, rawBySource.get(source.id) || []));
 }
 
-async function loadShopApiFeePolicies(supabase, sourceIds) {
-  const map = new Map();
-  const uniqueSourceIds = Array.from(new Set((sourceIds || []).map((id) => String(id || "")).filter(Boolean)));
-  if (!uniqueSourceIds.length) return map;
+async function selectCollectorSourceRows(supabase) {
+  const result = await supabase
+    .from("sources")
+    .select(SHOP_COLLECTION_SCHEDULER_SOURCE_SELECT)
+    .eq("enabled", true);
+  if (!isMissingColumnError(result.error, "shop_created_at")) return result;
 
-  const { data, error } = await supabase
-    .from("shop_api_fee_policies")
-    .select("source_id,shop_token,strategy,rate,observed_at,expires_at")
-    .in("source_id", uniqueSourceIds)
-    .gt("expires_at", new Date().toISOString());
-
-  if (error) {
-    if (isMissingShopApiFeePoliciesError(error)) return map;
-    throw error;
-  }
-
-  for (const row of data || []) {
-    const sourceId = String(row.source_id || "");
-    const policy = normalizeShopApiFeePolicy(row);
-    if (!sourceId || !policy) continue;
-    const policies = map.get(sourceId) || [];
-    policies.push(policy);
-    map.set(sourceId, policies);
-  }
-
-  return map;
+  return supabase
+    .from("sources")
+    .select(SHOP_COLLECTION_SCHEDULER_SOURCE_LEGACY_SELECT)
+    .eq("enabled", true);
 }
 
-function buildTarget(source, rawOffers, shopApiFeePolicies = []) {
+function buildTarget(source, rawOffers) {
   const sourceUrl = source.entry_url || source.base_url;
   const baseUrl = source.base_url || deriveBaseUrl(sourceUrl);
   const host = normalizeHostname(baseUrl || sourceUrl);
@@ -2402,10 +2437,18 @@ function buildTarget(source, rawOffers, shopApiFeePolicies = []) {
     baseUrl,
     kind: runnableKind,
     configuredKind: configuredKind || null,
+    healthStatus: source.health_status || null,
     lastSuccessAt: source.last_success_at || null,
     lastCheckedAt: source.last_checked_at || null,
+    consecutiveFailures:
+      source.consecutive_failures === null || source.consecutive_failures === undefined
+        ? null
+        : Number(source.consecutive_failures),
+    lastError: source.last_error || null,
+    createdAt: isoDateTimeOrNull(source.created_at),
+    sourceShopCreatedAt: isoDateTimeOrNull(source.shop_created_at),
+    updatedAt: isoDateTimeOrNull(source.updated_at),
     rawOffers,
-    shopApiFeePolicies,
   };
 }
 
@@ -2420,7 +2463,7 @@ function makeOffer(target, input) {
     sourceName: target.sourceName,
     sourceUrl: target.sourceUrl,
     sourceStoreName: target.sourceStoreName || target.sourceName,
-    sourceShopCreatedAt: target.sourceShopCreatedAt || null,
+    sourceShopCreatedAt: isoDateTimeOrNull(target.sourceShopCreatedAt),
     sourceTitle: input.title,
     price: input.price,
     listedPrice: input.listedPrice ?? null,
@@ -2453,12 +2496,16 @@ function shopApiShopAvailability(data) {
 }
 
 function crawlLogPayloadFor(target, offers, status, message, options = {}, details = {}) {
+  const sourceShopCreatedAt = isoDateTimeOrNull(
+    target.sourceShopCreatedAt || offers.find((offer) => offer.sourceShopCreatedAt)?.sourceShopCreatedAt,
+  );
+
   return {
     sourceId: target.sourceId,
     sourceName: target.sourceName,
     sourceUrl: target.sourceUrl,
     sourceEntryUrl: target.sourceEntryUrl,
-    sourceShopCreatedAt: target.sourceShopCreatedAt || offers.find((offer) => offer.sourceShopCreatedAt)?.sourceShopCreatedAt || undefined,
+    sourceShopCreatedAt: sourceShopCreatedAt || undefined,
     mode: "http",
     status,
     message,
@@ -2607,7 +2654,7 @@ async function postCrawlLogPayload(payload, options = {}) {
   const response = await fetch(`${config.endpoint}/api/admin/crawl-log`, {
     method: "POST",
     headers: cronWriteHeaders(config),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeCrawlLogPayloadForPost(payload)),
   });
 
   const body = await response.json().catch(() => null);
@@ -2626,7 +2673,7 @@ async function postCrawlLogPayloadBatch(runs, options = {}, batchDetails = {}) {
     method: "POST",
     headers: cronWriteHeaders(config),
     body: JSON.stringify({
-      runs,
+      runs: runs.map(sanitizeCrawlLogPayloadForPost),
       batch: {
         sourceCount: runs.length,
         ...batchDetails,
@@ -2640,6 +2687,21 @@ async function postCrawlLogPayloadBatch(runs, options = {}, batchDetails = {}) {
   }
 
   return body;
+}
+
+function sanitizeCrawlLogPayloadForPost(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+
+  return {
+    ...payload,
+    sourceShopCreatedAt: isoDateTimeOrNull(payload.sourceShopCreatedAt) || undefined,
+    offers: Array.isArray(payload.offers)
+      ? payload.offers.map((offer) => ({
+          ...offer,
+          sourceShopCreatedAt: isoDateTimeOrNull(offer.sourceShopCreatedAt),
+        }))
+      : payload.offers,
+  };
 }
 
 async function postCrawlLog(target, offers, status, message, options = {}, details = {}) {
@@ -2770,6 +2832,7 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
     logger?.log(
       `Flushed ${runs.length} crawl log run(s) from ${sourceCount} source(s) via ${requestCount} request(s).`,
     );
+    lastError = null;
 
     return { ok: true, runCount: runs.length, successCount, writtenCount, unchangedCount, refreshedCount };
   };
@@ -2803,8 +2866,8 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
     },
     flush,
     replaySpool(reason = "startup") {
-      const operation = flushChain.then(() =>
-        spool.replay(async (runs, meta) => {
+      const operation = flushChain.then(async () => {
+        const result = await spool.replay(async (runs, meta) => {
           for (const batch of crawlLogRequestBatches(runs, maxRunsPerRequest, maxOffersPerRequest)) {
             await postCrawlLogPayloadBatch(batch, options, {
               reason: `${reason}-spool`,
@@ -2814,8 +2877,10 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
               spoolReason: meta.reason || null,
             });
           }
-        }),
-      );
+        });
+        lastError = null;
+        return result;
+      });
       flushChain = operation.catch(() => {});
       return operation;
     },
@@ -3164,6 +3229,10 @@ function stableOfferInputId(offer) {
 }
 
 function stableId(...parts) {
+  return `id-${stableHashInt(...parts).toString(36)}`;
+}
+
+function stableHashInt(...parts) {
   const input = parts.filter((part) => part !== null && part !== undefined).join("|");
   let hash = 5381;
 
@@ -3171,7 +3240,12 @@ function stableId(...parts) {
     hash = (hash * 33) ^ input.charCodeAt(index);
   }
 
-  return `id-${(hash >>> 0).toString(36)}`;
+  return hash >>> 0;
+}
+
+function positiveModulo(value, divisor) {
+  const normalizedDivisor = Math.max(1, Math.trunc(Number(divisor) || 1));
+  return ((Math.trunc(Number(value) || 0) % normalizedDivisor) + normalizedDivisor) % normalizedDivisor;
 }
 
 function selectTargets(targets, options) {
@@ -3215,10 +3289,10 @@ function selectBuiltinTargets(options = {}) {
     );
 }
 
-function targetGroupsForCollection(targets) {
+function targetGroupsForCollection(targets, options = {}) {
   const groups = new Map();
   for (const target of targets) {
-    const key = normalizeHostname(target.baseUrl || target.sourceUrl) || target.sourceId;
+    const key = collectionGroupKeyForTarget(target, options);
     const existing = groups.get(key);
     if (existing) {
       existing.targets.push(target);
@@ -3232,6 +3306,22 @@ function targetGroupsForCollection(targets) {
   return [...groups.values()];
 }
 
+function collectionGroupKeyForTarget(target, options = {}) {
+  const host = normalizeHostname(target.baseUrl || target.sourceUrl) || target.sourceId;
+  const proxyParallelism = shopApiProxyParallelismFor(options);
+  if (
+    proxyParallelism <= 1 ||
+    !collectionFamilyForTarget(target) ||
+    !hasShopApiProxyConfigured(options) ||
+    shopApiProxyModeFor(options) !== "always"
+  ) {
+    return host;
+  }
+
+  const lane = stableHashInt("shop-api-proxy-lane", target.sourceId || target.sourceName || "") % proxyParallelism;
+  return `${host}:proxy-lane:${lane}`;
+}
+
 function sortTargetsForCollectionGroup(targets) {
   if (targets.length <= 1) return targets;
   if (!targets.some((target) => collectionFamilyForTarget(target))) return targets;
@@ -3242,9 +3332,16 @@ function sortTargetsForCollectionGroup(targets) {
     if (familyA && !familyB) return -1;
     if (!familyA && familyB) return 1;
     if (familyA?.key !== familyB?.key) return String(familyA?.key || "").localeCompare(String(familyB?.key || ""));
+    const scheduleDiff = collectionScheduleRank(a) - collectionScheduleRank(b);
+    if (scheduleDiff) return scheduleDiff;
 
     return compareTargetFreshness(a, b);
   });
+}
+
+function collectionScheduleRank(target) {
+  const tier = target.collectionSchedule?.tier;
+  return tier ? shopCollectionTierRank(tier) : SHOP_COLLECTION_TIER_DEFINITIONS.length;
 }
 
 function compareTargetFreshness(a, b) {
@@ -3287,6 +3384,7 @@ function buildCollectionPerformanceReport({
   startedAt,
   finishedAt,
   durationMs,
+  shopSchedule = null,
 }) {
   const byKind = aggregateCollectionBy(summary, (item) => item.kind || "unknown");
   const byStatus = aggregateCollectionBy(summary, (item) => item.status || "unknown");
@@ -3323,6 +3421,7 @@ function buildCollectionPerformanceReport({
     offers: summary.reduce((sum, item) => sum + Number(item.offers || 0), 0),
     byStatus,
     byKind,
+    shopScheduler: shopSchedule,
     slowestTargets,
     multiTargetGroups: multiTargetGroups.slice(0, 10),
   };
@@ -3384,6 +3483,27 @@ function printCollectionPerformance(performance) {
     console.table(performance.byKind);
   }
 
+  if (performance.shopScheduler?.enabled) {
+    console.log("\nShop scheduler");
+    console.table([
+      {
+        candidates: performance.shopScheduler.candidateCount,
+        shardCandidates: performance.shopScheduler.shardCandidateCount,
+        ready: performance.shopScheduler.readyCount,
+        due: performance.shopScheduler.dueCount,
+        skipped: performance.shopScheduler.skippedCount,
+        deferredByLimit: performance.shopScheduler.deferredByLimitCount,
+        skippedByShard: performance.shopScheduler.skippedByShardCount,
+        passthrough: performance.shopScheduler.passthroughCount,
+        effectiveTargets: performance.shopScheduler.effectiveTargetCount,
+        shard: `${Number(performance.shopScheduler.schedulerShardIndex || 0) + 1}/${performance.shopScheduler.schedulerShardCount || 1}`,
+      },
+    ]);
+    console.table(performance.shopScheduler.tiers);
+  } else if (performance.shopScheduler?.reason) {
+    console.log(`\nShop scheduler: ${performance.shopScheduler.reason}`);
+  }
+
   if (performance.slowestTargets?.length) {
     console.log("\nSlowest targets");
     console.table(performance.slowestTargets);
@@ -3432,6 +3552,707 @@ function matchesTargetKinds(target, options = {}) {
     kinds.includes(String(target.configuredKind || "").toLowerCase());
 }
 
+async function applyShopCollectionScheduler(targets, options = {}, logger = null) {
+  const passthroughTargets = [];
+  const shopTargets = [];
+
+  for (const target of targets) {
+    if (shouldScheduleShopCollectionTarget(target)) shopTargets.push(target);
+    else passthroughTargets.push(target);
+  }
+
+  const disabledSummary = (reason, extra = {}) => ({
+    enabled: false,
+    reason,
+    candidateCount: shopTargets.length,
+    readyCount: shopTargets.length,
+    dueCount: shopTargets.length,
+    skippedCount: 0,
+    deferredByLimitCount: 0,
+    passthroughCount: passthroughTargets.length,
+    effectiveTargetCount: targets.length,
+    tiers: [],
+    dueSamples: [],
+    skippedSamples: [],
+    ...extra,
+  });
+
+  if (!shopTargets.length) {
+    return { targets, summary: disabledSummary("no-shop-api-targets") };
+  }
+
+  if (!shouldUseShopCollectionScheduler(options)) {
+    return { targets, summary: disabledSummary("disabled") };
+  }
+
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { targets, summary: disabledSummary("supabase-unconfigured") };
+  }
+
+  try {
+    const context = await loadShopCollectionSchedulerContext(supabase, shopTargets);
+    const nowMs = Date.now();
+    const schedulerOptions = shopCollectionSchedulerOptionsFor(options);
+    const shardConfig = shopCollectionSchedulerShardConfig(options);
+    const evaluated = shopTargets
+      .map((target) => assignShopCollectionSchedulerShard(
+        evaluateShopCollectionScheduleTarget(target, context, nowMs, schedulerOptions),
+        shardConfig,
+        context.shardAssignmentsBySource,
+      ))
+      .sort(compareShopCollectionScheduleRows);
+    const shardRows = evaluated.filter((row) => row.shardMatches);
+    const foreignShardRows = evaluated
+      .filter((row) => !row.shardMatches)
+      .map((row) => ({
+        ...row,
+        due: false,
+        deferredReason: `分片 ${row.schedulerShardIndex + 1}/${row.schedulerShardCount} 由其他节点处理`,
+      }));
+    const readyRows = shardRows.filter((row) => row.due);
+    const limited = limitShopCollectionDueRowsByFamily(readyRows, options);
+    const dueRows = limited.dueRows;
+    const skippedRows = [
+      ...shardRows.filter((row) => !row.due),
+      ...limited.deferredRows,
+      ...foreignShardRows,
+    ].sort(compareShopCollectionScheduleRows);
+    const summaryRows = [...dueRows, ...skippedRows].sort(compareShopCollectionScheduleRows);
+    const dueTargets = dueRows.map((row) => ({
+      ...row.target,
+      collectionSchedule: compactObject({
+        tier: row.tier,
+        tierLabel: row.tierLabel,
+        intervalMinutes: row.intervalMinutes,
+        lastRunAt: row.lastRunAt,
+        nextRunAt: row.nextRunAt,
+        reasons: row.reasons,
+        schedulerShardIndex: row.schedulerShardIndex,
+        schedulerShardCount: row.schedulerShardCount,
+        schedulerBucketMinutes: row.schedulerBucketMinutes,
+        schedulerBucketIndex: row.schedulerBucketIndex,
+        schedulerBucketCount: row.schedulerBucketCount,
+      }),
+    }));
+    const scheduledTargets = [...passthroughTargets, ...dueTargets];
+    const summary = {
+      enabled: true,
+      reason: "ok",
+      candidateCount: shopTargets.length,
+      shardCandidateCount: shardRows.length,
+      totalReadyCount: evaluated.filter((row) => row.due).length,
+      readyCount: readyRows.length,
+      dueCount: dueRows.length,
+      skippedCount: skippedRows.length,
+      deferredByLimitCount: limited.deferredRows.length,
+      skippedByShardCount: foreignShardRows.length,
+      passthroughCount: passthroughTargets.length,
+      effectiveTargetCount: scheduledTargets.length,
+      schedulerBucketMinutes: schedulerOptions.bucketMinutes,
+      schedulerShardIndex: shardConfig.index,
+      schedulerShardCount: shardConfig.count,
+      tiers: buildShopCollectionScheduleTierStats(summaryRows),
+      dueSamples: dueRows.slice(0, 10).map(compactShopCollectionScheduleRow),
+      skippedSamples: skippedRows.slice(0, 10).map(compactShopCollectionScheduleRow),
+    };
+
+    logger?.log(
+      `Shop scheduler selected ${dueRows.length}/${shopTargets.length} shopApi source(s); ` +
+        `${skippedRows.length} held for later.`,
+    );
+    return { targets: scheduledTargets, summary };
+  } catch (error) {
+    logger?.error(`Shop scheduler fell back to existing cooldowns: ${errorMessage(error)}`);
+    return {
+      targets,
+      summary: disabledSummary("scheduler-context-failed", { message: errorMessage(error) }),
+    };
+  }
+}
+
+function shouldScheduleShopCollectionTarget(target) {
+  return target.kind === "shopApi" && Boolean(collectionFamilyForTarget(target));
+}
+
+function shouldUseShopCollectionScheduler(options = {}) {
+  if (truthyFlag(options["no-shop-scheduler"]) || truthyFlag(options.noShopScheduler)) return false;
+  if (truthyFlag(options.force) || truthyFlag(options["no-cooldown"])) return false;
+  if (options.source || options.id || options.name) return false;
+
+  const explicit =
+    options.shopScheduler ??
+    options["shop-scheduler"] ??
+    process.env.PRICEAI_SHOP_COLLECTION_SCHEDULER ??
+    env.PRICEAI_SHOP_COLLECTION_SCHEDULER;
+  if (falseyFlag(explicit)) return false;
+  if (truthyFlag(explicit)) return true;
+
+  return truthyFlag(options.all) || (!options.source && !options.id && !options.name);
+}
+
+function isShopCollectionSchedulerPlanMode(options = {}) {
+  return truthyFlag(options.shopSchedulerPlan) || truthyFlag(options["shop-scheduler-plan"]);
+}
+
+async function loadShopCollectionSchedulerContext(supabase, targets) {
+  const sourceIds = Array.from(new Set(targets.map((target) => target.sourceId).filter(Boolean)));
+  const [offerStats, priceStats, crawlRuns, shardAssignments] = await Promise.all([
+    listShopCollectionSourceOfferStats(supabase),
+    listShopCollectionPriceStats(supabase),
+    listShopCollectionRecentCrawlRuns(supabase, sourceIds),
+    listShopCollectionShardAssignments(supabase, sourceIds),
+  ]);
+
+  return {
+    offerStatsBySource: new Map(offerStats.map((row) => [row.sourceId, row])),
+    priceStatsBySource: new Map(priceStats.map((row) => [row.sourceId, row])),
+    latestRunBySource: latestShopCollectionCrawlRunBySource(crawlRuns),
+    shardAssignmentsBySource: shardAssignments,
+  };
+}
+
+async function listShopCollectionShardAssignments(supabase, sourceIds) {
+  if (!sourceIds.length) return new Map();
+  const { data, error } = await supabase
+    .from("source_shard_assignments")
+    .select("source_id,shard_index")
+    .eq("collector_kind", "shopApi")
+    .eq("family", "ldxp")
+    .eq("shard_count", 2)
+    .eq("active", true)
+    .in("source_id", sourceIds);
+  if (error) {
+    if (/source_shard_assignments|schema cache|does not exist/i.test(error.message || "")) return new Map();
+    throw error;
+  }
+  return new Map((data || []).map((row) => [String(row.source_id), Number(row.shard_index)]));
+}
+
+async function listShopCollectionSourceOfferStats(supabase) {
+  const { data, error } = await supabase.rpc("list_source_offer_stats");
+  if (error) throw error;
+
+  return ((data || [])).map((row) => ({
+    sourceId: String(row.source_id || ""),
+    visibleCount: Number(row.visible_count || 0),
+    hiddenCount: Number(row.hidden_count || 0),
+    totalCount: Number(row.total_count || 0),
+  })).filter((row) => row.sourceId);
+}
+
+async function listShopCollectionPriceStats(supabase) {
+  const { data, error } = await supabase.rpc("list_source_quality_price_benchmarks");
+  if (error) throw error;
+
+  return ((data || [])).map((row) => ({
+    sourceId: String(row.source_id || ""),
+    benchmarkOfferCount: Number(row.benchmark_offer_count || 0),
+    lowestHitCount: Number(row.lowest_hit_count || 0),
+    top5HitCount: Number(row.top5_hit_count || 0),
+    within10PctCount: Number(row.within_10pct_count || 0),
+    within20PctCount: Number(row.within_20pct_count || 0),
+    sampleScopes: shopCollectionPriceSampleScopes(row.sample_scopes),
+  })).filter((row) => row.sourceId);
+}
+
+async function listShopCollectionRecentCrawlRuns(supabase, sourceIds) {
+  const rows = [];
+  for (const ids of chunks(sourceIds, SHOP_COLLECTION_SCHEDULER_CRAWL_RUN_CHUNK_SIZE)) {
+    if (!ids.length) continue;
+    const { data, error } = await supabase
+      .from("crawl_runs")
+      .select(SHOP_COLLECTION_SCHEDULER_CRAWL_RUN_SELECT)
+      .in("source_id", ids)
+      .order("started_at", { ascending: false })
+      .limit(Math.max(120, ids.length * 4));
+    if (error) throw error;
+    rows.push(...(data || []).map(mapShopCollectionCrawlRun));
+  }
+  return rows;
+}
+
+function mapShopCollectionCrawlRun(row) {
+  return {
+    id: String(row.id),
+    sourceId: row.source_id ? String(row.source_id) : null,
+    sourceName: row.source_name ? String(row.source_name) : null,
+    mode: String(row.mode || "manual"),
+    status: String(row.status || "failed"),
+    startedAt: String(row.started_at || new Date().toISOString()),
+    finishedAt: row.finished_at ? String(row.finished_at) : null,
+    successCount: Number(row.success_count || 0),
+    failureCount: Number(row.failure_count || 0),
+    message: row.message ? String(row.message) : null,
+    details: asPlainRecord(row.details),
+  };
+}
+
+function latestShopCollectionCrawlRunBySource(runs) {
+  const latest = new Map();
+  for (const run of runs) {
+    if (!run.sourceId) continue;
+    const observedAt = shopCollectionCrawlRunObservedAt(run);
+    const current = latest.get(run.sourceId);
+    if (!current || observedAt > shopCollectionCrawlRunObservedAt(current)) latest.set(run.sourceId, run);
+  }
+  return latest;
+}
+
+function evaluateShopCollectionScheduleTarget(target, context, nowMs, schedulerOptions = shopCollectionSchedulerOptionsFor()) {
+  const latestRun = context.latestRunBySource.get(target.sourceId);
+  const offerStats = context.offerStatsBySource.get(target.sourceId);
+  const priceStats = context.priceStatsBySource.get(target.sourceId);
+  const writeStats = shopCollectionCrawlWriteStats(latestRun);
+  const receivedCount = writeStats.receivedCount ??
+    (latestRun?.status === "success" || latestRun?.status === "partial" ? latestRun.successCount : null);
+  const writtenCount = writeStats.writtenCount;
+  const changeDensity = receivedCount !== null && receivedCount > 0 && writtenCount !== null
+    ? Math.round((writtenCount / receivedCount) * 1000) / 1000
+    : null;
+  const offerCount = offerStats?.visibleCount ?? target.rawOffers?.length ?? 0;
+  const scaleBand = shopCollectionScaleBand(offerCount);
+  const changeBand = shopCollectionChangeBand({ receivedCount, writtenCount, changeDensity });
+  const lowPriceBand = shopCollectionLowPriceBand(priceStats);
+  const hotEvidence = shopHotProductEvidenceFromPriceStats(priceStats);
+  const tierResult = classifyShopCollectionScheduleTier({
+    target,
+    latestRun,
+    scaleBand,
+    changeBand,
+    lowPriceBand,
+    hotProductOfferCount: hotEvidence.offerCount,
+    hotProductLowestHitCount: hotEvidence.lowestHitCount,
+    hotProductTop5HitCount: hotEvidence.top5HitCount,
+  });
+  const tierDefinition = shopCollectionTierDefinition(tierResult.tier);
+  const lastRunAt = shopCollectionScheduleReferenceAt(target, latestRun, tierResult.tier);
+  const lastRunMs = timestampMs(lastRunAt);
+  const intervalMs = tierDefinition.intervalMinutes * 60_000;
+  const timing = shopCollectionScheduleTiming({
+    sourceId: target.sourceId,
+    tier: tierDefinition.tier,
+    intervalMs,
+    lastRunMs,
+    nowMs,
+    bucketMinutes: schedulerOptions.bucketMinutes,
+    immediate: tierDefinition.tier === "new_source_bootstrap",
+  });
+
+  return {
+    target,
+    sourceId: target.sourceId,
+    sourceName: target.sourceName,
+    tier: tierDefinition.tier,
+    tierLabel: tierDefinition.label,
+    tierRank: shopCollectionTierRank(tierDefinition.tier),
+    intervalMinutes: tierDefinition.intervalMinutes,
+    due: timing.due,
+    lastRunAt,
+    nextRunAt: timing.nextRunAt,
+    remainingMinutes: timing.remainingMinutes,
+    schedulerBucketMinutes: schedulerOptions.bucketMinutes,
+    schedulerBucketIndex: timing.bucketIndex,
+    schedulerBucketCount: timing.bucketCount,
+    schedulerBucketMatches: timing.bucketMatches,
+    offerCount,
+    scaleBand,
+    changeBand,
+    lowPriceBand,
+    receivedCount,
+    writtenCount,
+    changeDensity,
+    lowestHitCount: priceStats?.lowestHitCount || 0,
+    top5HitCount: priceStats?.top5HitCount || 0,
+    hotProductOfferCount: hotEvidence.offerCount,
+    hotProductLowestHitCount: hotEvidence.lowestHitCount,
+    hotProductTop5HitCount: hotEvidence.top5HitCount,
+    reasons: tierResult.reasons,
+  };
+}
+
+function classifyShopCollectionScheduleTier(input) {
+  const reasons = [];
+  const consecutiveFailures = Number(input.target.consecutiveFailures || 0);
+  const hasSuccessfulHistory = Boolean(input.target.lastSuccessAt) ||
+    ((input.latestRun?.status === "success" || input.latestRun?.status === "partial") && Number(input.latestRun?.successCount || 0) > 0);
+  const hasAttemptHistory = Boolean(input.latestRun || input.target.lastCheckedAt);
+  const runtimeIssue = sourceQualityRuntimeIssueLabel(input.target.lastError || input.latestRun?.message || null);
+  const hasFailure =
+    input.target.healthStatus === "failing" ||
+    input.target.healthStatus === "retrying" ||
+    consecutiveFailures > 0 ||
+    input.latestRun?.status === "failed";
+  const strongLowPrice = input.lowPriceBand === "strong" || input.lowPriceBand === "top5";
+  const hotLowPrice = input.hotProductLowestHitCount > 0 || input.hotProductTop5HitCount > 0;
+  const hasHotProduct = input.hotProductOfferCount > 0;
+
+  if (!hasSuccessfulHistory && !hasAttemptHistory) {
+    reasons.push("新审核通过来源，先立即完整初始化");
+    return { tier: "new_source_bootstrap", reasons };
+  }
+
+  if (hasFailure) {
+    reasons.push(runtimeIssue ? `最近失败：${runtimeIssue}` : consecutiveFailures ? `连续失败 ${consecutiveFailures} 次` : "最近采集失败");
+    if (isDailyProbeFailure(input.target.lastError, consecutiveFailures)) {
+      reasons.push("连续 404 或空结果，降为每日复检");
+      return { tier: "daily_probe", reasons };
+    }
+    if (strongLowPrice || hotLowPrice || hasHotProduct) {
+      reasons.push("仍有低价或重点商品价值，冷却后优先重试");
+      return { tier: "retry_priority", reasons };
+    }
+    reasons.push("价值信号较弱，先延长冷却");
+    return { tier: "retry_cooldown", reasons };
+  }
+
+  if ((input.changeBand === "high" && strongLowPrice) || (hotLowPrice && strongLowPrice && input.changeBand !== "low")) {
+    reasons.push(input.changeBand === "high" ? "高变化 + 低价优势" : "重点商品低价优势");
+    return { tier: "core_30m", reasons };
+  }
+
+  if ((input.changeBand === "low" || input.changeBand === "unknown") && hotLowPrice) {
+    reasons.push("低变化但固定重点商品低价命中");
+    reasons.push("保留 1h 低价守护");
+    return { tier: "lowprice_guard_1h", reasons };
+  }
+
+  if (input.changeBand === "high" || input.changeBand === "medium") {
+    reasons.push(input.changeBand === "high" ? "变化高但低价证据不足" : "中等变化");
+    if (input.scaleBand === "large" || input.scaleBand === "huge") reasons.push("大店按变化密度修正，不直接进 30m");
+    return { tier: "watch_1h", reasons };
+  }
+
+  if (hasHotProduct || input.scaleBand === "small") {
+    reasons.push(hasHotProduct ? "覆盖固定重点商品，继续观察" : "小店采集成本低");
+    return { tier: "watch_1h", reasons };
+  }
+
+  reasons.push(input.changeBand === "unknown" ? "缺少变化密度样本" : "低变化");
+  reasons.push(strongLowPrice ? "低价强但非重点商品，暂低频观察" : "低价优势弱");
+  return { tier: "low_3h", reasons };
+}
+
+function isDailyProbeFailure(lastError, consecutiveFailures) {
+  if (Number(consecutiveFailures || 0) < DAILY_PROBE_FAILURE_THRESHOLD) return false;
+  return /(?:\bHTTP\s*404\b|\b404\b|采集结果为空|empty result|no offers|found no offers)/i.test(String(lastError || ""));
+}
+
+function shopCollectionScheduleReferenceAt(target, latestRun, tier) {
+  const latestRunAt = latestRun ? shopCollectionCrawlRunObservedAt(latestRun) : null;
+  if (tier === "retry_priority" || tier === "retry_cooldown" || tier === "daily_probe") {
+    return target.lastCheckedAt || latestRunAt || target.lastSuccessAt || null;
+  }
+  return target.lastSuccessAt || latestRunAt || target.lastCheckedAt || null;
+}
+
+function shopCollectionSchedulerOptionsFor(options = {}) {
+  const rawBucketMinutes =
+    optionValue(options, "shopSchedulerBucketMinutes", "shop-scheduler-bucket-minutes") ||
+    runtimeEnvValue("PRICEAI_SHOP_SCHEDULER_BUCKET_MINUTES") ||
+    runtimeEnvValue("PRICEAI_SHOP_COLLECTION_SCHEDULER_BUCKET_MINUTES") ||
+    DEFAULT_SHOP_COLLECTION_SCHEDULER_BUCKET_MINUTES;
+  return {
+    bucketMinutes: integerInRange(rawBucketMinutes, 5, 180, DEFAULT_SHOP_COLLECTION_SCHEDULER_BUCKET_MINUTES),
+  };
+}
+
+function shopCollectionSchedulerShardConfig(options = {}) {
+  const rawCount =
+    optionValue(options, "shopSchedulerShardCount", "shop-scheduler-shard-count") ||
+    runtimeEnvValue("PRICEAI_SHOP_SCHEDULER_SHARD_COUNT") ||
+    runtimeEnvValue("PRICEAI_SHOP_COLLECTION_SCHEDULER_SHARD_COUNT") ||
+    DEFAULT_SHOP_COLLECTION_SCHEDULER_SHARD_COUNT;
+  const count = integerInRange(rawCount, 1, 32, DEFAULT_SHOP_COLLECTION_SCHEDULER_SHARD_COUNT);
+  const rawIndex =
+    optionValue(options, "shopSchedulerShardIndex", "shop-scheduler-shard-index") ||
+    runtimeEnvValue("PRICEAI_SHOP_SCHEDULER_SHARD_INDEX") ||
+    runtimeEnvValue("PRICEAI_SHOP_COLLECTION_SCHEDULER_SHARD_INDEX") ||
+    DEFAULT_SHOP_COLLECTION_SCHEDULER_SHARD_INDEX;
+  return {
+    count,
+    index: integerInRange(rawIndex, 0, count - 1, DEFAULT_SHOP_COLLECTION_SCHEDULER_SHARD_INDEX),
+  };
+}
+
+function assignShopCollectionSchedulerShard(row, config, persistedAssignments = new Map()) {
+  const shardCount = Math.max(1, Number(config?.count || 1));
+  const persisted = persistedAssignments.get(row.sourceId);
+  const schedulerShardIndex = Number.isInteger(persisted) && persisted >= 0 && persisted < shardCount
+    ? persisted
+    : stableHashInt("shop-scheduler-shard", row.sourceId || row.sourceName || "") % shardCount;
+
+  return {
+    ...row,
+    schedulerShardIndex,
+    schedulerShardCount: shardCount,
+    schedulerShardActiveIndex: Math.max(0, Math.min(Number(config?.index || 0), shardCount - 1)),
+    shardMatches: schedulerShardIndex === Math.max(0, Math.min(Number(config?.index || 0), shardCount - 1)),
+  };
+}
+
+function shopCollectionScheduleTiming({
+  sourceId,
+  tier,
+  intervalMs,
+  lastRunMs,
+  nowMs,
+  bucketMinutes,
+  immediate = false,
+}) {
+  if (!Number.isFinite(lastRunMs) || lastRunMs <= 0) {
+    return {
+      due: true,
+      nextRunAt: null,
+      remainingMinutes: 0,
+      bucketIndex: 0,
+      bucketCount: 1,
+      bucketMatches: true,
+    };
+  }
+
+  const bucketMs = Math.max(5 * 60_000, Math.min(Number(bucketMinutes || DEFAULT_SHOP_COLLECTION_SCHEDULER_BUCKET_MINUTES) * 60_000, intervalMs));
+  const bucketCount = immediate ? 1 : Math.max(1, Math.ceil(intervalMs / bucketMs));
+  const bucketIndex = bucketCount <= 1
+    ? 0
+    : stableHashInt("shop-scheduler-bucket", sourceId || "", tier || "") % bucketCount;
+  const currentBucketNumber = Math.floor(nowMs / bucketMs);
+  const bucketMatches = immediate || bucketCount <= 1 || positiveModulo(currentBucketNumber, bucketCount) === bucketIndex;
+  const earliestMs = lastRunMs + intervalMs;
+  const ageDue = nowMs >= earliestMs;
+  const due = ageDue && bucketMatches;
+  const nextWindowStart = due
+    ? nowMs
+    : nextShopCollectionScheduleBucketWindowStart({
+        fromMs: ageDue ? nowMs : earliestMs,
+        bucketMs,
+        bucketCount,
+        bucketIndex,
+      });
+  const nextRunMs = Math.max(earliestMs, nextWindowStart);
+
+  return {
+    due,
+    nextRunAt: new Date(nextRunMs).toISOString(),
+    remainingMinutes: due ? 0 : Math.max(1, Math.ceil((nextRunMs - nowMs) / 60_000)),
+    bucketIndex,
+    bucketCount,
+    bucketMatches,
+  };
+}
+
+function nextShopCollectionScheduleBucketWindowStart({ fromMs, bucketMs, bucketCount, bucketIndex }) {
+  const firstBucketNumber = Math.floor(fromMs / bucketMs);
+  for (let offset = 0; offset <= bucketCount; offset += 1) {
+    const candidate = firstBucketNumber + offset;
+    const start = candidate * bucketMs;
+    const end = start + bucketMs;
+    if (fromMs >= end) continue;
+    if (bucketCount <= 1 || positiveModulo(candidate, bucketCount) === bucketIndex) return start;
+  }
+  return (firstBucketNumber + bucketCount) * bucketMs;
+}
+
+function buildShopCollectionScheduleTierStats(rows) {
+  return SHOP_COLLECTION_TIER_DEFINITIONS.map((definition) => {
+    const tierRows = rows.filter((row) => row.tier === definition.tier);
+    return {
+      tier: definition.tier,
+      label: definition.label,
+      intervalMinutes: definition.intervalMinutes,
+      count: tierRows.length,
+      due: tierRows.filter((row) => row.due).length,
+      skipped: tierRows.filter((row) => !row.due).length,
+      offerCount: tierRows.reduce((total, row) => total + row.offerCount, 0),
+    };
+  });
+}
+
+function limitShopCollectionDueRowsByFamily(rows, options = {}) {
+  if (!shouldUseCollectionFamilyProtection(options)) return { dueRows: rows, deferredRows: [] };
+
+  const limit = liandongShopBulkLimitFor(options);
+  if (limit <= 0) return { dueRows: rows, deferredRows: [] };
+
+  const counts = new Map();
+  const dueRows = [];
+  const deferredRows = [];
+  for (const row of rows) {
+    const family = collectionFamilyForTarget(row.target);
+    if (!family) {
+      dueRows.push(row);
+      continue;
+    }
+
+    const count = counts.get(family.key) || 0;
+    if (count >= limit) {
+      deferredRows.push({
+        ...row,
+        due: false,
+        deferredReason: `${family.label} 本轮已达到 ${limit} 个店铺预算`,
+      });
+      continue;
+    }
+
+    counts.set(family.key, count + 1);
+    dueRows.push(row);
+  }
+
+  return { dueRows, deferredRows };
+}
+
+function compactShopCollectionScheduleRow(row) {
+  return {
+    sourceId: row.sourceId,
+    sourceName: row.sourceName,
+    tier: row.tier,
+    intervalMinutes: row.intervalMinutes,
+    due: row.due,
+    lastRunAt: row.lastRunAt,
+    nextRunAt: row.nextRunAt,
+    remainingMinutes: row.remainingMinutes,
+    schedulerShard: row.schedulerShardCount > 1 ? `${row.schedulerShardIndex + 1}/${row.schedulerShardCount}` : null,
+    schedulerBucket: row.schedulerBucketCount > 1 ? `${row.schedulerBucketIndex + 1}/${row.schedulerBucketCount}` : null,
+    offerCount: row.offerCount,
+    changeBand: row.changeBand,
+    lowPriceBand: row.lowPriceBand,
+    deferredReason: row.deferredReason || null,
+    reasons: row.reasons.slice(0, 3),
+  };
+}
+
+function compareShopCollectionScheduleRows(left, right) {
+  if (left.due !== right.due) return left.due ? -1 : 1;
+  if (left.tierRank !== right.tierRank) return left.tierRank - right.tierRank;
+  const leftLast = timestampMs(left.lastRunAt);
+  const rightLast = timestampMs(right.lastRunAt);
+  if (Number.isFinite(leftLast) && Number.isFinite(rightLast) && leftLast !== rightLast) return leftLast - rightLast;
+  if (!Number.isFinite(leftLast) && Number.isFinite(rightLast)) return -1;
+  if (Number.isFinite(leftLast) && !Number.isFinite(rightLast)) return 1;
+  return String(left.sourceName || left.sourceId).localeCompare(String(right.sourceName || right.sourceId), "zh-CN");
+}
+
+function shopCollectionTierDefinition(tier) {
+  return SHOP_COLLECTION_TIER_DEFINITIONS.find((definition) => definition.tier === tier) ||
+    SHOP_COLLECTION_TIER_DEFINITIONS[1];
+}
+
+function shopCollectionTierRank(tier) {
+  const index = SHOP_COLLECTION_TIER_DEFINITIONS.findIndex((definition) => definition.tier === tier);
+  return index >= 0 ? index : SHOP_COLLECTION_TIER_DEFINITIONS.length;
+}
+
+function shopCollectionScaleBand(offerCount) {
+  if (offerCount <= 0) return "empty";
+  if (offerCount <= 10) return "small";
+  if (offerCount <= 30) return "medium";
+  if (offerCount <= 80) return "large";
+  return "huge";
+}
+
+function shopCollectionChangeBand(input) {
+  if (input.receivedCount === null || input.writtenCount === null || input.changeDensity === null) return "unknown";
+  if (input.receivedCount === 0 || input.writtenCount === 0) return "low";
+  if (input.writtenCount >= 8 || input.changeDensity >= 0.25) return "high";
+  if (input.writtenCount >= 2 || input.changeDensity >= 0.08) return "medium";
+  return "low";
+}
+
+function shopCollectionLowPriceBand(stats) {
+  if (!stats || stats.benchmarkOfferCount <= 0) return "unknown";
+  if (stats.lowestHitCount > 0 || stats.within10PctCount >= 3) return "strong";
+  if (stats.top5HitCount > 0) return "top5";
+  if (stats.within10PctCount > 0 || stats.within20PctCount > 0) return "competitive";
+  return "weak";
+}
+
+function shopHotProductEvidenceFromPriceStats(stats) {
+  const evidence = { offerCount: 0, lowestHitCount: 0, top5HitCount: 0 };
+  for (const scope of stats?.sampleScopes || []) {
+    if (!HOT_SHOP_COLLECTION_PRODUCT_IDS.has(scope.productId)) continue;
+    evidence.offerCount += 1;
+    if (scope.rank === 1) evidence.lowestHitCount += 1;
+    if (scope.rank !== null && scope.rank !== undefined && scope.rank <= 5) evidence.top5HitCount += 1;
+  }
+  return evidence;
+}
+
+function shopCollectionCrawlWriteStats(run) {
+  const details = asPlainRecord(run?.details);
+  const writeStats = asPlainRecord(details?.writeStats);
+  return {
+    receivedCount:
+      numberFromRecord(writeStats, "receivedCount") ??
+      numberFromRecord(details, "receivedCount") ??
+      numberFromRecord(details, "offerCount") ??
+      null,
+    writtenCount:
+      numberFromRecord(writeStats, "writtenCount") ??
+      numberFromRecord(details, "writtenCount") ??
+      numberFromRecord(details, "changedCount") ??
+      null,
+    refreshedCount:
+      numberFromRecord(writeStats, "refreshedCount") ??
+      numberFromRecord(details, "refreshedCount") ??
+      null,
+  };
+}
+
+function numberFromRecord(record, key) {
+  if (!record) return null;
+  const value = Number(record[key]);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function sourceQualityRuntimeIssueLabel(message) {
+  if (!message || /no offers|found no offers|无商品|空结果|empty result/i.test(message)) return null;
+  const text = String(message).toLowerCase();
+  if (/verification|challenge|captcha|验证码|风控|waf|http 403|status 403|\b403\b|forbidden|access denied|acw_tc|cdn_sec_tc|安全|拦截/.test(text)) {
+    return "风控 / 验证 / 403";
+  }
+  if (/timeout|timed out|fetch failed|network|econn|socket|http 5\d{2}|status 5\d{2}|\b50[234]\b|cancelled|canceled|request was cancelled/.test(text)) {
+    return "网络 / 源站失败";
+  }
+  return null;
+}
+
+function shopCollectionPriceSampleScopes(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const record = asPlainRecord(item);
+      if (!record) return null;
+      return {
+        productId: String(record.productId || ""),
+        productName: String(record.productName || ""),
+        scopeKey: String(record.scopeKey || ""),
+        scopeLabel: String(record.scopeLabel || ""),
+        offerTitle: String(record.offerTitle || ""),
+        price: numberOrNull(record.price),
+        minPrice: numberOrNull(record.minPrice),
+        top5Price: numberOrNull(record.top5Price),
+        rank: integerOrNull(record.rank),
+        gapToMin: numberOrNull(record.gapToMin),
+        gapToTop5: numberOrNull(record.gapToTop5),
+      };
+    })
+    .filter((item) => item && item.productId && item.scopeKey);
+}
+
+function shopCollectionCrawlRunObservedAt(run) {
+  return run?.finishedAt || run?.startedAt || "";
+}
+
+function timestampMs(value) {
+  if (!value) return NaN;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : NaN;
+}
+
+function asPlainRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
 function isLiandongShopTarget(target) {
   return Boolean(collectionFamilyForTarget(target));
 }
@@ -3447,6 +4268,16 @@ function optionList(value) {
 
 function cooldownSkipReason(target, options = {}) {
   if (!shouldUseCollectionCooldown(options)) return null;
+
+  if (isDailyProbeFailure(target.lastError, target.consecutiveFailures) && target.lastCheckedAt) {
+    const lastCheckedMs = new Date(target.lastCheckedAt).getTime();
+    const ageMs = Date.now() - lastCheckedMs;
+    const dailyProbeMs = DAILY_PROBE_INTERVAL_MINUTES * 60_000;
+    if (Number.isFinite(lastCheckedMs) && ageMs >= 0 && ageMs < dailyProbeMs) {
+      const remainingMinutes = Math.max(1, Math.ceil((dailyProbeMs - ageMs) / 60_000));
+      return { message: `连续 404 或空结果，进入每日复检；约 ${remainingMinutes} 分钟后重试。` };
+    }
+  }
 
   const lastSuccessMs = target.lastSuccessAt ? new Date(target.lastSuccessAt).getTime() : NaN;
   if (!Number.isFinite(lastSuccessMs)) return null;
@@ -3489,6 +4320,7 @@ export function createCollectionFamilyState(options = {}) {
     breakerMs: liandongShopBreakerMsFor(options),
     http403CooldownMs: liandongShopHttp403CooldownMsFor(options),
     http403Threshold: liandongShopHttp403ThresholdFor(options),
+    pauseOnExitErrors: shopApiExitErrorFamilyPauseEnabledFor(options),
   };
 }
 
@@ -3562,6 +4394,11 @@ function recordCollectionFamilyResult(target, state, result = {}) {
 
   const http403Count = http403CountForResult(result);
   if (http403Count > 0) {
+    if (!state.pauseOnExitErrors) {
+      result.logger?.log?.(`${family.label} returned HTTP 403; keeping the family running and rotating the exit on retry.`);
+      return;
+    }
+
     record.consecutiveHttp403Count += http403Count;
     if (record.consecutiveHttp403Count >= state.http403Threshold) {
       record.http403CooldownUntil = Date.now() + state.http403CooldownMs;
@@ -3574,6 +4411,11 @@ function recordCollectionFamilyResult(target, state, result = {}) {
   }
 
   if (!isChallengeMessage(result.message)) return;
+
+  if (!state.pauseOnExitErrors) {
+    result.logger?.log?.(`${family.label} returned a verification/challenge page; keeping the family running and relying on exit rotation.`);
+    return;
+  }
 
   record.breakerUntil = Date.now() + state.breakerMs;
   result.logger?.log(
@@ -3598,6 +4440,13 @@ function collectionFamilyRunPauseReason(target, state) {
     return {
       label: family.label,
       message: `连续多个店铺返回 HTTP 403，本轮停止继续请求；约 ${Math.ceil((record.http403CooldownUntil - now) / 60_000)} 分钟后再试。`,
+    };
+  }
+
+  if (state.limit > 0 && record.startedCount >= state.limit) {
+    return {
+      label: family.label,
+      message: `本轮已达到 ${state.limit} 个店铺上限，剩余店铺留到下一轮分层采集。`,
     };
   }
 
@@ -3683,6 +4532,15 @@ function liandongShopHttp403ThresholdFor(options = {}) {
   return integerInRange(raw, 1, 10, DEFAULT_LIANDONG_SHOP_HTTP_403_THRESHOLD);
 }
 
+function shopApiExitErrorFamilyPauseEnabledFor(options = {}) {
+  const value =
+    optionValue(options, "shopApiExitErrorFamilyPause", "shop-api-exit-error-family-pause") ||
+    runtimeEnvValue("PRICEAI_SHOPAPI_EXIT_ERROR_FAMILY_PAUSE");
+  if (truthyFlag(value)) return true;
+  if (falseyFlag(value)) return false;
+  return DEFAULT_SHOP_API_EXIT_ERROR_FAMILY_PAUSE;
+}
+
 function http403CountForResult(result = {}) {
   const attempts = Array.isArray(result.attempts) ? result.attempts : [];
   if (attempts.some((attempt) => isHttp403Message(attempt?.message))) return 1;
@@ -3690,12 +4548,17 @@ function http403CountForResult(result = {}) {
 }
 
 function isHttp403Message(message) {
-  return /HTTP\s*403|returned HTTP 403|denied by ip_access_rule|ip_access_rule/i.test(String(message || ""));
+  return /HTTP\s*403|status\s*403|returned HTTP 403|denied by (?:ip_access_rule|http_ratelimit)|ip_access_rule|http_ratelimit|forbidden/i.test(String(message || ""));
+}
+
+function isShopApiExitErrorMessage(message) {
+  return /HTTP\s*(?:403|520)|status\s*(?:403|520)|denied by (?:ip_access_rule|http_ratelimit)|ip_access_rule|http_ratelimit|proxy-status:\s*esa|response_incomplete|challenge|captcha|验证码|风控|acw_tc|cdn_sec_tc/i.test(String(message || ""));
 }
 
 function shouldStopRetryingTarget(target, error) {
   if (!collectionFamilyForTarget(target)) return false;
-  return isHttp403Message(errorMessage(error));
+  if (isShopApiExitErrorMessage(errorMessage(error))) return false;
+  return false;
 }
 
 function isChallengeMessage(message) {
@@ -3710,6 +4573,10 @@ function integerInRange(value, min, max, fallback) {
 
 function truthyFlag(value) {
   return value === true || value === "true" || value === "1" || value === "yes";
+}
+
+function falseyFlag(value) {
+  return value === false || value === "false" || value === "0" || value === "no" || value === "off";
 }
 
 function collectionLockOwner(options = {}) {
@@ -3948,6 +4815,8 @@ function defaultHeaders(url) {
 }
 
 async function createShopApiProxyContext(target, options = {}) {
+  if (truthyFlag(options.shopApiProxyDisabled)) return null;
+
   const hosts = shopApiProxyHostsFor(options);
   const host = normalizeHostname(target.baseUrl || target.sourceUrl);
   if (!hosts.has(host)) return null;
@@ -4048,6 +4917,28 @@ function shopApiProxyReuseTtlMsFor(options = {}) {
     runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_REUSE_TTL_MS") ||
     DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS;
   return integerInRange(raw, 1_000, 10 * 60 * 1000, DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS);
+}
+
+function shopApiProxyParallelismFor(options = {}) {
+  const raw =
+    optionValue(options, "shopApiProxyParallelism", "shop-api-proxy-parallelism") ||
+    runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_PARALLELISM") ||
+    DEFAULT_SHOP_API_PROXY_PARALLELISM;
+  return integerInRange(raw, 1, 8, DEFAULT_SHOP_API_PROXY_PARALLELISM);
+}
+
+function shopApiProxyModeFor(options = {}) {
+  const value =
+    optionValue(options, "shopApiProxyMode", "shop-api-proxy-mode") ||
+    runtimeEnvValue("PRICEAI_SHOPAPI_PROXY_MODE") ||
+    DEFAULT_SHOP_API_PROXY_MODE;
+  const normalized = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+  if (["on_exit", "fallback", "after_exit_error"].includes(normalized)) return "on_exit";
+  return "always";
+}
+
+function hasShopApiProxyConfigured(options = {}) {
+  return Boolean(shopApiProxyApiUrlFor(options) || shopApiProxyUrlFor(options));
 }
 
 async function resolveShopApiProxyUrl(options = {}) {
@@ -4300,21 +5191,25 @@ function numberOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function integerOrNull(value) {
+  const number = numberOrNull(value);
+  return number === null ? null : Math.trunc(number);
+}
+
 function timestampFromShopApiValue(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   const milliseconds = parsed > 10_000_000_000 ? parsed : parsed * 1000;
-  const date = new Date(milliseconds);
+  return isoDateTimeOrNull(milliseconds);
+}
+
+function isoDateTimeOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const date = new Date(value);
   const now = Date.now();
   if (!Number.isFinite(date.getTime()) || date.getTime() > now + 86_400_000) return null;
   return date.toISOString();
-}
-
-function isoDateOrNull(value) {
-  const time = new Date(String(value || "")).getTime();
-  if (!Number.isFinite(time)) return null;
-  return new Date(time).toISOString();
 }
 
 function compact(values) {
@@ -4435,22 +5330,15 @@ function goodsKeyFromUrl(value) {
   }
 }
 
+function isMissingColumnError(error, column) {
+  if (!error) return false;
+  const message = String(error.message || "");
+  return error.code === "42703" || message.includes(`'${column}' column`) || message.includes(`column ${column}`);
+}
+
 function errorMessage(error) {
   if (error instanceof Error) return error.message;
   return String(error);
-}
-
-function isMissingShopApiFeePoliciesError(error) {
-  if (!error || typeof error !== "object") return false;
-  const text = [
-    error.code,
-    error.message,
-    error.details,
-    error.hint,
-  ]
-    .map((value) => String(value || ""))
-    .join(" ");
-  return /shop_api_fee_policies/i.test(text) && /PGRST|42P01|not found|does not exist|schema cache/i.test(text);
 }
 
 function parseArgs(values) {

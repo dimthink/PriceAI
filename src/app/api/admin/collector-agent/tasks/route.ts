@@ -7,6 +7,8 @@ const DEFAULT_LIMIT = 3;
 const MAX_LIMIT = 20;
 const DEFAULT_COOLDOWN_MINUTES = 25;
 const TRANSIENT_UPSTREAM_COOLDOWN_MINUTES = 5;
+const DAILY_PROBE_FAILURE_THRESHOLD = 3;
+const DAILY_PROBE_INTERVAL_MINUTES = 24 * 60;
 const FAMILY_SCOPED_FETCH_LIMIT = 1000;
 const FAMILY_HOSTS: Record<string, string[]> = {
   "liandong-shop": ["pay.ldxp.cn", "ldxp.cn"],
@@ -106,7 +108,7 @@ export async function GET(request: Request) {
       : Math.max(query.limit * 50 * query.shardCount, query.limit);
     let sourcesQuery = supabase
       .from("sources")
-      .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,last_error")
+      .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,consecutive_failures,last_error")
       .eq("enabled", true)
       .eq("collector_kind", query.kind)
       .order("last_checked_at", { ascending: true, nullsFirst: true })
@@ -523,7 +525,7 @@ function isMissingReapRpcError(error: unknown): boolean {
 }
 
 function sourceWithinCooldown(
-  source: { last_checked_at?: unknown; last_error?: unknown },
+  source: { last_checked_at?: unknown; last_error?: unknown; consecutive_failures?: unknown },
   nowIso: string,
 ): boolean {
   if (!source.last_checked_at) return false;
@@ -532,7 +534,12 @@ function sourceWithinCooldown(
   const now = new Date(nowIso).getTime();
   if (!Number.isFinite(checkedAt) || !Number.isFinite(now)) return false;
 
-  const cooldownMinutes = isTransientUpstreamError(source.last_error)
+  const consecutiveFailures = Number(source.consecutive_failures || 0);
+  const isDailyProbe = consecutiveFailures >= DAILY_PROBE_FAILURE_THRESHOLD &&
+    /(?:\bHTTP\s*404\b|\b404\b|采集结果为空|empty result|no offers|found no offers)/i.test(String(source.last_error || ""));
+  const cooldownMinutes = isDailyProbe
+    ? DAILY_PROBE_INTERVAL_MINUTES
+    : isTransientUpstreamError(source.last_error)
     ? TRANSIENT_UPSTREAM_COOLDOWN_MINUTES
     : DEFAULT_COOLDOWN_MINUTES;
 

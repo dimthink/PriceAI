@@ -12,7 +12,7 @@ begin
   ) then
     alter table raw_offers
       add constraint raw_offers_price_basis_check
-      check (price_basis is null or price_basis in ('settled', 'listed', 'listed_fallback'));
+      check (price_basis is null or price_basis in ('settled', 'modeled', 'listed', 'listed_fallback'));
   end if;
 end;
 $$;

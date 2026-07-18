@@ -51,6 +51,7 @@
     "check:p2": "node scripts/p2-closeout-check.mjs",
     "test:api-models": "node scripts/test-api-models.mjs",
     "test:official-parser": "node scripts/test-official-prices-parser.mjs",
+    "test:collector-rules": "node scripts/test-collector-rules.mjs",
     "collect:browser": "node scripts/collect-browser.mjs",
     "reparse:submissions": "node scripts/reparse-submissions-local.mjs",
     "migrate:remote:freshness": "node scripts/apply-remote-migration.mjs",

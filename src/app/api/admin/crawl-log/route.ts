@@ -31,7 +31,7 @@ const offerSchema = z.object({
   price: z.number().nonnegative().nullable().optional(),
   listedPrice: z.number().nonnegative().nullable().optional(),
   feeAmount: z.number().nonnegative().nullable().optional(),
-  priceBasis: z.enum(["settled", "listed", "listed_fallback"]).nullable().optional(),
+  priceBasis: z.enum(["settled", "modeled", "listed", "listed_fallback"]).nullable().optional(),
   currency: z.string().optional(),
   status: z.enum(["in_stock", "low_stock", "out_of_stock", "unknown"]).optional(),
   effectiveStatus: z.enum(["available", "low_confidence", "unavailable", "stale", "failed"]).nullable().optional(),
