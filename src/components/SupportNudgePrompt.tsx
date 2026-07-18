@@ -18,6 +18,7 @@ const excludedPathPrefixes = [
   "/api-transit/submit",
   "/api-transit/detector/reports",
   "/commercial",
+  "/guides/self-host-api-transit",
   supportPagePath,
 ] as const;
 

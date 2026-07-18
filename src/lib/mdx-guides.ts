@@ -10,6 +10,8 @@ const frontmatterSchema = z.object({
   tags: z.array(z.string()).default([]),
   intent: z.string().optional(),
   canonical: z.string(),
+  sourceMode: z.enum(["mirror"]).optional(),
+  sourceUrl: z.string().optional(),
   primaryCta: z
     .object({
       href: z.string(),
@@ -99,6 +101,8 @@ function parseFrontmatterText(frontmatterText: string): unknown {
     tags: string[];
     intent?: string;
     canonical?: string;
+    sourceMode?: string;
+    sourceUrl?: string;
     primaryCta?: { href?: string; label?: string };
     secondaryCta?: { href?: string; label?: string };
     faq: Array<{ question?: string; answer?: string }>;

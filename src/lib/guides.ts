@@ -133,6 +133,14 @@ export const guideEntries: GuideEntry[] = [
     tags: ["API 中转", "Claude", "GPT", "倍率", "号池"],
     intent: "准备选择 API 中转站前，先理解价格口径、稳定性、来源渠道和小额试用边界。",
   },
+  {
+    title: "怎么自己搭一个自用 API 中转站",
+    description: "想自己搭一个能用、够轻、方便让 AI 帮你维护的小中转入口。",
+    href: "/guides/self-host-api-transit",
+    categoryId: "channels",
+    tags: ["API 中转", "CPA", "Sub2API", "Cloudflare"],
+    intent: "想自己搭一个能用、够轻、方便 AI 维护的小中转入口。",
+  },
 ];
 
 export const guideReadingPaths: GuideReadingPath[] = [

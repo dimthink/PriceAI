@@ -15,16 +15,16 @@ export function GuideDocsLayout({
 }) {
   return (
     <main className="min-h-screen bg-[#f9f9f9] text-[#2d3435]">
-      <div className="sticky top-0 z-40 bg-[#f9f9f9]/95 shadow-[0_10px_24px_rgba(45,52,53,0.035)] backdrop-blur-xl">
+      <div className="sticky top-0 z-40 border-b border-[#e7eaea] bg-[#f9f9f9]/95 backdrop-blur-xl">
         <SiteHeader activeSection="guides" />
       </div>
 
-      <div className="mx-auto max-w-[1320px] px-5 pb-14 pt-4 sm:px-8 lg:pt-6">
+      <div className="mx-auto max-w-[1440px] px-5 pb-16 pt-5 sm:px-8 lg:pt-8">
         <div className="mb-5 lg:hidden">
           <GuideMobileNav currentHref={currentHref} />
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,680px)] lg:justify-center xl:grid-cols-[240px_minmax(0,680px)_220px]">
+        <div className="grid gap-10 lg:grid-cols-[224px_minmax(0,760px)] lg:justify-center xl:grid-cols-[224px_minmax(0,760px)_220px]">
           <aside className="hidden lg:block">
             <div className="sticky top-28 max-h-[calc(100vh-8rem)] overflow-y-auto pr-1">
               <GuideSidebar currentHref={currentHref} />

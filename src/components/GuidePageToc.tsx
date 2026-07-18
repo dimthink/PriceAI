@@ -35,7 +35,8 @@ export function GuidePageToc() {
       const usedIds = new Set<string>();
 
       const nextItems = headings.map((heading, index) => {
-        const label = heading.textContent?.trim() ?? "";
+        const label = heading.dataset.guideTocLabel?.trim() || heading.textContent?.trim() || "";
+        const sectionNumber = heading.dataset.guideSectionNumber;
         const baseId = heading.id || toAnchorId(label) || `section-${index + 1}`;
         let id = baseId;
         let suffix = 2;
@@ -50,7 +51,7 @@ export function GuidePageToc() {
 
         return {
           id,
-          label,
+          label: sectionNumber ? `${sectionNumber}. ${label}` : label,
         } satisfies TocItem;
       });
 
@@ -85,7 +86,7 @@ export function GuidePageToc() {
 
   return (
     <nav aria-label="本文目录" className="border-l border-[#dfe4e5] pl-4">
-      <p className="text-xs font-semibold text-[#7a8182]">本文目录</p>
+      <p className="text-xs font-bold tracking-[0.04em] text-[#5a6061]">本文目录</p>
       {items.length ? (
         <div className="mt-3 space-y-0.5">
           {items.map((item) => {

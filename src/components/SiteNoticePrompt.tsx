@@ -11,15 +11,17 @@ const STORAGE_PREFIX = "priceai.siteNotice";
 
 export function SiteNoticePrompt() {
   const pathname = usePathname();
+  const isGuidePage = pathname.startsWith("/guides/self-host-api-transit");
   const titleId = useId();
   const descriptionId = useId();
   const [openNotice, setOpenNotice] = useState<SiteNoticeConfig | null>(null);
   const [submissionFloaterOpen, setSubmissionFloaterOpen] = useState(false);
 
   const candidateNotice = useMemo(() => {
+    if (isGuidePage) return null;
     const now = new Date();
     return siteNotices.find((notice) => shouldConsiderNotice(notice, pathname, now)) ?? null;
-  }, [pathname]);
+  }, [isGuidePage, pathname]);
 
   useEffect(() => {
     function onSubmissionFloaterState(event: Event) {
@@ -72,6 +74,8 @@ export function SiteNoticePrompt() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [openNotice, pathname]);
+
+  if (isGuidePage) return null;
 
   if (!openNotice) return null;
 

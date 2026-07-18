@@ -15,6 +15,7 @@ const sponsorTones = new Set(["green", "blue", "amber"]);
 const topBannerExcludedPathPrefixes = [
   "/admin",
   "/support",
+  "/guides/self-host-api-transit",
 ] as const;
 
 const footerExcludedPathPrefixes = [
@@ -23,6 +24,7 @@ const footerExcludedPathPrefixes = [
   "/support",
   "/api-transit/submit",
   "/api-transit/detector/reports",
+  "/guides/self-host-api-transit",
 ] as const;
 
 export function GlobalSponsorPlacements({ children }: { children: ReactNode }) {

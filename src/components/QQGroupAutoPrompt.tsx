@@ -33,6 +33,7 @@ export function QQGroupAutoPrompt() {
   const settings = useCommunitySettings();
   const router = useRouter();
   const pathname = usePathname();
+  const isGuidePage = pathname.startsWith("/guides/self-host-api-transit");
   const searchParams = useSearchParams();
   const queryString = searchParams.toString();
   const clientReady = useSyncExternalStore(subscribeToClientReady, () => true, () => false);
@@ -50,6 +51,8 @@ export function QQGroupAutoPrompt() {
     window.addEventListener(qqGroupPromptEventName, openPrompt);
     return () => window.removeEventListener(qqGroupPromptEventName, openPrompt);
   }, []);
+
+  if (isGuidePage) return null;
 
   function closePrompt() {
     if (!promptKey) return;

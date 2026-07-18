@@ -1,0 +1,600 @@
+---
+title: "怎么自己搭一个自用 API 中转站"
+description: "怎么自己搭一个自用 API 中转站"
+eyebrow: "自用 API"
+categoryId: "channels"
+tags:
+  - "API 中转"
+  - "CPA"
+  - "Sub2API"
+  - "Cloudflare"
+intent: "想自己搭一个能用、够轻、方便 AI 维护的小中转入口。"
+canonical: "/guides/self-host-api-transit"
+sourceMode: "mirror"
+sourceUrl: "https://my.feishu.cn/wiki/JkQ3wmm7aiTd9BkJd4RcAaEgnmh"
+faq:
+---
+
+很多人第一次听到「自己搭中转站」，会以为自己要写后端、买很贵的服务器、甚至要自己跑模型。
+
+其实不是。
+
+如果只是自己用，你真正要搭的是一个「统一入口」：让 Codex、Claude Code、Cherry Studio、Open WebUI、Continue 这些工具，都能通过一个自己掌握的 API Base 和 API Key 去调用模型能力。
+
+这篇不讨论怎么做公开商业中转站，也不教你绕过上游限制。它只回答一个很实际的问题：
+
+> 我想自己搭一个能用、够轻、方便让 AI 帮我维护的小中转入口，应该选什么工具，服务器怎么买，域名和 Cloudflare 怎么配？
+
+## 先说结论
+
+如果你只想自己用，优先看 CPA，也就是 CLIProxyAPI。
+
+如果你想给身边几个人小范围共用、需要账号池、额度分摊、后台管理，再看 Sub2API。
+
+如果你手里主要是官方 API Key，想做一个正规 Key 网关，再看 New API。
+
+这三条路线不要混在一起。
+
+| 路线 | 推荐程度 | 适合谁 | 服务器要求 | 一句话理解 |
+|-|-|-|-|-|
+| CPA / CLIProxyAPI | 最推荐自用 | 只给自己或一两个熟人用，主要接 Codex、Claude Code、Gemini CLI 等 CLI/OAuth 能力 | 2 核 2G 就够舒服 | 轻量、直接、偏个人工具链 |
+| Sub2API | 推荐给小范围共用 | 想做账号池、拼车共享、小团队共用、站长型管理 | 建议 2 核 4G 起步，数据库和 Redis 要认真备份 | 功能更完整，但维护成本更高 |
+| New API | 只作为补充路线 | 手里是官方 API Key、云厂商 Key、聚合平台 Key，想统一管理 | 2 核 2G 起步 | 正规 API Key 网关，不是订阅转 API 主线 |
+
+如果你是新手，不建议一上来就研究 One API、LiteLLM、Claude Code Router、各种管理面板和二开分支。工具越多，越容易还没开始就迷路。
+
+这篇先抓住三个名字就够了：CPA、Sub2API、New API。
+
+## CPA、Sub2API、New API 到底有什么区别
+
+### CPA：最适合个人自用
+
+CPA 通常指 CLIProxyAPI 这一类工具。它的定位是：把 CLI 模型或 OAuth 登录能力，包装成 OpenAI / Gemini / Claude / Codex 兼容的 API 接口。
+
+你可以把它理解成：
+
+```text
+你的 AI 客户端
+-> 你自己的 CPA API Base
+-> CPA 里保存的 OAuth / CLI 登录能力
+-> Codex / Claude Code / Gemini 等上游
+```
+
+它适合：
+
+- 你主要自己用。
+- 你想把 Codex、Claude Code、Gemini CLI 这类能力接到兼容客户端里。
+- 你不想做充值、公开注册、分销、复杂后台。
+- 你希望让 Codex 或 Claude Code 以后可以 SSH 到服务器帮你维护。
+
+CPA 的优点是轻。官方安装文档里，生产部署建议 Linux 服务器至少 2 CPU 和 2GB RAM；对于个人自用，这个配置通常已经够用。
+
+CPA 的缺点是：它处理的是登录态、OAuth、账号能力和模型映射。账号、凭据、上游规则都要你自己负责。它适合自用，不适合拿来包装成公开商业服务。
+
+**配图看点：**CPA 后台会把 Codex、Claude、Gemini 等 OAuth 登录入口集中在一起。正式部署时，登录和凭据导入建议由你本人完成，AI 只负责把服务搭起来，不接触 AT / RT / token。
+
+![](/guides/self-host-api-transit/01.png)
+
+### Sub2API：适合小规模共用，但不是小白玩具
+
+Sub2API 更像一套完整的订阅转 API / 账号池系统。它会涉及后台、账号池、共享使用、额度、限流、数据库、Redis、监控和备份。
+
+你可以把它理解成：
+
+```text
+几个用户 / 小团队
+-> Sub2API 统一入口
+-> 后台管理账号池、分组、额度和状态
+-> Claude / OpenAI / Gemini / Grok 等订阅或上游
+```
+
+它适合：
+
+- 你不是纯自用，而是想给几个人共用。
+- 你需要账号池、额度分摊、后台管理。
+- 你能接受更高的维护成本。
+- 你愿意认真做备份、权限、日志和账号安全。
+
+Sub2API 官方部署资料里要求 Linux 服务器、PostgreSQL 15+、Redis 7+，Docker Compose 方式也会同时跑应用、数据库和 Redis。也就是说，它不是一个随便跑起来就完事的小工具。
+
+如果你只是自己用，先不要上 Sub2API。等你确定 CPA 不够用了，再考虑它。
+
+**配图看点：**Sub2API 的重点是账号池和后台管理。图里能看到账号状态、容量、分组、调度和用量，所以它更适合小范围共用，也更需要权限、备份和维护。正式发布前，请把真实邮箱、余额、账号 ID 等信息打码。
+
+![](/guides/self-host-api-transit/02.png)
+
+### New API：官方 Key 网关，不是这篇主推
+
+New API 的定位更像「合法授权的 AI API 网关」：你自己有 OpenAI、Anthropic、Gemini、Azure、硅基流动、OpenRouter 等上游 Key，然后用 New API 统一 Key 管理、用量统计、额度和模型入口。
+
+它适合：
+
+- 你主要使用官方 API Key 或云厂商 Key。
+- 你不碰订阅转 API。
+- 你想统一管理多个 provider。
+- 你要做团队内部的正规 API 网关。
+
+如果你的目标是「用自己的 Codex / Claude Code / Gemini CLI 能力做一个个人入口」，New API 不是第一选择。它可以作为补充，但不是本文主线。
+
+**配图看点：**New API 更像官方 Key 的统一控制台，重点是渠道、模型、用量和额度管理。它适合管理正规 API Key，不是本文主推的个人 OAuth / CLI 入口。
+
+![](/guides/self-host-api-transit/03.png)
+
+## 服务器怎么买
+
+搭中转站通常不需要 GPU。
+
+你不是在服务器上跑模型，而是把请求转发给上游。服务器更看重的是网络、内存、稳定性和备份，而不是显卡。
+
+### 先讲清楚：为什么要用服务器
+
+很多人第一次听到“服务器”，会以为这是拿来跑模型的机器，甚至会担心是不是要买 GPU。这里不用这么理解。
+
+自用中转站里的服务器，更像一个 24 小时在线的入口。你的 Codex、Claude Code、Cherry Studio 或其他客户端，把请求先发到这台服务器；服务器上的 CPA 再帮你把请求转给上游模型或账号能力，等结果回来以后，再转回你的客户端。
+
+```text
+你的客户端
+-> https://api.example.com
+-> 你的服务器上的 CPA
+-> 上游模型或账号能力
+```
+
+所以，服务器真正负责的是这几件事：
+
+- 让你的 API 入口一直在线，不依赖你自己的电脑是否开机。
+- 把 CPA、反代、HTTPS、日志这些东西放在一个固定地方。
+- 保存你自己的配置和后台数据，比如 API Key、导入的账号凭据、基础日志。
+- 后续出问题时，可以让 AI 通过 SSH 连接上去，帮你查看服务、日志和配置。
+
+那能不能不用服务器？如果你只是用官方网页或官方客户端，当然不需要。但如果你想把多个 AI 客户端都接到同一个 API Base，或者希望自己有一个长期可用的 API 入口，服务器基本就是最省心的做法。理论上本地电脑也能跑，但它要常开、要公网访问、要处理端口和证书，反而更麻烦。
+
+| 场景 | 建议配置 | 说明 |
+|-|-|-|
+| CPA 自用 | 2 核 2G，20G 磁盘 | 最推荐起步配置，够轻，也不容易卡在内存上 |
+| CPA 多账号 / 多工具 | 2 核 4G，30G 磁盘 | 日志、多个 OAuth、反代、监控一起跑会更舒服 |
+| Sub2API 小规模共用 | 2 核 4G 起步，40G 磁盘 | PostgreSQL + Redis + 应用一起跑，内存和磁盘更重要 |
+| New API 官方 Key 网关 | 2 核 2G 起步 | 如果接 MySQL/Redis/日志，建议 2 核 4G |
+| 公开给陌生人注册 | 不建议按本文来 | 这已经是商业服务，需要风控、合规、售后、账单和安全体系 |
+
+### 带宽和线路怎么选
+
+服务器配置不能只看几核几 G。对中转站来说，网络带宽和线路质量同样重要，尤其是你开始上传图片、跑长上下文、多个客户端同时请求，或者给几个人一起用的时候。
+
+可以先按这个口径理解：
+
+| 使用场景 | 建议带宽 | 说明 |
+|-|-|-|
+| CPA 个人自用，主要是文本对话和代码 | 5-10 Mbps 可用，10 Mbps 以上更舒服 | 普通文本请求不算特别吃带宽，关键是线路稳定、延迟低、丢包少 |
+| CPA 自用，但经常带图片、长上下文、多工具并发 | 20-50 Mbps 更合适 | 图片、长 prompt、日志和流式响应会放大网络压力；低带宽时会表现为首包慢、上传慢、客户端卡住 |
+| Sub2API 小范围共用 | 50 Mbps 起步，最好 100 Mbps 或更稳定线路 | 多人同时请求时，上行和下行都会叠加；还要考虑后台、日志、监控和数据库备份 |
+| 公开服务或陌生人注册 | 不建议按本文配置 | 带宽只是其中一个问题，还需要风控、限流、防滥用和账单体系 |
+
+带宽要看两个方向：
+
+1. 你的客户端到服务器：你上传 prompt、图片、文件和请求体到自己的中转站。
+2. 服务器到上游：中转站再把请求转发给 OpenAI、Anthropic、Google 或其他上游。
+
+如果你用图片、多模态、长上下文，第一段上传会变明显；如果多人同时用，第二段转发和返回也会变明显。低带宽不一定会直接报错，但会让你感觉「明明模型没坏，就是一直慢」。
+
+所以买服务器时不要只看 CPU 和内存，也要看：
+
+- 标称带宽是 5 Mbps、10 Mbps、30 Mbps 还是 100 Mbps。
+- 月流量有没有限制，比如 500GB、1TB 或更低。
+- 线路是否稳定，晚高峰是否丢包。
+- 到你所在地的延迟，以及到上游 API 的延迟。
+- 是否有突发带宽，还是长期限速。
+
+对个人自用，我会把「2 核 2G + 10 Mbps 以上稳定带宽」看成更合理的起步线；如果你经常上传图片、跑长上下文，或者同时开 Codex、Claude Code、Cherry Studio，就尽量选 20 Mbps 以上。
+
+地区怎么选？
+
+如果你的上游主要是 OpenAI、Anthropic、Google 这类海外服务，美国西海岸服务器通常比较稳。你也可以选日本、新加坡、香港，但不要只看地区名，要看线路质量、丢包、到上游是否稳定。
+
+一个实用建议是：
+
+- 个人自用：美国西海岸 2C2G 起步。
+- 你人在国内、很在意打开后台：可以试日本/新加坡/香港，但要实际测上游连通性。
+- 不要买极低价、线路很差、磁盘很小的机器。中转站最怕的是半夜莫名其妙断、日志爆盘、数据库坏掉。
+
+### **服务器推荐：**
+
+![](/guides/self-host-api-transit/04.png)
+
+#### 1、CPA 自用阿里云
+
+
+可以试试新用户一年68元的 2 核 2G、200m带宽的阿里云海外轻量服务器；
+
+[阿里云海外服务器](https://www.aliyun.com/minisite/goods?userCode=hlv0c1mx)
+
+![](/guides/self-host-api-transit/05.png)
+
+下滑
+
+![](/guides/self-host-api-transit/06.png)
+
+![](/guides/self-host-api-transit/07.png)
+
+![](/guides/self-host-api-transit/08.png)
+
+![](/guides/self-host-api-transit/09.png)
+
+#### 2、Sub2API 小团队用腾讯云
+
+
+小范围共用更适合199一年的 2 核 4G 30m带宽的腾讯云海外轻量服务器。
+
+[腾讯云海外服务器](https://curl.qcloud.com/fn3E9anJ)
+
+![](/guides/self-host-api-transit/10.png)
+
+![](/guides/self-host-api-transit/11.png)
+
+## 域名在哪里买
+
+不建议长期用服务器 IP。最好买一个主域名，然后给 API 单独建一个子域名，比如：
+
+```text
+api.example.com
+```
+
+### 先讲清楚：为什么要用域名
+
+域名的作用，可以先理解成：给服务器 IP 起一个稳定、好记、方便配置的名字。
+
+服务器本身会有一个 IP，比如类似 `1.2.3.4` 这样的数字地址。直接用 IP 也不是完全不行，但它有几个问题：不好记，换服务器以后容易变，配置 HTTPS 和 OAuth 回调也不够顺手。域名解决的就是这些小麻烦。
+
+对自用中转站来说，域名主要有三个价值：
+
+- 客户端里填 API Base 更自然，比如填 `https://api.example.com`，而不是一串 IP。
+- 以后换服务器时，只要改 DNS 指向，新客户端地址可以不变。
+- 配置 HTTPS、Cloudflare、OAuth callback 时，域名比裸 IP 更稳定，也更符合大多数工具的习惯。
+
+那免费二级域名可以吗？技术上可以。只要它能指向你的服务器，并且能正常配 HTTPS，自用测试一般能跑起来。但长期用，我不太建议把核心入口放在免费二级域名上。
+
+| 方案 | 适合什么时候 | 要注意什么 |
+|-|-|-|
+| 直接用服务器 IP | 临时测试连通性 | 不好记，HTTPS 和 OAuth 配置麻烦，换服务器后客户端也要跟着改。 |
+| 免费二级域名 | 第一次试水、短期自用 | 域名不完全归你控制，可能被回收、限制解析或迁移困难；如果后面 OAuth callback 绑定了它，换入口也会麻烦。 |
+| 自己买一个主域名 | 长期自用，推荐 | 一年多花几元到几十元，但控制权在你手里，可以自己创建 `api.`、`status.` 等子域名。 |
+
+所以可以这样选：只是试一下，免费二级域名可以先用；准备长期用，就买一个便宜主域名，再自己创建 `api.` 子域名。这里花的钱不多，但后面会省很多迁移和配置上的麻烦。
+
+### 先搞懂主域名和子域名
+
+这里容易混淆：你在注册商那里买的是 `example.com`、`example.cc`、`912591.xyz` 这种主域名。`api.example.com` 不是单独购买的域名，而是你买完主域名以后，在 DNS 里自己创建的子域名。
+
+| 名字 | 例子 | 怎么理解 |
+|-|-|-|
+| 顶级域 / 后缀 | `.com`、`.cc`、`.xyz` | 域名最后面的后缀，价格主要由后缀和注册商决定。 |
+| 主域名 | `example.com`、`priceai.cc` | 你真正需要花钱注册的域名。日常有人也会把它叫“一级域名”或“根域名”。 |
+| 子域名 | `api.example.com`、`status.example.com` | 买好主域名后，在 Cloudflare DNS 里自己添加，不需要再单独购买。 |
+
+所以，新手注册时只要先买一个主域名就够了。后面你想用 `api.`、`admin.`、`status.` 这些入口，都可以在 Cloudflare 里自己创建。
+
+### 常见后缀价格参考
+
+域名价格会随促销、币种、税费和注册商调整而变化，下面只作为选购时的参考口径。真正付款前，一定要同时看 registration price 和 renewal price，也就是首年注册价和后续续费价。
+
+| 后缀 | 适合谁 | 价格参考 | 注意点 |
+|-|-|-|-|
+| `.com` | 想长期用、想显得更正式 | Spaceship 当前常见首年约 \$8.88，续费约 \$9.98/年，另有 ICANN fee | 不一定最便宜，但最通用、最不需要解释。 |
+| `.cc` | 自用 API、开发者项目、想要便宜一点 | Spaceship 当前常见首年约 \$3.11，续费约 \$8.26/年 | 价格比较友好，品牌感弱于 `.com`，但自用中转站完全够用。 |
+| 6-9 位数字 `.xyz` | 只想省钱、测试、自用入口 | `.xyz` 官方有数字域名价格档，默认约 \$0.99/年；你截图里的 6 位数字 `.xyz` 在 Spaceship 显示为几元人民币级别 | 很便宜，但看起来不太像品牌域名。适合 `api.912591.xyz` 这种自用入口，不适合长期品牌宣传。 |
+| 普通 `.xyz` | 想要可读名称，又想首年便宜 | Spaceship 当前常见首年促销约 \$1.86，续费约 \$12.52/年，另有 ICANN fee | 不要只看首年低价，续费可能明显高于首年。 |
+| `.online` / `.site` 等 | 临时测试、短期项目 | 首年经常很低，但续费常见会跳到十几到几十美元/年 | 不建议当长期主域名，除非你已经确认续费价格可以接受。 |
+
+### 注册商怎么选
+
+新手可以优先考虑这几个：
+
+| 注册商 | 适合情况 | 注意点 |
+|-|-|-|
+| Cloudflare Registrar | 最省心，域名、DNS、CDN、SSL 都在 Cloudflare 管 | Cloudflare 支持的后缀有限，不是所有域名都能买 |
+| Porkbun | 价格透明，续费价格通常也比较友好 | 买完后可以把 DNS 托管到 Cloudflare |
+| [Spaceship](https://spaceship.sjv.io/c/7465811/2873271/21274) | 界面比较新，`.cc`、数字 `.xyz` 等后缀当前价格比较有吸引力，适合第一次买域名的新手 | 付款前同样要看 renewal price、支付方式和后缀限制；数字 `.xyz` 更适合自用省钱，不适合当品牌域名 |
+| Namecheap | 老牌、界面友好、资料多 | 注意首年价格和续费价格可能不同，付款前看 renewal price |
+
+如果你问我怎么选：长期正式用，优先 `.com` 或 `.cc`；只是给自己搭 API 入口、想尽量便宜，可以考虑 6 位或多位数字 `.xyz`。注册商上，Cloudflare 最省事；Porkbun 和 Spaceship 更适合先买便宜后缀，再把 DNS 接到 Cloudflare。
+
+
+推荐用[spaceship](https://spaceship.sjv.io/c/7465811/2873271/21274)，相对来说首年比较便宜
+
+<grid>
+<column width-ratio="0.500000">
+![](/guides/self-host-api-transit/12.png)
+</column>
+<column width-ratio="0.500000">
+![](/guides/self-host-api-transit/13.png)
+</column>
+</grid>
+
+## Cloudflare 要不要配 CDN
+
+**先说结论：**要用 Cloudflare，但不要把 Cloudflare 理解成“帮你缓存模型回答”的工具。
+
+对自用中转站来说，你可以把 Cloudflare 想成门口的“路牌 + 门卫 + HTTPS 证书”。用户访问 `api.example.com` 时，先到 Cloudflare，再由 Cloudflare 转到你的服务器。
+
+这样做的好处是：
+
+- 域名更好管理：你可以在 Cloudflare 里把 `api.example.com` 指向服务器 IP。
+- HTTPS 更省心：用户访问的是 `https://api.example.com`，不会看到一串裸 IP。
+- 服务器 IP 不会直接暴露：打开橙色云朵以后，外面看到的是 Cloudflare 的入口。
+- 有一层基础防护：一些明显异常的请求会先经过 Cloudflare。
+
+### 缓存到底是什么意思
+
+“缓存”可以理解成：Cloudflare 把一些不怎么变化的文件，提前复制一份放在离用户更近的地方。下次有人访问同一个文件，就不用每次都回你的服务器拿。
+
+它适合缓存这些东西：
+
+- 后台页面里的图片。
+- 前端页面的 `JS`、`CSS` 文件。
+- Logo、图标、静态说明页。
+
+但它不适合缓存模型 API 请求。
+
+因为模型 API 请求每次都可能不一样：这次的 prompt、这次的 API Key、这次的流式回答、这次的 OAuth 回调，都应该实时发到你的服务器，再由服务器转给上游。它们不是一张图片，也不是一个固定网页。
+
+所以你要记住这个判断：
+
+| 内容 | 要不要缓存 | 原因 |
+|-|-|-|
+| 后台页面的图片、JS、CSS | 可以缓存 | 这些文件变化少，缓存后打开页面会更快。 |
+| `/v1/chat/completions`、`/v1/responses` | 不要缓存 | 这是模型请求和回答，每次都可能不同。 |
+| `/api/*` 这类接口 | 默认不要缓存 | 接口里可能有鉴权、余额、配置、状态等动态内容。 |
+| OAuth callback / 登录回调 | 不要缓存 | 这是账号授权流程，缓存会导致登录状态异常。 |
+
+### 小白照着做就行
+
+1. 在 Cloudflare DNS 里添加一条 `A` 记录：`api` 指向你的服务器 IP。
+2. 打开橙色云朵，也就是 Proxied。这样访问会先经过 Cloudflare。
+3. SSL/TLS 选择 `Full` 或 `Full (strict)`。如果服务器证书已经配好，优先用 `Full (strict)`。
+4. 给 API 路径设置 Cache Rule，动作选 `Bypass cache`。重点绕过 `/v1/*`、`/api/*`、OAuth callback 相关路径。
+5. 不要打开“Cache Everything”去缓存整个 API 域名。
+
+如果你不想自己研究 Cloudflare 后台，可以直接把这段话发给 AI：
+
+```text
+请帮我配置 Cloudflare：
+1. 给 api.example.com 添加 A 记录，指向我的服务器 IP，并打开橙色云朵 Proxied。
+2. SSL/TLS 使用 Full；如果服务器证书已经正常，再切到 Full (strict)。
+3. 给 /v1/*、/api/*、OAuth callback 相关路径设置 Cache Rule，动作选择 Bypass cache。
+4. 不要给模型 API 路径开启 Cache Everything；只允许静态资源如 JS、CSS、图片走缓存。
+```
+
+最后记住一句话：
+
+> Cloudflare 负责入口、HTTPS 和基础保护；模型请求和模型回答，必须实时走你的服务器，不要缓存。
+
+## CPA 自用上手路线
+
+这部分不用写成复杂运维教程。对普通用户来说，最清楚的做法是：你准备好服务器和域名，把 CPA 项目地址、部署目标、域名发给 AI；AI 只负责把服务部署起来；AT / RT / OAuth 这些账号凭据，后面你自己进后台手动导入。
+
+AI 不需要碰你的上游账号，也不需要帮你登录 OAuth。它只需要做「搭房子」这件事，钥匙你自己拿。
+
+### 第一步：准备这些信息
+
+在找 AI 帮你部署前，先准备好这些东西：
+
+| 信息 | 示例 | 说明 |
+|-|-|-|
+| 服务器 | 一台 Ubuntu VPS | 推荐 2 核 2G 起步，带宽按前面的小节选择 |
+| SSH 连接信息 | `ssh root@1.2.3.4` | 云服务器控制台会给你 IP、用户名、密码或 SSH 密钥 |
+| 域名 | `api.example.com` | 用来作为你的 API Base |
+| CPA 项目地址 | `https://github.com/router-for-me/CLIProxyAPI` | 发给 AI，让它按 GitHub 里的官方资料部署 |
+| 部署目录 | `/opt/cpa` | 方便后续备份和维护 |
+| 内部端口 | `8317` | 只作为服务内部端口，最终通过域名访问 |
+
+如果你用 Cloudflare，就先把域名 DNS 接到 Cloudflare。API 请求可以走 Cloudflare 代理，但要记得 API 路径绕过缓存。
+
+### 第二步：先让 AI 通过 SSH 连上服务器
+
+在把部署提示词发给 AI 之前，先要解决一个问题：AI 能不能真正进入你的服务器。
+
+SSH 可以理解成一条加密的远程通道。你在本地电脑，或者让 Codex / Claude Code 这类支持终端操作的 AI 工具，通过 SSH 进入云服务器，然后它才能在服务器上安装 Docker、拉代码、配置反代和查看日志。
+
+一般云服务器控制台会给你三类信息：
+
+- 服务器 IP，例如 `1.2.3.4`。
+- 登录用户名，常见是 `root` 或 `ubuntu`。
+- 登录方式：密码，或者 SSH 密钥文件。
+
+最常见的连接命令长这样：
+
+```text
+ssh root@1.2.3.4
+```
+
+如果云服务器要求使用密钥文件，命令可能长这样：
+
+```text
+ssh -i ~/.ssh/your_key.pem root@1.2.3.4
+```
+
+你可以先让 AI 做一件很小的事：只测试能否 SSH 连上服务器，不要开始部署。
+
+```text
+请先帮我测试 SSH 是否能连上服务器。
+
+连接信息：
+- SSH: ssh root@1.2.3.4
+- 系统: Ubuntu
+- 用户名：xxxx
+- 密码：xxx/ssh文件地址
+
+只做连接测试。连上后告诉我系统版本、当前用户和当前目录，不要安装任何东西，不要修改服务器。
+```
+
+确认 SSH 可以连上以后，再进入下一步，把部署提示词发给 AI。
+
+### 第三步：把这一段发给 AI
+
+SSH 连上以后，把下面这段发给 AI 就够了。它的目标不是让 AI 处理账号，而是让 AI 按 GitHub 项目把 CPA 服务、域名入口和反向代理搭好。
+
+```text
+请在当前这台 Ubuntu 服务器上部署 CPA / CLIProxyAPI，目标是个人自用。
+
+项目地址：
+- GitHub: https://github.com/router-for-me/CLIProxyAPI
+
+我的部署信息：
+- 域名: api.example.com
+- 对外入口: https://api.example.com
+- 部署目录: /opt/cpa
+- 内部端口: 8317
+- 部署方式: 优先按 GitHub 项目里的官方推荐方式部署；如果有 Docker Compose，优先用 Docker Compose。
+- 反向代理: 使用 Caddy 或 Nginx，把 https://api.example.com 反代到本机 CPA 服务。
+- Cloudflare: 我会使用 Cloudflare DNS / 代理；请提醒我给 API 路径和 OAuth callback 设置 Bypass Cache。
+
+请按这个顺序做：
+1. 先确认你已经通过 SSH 进入服务器，并告诉我当前系统、用户和目录。
+2. 阅读 GitHub 项目里的说明。
+3. 部署 CPA 服务。
+4. 配置反向代理和 HTTPS，让 https://api.example.com 可以访问。
+5. 做最小可用性验证：服务是否启动、端口是否监听、反代是否通。
+6. 最后输出：服务目录、启动/停止/重启命令、查看日志命令、反代配置位置。
+
+安全边界：
+- 不要索要、读取、导入或输出 AT、RT、access_token、refresh_token、cookie、auth.json 等上游账号凭据。
+- 不要帮我登录上游账号，不要处理 OAuth 授权。
+- 不要开放注册，不要做商业服务。
+- 如果 /opt/cpa 已存在，先列出目录内容并问我确认，不要直接覆盖或删除。
+```
+
+这段里需要你自己替换的主要是两处：域名和部署目录。SSH 连接已经在上一步处理，所以这段提示词里不用再写服务器密码或密钥。
+
+- `api.example.com` 换成你的真实域名。
+- `/opt/cpa` 如果你想换目录，也可以改成自己的路径。
+
+### 第四步：账号凭据自己进后台导入
+
+CPA 服务部署好以后，才进入账号导入阶段。这一步建议你自己在后台操作，不要让 AI 处理。
+
+原因很简单：AT、RT、OAuth token、cookie、auth.json 都属于上游账号凭据。AI 可以帮你搭服务，但不应该接触这些钥匙。
+
+#### 先看懂 AT 和 RT
+
+自用中转站里经常会看到两个缩写：AT 和 RT。它们和你给客户端填写的 API Key 不是一回事。
+
+| 名词 | 全称 | 简单理解 | 风险 |
+|-|-|-|-|
+| AT | Access Token | 短期通行证。服务拿着它去访问上游账号能力，一般有效期较短。 | 泄露后，别人可能在有效期内冒用你的账号能力。 |
+| RT | Refresh Token | 长期续期凭证。服务用它换新的 AT，让登录状态持续有效。 | 风险更高。RT 泄露后，别人可能长期刷新出新的 AT，等于拿到了你的账号入口。 |
+| API Key | 你在 CPA / 中转站里发给客户端的 Key | 二级钥匙。Cherry Studio、Codex、Claude Code 等客户端用它访问你的中转站。 | 泄露后可以在中转站后台撤销或重置，影响范围相对更可控。 |
+
+可以把它理解成三层：
+
+```text
+客户端 API Key -> 进入你自己的 CPA
+AT -> CPA 临时访问上游
+RT -> CPA 持续刷新上游登录状态
+```
+
+所以，反代和域名只是入口，真正敏感的是 AT / RT / OAuth 登录文件。你可以把 `https://api.example.com` 配得很漂亮，但如果 RT 泄露了，风险仍然在上游账号那一层。
+
+### 第五步：创建自己的 API Key，再接入客户端
+
+账号凭据导入 CPA 后，再在 CPA 里创建给客户端用的 API Key。
+
+客户端通常只需要三个东西：
+
+```text
+API Base: https://api.example.com/v1
+API Key: 你在 CPA 里创建的客户端 Key
+Model: CPA 暴露的模型名或你配置的别名
+```
+
+建议每个客户端单独一个 Key：
+
+| 客户端 | 建议 Key 命名 | 好处 |
+|-|-|-|
+| Codex | `key_codex` | 出问题时容易停用 |
+| Claude Code / OpenCode | `key_coding` | 和普通聊天分开 |
+| Cherry Studio | `key_cherry` | 可单独看用量和异常 |
+| 测试脚本 | `key_test` | 测完可以删掉 |
+
+不要所有工具都共用一个 Key。万一某个客户端泄露或配置错了，你会很难排查。
+
+## Sub2API 什么时候再考虑
+
+如果你已经遇到这些需求，才考虑 Sub2API：
+
+- 不止你一个人用。
+- 需要后台管理多个账号。
+- 需要额度、分组、共享、拼车。
+- 需要看账号状态、可用性、限流、日志。
+- 你愿意维护 PostgreSQL、Redis 和备份。
+
+Sub2API 的建议配置：
+
+| 项目 | 建议 |
+|-|-|
+| 服务器 | 2 核 4G 起步，40G 磁盘更安心 |
+
+如果你只是自己用，Sub2API 会显得重。你要维护的不只是一个服务，而是一套小系统。
+
+## New API 什么时候适合
+
+如果你的上游都是正规 API Key，比如：
+
+- OpenAI API Key。
+- Anthropic API Key。
+- Gemini API Key。
+- Azure OpenAI。
+- 硅基流动、OpenRouter、火山、阿里云等聚合或云厂商 Key。
+- 第三方中转api聚合
+
+那 New API 是更合适的路线。它更像公司或团队内部网关，而不是 CPA 这种订阅 / CLI 能力代理。
+
+你可以这样选：
+
+```text
+我有官方 Key -> New API
+我自己用 CLI / OAuth 能力 -> CPA
+我想小范围共享账号池 -> Sub2API
+```
+
+## 安全清单：搭完以后一定要看
+
+搭起来只是第一步，真正麻烦的是后面稳定使用。
+
+每次上线前检查这几个点：
+
+- 后台密码改了吗？
+- API Key 是不是每个客户端单独生成？
+- 真实上游 AT / RT / OAuth token 有没有被打印到日志里？
+- Cloudflare 有没有给 API 路径绕过缓存？
+- 服务器只有必要端口对外开放吗？
+- 配置、auths、logs 有没有备份？
+- 机器磁盘快满时有没有提醒？
+- 如果服务挂了，你知道怎么重启吗？
+- 如果升级失败，你知道怎么回滚吗？
+
+## 最后：这不是越复杂越好
+
+个人自用中转站最好的状态，不是功能最多，而是你能掌控。
+
+先用 CPA 跑通一个账号、一个客户端、一个模型。确认稳定之后，再慢慢加模型、加别名、加监控。等你真的需要给别人用，再考虑 Sub2API。等你主要管理官方 API Key，再考虑 New API。
+
+不要一上来就做公开站，不要导入来路不明账号，不要把自己的登录态和密钥发到群里，也不要让 AI 在没有确认的情况下删除配置、清空数据库或重装系统。
+
+一个小中转站，本质上是你的钥匙盒。钥匙盒可以轻巧，但一定要锁好。
+
+## 参考资料
+
+- CLIProxyAPI 文档：https://router-for-me-cliproxyapi.mintlify.app/introduction
+- CLIProxyAPI 安装文档：https://router-for-me-cliproxyapi.mintlify.app/installation
+- CLIProxyAPI GitHub：https://github.com/router-for-me/CLIProxyAPI
+- Sub2API GitHub：https://github.com/Wei-Shaw/sub2api
+- Sub2API Docker 部署说明：https://github.com/Wei-Shaw/sub2api/blob/main/deploy/README.md
+- New API GitHub：https://github.com/QuantumNous/new-api
+- Cloudflare Cache Rules：https://developers.cloudflare.com/cache/how-to/cache-rules/
+- Cloudflare DNS 代理状态说明：https://developers.cloudflare.com/dns/proxy-status/
+- Cloudflare SSL/TLS 加密模式说明：https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/
+- Cloudflare Registrar：https://www.cloudflare.com/products/registrar/
+- Porkbun 域名价格页：https://porkbun.com/products/domains
+- Spaceship 域名注册页：https://www.spaceship.com/domains/
+- Spaceship 域名隐私说明：https://www.spaceship.com/domains/domain-name-privacy/
+- Spaceship .cc 域名价格页：https://www.spaceship.com/domains/cctld/cc/
+- .xyz Registry 数字域名价格说明：https://gen.xyz/number
