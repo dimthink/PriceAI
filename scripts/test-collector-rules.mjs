@@ -17,6 +17,7 @@ import {
   isShopApiProxyTransportErrorMessage,
   isLdxpFailoverErrorMessage,
   latestShopCollectionCrawlRunBySource,
+  listShopCollectionPriceStats,
   normalizeLdxpRuntimeSettings,
   normalizeShopApiItemOfferUrl,
   rewriteLdxpUrlHost,
@@ -254,6 +255,26 @@ const failedVipContextSchedule = await applyShopCollectionScheduler(
 assert.deepEqual(failedVipContextSchedule.targets.map((target) => target.sourceId), []);
 assert.equal(failedVipContextSchedule.summary.effectiveTargetCount, 0);
 assert.equal(failedVipContextSchedule.summary.reason, "scheduler-context-failed");
+
+const originalWarn = console.warn;
+const schedulerWarnings = [];
+console.warn = (message) => schedulerWarnings.push(String(message));
+const priceStatsAfterRefreshTimeout = await listShopCollectionPriceStats({
+  async rpc(name) {
+    if (name === "refresh_source_quality_price_benchmarks_if_stale") {
+      return { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } };
+    }
+    assert.equal(name, "list_source_quality_price_benchmarks");
+    return {
+      data: [{ source_id: "ldxp-youzhi", benchmark_offer_count: 95, lowest_hit_count: 23 }],
+      error: null,
+    };
+  },
+});
+console.warn = originalWarn;
+assert.equal(priceStatsAfterRefreshTimeout.length, 1);
+assert.equal(priceStatsAfterRefreshTimeout[0].sourceId, "ldxp-youzhi");
+assert.match(schedulerWarnings[0], /statement timeout/);
 
 const aggregatedRuns = latestShopCollectionCrawlRunBySource([
   {

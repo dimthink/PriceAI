@@ -652,6 +652,7 @@ export {
   normalizeLdxpRuntimeSettings,
   normalizeShopApiItemOfferUrl,
   latestShopCollectionCrawlRunBySource,
+  listShopCollectionPriceStats,
   rewriteLdxpUrlHost,
   resolveShopApiFeeModel,
   alternateLdxpHost,
@@ -4256,8 +4257,8 @@ async function listShopCollectionPriceStats(supabase) {
   const refreshResult = await supabase.rpc("refresh_source_quality_price_benchmarks_if_stale", {
     p_max_age_minutes: 15,
   });
-  if (refreshResult.error && !/refresh_source_quality_price_benchmarks_if_stale|schema cache|does not exist/i.test(refreshResult.error.message || "")) {
-    throw refreshResult.error;
+  if (refreshResult.error) {
+    console.warn(`Shop scheduler benchmark refresh skipped: ${errorMessage(refreshResult.error)}`);
   }
 
   const { data, error } = await supabase.rpc("list_source_quality_price_benchmarks");
@@ -6059,7 +6060,15 @@ function isMissingColumnError(error, column) {
 }
 
 function errorMessage(error) {
-  if (!(error instanceof Error)) return String(error);
+  if (!(error instanceof Error)) {
+    if (error && typeof error === "object") {
+      const details = [error.message, error.details, error.hint, error.code]
+        .filter(Boolean)
+        .map((value) => redactErrorCredentials(value));
+      if (details.length) return details.join(": ");
+    }
+    return String(error);
+  }
   const cause = error.cause;
   if (cause && typeof cause === "object") {
     const code = typeof cause.code === "string" ? cause.code : "";
