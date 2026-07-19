@@ -1,0 +1,4 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"检查失败切换不误改报价状态且不扩大请求压力"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"检查历史 URL 和公开 DTO 边界"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查后台交互、可访问性与移动端表现"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"检查构建与生产发布前验收边界"}

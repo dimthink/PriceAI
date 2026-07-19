@@ -1,0 +1,7 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"约束 LDXP 采集失败、风控、熔断与库存状态行为"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"约束公开报价 URL 展示与历史数据契约"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"约束后台设置面板组件结构"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"约束后台异步保存和错误状态"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"约束设置枚举和 API payload 校验"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用现有 app_runtime_settings 和采集配置模式"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"配置跨后台、任务分发、采集运行时与公开链接"}
