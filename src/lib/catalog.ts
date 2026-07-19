@@ -91,11 +91,11 @@ export const canonicalCatalog: CanonicalProduct[] = [
   {
     id: "chatgpt-plus",
     slug: "chatgpt-plus",
-    displayName: "ChatGPT Plus 日抛 / 成品号",
+    displayName: "ChatGPT Plus 试用订阅",
     platform: "ChatGPT",
     productType: "订阅/会员",
-    spec: "Plus",
-    summary: "ChatGPT Plus 日抛主要指短期体验或首登质保的成品号；这里归集短期成品号、网页号、已接码/未接码成品号，以及 Pix/iDEAL/UPI/欧洲渠道报价。购买前重点核对接码状态、可用端和售后限制。",
+    spec: "日抛 · 成品号 · 网页号 · 已/未接码",
+    summary: "ChatGPT Plus 试用订阅主要指短期体验或首登质保的成品号；这里归集日抛、短期成品号、网页号、已接码/未接码成品号，以及 Pix/iDEAL/UPI/欧洲渠道报价。购买前重点核对接码状态、可用端和售后限制。",
     aliases: [
       "gpt plus",
       "chatgpt plus",
@@ -111,6 +111,7 @@ export const canonicalCatalog: CanonicalProduct[] = [
       "plus 网页号",
       "plus 已接码",
       "plus 未接码",
+      "plus 试用订阅",
       "puls",
       "pulus",
     ],
@@ -121,7 +122,7 @@ export const canonicalCatalog: CanonicalProduct[] = [
     displayName: "ChatGPT Plus 正价代充",
     platform: "ChatGPT",
     productType: "订阅/会员",
-    spec: "Plus / 地区充值代充",
+    spec: "官方地区价 · iOS 内购 · 直充/续费",
     summary: "ChatGPT Plus 正价代充、官方地区价、App Store 内购、菲区卡充、美区 iOS、直充、代充或续费渠道。",
     aliases: [
       "ios土区",
@@ -159,9 +160,9 @@ export const canonicalCatalog: CanonicalProduct[] = [
     displayName: "ChatGPT Team / Business",
     platform: "ChatGPT",
     productType: "订阅/会员",
-    spec: "Team / Business",
+    spec: "K12 · Bug Team · 母号/子号 · 邀请/自动拉",
     summary: "ChatGPT Team、Business、K12、Bug Team、团队号、母号、邀请、自动拉或 Team 成品号。",
-    aliases: ["team", "business", "t5", "t5倍", "k12", "k12 子号", "母号", "自动拉", "直拉", "邀请", "团队号"],
+    aliases: ["team", "business", "t5", "t5倍", "k12", "k12 子号", "bug team", "team bug", "母号", "子号", "自动拉", "直拉", "邀请", "团队号"],
   },
   {
     id: "chatgpt-pro-5x",

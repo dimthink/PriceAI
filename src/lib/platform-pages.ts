@@ -80,7 +80,7 @@ export const platformPageConfigs = {
         icon: "info",
       },
       {
-        title: "Plus 日抛/成品号",
+        title: "Plus 试用订阅",
         text: "常见标题会写日抛、短期成品号、网页号、已接码、未接码、直充、代充、Plus CDK 或卡密，需要先分清交付方式。",
         icon: "check",
       },
@@ -113,8 +113,8 @@ export const platformPageConfigs = {
     ],
     faqs: [
       [
-        "ChatGPT Plus 日抛和成品号怎么理解？",
-        "PriceAI 现在把日抛、短期成品号、网页号、已接码/未接码成品号，以及 Pix/iDEAL/UPI 等低价渠道放在 ChatGPT Plus 日抛 / 成品号桶里；把官方路径、地区价、iOS 和卡充类放在 ChatGPT Plus 正价代充桶里。日抛通常偏短期体验或首登质保，不等于完整月卡；具体交付方式仍需要看原始商品名和原平台说明。",
+        "ChatGPT Plus 试用订阅怎么理解？",
+        "PriceAI 现在把日抛、短期成品号、网页号、已接码/未接码成品号，以及 Pix/iDEAL/UPI 等低价渠道放在 ChatGPT Plus 试用订阅里；把官方路径、地区价、iOS 和卡充类放在 ChatGPT Plus 正价代充里。试用订阅通常偏短期体验或首登质保，不等于完整月卡；具体交付方式仍需要看原始商品名和原平台说明。",
       ],
       [
         "ChatGPT Plus CDK、卡密和账号购买有什么区别？",

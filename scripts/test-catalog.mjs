@@ -377,8 +377,27 @@ assert.equal(
     summary: "旧快照摘要",
     aliases: [],
   }).displayName,
-  "ChatGPT Plus 日抛 / 成品号",
+  "ChatGPT Plus 试用订阅",
   "Public stale snapshots should be overwritten by the current catalog display name.",
+);
+assert.equal(
+  findCanonicalCatalogProduct("chatgpt-plus")?.spec,
+  "日抛 · 成品号 · 网页号 · 已/未接码",
+  "ChatGPT Plus trial subscription should expose market terms as its subtitle.",
+);
+assert.equal(
+  findCanonicalCatalogProduct("chatgpt-plus-recharge")?.spec,
+  "官方地区价 · iOS 内购 · 直充/续费",
+  "ChatGPT Plus recharge should expose official purchase paths as its subtitle.",
+);
+assert.equal(
+  findCanonicalCatalogProduct("chatgpt-team-business")?.spec,
+  "K12 · Bug Team · 母号/子号 · 邀请/自动拉",
+  "ChatGPT Team / Business should expose searchable market terms as its subtitle.",
+);
+assert.ok(
+  findCanonicalCatalogProduct("chatgpt-team-business")?.aliases.includes("bug team"),
+  "ChatGPT Team / Business should keep Bug Team as an explicit search alias.",
 );
 assert.equal(
   findCanonicalCatalogProduct("chatgpt-plus-month")?.id,
