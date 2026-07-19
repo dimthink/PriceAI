@@ -4152,7 +4152,7 @@ function classifyShopCollectionScheduleTier(input) {
 
 function isDailyProbeFailure(lastError, consecutiveFailures) {
   if (Number(consecutiveFailures || 0) < DAILY_PROBE_FAILURE_THRESHOLD) return false;
-  return /(?:\bHTTP\s*(?:403|404|410|451|468)\b|\b(?:403|404|410|451|468)\b|采集结果为空|empty result|no offers|found no offers|fetch failed|ECONNRESET|ETIMEDOUT|连接(?:失败|超时|重置)|店铺.*(?:关闭|打烊)|商家已被关闭交易|website has been stopped)/i.test(String(lastError || ""));
+  return /(?:\bHTTP\s*(?:403|404|410|451|468|5\d\d)\b|\b(?:403|404|410|451|468)\b|采集结果为空|empty result|no offers|found no offers|fetch failed|ECONNRESET|ETIMEDOUT|连接(?:失败|超时|重置)|店铺.*(?:关闭|打烊)|商家已被关闭交易|website has been stopped)/i.test(String(lastError || ""));
 }
 
 function shopCollectionScheduleReferenceAt(target, latestRun, tier) {

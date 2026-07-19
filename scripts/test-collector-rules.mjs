@@ -31,9 +31,11 @@ assert.equal(isDailyProbeFailure("采集结果为空", 4), true);
 assert.equal(isDailyProbeFailure("fetch failed", 3), true);
 assert.equal(isDailyProbeFailure("HTTP 403 challenge", 3), true);
 assert.equal(isDailyProbeFailure("HTTP 468", 3), true);
+assert.equal(isDailyProbeFailure("HTTP 502", 3), true);
+assert.equal(isDailyProbeFailure("HTTP 522", 3), true);
 assert.equal(isDailyProbeFailure("商家已被关闭交易", 3), true);
 assert.equal(isDailyProbeFailure("HTTP 404 from source", 2), false);
-assert.equal(isDailyProbeFailure("HTTP 500", 5), false);
+assert.equal(isDailyProbeFailure("HTTP 500", 5), true);
 assert.equal(
   blackcatWholesaleActionIdFromChunk(
     'createServerReference)("00fc36c4f4551a0ad0887d0946a6c93bc94960dfaf",callServer,void 0,findSourceMapURL,"fetchWholesaleProductsAction")',

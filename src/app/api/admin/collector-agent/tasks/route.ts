@@ -536,7 +536,7 @@ function sourceWithinCooldown(
 
   const consecutiveFailures = Number(source.consecutive_failures || 0);
   const isDailyProbe = consecutiveFailures >= DAILY_PROBE_FAILURE_THRESHOLD &&
-    /(?:\bHTTP\s*404\b|\b404\b|采集结果为空|empty result|no offers|found no offers)/i.test(String(source.last_error || ""));
+    /(?:\bHTTP\s*(?:403|404|410|451|468|5\d\d)\b|\b(?:403|404|410|451|468)\b|采集结果为空|empty result|no offers|found no offers|fetch failed|ECONNRESET|ETIMEDOUT|连接(?:失败|超时|重置)|店铺.*(?:关闭|打烊)|商家已被关闭交易|website has been stopped)/i.test(String(source.last_error || ""));
   const cooldownMinutes = isDailyProbe
     ? DAILY_PROBE_INTERVAL_MINUTES
     : isTransientUpstreamError(source.last_error)
