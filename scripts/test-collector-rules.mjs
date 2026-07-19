@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  applySourceBuyerFeePolicy,
   assignShopCollectionSchedulerShard,
   blackcatWholesaleActionIdFromChunk,
   blockShopApiDirectExitForTarget,
@@ -16,6 +17,7 @@ import {
   normalizeLdxpRuntimeSettings,
   normalizeShopApiItemOfferUrl,
   rewriteLdxpUrlHost,
+  resolveShopApiFeeModel,
   alternateLdxpHost,
   selectTargets,
   shopApiFullSnapshotEvidenceReliable,
@@ -24,11 +26,47 @@ import {
   shopApiProductLevelFeeModel,
   shopApiProxyParallelismFor,
   shopApiStoredFeePolicy,
+  selectShopApiPreferredChannel,
 } from "./collect-prices.mjs";
 
 assert.deepEqual(shopApiFeeModelFromChannelRate(3), { kind: "fixed_3pct", rate: 0.03 });
 assert.deepEqual(shopApiFeeModelFromChannelRate(2.5), { kind: "observed_rate", rate: 0.025 });
 assert.deepEqual(shopApiFeeModelFromChannelRate(0), { kind: "no_fee", rate: 0 });
+
+assert.deepEqual(
+  applySourceBuyerFeePolicy(
+    { buyerFeeRate: 0.04, buyerFeeStrategy: "manual_verified" },
+    { price: 117.9 },
+  ),
+  { price: 122.62, listedPrice: 117.9, feeAmount: 4.72, priceBasis: "modeled" },
+);
+assert.deepEqual(
+  applySourceBuyerFeePolicy(
+    { buyerFeeRate: 0.04, buyerFeeStrategy: "manual_verified" },
+    { price: 103, listedPrice: 100, feeAmount: 3, priceBasis: "settled" },
+  ),
+  { price: 103, listedPrice: 100, feeAmount: 3, priceBasis: "settled" },
+);
+
+const preferredAlipayChannel = selectShopApiPreferredChannel([
+  { id: 9, name: "USDT", rate: 0, status: 1, custom_status: 1 },
+  { id: 2, code: "AlipayPc", name: "支付宝电脑收款", rate: 3, status: 1, custom_status: 1 },
+  { id: 3, name: "微信", rate: 5, status: 1, custom_status: 1 },
+]);
+assert.equal(preferredAlipayChannel.id, 2);
+
+assert.deepEqual(
+  resolveShopApiFeeModel({
+    productLevel: false,
+    storedFeePolicy: null,
+    productFeePolicy: { status: "confirmed", model: { kind: "fixed_3pct", rate: 0.03 } },
+    sampleResults: [
+      { listedPrice: 100, effectivePrice: { listedPrice: 100, feeAmount: 4, priceBasis: "settled" } },
+    ],
+    channelRate: 3,
+  }),
+  { kind: "observed_rate", rate: 0.04 },
+);
 
 assert.equal(calculateShopApiBuyerAdjustment(100, 100), 0);
 assert.equal(calculateShopApiBuyerAdjustment(102.8, 100), 2.8);
@@ -152,6 +190,14 @@ assert.equal(shopApiStoredFeePolicy([{ shop_token: "shop", rate: 0, sample_selec
 assert.deepEqual(
   shopApiStoredFeePolicy([{ shop_token: "shop", rate: 0, sample_selection: "manual_verified", observed_at: future, expires_at: future }], "shop")?.model,
   { kind: "no_fee", rate: 0 },
+);
+assert.deepEqual(
+  shopApiStoredFeePolicy(
+    [{ shopToken: "shop", rate: 0.04, sampleSelection: "high_price_probe", observedAt: future, expiresAt: future }],
+    "shop",
+    { allowHighPriceProbe: true },
+  )?.model,
+  { kind: "observed_rate", rate: 0.04 },
 );
 
 const assignment = new Map([["source-a", 1]]);

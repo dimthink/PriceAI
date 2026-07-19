@@ -46,6 +46,9 @@ export type Source = {
   entryUrl: string;
   collectionMethod: CollectionMethod;
   collectorKind?: CollectorKind | null;
+  buyerFeeRate?: number | null;
+  buyerFeePaymentMethod?: string | null;
+  buyerFeeStrategy?: "manual_verified" | null;
   enabled: boolean;
   notes?: string | null;
   healthStatus?: "unknown" | "healthy" | "retrying" | "failing" | "partial" | null;

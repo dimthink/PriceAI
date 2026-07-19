@@ -69,9 +69,9 @@ const DEFAULT_SHOP_API_EXIT_ERROR_FAMILY_PAUSE = false;
 const SHOP_COLLECTION_SCHEDULER_CRAWL_RUN_SELECT =
   "id,source_id,source_name,mode,status,started_at,finished_at,success_count,failure_count,message,details";
 const SHOP_COLLECTION_SCHEDULER_SOURCE_SELECT =
-  "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,shop_created_at,updated_at";
+  "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,shop_created_at,updated_at,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy";
 const SHOP_COLLECTION_SCHEDULER_SOURCE_LEGACY_SELECT =
-  "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,updated_at";
+  "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,updated_at,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy";
 const SHOP_COLLECTION_SCHEDULER_CRAWL_RUN_CHUNK_SIZE = 100;
 const DEFAULT_SHOP_COLLECTION_SCHEDULER_BUCKET_MINUTES = 30;
 const DEFAULT_SHOP_COLLECTION_SCHEDULER_SHARD_COUNT = 1;
@@ -631,6 +631,7 @@ function probeSuccessResponse(target, offers, startedAt, limit, extra = {}) {
 }
 
 export {
+  applySourceBuyerFeePolicy,
   assignShopCollectionSchedulerShard,
   blackcatWholesaleActionIdFromChunk,
   blockShopApiDirectExitForTarget,
@@ -646,6 +647,7 @@ export {
   normalizeLdxpRuntimeSettings,
   normalizeShopApiItemOfferUrl,
   rewriteLdxpUrlHost,
+  resolveShopApiFeeModel,
   alternateLdxpHost,
   shopApiFullSnapshotEvidenceReliable,
   shopApiSnapshotReportedGoodsCount,
@@ -655,6 +657,7 @@ export {
   shopApiFeeModelFromChannelRate,
   shopApiProxyParallelismFor,
   shopApiStoredFeePolicy,
+  selectShopApiPreferredChannel,
 };
 
 if (isCli()) {
@@ -1259,7 +1262,9 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
   const sampleResults = [];
   const channel = await getShopApiDefaultChannel(base, token, sourceUrl, options, requestOptions);
   const channelId = channel.id;
-  const storedFeePolicy = shopApiStoredFeePolicy(target?.shopApiFeePolicies, token);
+  const storedFeePolicy = shopApiStoredFeePolicy(target?.shopApiFeePolicies, token, {
+    allowHighPriceProbe: !shopApiNeedsProductLevelFee(base),
+  });
   const productFeePolicy = storedFeePolicy || (shopApiNeedsProductLevelFee(base)
     ? null
     : await probeShopApiProductFeePolicy({
@@ -1290,7 +1295,7 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
     }
   }
 
-  for (const item of shopApiNeedsProductLevelFee(base) || productFeePolicy?.status === "unknown" || storedFeePolicy
+  for (const item of shopApiNeedsProductLevelFee(base) || storedFeePolicy
     ? []
     : sampleItems) {
     const listedPrice = numberOrNull(item.price ?? item.real_price);
@@ -1309,28 +1314,34 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
     sampleResults.push({ item, listedPrice, effectivePrice });
   }
 
-  const model = shopApiNeedsProductLevelFee(base)
-    ? shopApiProductLevelFeeModel(channel.rate, sampleResults)
-    : productFeePolicy?.status === "confirmed"
-      ? productFeePolicy.model
-      : null;
+  const sampledModel = inferShopApiFeeModel(sampleResults);
+  const model = resolveShopApiFeeModel({
+    productLevel: shopApiNeedsProductLevelFee(base),
+    storedFeePolicy,
+    productFeePolicy,
+    sampleResults,
+    channelRate: channel.rate,
+  });
   const productPolicyResolved = !shopApiNeedsProductLevelFee(base) && !storedFeePolicy && productFeePolicy?.status === "confirmed";
+  const sampledPolicyResolved = !shopApiNeedsProductLevelFee(base) && sampleResults.length > 0;
   const summary = {
-    sampleSize: shopApiNeedsProductLevelFee(base) ? sampleResults.length : (productFeePolicy?.goodsKey ? 1 : 0),
-    resolvedSampleSize: shopApiNeedsProductLevelFee(base) ? sampleResults.length : (productPolicyResolved ? 1 : 0),
+    sampleSize: shopApiNeedsProductLevelFee(base) ? sampleResults.length : (sampleResults.length || (productFeePolicy?.goodsKey ? 1 : 0)),
+    resolvedSampleSize: shopApiNeedsProductLevelFee(base) ? sampleResults.length : (sampledPolicyResolved ? sampleResults.length : productPolicyResolved ? 1 : 0),
     sampleSelection: storedFeePolicy
       ? "cached_policy"
       : shopApiNeedsProductLevelFee(base)
         ? sampleSize > 0 ? "high_price_probe" : "disabled"
-        : "product_detail_probe",
+        : sampleResults.length ? "high_price_probe" : productPolicyResolved ? "product_detail_probe" : "channel_config",
     strategy: model ? model.kind : "listed_fallback",
     rate: model?.rate ?? null,
     channelId,
     channelRate: channel.rate,
     policySource: shopApiNeedsProductLevelFee(base)
       ? inferShopApiFeeModel(sampleResults)?.rate > 0 ? "sampled_probe" : channel.rate !== null ? "channel_config" : "sampled_probe"
-      : productFeePolicy?.source || "product_detail_probe",
-    feePolicy: productFeePolicy || (model
+      : storedFeePolicy
+        ? productFeePolicy?.source || "persisted"
+        : sampledModel ? "sampled_probe" : productPolicyResolved ? productFeePolicy?.source || "product_detail_probe" : channel.rate !== null ? "channel_config" : "product_detail_probe",
+    feePolicy: (storedFeePolicy || (productPolicyResolved && !sampledModel)) ? productFeePolicy : (model
       ? { status: "confirmed", hasFee: model.rate > 0, rate: model.rate, source: "channel_config" }
       : { status: "unknown", hasFee: null, rate: null, source: "product_detail_probe" }),
     probes: sampleResults.map(shopApiPriceProbeSummary),
@@ -1353,23 +1364,26 @@ async function createShopApiSampledPriceResolver({ target, base, token, sourceUr
   };
 }
 
-function shopApiStoredFeePolicy(policies, token) {
+function shopApiStoredFeePolicy(policies, token, options = {}) {
+  const acceptedSelections = options.allowHighPriceProbe
+    ? ["manual_verified", "product_detail_probe", "high_price_probe"]
+    : ["manual_verified", "product_detail_probe"];
   const selected = (Array.isArray(policies) ? policies : []).find((policy) =>
-    String(policy.shop_token || "") === String(token || "") &&
-    ["manual_verified", "product_detail_probe"].includes(String(policy.sample_selection || "")) &&
-    new Date(policy.expires_at).getTime() > Date.now()
+    String(policy.shopToken ?? policy.shop_token ?? "") === String(token || "") &&
+    acceptedSelections.includes(String(policy.sampleSelection ?? policy.sample_selection ?? "")) &&
+    new Date(policy.expiresAt ?? policy.expires_at).getTime() > Date.now()
   );
   if (!selected) return null;
   const rate = numberOrNull(selected.rate);
-  if (rate === null || (rate !== 0 && !closeCurrency(rate, SHOP_API_FIXED_FEE_RATE))) return null;
+  if (rate === null || rate < 0 || rate > 0.2) return null;
   return {
     status: "confirmed",
     hasFee: rate > 0,
     rate,
     source: "persisted",
-    observedAt: selected.observed_at || null,
-    expiresAt: selected.expires_at || null,
-    model: rate > 0 ? { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE } : { kind: "no_fee", rate: 0 },
+    observedAt: selected.observedAt ?? selected.observed_at ?? null,
+    expiresAt: selected.expiresAt ?? selected.expires_at ?? null,
+    model: shopApiFeeModelFromFractionalRate(rate),
   };
 }
 
@@ -1400,7 +1414,7 @@ async function probeShopApiProductFeePolicy({ base, token, sourceUrl, item, opti
       rate,
       source: "product_detail_probe",
       goodsKey: String(item.goods_key),
-      model: rate > 0 ? { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE } : { kind: "no_fee", rate: 0 },
+      model: shopApiFeeModelFromFractionalRate(rate),
     };
   }
   return { status: "unknown", hasFee: null, rate: null, source: "product_detail_probe", goodsKey: String(item.goods_key) };
@@ -1432,6 +1446,21 @@ function shopApiFeeModelFromChannelRate(rate) {
   if (closeCurrency(normalizedRate, 0)) return { kind: "no_fee", rate: 0 };
   if (closeCurrency(normalizedRate, 3)) return { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE };
   return { kind: "observed_rate", rate: normalizedRate / 100 };
+}
+
+function shopApiFeeModelFromFractionalRate(rate) {
+  if (Math.abs(rate) <= 0.0001) return { kind: "no_fee", rate: 0 };
+  if (Math.abs(rate - SHOP_API_FIXED_FEE_RATE) <= 0.0001) return { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE };
+  return { kind: "observed_rate", rate };
+}
+
+function resolveShopApiFeeModel({ productLevel, storedFeePolicy, productFeePolicy, sampleResults, channelRate }) {
+  if (productLevel) return shopApiProductLevelFeeModel(channelRate, sampleResults);
+  if (storedFeePolicy) return storedFeePolicy.model;
+  const sampledModel = inferShopApiFeeModel(sampleResults);
+  if (sampledModel) return sampledModel;
+  if (productFeePolicy?.status === "confirmed") return productFeePolicy.model;
+  return channelRate !== null && channelRate !== undefined ? shopApiFeeModelFromChannelRate(channelRate) : null;
 }
 
 function calculateShopApiBuyerAdjustment(totalAmount, originalAmount) {
@@ -1605,15 +1634,32 @@ async function getShopApiDefaultChannel(base, token, referer, options = {}, requ
   });
 
   const channels = Array.isArray(payload?.data) ? payload.data : [];
-  const defaultChannel =
-    channels.find((channel) => Number(channel.status ?? 1) === 1 && Number(channel.custom_status ?? 1) === 1) ||
-    channels[0];
+  const defaultChannel = selectShopApiPreferredChannel(channels);
   const channelId = numberOrNull(defaultChannel?.id);
   const channelRate = numberOrNull(defaultChannel?.rate);
   return {
     id: channelId === null ? 0 : channelId,
     rate: channelRate,
   };
+}
+
+function selectShopApiPreferredChannel(channels) {
+  const values = Array.isArray(channels) ? channels : [];
+  const active = values.filter((channel) =>
+    Number(channel?.status ?? 1) === 1 && Number(channel?.custom_status ?? 1) === 1
+  );
+  const candidates = active.length ? active : values;
+  return candidates.find((channel) => {
+    const text = [
+      channel?.name,
+      channel?.title,
+      channel?.channel_name,
+      channel?.pay_name,
+      channel?.code,
+      channel?.type,
+    ].map((value) => String(value || "").toLowerCase()).join(" ");
+    return /(?:支付宝|alipay)/i.test(text);
+  }) || candidates[0];
 }
 
 async function getShopApiDefaultChannelId(base, token, referer, options = {}, requestOptions = null) {
@@ -2808,6 +2854,9 @@ function buildTarget(source, rawOffers) {
     createdAt: isoDateTimeOrNull(source.created_at),
     sourceShopCreatedAt: isoDateTimeOrNull(source.shop_created_at),
     updatedAt: isoDateTimeOrNull(source.updated_at),
+    buyerFeeRate: numberOrNull(source.buyer_fee_rate),
+    buyerFeePaymentMethod: source.buyer_fee_payment_method || null,
+    buyerFeeStrategy: source.buyer_fee_strategy || null,
     shopApiFeePolicies: Array.isArray(source.shopApiFeePolicies) ? source.shopApiFeePolicies : [],
     rawOffers,
   };
@@ -2819,6 +2868,7 @@ function kamiCommodityUrl(target, id) {
 }
 
 function makeOffer(target, input) {
+  const pricing = applySourceBuyerFeePolicy(target, input);
   return {
     sourceId: target.sourceId,
     sourceName: target.sourceName,
@@ -2826,10 +2876,10 @@ function makeOffer(target, input) {
     sourceStoreName: target.sourceStoreName || target.sourceName,
     sourceShopCreatedAt: isoDateTimeOrNull(target.sourceShopCreatedAt),
     sourceTitle: input.title,
-    price: input.price,
-    listedPrice: input.listedPrice ?? null,
-    feeAmount: input.feeAmount ?? null,
-    priceBasis: input.priceBasis ?? null,
+    price: pricing.price,
+    listedPrice: pricing.listedPrice ?? null,
+    feeAmount: pricing.feeAmount ?? null,
+    priceBasis: pricing.priceBasis ?? null,
     currency: "CNY",
     status: input.status || "unknown",
     effectiveStatus: input.effectiveStatus || null,
@@ -2840,6 +2890,24 @@ function makeOffer(target, input) {
     stockCount: input.stockCount,
     minOrderQuantity: input.minOrderQuantity ?? null,
     bulkPricingTiers: input.bulkPricingTiers || [],
+  };
+}
+
+function applySourceBuyerFeePolicy(target, input) {
+  const strategy = String(target?.buyerFeeStrategy ?? target?.buyer_fee_strategy ?? "");
+  const rate = numberOrNull(target?.buyerFeeRate ?? target?.buyer_fee_rate);
+  const price = numberOrNull(input?.price);
+  if (strategy !== "manual_verified" || rate === null || rate < 0 || rate > 0.2 || price === null) return input;
+  if (input.priceBasis === "settled" || input.priceBasis === "modeled" || numberOrNull(input.feeAmount) !== null) return input;
+
+  const listedPrice = numberOrNull(input.listedPrice) ?? price;
+  const feeAmount = roundCurrency(listedPrice * rate);
+  return {
+    ...input,
+    price: roundCurrency(listedPrice + feeAmount),
+    listedPrice,
+    feeAmount,
+    priceBasis: "modeled",
   };
 }
 

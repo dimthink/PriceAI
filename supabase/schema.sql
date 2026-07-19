@@ -20,6 +20,9 @@ create table if not exists sources (
   collection_method text not null default 'manual',
   collector_kind text,
   runtime_region text not null default 'default',
+  buyer_fee_rate numeric check (buyer_fee_rate is null or (buyer_fee_rate >= 0 and buyer_fee_rate <= 0.2)),
+  buyer_fee_payment_method text,
+  buyer_fee_strategy text check (buyer_fee_strategy is null or buyer_fee_strategy = 'manual_verified'),
   enabled boolean not null default true,
   notes text,
   health_status text not null default 'unknown',
@@ -42,6 +45,9 @@ alter table sources add column if not exists consecutive_failures integer not nu
 alter table sources add column if not exists last_error text;
 alter table sources add column if not exists collector_kind text;
 alter table sources add column if not exists runtime_region text not null default 'default';
+alter table sources add column if not exists buyer_fee_rate numeric;
+alter table sources add column if not exists buyer_fee_payment_method text;
+alter table sources add column if not exists buyer_fee_strategy text;
 alter table sources add column if not exists collector_lock_until timestamptz;
 alter table sources add column if not exists collector_lock_owner text;
 alter table sources add column if not exists collector_lock_started_at timestamptz;

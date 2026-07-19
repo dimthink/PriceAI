@@ -113,7 +113,7 @@ export async function GET(request: Request) {
       : Math.max(query.limit * 50 * query.shardCount, query.limit);
     let sourcesQuery = supabase
       .from("sources")
-      .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,consecutive_failures,last_error")
+      .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,consecutive_failures,last_error,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy")
       .eq("enabled", true)
       .eq("collector_kind", query.kind)
       .order("last_checked_at", { ascending: true, nullsFirst: true })
@@ -242,7 +242,7 @@ async function claimQueuedSourceTasks(input: {
 
   const { data: sources, error: sourcesError } = await supabase
     .from("sources")
-    .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at")
+    .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy")
     .in("id", sourceIds);
   if (sourcesError) throw sourcesError;
 
@@ -440,6 +440,9 @@ function sourceTaskFromRow(source: {
   collector_kind?: unknown;
   last_checked_at?: unknown;
   last_success_at?: unknown;
+  buyer_fee_rate?: unknown;
+  buyer_fee_payment_method?: unknown;
+  buyer_fee_strategy?: unknown;
 }, rawOfferUrls: string[], feePolicies: ShopApiFeePolicy[] = []) {
   const sourceUrl = String(source.entry_url || source.base_url || "");
   const baseUrl = String(source.base_url || deriveBaseUrl(sourceUrl) || "");
@@ -451,6 +454,9 @@ function sourceTaskFromRow(source: {
     collectorKind: String(source.collector_kind || ""),
     lastCheckedAt: source.last_checked_at ? String(source.last_checked_at) : null,
     lastSuccessAt: source.last_success_at ? String(source.last_success_at) : null,
+    buyerFeeRate: finiteNumber(source.buyer_fee_rate),
+    buyerFeePaymentMethod: source.buyer_fee_payment_method ? String(source.buyer_fee_payment_method) : null,
+    buyerFeeStrategy: source.buyer_fee_strategy ? String(source.buyer_fee_strategy) : null,
     rawOfferUrls,
     shopApiFeePolicies: feePolicies,
   };
@@ -495,6 +501,9 @@ function sourceTaskFromProbeJob(job: Record<string, unknown>) {
     collectorKind: String(result.collectorKind || "shopApi"),
     lastCheckedAt: null,
     lastSuccessAt: null,
+    buyerFeeRate: null,
+    buyerFeePaymentMethod: null,
+    buyerFeeStrategy: null,
     rawOfferUrls: [sourceUrl],
     shopApiFeePolicies: [],
     taskMode: "submission_probe" as const,
@@ -584,6 +593,7 @@ type ShopApiFeePolicy = {
   shopToken: string;
   strategy: "no_fee" | "fixed_3pct" | "observed_rate";
   rate: number;
+  sampleSelection: string | null;
   observedAt: string;
   expiresAt: string;
 };
@@ -598,7 +608,7 @@ async function loadActiveShopApiFeePolicies(sourceIds: string[]): Promise<Map<st
 
   const { data, error } = await supabase
     .from("shop_api_fee_policies")
-    .select("source_id,shop_token,strategy,rate,observed_at,expires_at")
+    .select("source_id,shop_token,strategy,rate,sample_selection,observed_at,expires_at")
     .in("source_id", uniqueSourceIds)
     .gt("expires_at", new Date().toISOString());
 
@@ -623,6 +633,7 @@ function normalizeShopApiFeePolicy(row: {
   shop_token?: unknown;
   strategy?: unknown;
   rate?: unknown;
+  sample_selection?: unknown;
   observed_at?: unknown;
   expires_at?: unknown;
 }): ShopApiFeePolicy | null {
@@ -640,6 +651,7 @@ function normalizeShopApiFeePolicy(row: {
     shopToken: String(row.shop_token || "").trim() || "source",
     strategy,
     rate,
+    sampleSelection: row.sample_selection ? String(row.sample_selection) : null,
     observedAt,
     expiresAt,
   };
@@ -649,6 +661,12 @@ function validIsoDate(value: unknown): string | null {
   const time = new Date(String(value || "")).getTime();
   if (!Number.isFinite(time)) return null;
   return new Date(time).toISOString();
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 type SourceShardAssignment = {

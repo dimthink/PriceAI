@@ -521,6 +521,7 @@ async function collectShopApiOnce(target) {
       }
 
       const priceResolver = await createShopApiSampledPriceResolver({
+        target,
         base,
         token,
         sourceUrl,
@@ -741,7 +742,7 @@ async function fetchShopApiGoodsListPages({ base, token, sourceUrl, categoryId }
   return { items, partialReasons, reportedTotal };
 }
 
-async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items }) {
+async function createShopApiSampledPriceResolver({ target, base, token, sourceUrl, items }) {
   const forcedModel = shopApiForcedFeeModel();
   if (forcedModel) {
     return {
@@ -763,9 +764,12 @@ async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items
   const sampleResults = [];
   const channel = await getShopApiDefaultChannel(base, token, sourceUrl);
   const channelId = channel.id;
-  const productFeePolicy = SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base))
+  const storedFeePolicy = shopApiStoredFeePolicy(target?.shopApiFeePolicies, token, {
+    allowHighPriceProbe: !SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)),
+  });
+  const productFeePolicy = storedFeePolicy || (SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base))
     ? null
-    : await probeShopApiProductFeePolicy({ base, token, sourceUrl, item: sampleItems[0] || items[0] });
+    : await probeShopApiProductFeePolicy({ base, token, sourceUrl, item: sampleItems[0] || items[0] }));
 
   if (SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base))) {
     for (const item of sampleItems) {
@@ -784,7 +788,7 @@ async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items
     }
   }
 
-  for (const item of SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)) || productFeePolicy?.status === "unknown"
+  for (const item of SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)) || storedFeePolicy
     ? []
     : sampleItems) {
     const listedPrice = numberOrNull(item.price ?? item.real_price);
@@ -801,23 +805,34 @@ async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items
     sampleResults.push({ item, listedPrice, effectivePrice });
   }
 
-  const model = SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base))
-    ? shopApiProductLevelFeeModel(channel.rate, sampleResults)
-    : productFeePolicy?.status === "confirmed"
-      ? productFeePolicy.model
-      : null;
+  const sampledModel = inferShopApiFeeModel(sampleResults);
+  const model = resolveShopApiFeeModel({
+    productLevel: SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)),
+    storedFeePolicy,
+    productFeePolicy,
+    sampleResults,
+    channelRate: channel.rate,
+  });
+  const productPolicyResolved = !SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)) && !storedFeePolicy && productFeePolicy?.status === "confirmed";
+  const sampledPolicyResolved = !SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)) && sampleResults.length > 0;
   const summary = {
-    sampleSize: SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)) ? sampleResults.length : sampleItems.length,
-    resolvedSampleSize: sampleResults.length,
-    sampleSelection: sampleSize > 0 ? "high_price_probe" : "disabled",
+    sampleSize: SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)) ? sampleResults.length : (sampleResults.length || (productFeePolicy?.goodsKey ? 1 : 0)),
+    resolvedSampleSize: SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base)) ? sampleResults.length : (sampledPolicyResolved ? sampleResults.length : productPolicyResolved ? 1 : 0),
+    sampleSelection: storedFeePolicy
+      ? "cached_policy"
+      : SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base))
+        ? sampleSize > 0 ? "high_price_probe" : "disabled"
+        : sampleResults.length ? "high_price_probe" : productPolicyResolved ? "product_detail_probe" : "channel_config",
     strategy: model ? model.kind : "listed_fallback",
     rate: model?.rate ?? null,
     channelId,
     channelRate: channel.rate,
     policySource: SHOP_API_PRODUCT_LEVEL_FEE_HOSTS.has(normalizeHostname(base))
       ? inferShopApiFeeModel(sampleResults)?.rate > 0 ? "sampled_probe" : channel.rate !== null ? "channel_config" : "sampled_probe"
-      : productFeePolicy?.source || "product_detail_probe",
-    feePolicy: productFeePolicy || (model
+      : storedFeePolicy
+        ? productFeePolicy?.source || "persisted"
+        : sampledModel ? "sampled_probe" : productPolicyResolved ? productFeePolicy?.source || "product_detail_probe" : channel.rate !== null ? "channel_config" : "product_detail_probe",
+    feePolicy: (storedFeePolicy || (productPolicyResolved && !sampledModel)) ? productFeePolicy : (model
       ? { status: "confirmed", hasFee: model.rate > 0, rate: model.rate, source: "channel_config" }
       : { status: "unknown", hasFee: null, rate: null, source: "product_detail_probe" }),
     probes: sampleResults.map(shopApiPriceProbeSummary),
@@ -837,6 +852,29 @@ async function createShopApiSampledPriceResolver({ base, token, sourceUrl, items
         priceBasis: "listed_fallback",
       };
     },
+  };
+}
+
+function shopApiStoredFeePolicy(policies, token, options = {}) {
+  const acceptedSelections = options.allowHighPriceProbe
+    ? ["manual_verified", "product_detail_probe", "high_price_probe"]
+    : ["manual_verified", "product_detail_probe"];
+  const selected = (Array.isArray(policies) ? policies : []).find((policy) =>
+    String(policy.shopToken ?? policy.shop_token ?? "") === String(token || "") &&
+    acceptedSelections.includes(String(policy.sampleSelection ?? policy.sample_selection ?? "")) &&
+    new Date(policy.expiresAt ?? policy.expires_at).getTime() > Date.now()
+  );
+  if (!selected) return null;
+  const rate = numberOrNull(selected.rate);
+  if (rate === null || rate < 0 || rate > 0.2) return null;
+  return {
+    status: "confirmed",
+    hasFee: rate > 0,
+    rate,
+    source: "persisted",
+    observedAt: selected.observedAt ?? selected.observed_at ?? null,
+    expiresAt: selected.expiresAt ?? selected.expires_at ?? null,
+    model: shopApiFeeModelFromFractionalRate(rate),
   };
 }
 
@@ -864,7 +902,7 @@ async function probeShopApiProductFeePolicy({ base, token, sourceUrl, item }) {
     rate,
     source: "product_detail_probe",
     goodsKey: String(item.goods_key),
-    model: rate > 0 ? { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE } : { kind: "no_fee", rate: 0 },
+    model: shopApiFeeModelFromFractionalRate(rate),
   };
 }
 
@@ -890,6 +928,21 @@ function shopApiFeeModelFromChannelRate(rate) {
   if (Math.abs(normalizedRate) <= 0.011) return { kind: "no_fee", rate: 0 };
   if (Math.abs(normalizedRate - 3) <= 0.011) return { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE };
   return { kind: "observed_rate", rate: normalizedRate / 100 };
+}
+
+function shopApiFeeModelFromFractionalRate(rate) {
+  if (Math.abs(rate) <= 0.0001) return { kind: "no_fee", rate: 0 };
+  if (Math.abs(rate - SHOP_API_FIXED_FEE_RATE) <= 0.0001) return { kind: "fixed_3pct", rate: SHOP_API_FIXED_FEE_RATE };
+  return { kind: "observed_rate", rate };
+}
+
+function resolveShopApiFeeModel({ productLevel, storedFeePolicy, productFeePolicy, sampleResults, channelRate }) {
+  if (productLevel) return shopApiProductLevelFeeModel(channelRate, sampleResults);
+  if (storedFeePolicy) return storedFeePolicy.model;
+  const sampledModel = inferShopApiFeeModel(sampleResults);
+  if (sampledModel) return sampledModel;
+  if (productFeePolicy?.status === "confirmed") return productFeePolicy.model;
+  return channelRate !== null && channelRate !== undefined ? shopApiFeeModelFromChannelRate(channelRate) : null;
 }
 
 function selectShopApiPriceSampleItems(items, sampleSize) {
@@ -1481,6 +1534,10 @@ function normalizeTask(task) {
     sourceStoreName: String(task.sourceName || task.sourceId || sourceUrl),
     baseUrl,
     kind: String(task.collectorKind || DEFAULT_KIND),
+    buyerFeeRate: numberOrNull(task.buyerFeeRate),
+    buyerFeePaymentMethod: task.buyerFeePaymentMethod ? String(task.buyerFeePaymentMethod) : null,
+    buyerFeeStrategy: task.buyerFeeStrategy ? String(task.buyerFeeStrategy) : null,
+    shopApiFeePolicies: Array.isArray(task.shopApiFeePolicies) ? task.shopApiFeePolicies : [],
     rawOfferUrls: Array.isArray(task.rawOfferUrls) ? task.rawOfferUrls.map(String) : [],
     collectionJobId: task.collectionJobId ? String(task.collectionJobId) : null,
     collectionJobRequestedBy: task.collectionJobRequestedBy ? String(task.collectionJobRequestedBy) : null,
@@ -1554,14 +1611,31 @@ async function getShopApiDefaultChannel(base, token, referer) {
   ).catch(() => null);
 
   const channels = Array.isArray(payload?.data) ? payload.data : [];
-  const defaultChannel =
-    channels.find((channel) => Number(channel.status ?? 1) === 1 && Number(channel.custom_status ?? 1) === 1) ||
-    channels[0];
+  const defaultChannel = selectShopApiPreferredChannel(channels);
   const channelId = numberOrNull(defaultChannel?.id);
   return {
     id: channelId === null ? 0 : channelId,
     rate: numberOrNull(defaultChannel?.rate),
   };
+}
+
+function selectShopApiPreferredChannel(channels) {
+  const values = Array.isArray(channels) ? channels : [];
+  const active = values.filter((channel) =>
+    Number(channel?.status ?? 1) === 1 && Number(channel?.custom_status ?? 1) === 1
+  );
+  const candidates = active.length ? active : values;
+  return candidates.find((channel) => {
+    const text = [
+      channel?.name,
+      channel?.title,
+      channel?.channel_name,
+      channel?.pay_name,
+      channel?.code,
+      channel?.type,
+    ].map((value) => String(value || "").toLowerCase()).join(" ");
+    return /(?:支付宝|alipay)/i.test(text);
+  }) || candidates[0];
 }
 
 async function getShopApiDefaultChannelId(base, token, referer) {
@@ -1638,6 +1712,7 @@ function shopApiBulkPricingTiers(multipleOffers) {
 }
 
 function makeOffer(target, input) {
+  const pricing = applySourceBuyerFeePolicy(target, input);
   return {
     sourceId: target.sourceId,
     sourceName: target.sourceName,
@@ -1645,10 +1720,10 @@ function makeOffer(target, input) {
     sourceStoreName: target.sourceStoreName || target.sourceName,
     sourceShopCreatedAt: target.sourceShopCreatedAt || null,
     sourceTitle: input.title,
-    price: input.price,
-    listedPrice: input.listedPrice ?? null,
-    feeAmount: input.feeAmount ?? null,
-    priceBasis: input.priceBasis ?? null,
+    price: pricing.price,
+    listedPrice: pricing.listedPrice ?? null,
+    feeAmount: pricing.feeAmount ?? null,
+    priceBasis: pricing.priceBasis ?? null,
     currency: "CNY",
     status: input.status || "unknown",
     effectiveStatus: input.effectiveStatus || null,
@@ -1658,6 +1733,24 @@ function makeOffer(target, input) {
     stockCount: input.stockCount ?? null,
     minOrderQuantity: input.minOrderQuantity ?? null,
     bulkPricingTiers: input.bulkPricingTiers || [],
+  };
+}
+
+function applySourceBuyerFeePolicy(target, input) {
+  const strategy = String(target?.buyerFeeStrategy ?? target?.buyer_fee_strategy ?? "");
+  const rate = numberOrNull(target?.buyerFeeRate ?? target?.buyer_fee_rate);
+  const price = numberOrNull(input?.price);
+  if (strategy !== "manual_verified" || rate === null || rate < 0 || rate > 0.2 || price === null) return input;
+  if (input.priceBasis === "settled" || input.priceBasis === "modeled" || numberOrNull(input.feeAmount) !== null) return input;
+
+  const listedPrice = numberOrNull(input.listedPrice) ?? price;
+  const feeAmount = roundCurrency(listedPrice * rate);
+  return {
+    ...input,
+    price: roundCurrency(listedPrice + feeAmount),
+    listedPrice,
+    feeAmount,
+    priceBasis: "modeled",
   };
 }
 
