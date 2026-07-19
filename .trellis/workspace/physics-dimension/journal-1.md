@@ -220,3 +220,36 @@ Cloudflare Actions 29692031230 发布成功；生产 versionTag 与 Huoshan2 run
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: sync-heyuan-ldxp-fee-runtime
+
+**Date**: 2026-07-20
+**Task**: sync-heyuan-ldxp-fee-runtime
+**Branch**: `main`
+
+### Summary
+
+将河源 LDxP lane 运行时从 a326ebf 同步到 b4079e7，恢复 priceai-shop-scheduler-lane@1.timer；河源单店烟测 TD6GILQR 命中 cached_policy，12/12 条报价按 3% 手续费写入，生产 API 返回最新到手价。无数据库迁移、无 Cloudflare 重新部署。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b4079e7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
