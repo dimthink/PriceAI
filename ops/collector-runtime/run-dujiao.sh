@@ -18,6 +18,7 @@ export PRICEAI_COLLECTOR_NODE_REGION="overseas"
 exec /usr/bin/node scripts/collect-prices.mjs \
   --all \
   --kind dujiao \
+  --exclude-source jzai168-com \
   --concurrency "${PRICEAI_DUJIAO_CONCURRENCY:-2}" \
   --post \
   --endpoint https://priceai.cc

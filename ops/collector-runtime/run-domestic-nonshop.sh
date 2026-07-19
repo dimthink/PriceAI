@@ -15,7 +15,7 @@ if ! flock -n 9; then
   exit 0
 fi
 
-for source_id in nodebits-f29bd25cc843c467 nodebits-05b3a4700ccf9e8a; do
+for source_id in nodebits-f29bd25cc843c467 nodebits-05b3a4700ccf9e8a jzai168-com; do
   ./node_modules/node/bin/node scripts/collect-prices.mjs \
     --source "$source_id" \
     --post \
