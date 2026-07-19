@@ -8,6 +8,7 @@ import {
   createShopApiProxyReusePool,
   extractProxyLeaseFromPayload,
   isDailyProbeFailure,
+  isWeeklyProbeFailure,
   isShopApiDirectExitBlockedForTarget,
   isShopApiExitErrorMessage,
   isShopApiProxyTransportErrorMessage,
@@ -26,16 +27,21 @@ assert.equal(calculateShopApiBuyerAdjustment(100, 100), 0);
 assert.equal(calculateShopApiBuyerAdjustment(102.8, 100), 2.8);
 assert.equal(calculateShopApiBuyerAdjustment(99, 100), 0);
 
-assert.equal(isDailyProbeFailure("HTTP 404 from source", 3), true);
-assert.equal(isDailyProbeFailure("采集结果为空", 4), true);
-assert.equal(isDailyProbeFailure("fetch failed", 3), true);
-assert.equal(isDailyProbeFailure("HTTP 403 challenge", 3), true);
-assert.equal(isDailyProbeFailure("HTTP 468", 3), true);
-assert.equal(isDailyProbeFailure("HTTP 502", 3), true);
-assert.equal(isDailyProbeFailure("HTTP 522", 3), true);
-assert.equal(isDailyProbeFailure("商家已被关闭交易", 3), true);
-assert.equal(isDailyProbeFailure("HTTP 404 from source", 2), false);
-assert.equal(isDailyProbeFailure("HTTP 500", 5), true);
+assert.equal(isDailyProbeFailure("店铺接口正常，完整商品快照为空（goods_count=0）。", 3), true);
+assert.equal(isDailyProbeFailure("店铺正常但没有商品", 4), true);
+assert.equal(isDailyProbeFailure("HTTP 404 from source", 3), false);
+assert.equal(isDailyProbeFailure("采集结果为空", 4), false);
+assert.equal(isDailyProbeFailure("店铺接口正常，完整商品快照为空（goods_count=0）。", 2), false);
+assert.equal(isWeeklyProbeFailure("HTTP 404 from source", 3), true);
+assert.equal(isWeeklyProbeFailure("采集结果为空", 4), true);
+assert.equal(isWeeklyProbeFailure("fetch failed", 3), true);
+assert.equal(isWeeklyProbeFailure("HTTP 403 challenge", 3), true);
+assert.equal(isWeeklyProbeFailure("HTTP 468", 3), true);
+assert.equal(isWeeklyProbeFailure("HTTP 502", 3), true);
+assert.equal(isWeeklyProbeFailure("HTTP 522", 3), true);
+assert.equal(isWeeklyProbeFailure("商家已被关闭交易", 3), true);
+assert.equal(isWeeklyProbeFailure("HTTP 404 from source", 2), false);
+assert.equal(isWeeklyProbeFailure("店铺接口正常，完整商品快照为空（goods_count=0）。", 3), false);
 assert.equal(
   blackcatWholesaleActionIdFromChunk(
     'createServerReference)("00fc36c4f4551a0ad0887d0946a6c93bc94960dfaf",callServer,void 0,findSourceMapURL,"fetchWholesaleProductsAction")',

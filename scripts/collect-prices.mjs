@@ -40,8 +40,9 @@ const SHOP_API_FEE_PROBE_MAX_LISTED_PRICE = 10_000;
 const SHOP_API_FIXED_FEE_RATE = 0.03;
 const SHOP_API_CENT_TOLERANCE = 0.011;
 const SHOP_API_PRODUCT_LEVEL_FEE_HOSTS = new Set(["catfk.com"]);
-const DAILY_PROBE_FAILURE_THRESHOLD = 3;
+const OBSERVATION_PROBE_FAILURE_THRESHOLD = 3;
 const DAILY_PROBE_INTERVAL_MINUTES = 24 * 60;
+const WEEKLY_PROBE_INTERVAL_MINUTES = 7 * DAILY_PROBE_INTERVAL_MINUTES;
 const DEFAULT_SHOP_API_PROXY_HOSTS = ["pay.ldxp.cn", "ldxp.cn"];
 const SHOP_API_PROXY_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_SHOP_API_PROXY_REUSE_LIMIT = 0;
@@ -80,6 +81,7 @@ const SHOP_COLLECTION_TIER_DEFINITIONS = [
   { tier: "retry_priority", label: "优先重试", intervalMinutes: 60, requestWeight: 1 },
   { tier: "retry_cooldown", label: "冷却重试", intervalMinutes: 180, requestWeight: 1 },
   { tier: "daily_probe", label: "每日复检", intervalMinutes: DAILY_PROBE_INTERVAL_MINUTES, requestWeight: 1 },
+  { tier: "weekly_probe", label: "每周复检", intervalMinutes: WEEKLY_PROBE_INTERVAL_MINUTES, requestWeight: 1 },
 ];
 const STRUCTURED_FULL_SNAPSHOT_OFFER_LIMIT = 600;
 const STRUCTURED_FULL_SNAPSHOT_COLLECTORS = new Set(["kami", "shopApi"]);
@@ -625,6 +627,7 @@ export {
   createShopApiProxyReusePool,
   extractProxyLeaseFromPayload,
   isDailyProbeFailure,
+  isWeeklyProbeFailure,
   isShopApiDirectExitBlockedForTarget,
   isShopApiExitErrorMessage,
   isShopApiProxyTransportErrorMessage,
@@ -703,7 +706,9 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
       const collected = await collectTarget(target, attemptOptions);
       const collectionDetails = collected?.collectionDetails || null;
       const offers = dedupeOffers(collected);
-      const message = offers.length ? `采集到 ${offers.length} 条报价。` : "采集结果为空。";
+      const message = offers.length
+        ? `采集到 ${offers.length} 条报价。`
+        : emptyCollectionFailureMessage(target, collectionDetails);
       attempts.push({
         attempt,
         status: offers.length ? "success" : "empty",
@@ -4112,8 +4117,12 @@ function classifyShopCollectionScheduleTier(input) {
   if (hasFailure) {
     reasons.push(runtimeIssue ? `最近失败：${runtimeIssue}` : consecutiveFailures ? `连续失败 ${consecutiveFailures} 次` : "最近采集失败");
     if (isDailyProbeFailure(input.target.lastError, consecutiveFailures)) {
-      reasons.push("连续站点错误，降为每日复检");
+      reasons.push("店铺正常但完整商品快照为空，降为每日复检");
       return { tier: "daily_probe", reasons };
+    }
+    if (isWeeklyProbeFailure(input.target.lastError, consecutiveFailures)) {
+      reasons.push("连续站点异常，保留原因并降为每周复检");
+      return { tier: "weekly_probe", reasons };
     }
     if (strongLowPrice || hotLowPrice || hasHotProduct) {
       reasons.push("仍有低价或重点商品价值，冷却后优先重试");
@@ -4151,13 +4160,19 @@ function classifyShopCollectionScheduleTier(input) {
 }
 
 function isDailyProbeFailure(lastError, consecutiveFailures) {
-  if (Number(consecutiveFailures || 0) < DAILY_PROBE_FAILURE_THRESHOLD) return false;
+  if (Number(consecutiveFailures || 0) < OBSERVATION_PROBE_FAILURE_THRESHOLD) return false;
+  return /(?:店铺接口正常[^。\n]*(?:完整)?商品快照为空|店铺正常[^。\n]*(?:没有商品|无商品|商品为空)|shop (?:api )?(?:reachable|healthy)[^\n]*(?:0 goods|empty (?:goods )?snapshot)|goods_count\s*[=:]\s*0)/i.test(String(lastError || ""));
+}
+
+function isWeeklyProbeFailure(lastError, consecutiveFailures) {
+  if (Number(consecutiveFailures || 0) < OBSERVATION_PROBE_FAILURE_THRESHOLD) return false;
+  if (isDailyProbeFailure(lastError, consecutiveFailures)) return false;
   return /(?:\bHTTP\s*(?:403|404|410|451|468|5\d\d)\b|\b(?:403|404|410|451|468)\b|采集结果为空|empty result|no offers|found no offers|fetch failed|ECONNRESET|ETIMEDOUT|连接(?:失败|超时|重置)|店铺.*(?:关闭|打烊)|商家已被关闭交易|website has been stopped)/i.test(String(lastError || ""));
 }
 
 function shopCollectionScheduleReferenceAt(target, latestRun, tier) {
   const latestRunAt = latestRun ? shopCollectionCrawlRunObservedAt(latestRun) : null;
-  if (tier === "retry_priority" || tier === "retry_cooldown" || tier === "daily_probe") {
+  if (tier === "retry_priority" || tier === "retry_cooldown" || tier === "daily_probe" || tier === "weekly_probe") {
     return target.lastCheckedAt || latestRunAt || target.lastSuccessAt || null;
   }
   return target.lastSuccessAt || latestRunAt || target.lastCheckedAt || null;
@@ -4433,6 +4448,19 @@ function sourceQualityRuntimeIssueLabel(message) {
   return null;
 }
 
+function emptyCollectionFailureMessage(target, details) {
+  if (target.kind !== "shopApi" || details?.fullSnapshot !== true) return "采集结果为空。";
+
+  const reportedGoodsCount = numberOrNull(details.reportedGoodsCount);
+  const fetchedItemCount = numberOrNull(details.fetchedItemCount);
+  if ((reportedGoodsCount === null || reportedGoodsCount === 0) && (fetchedItemCount === null || fetchedItemCount === 0)) {
+    const countLabel = reportedGoodsCount === 0 ? "goods_count=0" : "fetched_item_count=0";
+    return `店铺接口正常，完整商品快照为空（${countLabel}）。`;
+  }
+
+  return "采集结果为空。";
+}
+
 function shopCollectionPriceSampleScopes(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -4486,13 +4514,19 @@ function optionList(value) {
 function cooldownSkipReason(target, options = {}) {
   if (!shouldUseCollectionCooldown(options)) return null;
 
-  if (isDailyProbeFailure(target.lastError, target.consecutiveFailures) && target.lastCheckedAt) {
+  const observationIntervalMinutes = isDailyProbeFailure(target.lastError, target.consecutiveFailures)
+    ? DAILY_PROBE_INTERVAL_MINUTES
+    : isWeeklyProbeFailure(target.lastError, target.consecutiveFailures)
+      ? WEEKLY_PROBE_INTERVAL_MINUTES
+      : null;
+  if (observationIntervalMinutes && target.lastCheckedAt) {
     const lastCheckedMs = new Date(target.lastCheckedAt).getTime();
     const ageMs = Date.now() - lastCheckedMs;
-    const dailyProbeMs = DAILY_PROBE_INTERVAL_MINUTES * 60_000;
-    if (Number.isFinite(lastCheckedMs) && ageMs >= 0 && ageMs < dailyProbeMs) {
-      const remainingMinutes = Math.max(1, Math.ceil((dailyProbeMs - ageMs) / 60_000));
-      return { message: `连续站点错误，进入每日复检；约 ${remainingMinutes} 分钟后重试。` };
+    const observationMs = observationIntervalMinutes * 60_000;
+    if (Number.isFinite(lastCheckedMs) && ageMs >= 0 && ageMs < observationMs) {
+      const remainingMinutes = Math.max(1, Math.ceil((observationMs - ageMs) / 60_000));
+      const label = observationIntervalMinutes === DAILY_PROBE_INTERVAL_MINUTES ? "每日" : "每周";
+      return { message: `连续失败已记录，进入${label}复检；约 ${remainingMinutes} 分钟后重试。` };
     }
   }
 

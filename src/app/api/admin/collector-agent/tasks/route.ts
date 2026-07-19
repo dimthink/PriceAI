@@ -7,8 +7,9 @@ const DEFAULT_LIMIT = 3;
 const MAX_LIMIT = 20;
 const DEFAULT_COOLDOWN_MINUTES = 25;
 const TRANSIENT_UPSTREAM_COOLDOWN_MINUTES = 5;
-const DAILY_PROBE_FAILURE_THRESHOLD = 3;
+const OBSERVATION_PROBE_FAILURE_THRESHOLD = 3;
 const DAILY_PROBE_INTERVAL_MINUTES = 24 * 60;
+const WEEKLY_PROBE_INTERVAL_MINUTES = 7 * DAILY_PROBE_INTERVAL_MINUTES;
 const FAMILY_SCOPED_FETCH_LIMIT = 1000;
 const FAMILY_HOSTS: Record<string, string[]> = {
   "liandong-shop": ["pay.ldxp.cn", "ldxp.cn"],
@@ -535,15 +536,23 @@ function sourceWithinCooldown(
   if (!Number.isFinite(checkedAt) || !Number.isFinite(now)) return false;
 
   const consecutiveFailures = Number(source.consecutive_failures || 0);
-  const isDailyProbe = consecutiveFailures >= DAILY_PROBE_FAILURE_THRESHOLD &&
-    /(?:\bHTTP\s*(?:403|404|410|451|468|5\d\d)\b|\b(?:403|404|410|451|468)\b|采集结果为空|empty result|no offers|found no offers|fetch failed|ECONNRESET|ETIMEDOUT|连接(?:失败|超时|重置)|店铺.*(?:关闭|打烊)|商家已被关闭交易|website has been stopped)/i.test(String(source.last_error || ""));
-  const cooldownMinutes = isDailyProbe
-    ? DAILY_PROBE_INTERVAL_MINUTES
-    : isTransientUpstreamError(source.last_error)
+  const observationIntervalMinutes = sourceObservationIntervalMinutes(source.last_error, consecutiveFailures);
+  const cooldownMinutes = observationIntervalMinutes ?? (isTransientUpstreamError(source.last_error)
     ? TRANSIENT_UPSTREAM_COOLDOWN_MINUTES
-    : DEFAULT_COOLDOWN_MINUTES;
+    : DEFAULT_COOLDOWN_MINUTES);
 
   return now - checkedAt < cooldownMinutes * 60 * 1000;
+}
+
+function sourceObservationIntervalMinutes(lastError: unknown, consecutiveFailures: number): number | null {
+  if (consecutiveFailures < OBSERVATION_PROBE_FAILURE_THRESHOLD) return null;
+
+  const message = String(lastError || "");
+  const isConfirmedEmptyShop = /(?:店铺接口正常[^。\n]*(?:完整)?商品快照为空|店铺正常[^。\n]*(?:没有商品|无商品|商品为空)|shop (?:api )?(?:reachable|healthy)[^\n]*(?:0 goods|empty (?:goods )?snapshot)|goods_count\s*[=:]\s*0)/i.test(message);
+  if (isConfirmedEmptyShop) return DAILY_PROBE_INTERVAL_MINUTES;
+
+  const isSiteFailure = /(?:\bHTTP\s*(?:403|404|410|451|468|5\d\d)\b|\b(?:403|404|410|451|468)\b|采集结果为空|empty result|no offers|found no offers|fetch failed|ECONNRESET|ETIMEDOUT|连接(?:失败|超时|重置)|店铺.*(?:关闭|打烊)|商家已被关闭交易|website has been stopped)/i.test(message);
+  return isSiteFailure ? WEEKLY_PROBE_INTERVAL_MINUTES : null;
 }
 
 function isTransientUpstreamError(value: unknown): boolean {

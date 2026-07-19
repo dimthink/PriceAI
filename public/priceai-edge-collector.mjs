@@ -216,7 +216,7 @@ async function runCycle(startedAt = new Date().toISOString()) {
         status = collectedOffers.length ? "success" : "failed";
         message = collectedOffers.length
           ? `Edge collector found ${collectedOffers.length} offers.`
-          : "Edge collector found no offers.";
+          : emptyShopCollectionFailureMessage(collection);
       } catch (error) {
         failed += 1;
         const failureMessage = errorMessage(error);
@@ -345,6 +345,19 @@ async function runCycle(startedAt = new Date().toISOString()) {
   const finishedAt = new Date().toISOString();
   console.log(`\n[priceai-edge] done: processed=${processed} success=${success} failed=${failed} uploadFailed=${uploadFailed} offers=${offers}`);
   return { processed, success, failed, uploadFailed, offers, startedAt, finishedAt };
+}
+
+function emptyShopCollectionFailureMessage(collection) {
+  if (collection?.fullSnapshot !== true) return "Edge collector found no offers.";
+
+  const reportedGoodsCount = numberOrNull(collection.reportedGoodsCount);
+  const fetchedItemCount = numberOrNull(collection.fetchedItemCount);
+  if ((reportedGoodsCount === null || reportedGoodsCount === 0) && (fetchedItemCount === null || fetchedItemCount === 0)) {
+    const countLabel = reportedGoodsCount === 0 ? "goods_count=0" : "fetched_item_count=0";
+    return `店铺接口正常，完整商品快照为空（${countLabel}）。`;
+  }
+
+  return "Edge collector found no offers.";
 }
 
 async function fetchTasks(options = {}) {
