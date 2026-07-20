@@ -135,7 +135,10 @@ Production release succeeded via GitHub Actions 29680199103 on Cloudflare/OpenNe
 
 ### Main Changes
 
-(Add details)
+- Added Kimi and Qwen transit families, official model metadata, pricing references, icons, detector presets, and normalization rules.
+- Added Kimi K3, Qwen3.8-Max-Preview, and Qwen3.7-Max across catalog, collector, Sub2API mapping, UI, and database constraints.
+- Kept Qwen3.8-Max-Preview unpriced until an official PAYG price or verified station quote exists.
+- Synced the collector runtime to Huoshan2 and applied the Supabase migration through the repository integration.
 
 ### Git Commits
 
@@ -145,7 +148,9 @@ Production release succeeded via GitHub Actions 29680199103 on Cloudflare/OpenNe
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] Lint, typecheck, focused API transit tests, catalog checks, Cloudflare build, and Supabase recovery replay passed.
+- [OK] Cloudflare workflow `29717906907` promoted the candidate and passed staged and production smoke checks without rollback.
+- [OK] Production `/api/deployment` reports `f2c67475`; model pages and station detail data expose the new collected models.
 
 ### Status
 
@@ -241,6 +246,40 @@ Cloudflare Actions 29692031230 发布成功；生产 versionTag 与 Huoshan2 run
 | Hash | Message |
 |------|---------|
 | `b4079e7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 8: Add Kimi K3 and Qwen transit models
+
+**Date**: 2026-07-20
+**Task**: Add Kimi K3 and Qwen transit models
+**Branch**: `main`
+
+### Summary
+
+Cloudflare production run 29717906907 succeeded; /api/deployment reports f2c67475; live model page shows Kimi K3 and Qwen3.7-Max after ISR refresh; collector detail exposes Kimi K3 and Qwen3.7-Max; Detector, Umami, and api.tider.cc return HTTP 200.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c351b4` | (see git log) |
+| `f2c6747` | (see git log) |
 
 ### Testing
 

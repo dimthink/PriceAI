@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-07-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~255 | Active |
+| `journal-1.md` | ~289 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | 日期 | 标题 | 提交数 | 分支 |
 |---|------|-------|---------|--------|
+| 8 | 2026-07-20 | Add Kimi K3 and Qwen transit models | `7c351b4`, `f2c6747` | `main` |
 | 7 | 2026-07-20 | sync-heyuan-ldxp-fee-runtime | `b4079e7` | `main` |
 | 6 | 2026-07-20 | fix-source-and-ldxp-fee-pricing | `b4079e7` | `main` |
 | 5 | 2026-07-19 | LDXP 双域名自动切换与后台开关 | `24bff0a` | `main` |
