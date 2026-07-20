@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Suspense } from "react";
 import { GlobalSponsorPlacements } from "@/components/GlobalSponsorPlacements";
 import { GlobalSiteFooter } from "@/components/GlobalSiteFooter";
@@ -8,29 +7,8 @@ import { QQGroupAutoPrompt } from "@/components/QQGroupAutoPrompt";
 import { SiteNoticePrompt } from "@/components/SiteNoticePrompt";
 import { SupportNudgePrompt } from "@/components/SupportNudgePrompt";
 import { UmamiAnalytics } from "@/components/UmamiAnalytics";
+import { THEME_INIT_SCRIPT } from "@/lib/theme-init";
 import "./globals.css";
-
-const themeInitScript = `
-(function() {
-  try {
-    var root = document.documentElement;
-    var isAdmin = window.location.pathname.indexOf('/admin') === 0;
-    if (isAdmin) {
-      root.dataset.theme = 'light';
-      root.style.colorScheme = 'light';
-      return;
-    }
-    var stored = window.localStorage.getItem('priceai-theme');
-    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var theme = stored === 'dark' || (!stored && prefersDark) ? 'dark' : 'light';
-    root.dataset.theme = theme;
-    root.style.colorScheme = theme;
-  } catch (error) {
-    document.documentElement.dataset.theme = 'light';
-    document.documentElement.style.colorScheme = 'light';
-  }
-})();
-`;
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://priceai.cc"),
@@ -72,8 +50,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className="h-full antialiased" suppressHydrationWarning>
+      <head>
+        <script id="priceai-theme-init" dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
-        <Script id="priceai-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <GlobalSponsorPlacements>
           {children}
           <GlobalSiteFooter />
