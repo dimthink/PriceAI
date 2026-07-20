@@ -292,3 +292,37 @@ Cloudflare production run 29717906907 succeeded; /api/deployment reports f2c6747
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Fix transit monitoring scope and sample inflation
+
+**Date**: 2026-07-20
+**Task**: Fix transit monitoring scope and sample inflation
+**Branch**: `main`
+
+### Summary
+
+A6 and APINode monitoring now preserve group/model evidence scope, deduplicate shared samples, label fallback references, and ship through Supabase, Huoshan2 collector runtime, and Cloudflare. Production A6 shows four distinct 60-sample groups and a 240-sample rollup.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5fed193` | (see git log) |
+| `9a1326c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -1,0 +1,7 @@
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"检查新旧数据兼容、字段语义与 RPC 约束"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"检查刷新不会降级 priceai_probe 或误清理样本"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"检查迁移、Cloudflare 发布与生产 API 行为"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"检查桌面、390px、键盘与深色模式"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"检查 nullable 兼容与 exhaustive mapping"}
+{"file":"research/2026-07-20-a6-monitoring-trace.md","reason":"复核 A6 四组独立监测和真实 timeline"}
+{"file":"research/2026-07-20-merchant-monitoring-audit.md","reason":"复核跨站样本去重与参考标签"}

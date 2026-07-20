@@ -1,0 +1,10 @@
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"监测 scope、fallback、RPC 与公开 DTO 契约"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"采集成功语义、来源保护与刷新边界"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"详情 Route Handler 与公开响应体兼容"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"详情表格组件与移动端复用规范"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"可访问性、响应式与验证要求"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"availability 新字段类型安全"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用既有 availability helpers，避免新建平行逻辑"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"采集器到数据库、DTO、汇总与 UI 的跨层数据流"}
+{"file":"research/2026-07-20-a6-monitoring-trace.md","reason":"A6 生产根因、数据链路和验收基线"}
+{"file":"research/2026-07-20-merchant-monitoring-audit.md","reason":"13 站复用模式、样本放大和受影响范围"}
