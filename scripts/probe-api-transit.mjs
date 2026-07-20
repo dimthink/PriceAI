@@ -37,6 +37,8 @@ const AVAILABILITY_PROBE_MODEL_COSTS = {
   "GLM-5.2": 0.3,
   "DeepSeek V4 Flash": 0.05,
   "DeepSeek V4 Pro": 0.28,
+  "Kimi K3": 20,
+  "Qwen3.7-Max": 12,
 };
 const PRICEAI_PROBE_AVAILABILITY_SOURCE = {
   type: "priceai_probe",
@@ -165,6 +167,24 @@ const defaultTargets = [
     standardModel: "DeepSeek V4 Pro",
     candidates: ["deepseek-v4-pro", "deepseek-v4-pro-chat", "deepseek/deepseek-v4-pro"],
     keywords: ["deepseek", "v4", "pro"],
+  },
+  {
+    family: "kimi",
+    standardModel: "Kimi K3",
+    candidates: ["kimi-k3", "moonshot/kimi-k3"],
+    keywords: ["kimi", "k3"],
+  },
+  {
+    family: "qwen",
+    standardModel: "Qwen3.8-Max-Preview",
+    candidates: ["qwen3.8-max-preview", "qwen-3.8-max-preview"],
+    keywords: ["qwen", "max", "preview", "3.8"],
+  },
+  {
+    family: "qwen",
+    standardModel: "Qwen3.7-Max",
+    candidates: ["qwen3.7-max", "qwen-3.7-max", "qwen/qwen3.7-max"],
+    keywords: ["qwen", "max", "3.7"],
   },
 ];
 
@@ -1633,6 +1653,8 @@ function keywordsForStandardModel(value) {
   if (text.includes("gemini")) keywords.push("gemini");
   if (text.includes("glm")) keywords.push("glm");
   if (text.includes("deepseek")) keywords.push("deepseek");
+  if (text.includes("kimi")) keywords.push("kimi");
+  if (text.includes("qwen") || text.includes("千问")) keywords.push("qwen");
   if (text.includes("nano")) keywords.push("nano");
   if (text.includes("banana")) keywords.push("banana");
   if (text.includes("image")) keywords.push("image");
@@ -1645,6 +1667,8 @@ function keywordsForStandardModel(value) {
   if (text.includes("video")) keywords.push("video");
   if (text.includes("flash")) keywords.push("flash");
   if (text.includes("pro")) keywords.push("pro");
+  if (text.includes("max")) keywords.push("max");
+  if (text.includes("preview")) keywords.push("preview");
   if (text.includes("lite")) keywords.push("lite");
   if (version) keywords.push(version);
   return keywords;
@@ -1678,6 +1702,8 @@ function normalizeFamily(value) {
   if (text.includes("gemini") || text.includes("google")) return "gemini";
   if (text.includes("glm") || text.includes("zhipu")) return "glm";
   if (text.includes("deepseek")) return "deepseek";
+  if (text.includes("kimi") || text.includes("moonshot")) return "kimi";
+  if (text.includes("qwen") || text.includes("千问")) return "qwen";
   return null;
 }
 

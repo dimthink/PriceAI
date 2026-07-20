@@ -235,6 +235,7 @@ const klingPricingUrl = "https://kling.ai/dev/pricing";
 export const apiModelUpdatedAt = "2026-06-07";
 export const apiMediaModelUpdatedAt = "2026-07-03";
 export const apiOfficialPlatformUpdatedAt = "2026-07-06";
+const apiLatestChineseModelUpdatedAt = "2026-07-20";
 const happyHorseUpdatedAt = "2026-07-17";
 
 export const apiModelFxSummary: ApiModelFxSummary = {
@@ -657,6 +658,19 @@ export const apiModels: ApiModel[] = [
     updatedAt: apiModelUpdatedAt,
   },
   {
+    id: "qwen3-8-max-preview",
+    displayName: "Qwen3.8 Max Preview",
+    family: "Qwen",
+    modelId: "qwen3.8-max-preview",
+    description: "Qwen 最新旗舰预览模型，当前仅通过 Token Plan、Qoder 等交互式工具渠道提供，不作为普通按量后端 API 基准。",
+    contextWindow: "官方暂未公布",
+    sourceUrl: "https://help.aliyun.com/zh/model-studio/models",
+    sourceLabel: "阿里云百炼模型列表",
+    capabilities: ["vision", "thinking", "coding", "agent"],
+    suitableTools: ["Qwen Code", "Qoder", "Claude Code", "Cursor"],
+    updatedAt: apiLatestChineseModelUpdatedAt,
+  },
+  {
     id: "qwen3-7-max",
     displayName: "Qwen3.7 Max",
     family: "Qwen",
@@ -715,6 +729,19 @@ export const apiModels: ApiModel[] = [
     capabilities: ["coding", "agent"],
     suitableTools: ["Qwen Code", "Codex", "Claude Code", "Cursor"],
     updatedAt: apiModelUpdatedAt,
+  },
+  {
+    id: "kimi-k3",
+    displayName: "Kimi K3",
+    family: "Kimi",
+    modelId: "kimi-k3",
+    description: "Kimi 最新旗舰模型，面向长程编程、知识工作和深度推理，支持原生多模态与 1M 上下文。",
+    contextWindow: "1M",
+    sourceUrl: "https://platform.kimi.com/docs/pricing/chat-k3",
+    sourceLabel: "Kimi API Pricing",
+    capabilities: ["vision", "thinking", "tool-calls", "json"],
+    suitableTools: ["Kimi Code", "Claude Code", "OpenCode", "Cursor"],
+    updatedAt: apiLatestChineseModelUpdatedAt,
   },
   {
     id: "kimi-k2-6",
@@ -1044,6 +1071,20 @@ export const apiProviders: ApiProvider[] = [
     limitations: "价格分中国内地部署范围和具体模型阶梯；长上下文请求会进入更高价格档位。",
     sourceLabel: "阿里云百炼模型价格",
     updatedAt: apiModelUpdatedAt,
+  },
+  {
+    id: "qwen-token-plan",
+    name: "阿里云百炼 Token Plan",
+    type: "subscription",
+    billingMode: "订阅套餐",
+    url: "https://help.aliyun.com/zh/model-studio/token-plan-overview",
+    pricingUrl: "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview",
+    logoUrl: "/brand-icons/qwen.png",
+    description: "面向兼容编程和智能体工具的订阅渠道，当前提供 Qwen3.8-Max-Preview 等模型。",
+    limitSummary: "按 Credits 与短周期窗口计量；具体额度随套餐和活动变化。",
+    limitations: "只限交互式编程/智能体工具使用，禁止自动脚本、自定义应用后端和非交互批量调用。",
+    sourceLabel: "阿里云百炼 Token Plan",
+    updatedAt: apiLatestChineseModelUpdatedAt,
   },
   {
     id: "minimax-official",
@@ -1482,6 +1523,27 @@ export const apiProviders: ApiProvider[] = [
 ];
 
 export const apiPlans: ApiPlan[] = [
+  {
+    id: "qwen-token-plan-personal-lite",
+    providerId: "qwen-token-plan",
+    providerName: "阿里云百炼 Token Plan",
+    name: "Token Plan 个人版 Lite",
+    type: "subscription",
+    priceLabel: "¥39/月起",
+    priceCnyMonthly: 39,
+    url: "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview",
+    quotaBadges: ["700 Credits/5h", "2,500 Credits/7d", "预览模型"],
+    quotaSummary: "Lite 档按 5 小时和 7 天 Credits 窗口计量；Qwen3.8-Max-Preview 活动折扣以官方实时规则为准。",
+    resetSummary: "Credits 按 5 小时与 7 天窗口刷新。",
+    limitSummary: "700 Credits/5h · 2,500 Credits/7d。",
+    limitations: "仅用于兼容的交互式编程/智能体工具，不可换算为普通输入/输出 token 单价。",
+    modelIds: ["qwen3-8-max-preview"],
+    coverageLabel: "Qwen3.8-Max-Preview 预览渠道；正式版或预览结束后可能调整或下线。",
+    compatibility: ["OpenAI-compatible", "Anthropic-compatible", "Coding Agent", "预览模型"],
+    suitableTools: ["Qwen Code", "Qoder", "Claude Code", "Cursor"],
+    sourceLabel: "阿里云百炼 Token Plan",
+    updatedAt: apiLatestChineseModelUpdatedAt,
+  },
   {
     id: "chatgpt-plus",
     providerId: "chatgpt-official-subscription",
@@ -2484,6 +2546,17 @@ export const apiModelOffers: ApiModelOffer[] = [
     freeOrPlan: "阿里云百炼官方按量计费。",
     limitations: "Batch 调用按实时推理价格 50% 计费；上下文缓存仅输入 tokens 享折扣，主表不展开为固定缓存价。",
     compatibility: ["OpenAI-compatible", "Coding Agent", "中文模型"],
+  }),
+  offer("kimi-official-k3", "kimi-k3", "kimi-official", {
+    routeModelId: "kimi-k3",
+    inputPrice: cny(20),
+    outputPrice: cny(100),
+    cacheReadPrice: cny(2),
+    freeOrPlan: "官方按 token 计费；自动上下文缓存命中按单独低价计费。",
+    limitations: "当前 API 固定使用 max reasoning effort；多轮和工具调用需要完整回传 reasoning_content。",
+    compatibility: ["OpenAI-compatible", "Anthropic-compatible", "Coding Agent", "中文模型", "多模态"],
+    pricingUrl: "https://platform.kimi.com/docs/pricing/chat-k3",
+    updatedAt: apiLatestChineseModelUpdatedAt,
   }),
   offer("qwen-official-qwen37-plus", "qwen3-7-plus", "qwen-official", {
     routeModelId: "qwen3.7-plus",
@@ -3817,11 +3890,13 @@ const modelOrder = [
   "gemini-3-flash-preview",
   "deepseek-v4-flash",
   "deepseek-v4-pro",
+  "qwen3-8-max-preview",
   "qwen3-7-max",
   "qwen3-7-plus",
   "qwen3-6-plus",
   "qwen3-5-plus",
   "qwen3-coder-plus",
+  "kimi-k3",
   "kimi-k2-6",
   "kimi-k2-5",
   "glm-5-1",

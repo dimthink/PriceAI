@@ -164,6 +164,17 @@ const presetModels: PresetModel[] = [
   { id: "claude-opus-4-6", label: "Opus 4.6", model: "claude-opus-4-6", protocol: "claude", standardModel: "Claude Opus 4.6" },
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6", model: "claude-sonnet-4-6", protocol: "claude", standardModel: "Claude Sonnet 4.6" },
   { id: "gemini-3-1-pro", label: "Gemini 3.1 Pro", model: "gemini-3.1-pro", protocol: "gemini", standardModel: "Gemini 3.1 Pro" },
+  { id: "kimi-k3", label: "Kimi K3", model: "kimi-k3", protocol: "openai_chat", badge: "新", standardModel: "Kimi K3" },
+  {
+    id: "qwen3-8-max-preview",
+    label: "Qwen3.8 Max Preview",
+    model: "qwen3.8-max-preview",
+    protocol: "openai_chat",
+    badge: "预览",
+    standardModel: "Qwen3.8-Max-Preview",
+    priceNote: "仅 Token Plan 预览，无公开按量价格",
+  },
+  { id: "qwen3-7-max", label: "Qwen3.7 Max", model: "qwen3.7-max", protocol: "openai_chat", standardModel: "Qwen3.7-Max" },
   { id: "custom", label: "自定义", model: "", protocol: "openai_chat" },
 ];
 
@@ -1255,6 +1266,9 @@ function guessStandardModel(model: string, protocol: DetectorProtocol): TransitS
   if (value.includes("composer")) return "Composer 2.5";
   if (value.includes("grok")) return "Grok 4.5";
   if (value.includes("gemini")) return "Gemini 3.1 Pro";
+  if (value.includes("kimi-k3") || value.includes("kimi_k3") || value.includes("kimi k3")) return "Kimi K3";
+  if (value.includes("qwen3.8") || value.includes("qwen-3.8") || value.includes("千问3.8")) return "Qwen3.8-Max-Preview";
+  if (value.includes("qwen3.7") || value.includes("qwen-3.7") || value.includes("千问3.7")) return "Qwen3.7-Max";
   if (value.includes("5.5")) return "GPT 5.5";
   if (value.includes("5.4") && value.includes("mini")) return "GPT 5.4 Mini";
   if (value.includes("5.4") || value.includes("codex")) return "GPT 5.4";
@@ -1279,6 +1293,19 @@ function buildCostEstimate(
   priceNote = ""
 ): CostEstimate {
   const price = getOfficialTransitModelPrice(standardModel);
+  const hasOfficialPrice = [price.input, price.output, price.cacheRead, price.cacheWrite].some(
+    (value) => value !== null && Number.isFinite(value) && value > 0,
+  );
+  if (!hasOfficialPrice) {
+    return {
+      inputLabel: formatTokenCount(intensity.inputTokens),
+      outputLabel: formatTokenCount(intensity.outputTokens),
+      totalLabel: "暂无官方按量基准",
+      detailLabel: `${formatTokenCount(intensity.inputTokens)} 输入 / ${formatTokenCount(intensity.outputTokens)} 输出 / ${intensity.requests} 次请求`,
+      sourceLabel: `${price.sourceLabel} 未公开按量价格`,
+      priceNote,
+    };
+  }
   const inputCost = ((price.input ?? 0) * intensity.inputTokens) / 1_000_000;
   const outputCost = ((price.output ?? 0) * intensity.outputTokens) / 1_000_000;
   const totalCost = inputCost + outputCost;

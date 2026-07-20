@@ -82,6 +82,9 @@ const officialTransitPrices = {
   "GLM-5.1": { input: 6, output: 24, cacheRead: 1.3, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "DeepSeek V4 Flash": { input: 1, output: 2, cacheRead: 0.02, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "DeepSeek V4 Pro": { input: 3, output: 6, cacheRead: 0.025, cacheWrite: null, imageOutput: null, currency: "CNY" },
+  "Kimi K3": { input: 20, output: 100, cacheRead: 2, cacheWrite: null, imageOutput: null, currency: "CNY" },
+  "Qwen3.8-Max-Preview": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "CNY" },
+  "Qwen3.7-Max": { input: 12, output: 36, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "CNY" },
   "GPT Image 2": { input: 5, output: null, cacheRead: 1.25, cacheWrite: null, imageOutput: 30, currency: "USD" },
   "Grok Image": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
   "Nano Banana Pro": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
@@ -126,6 +129,9 @@ const modelFamilyByStandard = {
   "GLM-5.1": "glm",
   "DeepSeek V4 Flash": "deepseek",
   "DeepSeek V4 Pro": "deepseek",
+  "Kimi K3": "kimi",
+  "Qwen3.8-Max-Preview": "qwen",
+  "Qwen3.7-Max": "qwen",
   "GPT Image 2": "image",
   "Grok Image": "grok",
   "Nano Banana Pro": "image",
@@ -258,6 +264,7 @@ export async function collectApiTransitPrices(options = {}) {
         availabilityError = errorMessage(error);
       }
       const runId = stableId("api-transit-run", source.id, runStartedAt);
+      parsed.offers = parsed.offers.map(clearUnpricedPreviewModelRates);
       stations.push(parsed.station);
       offers.push(...parsed.offers);
       runs.push({
@@ -370,6 +377,29 @@ export async function collectApiTransitPrices(options = {}) {
   }
 
   return result;
+}
+
+function clearUnpricedPreviewModelRates(offer) {
+  if (offer.standard_model !== "Qwen3.8-Max-Preview") return offer;
+
+  return {
+    ...offer,
+    model_multiplier: null,
+    input_price: null,
+    output_price: null,
+    cache_read_price: null,
+    cache_write_price: null,
+    raw_payload: {
+      ...(offer.raw_payload || {}),
+      priceai_unpriced_preview: {
+        observed_model_multiplier: offer.model_multiplier ?? null,
+        observed_input_price: offer.input_price ?? null,
+        observed_output_price: offer.output_price ?? null,
+        observed_cache_read_price: offer.cache_read_price ?? null,
+        reason: "official_payg_price_unavailable",
+      },
+    },
+  };
 }
 
 function withSourceOptions(options, source) {
@@ -3287,6 +3317,23 @@ function standardizeModelName(name) {
     }
   }
 
+  if (value.includes("kimi") || value.includes("moonshot")) {
+    if (hasExplicitModelVersion(value, "k", "3") || value.includes("kimi-k3") || value.includes("kimi k3")) {
+      return "Kimi K3";
+    }
+  }
+
+  if (value.includes("qwen") || value.includes("千问")) {
+    if (hasExplicitModelVersion(value, "qwen", "3.8") || /千问\s*3[.\-_ ]?8/.test(value)) {
+      if (value.includes("max") || value.includes("preview") || value.includes("旗舰")) {
+        return "Qwen3.8-Max-Preview";
+      }
+    }
+    if (hasExplicitModelVersion(value, "qwen", "3.7") || /千问\s*3[.\-_ ]?7/.test(value)) {
+      if (value.includes("max") || value.includes("旗舰")) return "Qwen3.7-Max";
+    }
+  }
+
   return null;
 }
 
@@ -4475,6 +4522,7 @@ export const __test = {
   buildAvailabilitySampleRow,
   collectSuccessfulRefreshStationIds,
   collectRefreshedOfferKeys,
+  clearUnpricedPreviewModelRates,
   dedupeRowsById,
   filterSourcesByPublishedStationIds,
   findStaleRefreshedOfferIds,

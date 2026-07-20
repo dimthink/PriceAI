@@ -11,7 +11,7 @@ import { formatDateDay } from "@/lib/utils";
 export const metadata: Metadata = {
   title: "API 中转站价格榜",
   description:
-    "PriceAI API 中转站价格榜 — 对比 ChatGPT、Claude、Gemini、Grok、GLM、DeepSeek、图片生成、视频生成等中转站的充值系数、模型倍率、综合倍率、近 7 日稳定性和来源渠道。不售卖 API，不替商家担保。",
+    "PriceAI API 中转站价格榜 — 对比 ChatGPT、Claude、Gemini、Grok、GLM、DeepSeek、Kimi、千问、图片生成、视频生成等中转站的充值系数、模型倍率、综合倍率、近 7 日稳定性和来源渠道。不售卖 API，不替商家担保。",
   alternates: { canonical: "/api-transit" },
   openGraph: {
     title: "API 中转站价格榜：倍率、稳定性、来源渠道 | PriceAI",

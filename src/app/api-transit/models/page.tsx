@@ -8,7 +8,7 @@ import { getSponsorSettingsSummary } from "@/lib/sponsor-settings";
 
 export const metadata: Metadata = {
   title: "中转 API 模型对比",
-  description: "按 ChatGPT、Claude、Gemini、Grok、GLM、DeepSeek、图片生成、视频生成等标准模型对比各 API 中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。",
+  description: "按 ChatGPT、Claude、Gemini、Grok、GLM、DeepSeek、Kimi、千问、图片生成、视频生成等标准模型对比各 API 中转站的充值系数、模型倍率、综合倍率和近 7 日稳定性。",
   alternates: {
     canonical: "/api-transit/models",
   },

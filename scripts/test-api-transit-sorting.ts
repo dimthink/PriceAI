@@ -10,6 +10,7 @@ import {
   getTransitRecentAvailabilitySampleLookupScopes,
   getTransitAvailabilityRollupPrices,
   getTransitModelSummaries,
+  getOfficialTransitModelPrice,
   getNormalizedSourceTags,
   getTransitPriceAvailabilitySourceMeta,
   getTransitStationDetectionSummary,
@@ -32,6 +33,21 @@ import {
 } from "../src/data/api-transit/types";
 
 const now = "2026-07-02T07:00:00.000Z";
+
+assertDeepEqual(getOfficialTransitModelPrice("Kimi K3"), {
+  input: 20,
+  output: 100,
+  cacheWrite: null,
+  cacheRead: 2,
+  imageOutput: null,
+  currency: "CNY",
+  sourceLabel: "Kimi API",
+  sourceUrl: "https://platform.kimi.com/docs/pricing/chat-k3",
+});
+assertEqual(getOfficialTransitModelPrice("Qwen3.8-Max-Preview").input, null);
+assertEqual(getOfficialTransitModelPrice("Qwen3.8-Max-Preview").output, null);
+assertEqual(getOfficialTransitModelPrice("Qwen3.7-Max").input, 12);
+assertEqual(getOfficialTransitModelPrice("Qwen3.7-Max").output, 36);
 
 function station(input: {
   id: string;
@@ -147,6 +163,39 @@ function availability(sevenDayRate: number, sevenDaySamples: number): TransitSta
     sourceUrl: null,
   };
 }
+
+const mixedQwenStation = station({
+  id: "mixed-qwen",
+  name: "Mixed Qwen",
+  claudeRate: 0.2,
+  availabilityRate: 0.99,
+  availabilitySamples: 100,
+});
+mixedQwenStation.prices = [
+  {
+    ...mixedQwenStation.prices[0],
+    family: "qwen",
+    standardModel: "Qwen3.7-Max",
+    groupName: "Qwen Max",
+    modelMultiplier: 0.5,
+    inputPrice: 0.5,
+    outputPrice: 0.5,
+    lastVerifiedAt: "2026-07-19T07:00:00.000Z",
+  },
+  {
+    ...mixedQwenStation.prices[0],
+    family: "qwen",
+    standardModel: "Qwen3.8-Max-Preview",
+    groupName: "Qwen Max",
+    modelMultiplier: null,
+    inputPrice: null,
+    outputPrice: null,
+    cacheReadPrice: null,
+    cacheWritePrice: null,
+    lastVerifiedAt: "2026-07-20T07:00:00.000Z",
+  },
+];
+assertEqual(getFamilyRateSummary(mixedQwenStation, "qwen").combinedRateMin, 0.5);
 
 assertEqual(scoreTransitRelativeCost(0.3, [0.3, 1.5]) > scoreTransitRelativeCost(1.5, [0.3, 1.5]), true);
 assertEqual(scoreTransitReliability(0.99, 600) > scoreTransitReliability(1, 3), true);

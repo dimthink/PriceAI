@@ -36,6 +36,7 @@ const collectorKindByProviderId = {
   "opencode-go": "opencode_go",
   openrouter: "openrouter",
   "qwen-official": "qwen_model_pricing",
+  "qwen-token-plan": "qwen_token_plan",
   "stepfun-official": "stepfun_pricing",
   "stepfun-step-plan": "stepfun_step_plan",
   "tencent-hunyuan-coding-plan": "tencent_tokenhub_coding_plan",

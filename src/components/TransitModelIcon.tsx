@@ -7,6 +7,8 @@ const iconByFamily: Record<string, string> = {
   gemini: "/brand-icons/gemini.svg",
   glm: "/brand-icons/glm.png",
   deepseek: "/brand-icons/deepseek.png",
+  kimi: "/brand-icons/kimi.png",
+  qwen: "/brand-icons/qwen.png",
 };
 
 export function TransitModelIcon({

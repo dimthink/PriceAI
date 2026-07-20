@@ -9,6 +9,8 @@ export type TransitModelFamily =
   | "grok"
   | "glm"
   | "deepseek"
+  | "kimi"
+  | "qwen"
   | "image"
   | "video";
 export type TransitModelModality = "text" | "image" | "video";
@@ -123,6 +125,9 @@ export type TransitStandardModel =
   | "GLM-5.1"
   | "DeepSeek V4 Flash"
   | "DeepSeek V4 Pro"
+  | "Kimi K3"
+  | "Qwen3.8-Max-Preview"
+  | "Qwen3.7-Max"
   | "GPT Image 2"
   | "Grok Image"
   | "Nano Banana Pro"
@@ -256,6 +261,8 @@ export const TRANSIT_MODEL_FAMILY_LABELS: Record<TransitModelFamily, string> = {
   grok: "Grok",
   glm: "GLM",
   deepseek: "DeepSeek",
+  kimi: "Kimi",
+  qwen: "千问",
   image: "图片生成",
   video: "视频生成",
 };
@@ -267,6 +274,8 @@ export const TRANSIT_MODEL_FAMILY_ORDER = [
   "grok",
   "glm",
   "deepseek",
+  "kimi",
+  "qwen",
   "image",
   "video",
 ] as const satisfies readonly TransitModelFamily[];
@@ -325,6 +334,9 @@ export const TRANSIT_STANDARD_MODELS = [
   "GLM-5.1",
   "DeepSeek V4 Flash",
   "DeepSeek V4 Pro",
+  "Kimi K3",
+  "Qwen3.8-Max-Preview",
+  "Qwen3.7-Max",
   "GPT Image 2",
   "Grok Image",
   "Nano Banana Pro",
@@ -370,6 +382,9 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
   "GLM-5.1": "glm",
   "DeepSeek V4 Flash": "deepseek",
   "DeepSeek V4 Pro": "deepseek",
+  "Kimi K3": "kimi",
+  "Qwen3.8-Max-Preview": "qwen",
+  "Qwen3.7-Max": "qwen",
   "GPT Image 2": "image",
   "Grok Image": "grok",
   "Nano Banana Pro": "image",
@@ -415,6 +430,9 @@ export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, Trans
   "GLM-5.1": "text",
   "DeepSeek V4 Flash": "text",
   "DeepSeek V4 Pro": "text",
+  "Kimi K3": "text",
+  "Qwen3.8-Max-Preview": "text",
+  "Qwen3.7-Max": "text",
   "GPT Image 2": "image",
   "Grok Image": "image",
   "Nano Banana Pro": "image",

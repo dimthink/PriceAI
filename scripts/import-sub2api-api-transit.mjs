@@ -59,6 +59,22 @@ const targetPlans = [
     candidates: ["claude-opus-4-8", "claude-opus-4.8", "claude-4-8-opus", "claude-4.8-opus"],
     groupSelector: "claude_general",
   },
+  {
+    id: "kimi_k3",
+    family: "kimi",
+    standardModel: "Kimi K3",
+    rawModelName: "kimi-k3",
+    candidates: ["kimi-k3", "moonshot/kimi-k3"],
+    groupSelector: "kimi",
+  },
+  {
+    id: "qwen_3_7_max",
+    family: "qwen",
+    standardModel: "Qwen3.7-Max",
+    rawModelName: "qwen3.7-max",
+    candidates: ["qwen3.7-max", "qwen-3.7-max", "qwen/qwen3.7-max"],
+    groupSelector: "qwen",
+  },
 ];
 
 const standardModelMatchers = [
@@ -106,6 +122,21 @@ const standardModelMatchers = [
     family: "gpt",
     standardModel: "GPT 5.4 Mini",
     candidates: ["gpt-5.4-mini", "gpt-5-4-mini"],
+  },
+  {
+    family: "kimi",
+    standardModel: "Kimi K3",
+    candidates: ["kimi-k3", "moonshot/kimi-k3"],
+  },
+  {
+    family: "qwen",
+    standardModel: "Qwen3.8-Max-Preview",
+    candidates: ["qwen3.8-max-preview", "qwen-3.8-max-preview"],
+  },
+  {
+    family: "qwen",
+    standardModel: "Qwen3.7-Max",
+    candidates: ["qwen3.7-max", "qwen-3.7-max", "qwen/qwen3.7-max"],
   },
   {
     family: "image",
@@ -835,6 +866,7 @@ async function buildCredentialRows(source, selectedTargets, keyResults, collecte
 
 function buildOfferRow(source, result, collectedAt) {
   const multiplier = round(result.multiplier, 6);
+  const publicMultiplier = publicMultiplierForStandardModel(result.standardModel, multiplier);
   const ok = Boolean(result.ok);
   const status = apiTransitOfferStatusForProbeResult(result);
   return {
@@ -845,11 +877,11 @@ function buildOfferRow(source, result, collectedAt) {
     raw_model_name: result.rawModelName,
     group_name: result.groupName,
     recharge_ratio: DEFAULT_RECHARGE_RATIO,
-    model_multiplier: multiplier,
-    input_price: multiplier,
-    output_price: multiplier,
-    cache_read_price: multiplier,
-    cache_write_price: multiplier,
+    model_multiplier: publicMultiplier,
+    input_price: publicMultiplier,
+    output_price: publicMultiplier,
+    cache_read_price: publicMultiplier,
+    cache_write_price: publicMultiplier,
     currency: "CNY",
     account_pool: inferAccountPool(result.groupName),
     channel_type: inferChannelType(result.groupName),
@@ -970,6 +1002,7 @@ function standardModelsFromAvailableModels(models) {
 function buildUnprobedOfferRow(source, group, collectedAt) {
   const model = representativeModelForGroup(group);
   const multiplier = round(group.multiplier, 6);
+  const publicMultiplier = publicMultiplierForStandardModel(model.standardModel, multiplier);
   return {
     id: stableId("api-transit-offer", source.id, model.standardModel, group.id),
     station_id: source.id,
@@ -978,11 +1011,11 @@ function buildUnprobedOfferRow(source, group, collectedAt) {
     raw_model_name: model.rawModelName,
     group_name: group.name,
     recharge_ratio: DEFAULT_RECHARGE_RATIO,
-    model_multiplier: multiplier,
-    input_price: multiplier,
-    output_price: multiplier,
-    cache_read_price: multiplier,
-    cache_write_price: multiplier,
+    model_multiplier: publicMultiplier,
+    input_price: publicMultiplier,
+    output_price: publicMultiplier,
+    cache_read_price: publicMultiplier,
+    cache_write_price: publicMultiplier,
     currency: "CNY",
     account_pool: inferAccountPool(group.name),
     channel_type: inferChannelType(`${group.name} ${group.platform}`),
@@ -1014,6 +1047,10 @@ function buildUnprobedOfferRow(source, group, collectedAt) {
     },
     created_at: collectedAt,
   };
+}
+
+function publicMultiplierForStandardModel(standardModel, multiplier) {
+  return standardModel === "Qwen3.8-Max-Preview" ? null : multiplier;
 }
 
 function representativeModelForGroup(group) {
@@ -1117,6 +1154,30 @@ function representativeModelForGroup(group) {
     };
   }
 
+  if (/kimi[-_\s]?k?3|moonshot.*k3/.test(text)) {
+    return {
+      family: "kimi",
+      standardModel: "Kimi K3",
+      rawModelName: "kimi-k3",
+    };
+  }
+
+  if (/qwen[-_\s]?3[.\-_\s]?8.*max|千问[-_\s]?3[.\-_\s]?8.*max/.test(text)) {
+    return {
+      family: "qwen",
+      standardModel: "Qwen3.8-Max-Preview",
+      rawModelName: "qwen3.8-max-preview",
+    };
+  }
+
+  if (/qwen[-_\s]?3[.\-_\s]?7.*max|千问[-_\s]?3[.\-_\s]?7.*max/.test(text)) {
+    return {
+      family: "qwen",
+      standardModel: "Qwen3.7-Max",
+      rawModelName: "qwen3.7-max",
+    };
+  }
+
   if (/anthropic|claude|cc|max|kiro/.test(text)) {
     const isFable = text.includes("fable");
     const isSonnet = text.includes("sonnet");
@@ -1166,6 +1227,18 @@ function selectGroupForPlan(groups, plan) {
   if (plan.groupSelector === "claude_sonnet") {
     return groups
       .filter((group) => /anthropic|claude/i.test(`${group.platform} ${group.name}`) && /sonnet/i.test(group.name))
+      .sort(compareGroupsForPrice)[0] || null;
+  }
+
+  if (plan.groupSelector === "kimi") {
+    return groups
+      .filter((group) => /kimi|moonshot/i.test(`${group.platform} ${group.name}`))
+      .sort(compareGroupsForPrice)[0] || null;
+  }
+
+  if (plan.groupSelector === "qwen") {
+    return groups
+      .filter((group) => /qwen|千问|百炼|bailian/i.test(`${group.platform} ${group.name}`))
       .sort(compareGroupsForPrice)[0] || null;
   }
 
@@ -1640,7 +1713,7 @@ function normalizeModelId(value) {
 }
 
 function sampleModelMatcher(model) {
-  return /gpt-5|claude.*opus|opus.*4|sonnet|fable/i.test(String(model));
+  return /gpt-5|claude.*opus|opus.*4|sonnet|fable|kimi[-_. ]?k?3|qwen[-_. ]?3[.-]?(?:8|7).*max/i.test(String(model));
 }
 
 function inferAccountPool(text) {

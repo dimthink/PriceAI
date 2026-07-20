@@ -201,6 +201,10 @@ function getTransitModelPriority(model: TransitModelPrice["standardModel"]): num
   if (model === "GLM-5.1") return 251;
   if (model === "DeepSeek V4 Pro") return 244;
   if (model === "DeepSeek V4 Flash") return 243;
+  if (model === "Kimi K3") return 242;
+  // Keep the priced stable model representative until the preview has a comparable PAYG rate.
+  if (model === "Qwen3.7-Max") return 241;
+  if (model === "Qwen3.8-Max-Preview") return 240;
   return 0;
 }
 
@@ -226,6 +230,9 @@ const xaiImageDocsUrl = "https://docs.x.ai/developers/models/grok-imagine-image"
 const xaiVideoDocsUrl = "https://docs.x.ai/developers/models/grok-imagine-video";
 const glmPricingUrl = "https://bigmodel.cn/pricing";
 const deepseekPricingUrl = "https://api-docs.deepseek.com/zh-cn/quick_start/pricing";
+const kimiK3PricingUrl = "https://platform.kimi.com/docs/pricing/chat-k3";
+const qwenPricingUrl = "https://help.aliyun.com/zh/model-studio/model-pricing";
+const qwenModelDocsUrl = "https://help.aliyun.com/zh/model-studio/models";
 const seedanceDocsUrl = "https://docs.byteplus.com/en/docs/ModelArk/1520757";
 const happyHorseDocsUrl = "https://developers.cloudflare.com/ai/models/alibaba/hh1.1-i2v/";
 const klingDocsUrl = "https://app.klingai.com/global/dev/document-api/apiReference/model/video";
@@ -466,6 +473,27 @@ const TRANSIT_OFFICIAL_MODEL_PRICES: Record<
     currency: "CNY",
     sourceLabel: "DeepSeek API",
     sourceUrl: deepseekPricingUrl,
+  },
+  "Kimi K3": {
+    input: 20,
+    output: 100,
+    cacheWrite: null,
+    cacheRead: 2,
+    imageOutput: null,
+    currency: "CNY",
+    sourceLabel: "Kimi API",
+    sourceUrl: kimiK3PricingUrl,
+  },
+  "Qwen3.8-Max-Preview": unpricedOfficialModel("阿里云 Token Plan", qwenModelDocsUrl, "CNY"),
+  "Qwen3.7-Max": {
+    input: 12,
+    output: 36,
+    cacheWrite: null,
+    cacheRead: null,
+    imageOutput: null,
+    currency: "CNY",
+    sourceLabel: "阿里云百炼",
+    sourceUrl: qwenPricingUrl,
   },
   "GPT Image 2": {
     input: 5,

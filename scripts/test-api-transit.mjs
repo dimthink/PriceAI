@@ -687,6 +687,41 @@ assert.equal(__test.standardizeModelName("alibaba/hh1.1-i2v"), "HappyHorse 1.1 I
 assert.equal(__test.standardizeModelName("happyhorse-1.1-i2v"), "HappyHorse 1.1 I2V");
 assert.equal(__test.standardizeModelName("Happy House 1.1 I2V"), "HappyHorse 1.1 I2V");
 assert.equal(__test.standardizeModelName("kling/kling-2.5-turbo"), "Kling 2.5 Turbo");
+assert.equal(__test.standardizeModelName("moonshot/kimi-k3"), "Kimi K3");
+assert.equal(__test.standardizeModelName("qwen3.8-max-preview"), "Qwen3.8-Max-Preview");
+assert.equal(__test.standardizeModelName("千问 3.8 Max Preview"), "Qwen3.8-Max-Preview");
+assert.equal(__test.standardizeModelName("qwen3.8-plus"), null);
+assert.equal(__test.standardizeModelName("qwen/qwen3.7-max-2026-06-08"), "Qwen3.7-Max");
+assert.equal(__test.standardizeModelName("qwen3.7-plus"), null);
+assert.deepEqual(
+  __test.clearUnpricedPreviewModelRates({
+    standard_model: "Qwen3.8-Max-Preview",
+    model_multiplier: 0.2,
+    input_price: 0.2,
+    output_price: 0.4,
+    cache_read_price: 0.1,
+    cache_write_price: null,
+    raw_payload: { source: "test" },
+  }),
+  {
+    standard_model: "Qwen3.8-Max-Preview",
+    model_multiplier: null,
+    input_price: null,
+    output_price: null,
+    cache_read_price: null,
+    cache_write_price: null,
+    raw_payload: {
+      source: "test",
+      priceai_unpriced_preview: {
+        observed_model_multiplier: 0.2,
+        observed_input_price: 0.2,
+        observed_output_price: 0.4,
+        observed_cache_read_price: 0.1,
+        reason: "official_payg_price_unavailable",
+      },
+    },
+  },
+);
 assert.equal(__test.standardizeModelName("claude-3-5-sonnet-20241022"), null);
 assert.equal(__test.standardizeModelName("openai/gpt-5.6"), "GPT 5.6 Sol");
 assert.equal(__test.standardizeModelName("openai/gpt-5.6-sol"), "GPT 5.6 Sol");

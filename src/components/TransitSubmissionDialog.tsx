@@ -5,7 +5,7 @@ import { CheckCircle2, ClipboardList, Copy, Mail, MessageCircle, Send, X } from 
 
 type DialogMode = "submit" | "merchant";
 
-const mainModelOptions = ["Claude", "GPT", "Gemini", "Grok", "DeepSeek", "GLM", "图片 / 视频模型", "不确定"];
+const mainModelOptions = ["Claude", "GPT", "Gemini", "Grok", "DeepSeek", "GLM", "Kimi", "千问 / Qwen", "图片 / 视频模型", "不确定"];
 const merchantEmail = "dimthink@qq.com";
 const merchantMailSubject = "PriceAI 中转站入驻 - 站点名称";
 const merchantMailTemplate = `站点名称：

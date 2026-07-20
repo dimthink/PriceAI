@@ -17,6 +17,8 @@ const claudeProbeModels = {
 assert.equal(__test.normalizeFamily("google/gemini-3.5-flash"), "gemini");
 assert.equal(__test.normalizeFamily("zhipu/glm-5.2"), "glm");
 assert.equal(__test.normalizeFamily("deepseek-v4-pro"), "deepseek");
+assert.equal(__test.normalizeFamily("moonshot/kimi-k3"), "kimi");
+assert.equal(__test.normalizeFamily("qwen3.8-max-preview"), "qwen");
 assert.equal(__test.normalizeFamily("nano-banana-pro"), "image");
 assert.equal(__test.normalizeFamily("sora-2-pro"), "video");
 assert.equal(__test.normalizeFamily("happyhorse-1.1-i2v"), "video");
@@ -30,6 +32,47 @@ assert.deepEqual(__test.keywordsForStandardModel("Nano Banana"), ["nano", "banan
 assert.deepEqual(__test.keywordsForStandardModel("Nano Banana Lite"), ["nano", "banana", "lite"]);
 assert.deepEqual(__test.keywordsForStandardModel("Sora 2 Pro"), ["sora", "pro", "2"]);
 assert.deepEqual(__test.keywordsForStandardModel("HappyHorse 1.1 I2V"), ["happyhorse", "1.1"]);
+assert.deepEqual(__test.keywordsForStandardModel("Kimi K3"), ["kimi", "3"]);
+assert.deepEqual(__test.keywordsForStandardModel("Qwen3.8-Max-Preview"), ["qwen", "max", "preview", "3.8"]);
+
+assert.deepEqual(
+  sub2ApiTest
+    .standardModelsFromAvailableModels(["kimi-k3", "qwen3.8-max-preview", "qwen3.7-max"])
+    .map((model) => [model.family, model.standardModel, model.rawModelName]),
+  [
+    ["kimi", "Kimi K3", "kimi-k3"],
+    ["qwen", "Qwen3.8-Max-Preview", "qwen3.8-max-preview"],
+    ["qwen", "Qwen3.7-Max", "qwen3.7-max"],
+  ],
+);
+
+assert.deepEqual(
+  sub2ApiTest.representativeModelForGroup({ name: "Moonshot Kimi K3", platform: "openai" }),
+  { family: "kimi", standardModel: "Kimi K3", rawModelName: "kimi-k3" },
+);
+assert.deepEqual(
+  sub2ApiTest.representativeModelForGroup({ name: "百炼 Qwen3.7 Max", platform: "openai" }),
+  { family: "qwen", standardModel: "Qwen3.7-Max", rawModelName: "qwen3.7-max" },
+);
+
+const unpricedPreviewOffer = sub2ApiTest.buildOfferRows(
+  { id: "preview", dashboardUrl: "https://example.test/dashboard" },
+  [],
+  [{
+    groupId: 1,
+    groupName: "Qwen Preview",
+    multiplier: 0.2,
+    ok: true,
+    family: "qwen",
+    standardModel: "Qwen3.8-Max-Preview",
+    rawModelName: "qwen3.8-max-preview",
+    sampleModels: ["qwen3.8-max-preview"],
+  }],
+  "2026-07-20T00:00:00.000Z",
+)[0];
+assert.equal(unpricedPreviewOffer.model_multiplier, null);
+assert.equal(unpricedPreviewOffer.input_price, null);
+assert.equal(unpricedPreviewOffer.raw_payload.group.multiplier, 0.2);
 
 const claudeTargets = __test.selectProbeTargets({
   profileFamily: "claude",

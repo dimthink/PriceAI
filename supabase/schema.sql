@@ -3436,7 +3436,7 @@ create table if not exists api_transit_stations (
 create table if not exists api_transit_offers (
   id text primary key,
   station_id text not null references api_transit_stations(id) on delete cascade,
-  family text not null check (family in ('gpt', 'claude', 'gemini', 'glm', 'deepseek', 'image', 'video')),
+  family text not null check (family in ('gpt', 'claude', 'gemini', 'grok', 'glm', 'deepseek', 'kimi', 'qwen', 'image', 'video')),
   standard_model text not null,
   raw_model_name text not null,
   group_name text not null,
