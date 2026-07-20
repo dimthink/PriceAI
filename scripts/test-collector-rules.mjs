@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 
-import {
+process.env.NEXT_PUBLIC_SUPABASE_URL ||= "https://example.supabase.co";
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= "collector-rules-test-key";
+
+const {
   applySourceBuyerFeePolicy,
   applyShopCollectionScheduler,
   assignShopCollectionSchedulerShard,
@@ -33,7 +36,7 @@ import {
   shopApiStoredFeePolicy,
   shopCollectionSchedulerGroupMatches,
   selectShopApiPreferredChannel,
-} from "./collect-prices.mjs";
+} = await import("./collect-prices.mjs");
 
 assert.deepEqual(shopApiFeeModelFromChannelRate(3), { kind: "fixed_3pct", rate: 0.03 });
 assert.deepEqual(shopApiFeeModelFromChannelRate(2.5), { kind: "observed_rate", rate: 0.025 });
