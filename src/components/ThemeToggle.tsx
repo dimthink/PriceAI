@@ -2,8 +2,8 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { THEME_STORAGE_KEY } from "@/lib/theme-init";
 
-const THEME_STORAGE_KEY = "priceai-theme";
 const THEME_CHANGE_EVENT = "priceai-theme-change";
 type ThemeMode = "light" | "dark";
 type HeaderActionLabelFrom = "sm" | "2xl" | "never";
