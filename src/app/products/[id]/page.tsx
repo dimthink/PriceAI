@@ -7,6 +7,7 @@ import { BrandIcon } from "@/components/BrandIcon";
 import { JsonLd } from "@/components/JsonLd";
 import { ProductDetailHeader, ProductReturnLink } from "@/components/ProductDetailHeader";
 import { ProductOffersPanel } from "@/components/ProductOffersPanel";
+import { ProductPriceHistoryChart } from "@/components/ProductPriceHistoryChart";
 import { publicCatalogProducts } from "@/lib/catalog";
 import { getPublicProductSummary, listPublicProductOffers } from "@/lib/data";
 import {
@@ -132,6 +133,8 @@ export default async function ProductDetail({
         <Suspense fallback={<OfficialPriceReferenceSkeleton />}>
           <OfficialPriceReferenceSection product={product} />
         </Suspense>
+
+        <ProductPriceHistoryChart productId={product.id} productName={product.displayName} />
 
         <div className="mt-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-2 md:mt-7">
           <div>
