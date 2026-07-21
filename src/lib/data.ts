@@ -2383,9 +2383,7 @@ function publicProductOffersSnapshotKeyForRequest(
     filters.excludeQuery ||
     filters.collector !== "all" ||
     filters.minPrice !== null ||
-    filters.maxPrice !== null ||
-    filters.minStock !== null ||
-    filters.freshWithinMinutes !== null
+    filters.maxPrice !== null
   ) {
     return null;
   }
@@ -4768,7 +4766,11 @@ async function loadPublicProductOffers(
       snapshotKey,
     );
     if (snapshot && isProductOffersSnapshot(snapshot.value)) {
-      const value = sanitizePublicProductOffersResultForProduct(filters.filterProductId, hydrateGeneratedAt(snapshot));
+      const value = filterPublicProductOffersSnapshot(
+        sanitizePublicProductOffersResultForProduct(filters.filterProductId, hydrateGeneratedAt(snapshot)),
+        filters.minStock,
+        filters.freshWithinMinutes,
+      );
       if (isPublicApiSnapshotFresh(snapshot)) return value;
       staleSnapshotValue = value;
     }
@@ -4789,7 +4791,13 @@ async function loadPublicProductOffers(
 
   const rpcData = await getPublicProductOffersFromDatabase(id, filters);
   if (rpcData) {
-    if (snapshotKey && !filters.skipSnapshot && !rpcData.degraded) {
+    if (
+      snapshotKey &&
+      !filters.skipSnapshot &&
+      filters.minStock === null &&
+      filters.freshWithinMinutes === null &&
+      !rpcData.degraded
+    ) {
       await writePublicApiSnapshot({
         kind: "product_offers",
         key: snapshotKey,
@@ -4871,6 +4879,23 @@ async function loadPublicProductOffers(
   }
 
   return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, fallbackValue) : fallbackValue;
+}
+
+function filterPublicProductOffersSnapshot(
+  value: PublicProductOffersResult,
+  minStock: ProductOfferStockThreshold | null,
+  freshWithinMinutes: ProductOfferFreshnessMinutes | null,
+): PublicProductOffersResult {
+  if (minStock === null && freshWithinMinutes === null) return value;
+
+  const offers = value.offers.filter((offer) =>
+    offerMatchesProductOperationalFilters(offer, minStock, freshWithinMinutes));
+  return {
+    ...value,
+    offers,
+    total: offers.length,
+    limited: false,
+  };
 }
 
 async function getPublicProductOffersFromDatabase(

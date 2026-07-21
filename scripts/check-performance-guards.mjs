@@ -173,6 +173,15 @@ assert(!/IntersectionObserver/.test(productOffersPanelText), "src/components/Pro
 assert(/hasMoreProductOfferPage\(activeData\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer pagination must honor the server end-of-list signal.");
 assert(/mergeProductOfferPages\(current, nextPage\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: empty or duplicate product offer pages must stop pagination.");
 assert(/pagingControllerRef\.current\?\.abort\(\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: changing filters must abort the previous pagination request.");
+assert(/PRODUCT_OFFER_QUICK_STOCK_THRESHOLD/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: keep the fixed stock quick filter.");
+assert(/PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: keep the fixed freshness quick filter.");
+assert(!/PRODUCT_OFFER_STOCK_THRESHOLDS|PRODUCT_OFFER_FRESHNESS_MINUTES/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: operational quick filters must not expand back into full threshold matrices.");
+
+const productOfferFiltersText = read("src/lib/product-offer-filters.ts");
+assert(/PRODUCT_OFFER_QUICK_STOCK_THRESHOLD\s*=\s*50/.test(productOfferFiltersText), "src/lib/product-offer-filters.ts: stock quick preset must stay fixed at 50.");
+assert(/PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES\s*=\s*60/.test(productOfferFiltersText), "src/lib/product-offer-filters.ts: freshness quick preset must stay fixed at 60 minutes.");
+assert(!/PRODUCT_OFFER_STOCK_THRESHOLDS|PRODUCT_OFFER_FRESHNESS_MINUTES/.test(productOfferFiltersText), "src/lib/product-offer-filters.ts: API parsers must not accept arbitrary operational threshold matrices.");
+assert(/filterPublicProductOffersSnapshot/.test(dataText), "src/lib/data.ts: fixed operational quick filters must narrow the last-known-good snapshot before live RPC.");
 
 const clientHooksText = read("src/lib/client-hooks.ts");
 assert(/export function useMediaQuery/.test(clientHooksText), "src/lib/client-hooks.ts: shared client media query hook must stay centralized.");

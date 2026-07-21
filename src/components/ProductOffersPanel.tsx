@@ -55,13 +55,11 @@ import {
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import {
-  PRODUCT_OFFER_FRESHNESS_MINUTES,
-  PRODUCT_OFFER_STOCK_THRESHOLDS,
+  PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES,
+  PRODUCT_OFFER_QUICK_STOCK_THRESHOLD,
   parseProductOfferFreshnessMinutes,
   parseProductOfferStockThreshold,
-  productOfferFreshnessFilterLabel,
   productOfferPublicTimestamp,
-  productOfferStockFilterLabel,
   type ProductOfferFreshnessMinutes,
   type ProductOfferStockThreshold,
 } from "@/lib/product-offer-filters";
@@ -1004,20 +1002,16 @@ function OfferFilterBar({
       })
     : [];
   const advancedTagIds = new Set(plusChannelFacets.map((facet) => facet.id));
-  const stockQuickActive = selectedMinStock === 50;
-  const freshnessQuickActive = selectedFreshWithinMinutes === 60;
-  const activeAdvancedChips = [
-    ...buildOfferActiveFilterChips({
-      selectedTags: selectedTags.filter((tagId) => advancedTagIds.has(tagId)),
-      selectedCollector,
-      queryInput: activeQuery,
-      excludeInput: activeExcludeQuery,
-      minPriceInput: activeMinPrice,
-      maxPriceInput: activeMaxPrice,
-    }),
-    selectedMinStock !== null && !stockQuickActive ? productOfferStockFilterLabel(selectedMinStock) : null,
-    selectedFreshWithinMinutes !== null && !freshnessQuickActive ? productOfferFreshnessFilterLabel(selectedFreshWithinMinutes) : null,
-  ].filter((chip): chip is string => Boolean(chip));
+  const stockQuickActive = selectedMinStock === PRODUCT_OFFER_QUICK_STOCK_THRESHOLD;
+  const freshnessQuickActive = selectedFreshWithinMinutes === PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES;
+  const activeAdvancedChips = buildOfferActiveFilterChips({
+    selectedTags: selectedTags.filter((tagId) => advancedTagIds.has(tagId)),
+    selectedCollector,
+    queryInput: activeQuery,
+    excludeInput: activeExcludeQuery,
+    minPriceInput: activeMinPrice,
+    maxPriceInput: activeMaxPrice,
+  });
   const advancedFilterCount = activeAdvancedChips.length + Number(stockQuickActive) + Number(freshnessQuickActive);
 
   return (
@@ -1043,7 +1037,7 @@ function OfferFilterBar({
           <div className="flex shrink-0 items-center gap-2" aria-label="库存与更新时间快捷筛选">
             <button
               type="button"
-              onClick={() => onMinStockChange(stockQuickActive ? null : 50)}
+              onClick={() => onMinStockChange(stockQuickActive ? null : PRODUCT_OFFER_QUICK_STOCK_THRESHOLD)}
               aria-pressed={stockQuickActive}
               title="只看库存数量达到所选下限的报价；库存未知不会进入结果"
               className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
@@ -1057,7 +1051,7 @@ function OfferFilterBar({
             </button>
             <button
               type="button"
-              onClick={() => onFreshWithinChange(freshnessQuickActive ? null : 60)}
+              onClick={() => onFreshWithinChange(freshnessQuickActive ? null : PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES)}
               aria-pressed={freshnessQuickActive}
               title="按 PriceAI 最近成功确认时间筛选"
               className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
@@ -1122,8 +1116,6 @@ function OfferFilterBar({
             plusChannelFacets={plusChannelFacets}
             selectedTags={selectedTags}
             selectedCollector={selectedCollector}
-            selectedMinStock={selectedMinStock}
-            selectedFreshWithinMinutes={selectedFreshWithinMinutes}
             excludeInput={excludeInput}
             maxPriceInput={maxPriceInput}
             minPriceInput={minPriceInput}
@@ -1132,8 +1124,6 @@ function OfferFilterBar({
             onExcludeInputChange={onExcludeInputChange}
             onMaxPriceInputChange={onMaxPriceInputChange}
             onMinPriceInputChange={onMinPriceInputChange}
-            onMinStockChange={onMinStockChange}
-            onFreshWithinChange={onFreshWithinChange}
             onClearTags={onClearTags}
             onSearchInputChange={onSearchInputChange}
             onToggleTag={onToggle}
@@ -1144,7 +1134,7 @@ function OfferFilterBar({
       <MobileFilterSheet
         open={filterOpen}
         title="筛选渠道报价"
-        description="库存、更新时间、来源、价格和关键词都可组合筛选。"
+        description="来源、价格和关键词可组合筛选；库存与更新时间使用顶部快捷标签。"
         resultCount={total}
         onClose={() => onFilterOpenChange(false)}
         onReset={onClear}
@@ -1156,8 +1146,6 @@ function OfferFilterBar({
           plusChannelFacets={plusChannelFacets}
           selectedTags={selectedTags}
           selectedCollector={selectedCollector}
-          selectedMinStock={selectedMinStock}
-          selectedFreshWithinMinutes={selectedFreshWithinMinutes}
           excludeInput={excludeInput}
           maxPriceInput={maxPriceInput}
           minPriceInput={minPriceInput}
@@ -1166,8 +1154,6 @@ function OfferFilterBar({
           onExcludeInputChange={onExcludeInputChange}
           onMaxPriceInputChange={onMaxPriceInputChange}
           onMinPriceInputChange={onMinPriceInputChange}
-          onMinStockChange={onMinStockChange}
-          onFreshWithinChange={onFreshWithinChange}
           onClearTags={onClearTags}
           onSearchInputChange={onSearchInputChange}
           onToggleTag={onToggle}
@@ -1182,8 +1168,6 @@ function OfferAdvancedFilterFields({
   plusChannelFacets = [],
   selectedTags,
   selectedCollector,
-  selectedMinStock,
-  selectedFreshWithinMinutes,
   excludeInput,
   maxPriceInput,
   minPriceInput,
@@ -1193,8 +1177,6 @@ function OfferAdvancedFilterFields({
   onClearTags,
   onMaxPriceInputChange,
   onMinPriceInputChange,
-  onMinStockChange,
-  onFreshWithinChange,
   onSearchInputChange,
   onToggleTag,
 }: {
@@ -1202,8 +1184,6 @@ function OfferAdvancedFilterFields({
   plusChannelFacets?: OfferFilterTagFacet[];
   selectedTags: OfferFilterTagId[];
   selectedCollector: MerchantCollectorFilter;
-  selectedMinStock: ProductOfferStockThreshold | null;
-  selectedFreshWithinMinutes: ProductOfferFreshnessMinutes | null;
   excludeInput: string;
   maxPriceInput: string;
   minPriceInput: string;
@@ -1213,8 +1193,6 @@ function OfferAdvancedFilterFields({
   onClearTags: (tagIds: OfferFilterTagId[]) => void;
   onMaxPriceInputChange: (value: string) => void;
   onMinPriceInputChange: (value: string) => void;
-  onMinStockChange: (value: ProductOfferStockThreshold | null) => void;
-  onFreshWithinChange: (value: ProductOfferFreshnessMinutes | null) => void;
   onSearchInputChange: (value: string) => void;
   onToggleTag: (tagId: OfferFilterTagId) => void;
 }) {
@@ -1287,76 +1265,6 @@ function OfferAdvancedFilterFields({
           </div>
         </fieldset>
       ) : null}
-
-      <div className={`grid gap-4 border-t border-[#edf0f1] pt-4 ${compact ? "" : "md:grid-cols-2"}`}>
-        <fieldset className="min-w-0">
-          <legend className="text-xs font-semibold text-[#5a6061]">库存数量</legend>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onMinStockChange(null)}
-              aria-pressed={selectedMinStock === null}
-              className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                selectedMinStock === null
-                  ? "bg-[#202829] text-white"
-                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-              }`}
-            >
-              不限
-            </button>
-            {PRODUCT_OFFER_STOCK_THRESHOLDS.map((threshold) => (
-              <button
-                key={threshold}
-                type="button"
-                onClick={() => onMinStockChange(threshold)}
-                aria-pressed={selectedMinStock === threshold}
-                className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                  selectedMinStock === threshold
-                    ? "bg-[#202829] text-white"
-                    : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-                }`}
-              >
-                ≥{threshold}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-xs leading-5 text-[#5a6061]">库存未知的报价不会进入结果。</p>
-        </fieldset>
-
-        <fieldset className="min-w-0">
-          <legend className="text-xs font-semibold text-[#5a6061]">更新时间</legend>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onFreshWithinChange(null)}
-              aria-pressed={selectedFreshWithinMinutes === null}
-              className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                selectedFreshWithinMinutes === null
-                  ? "bg-[#202829] text-white"
-                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-              }`}
-            >
-              不限
-            </button>
-            {PRODUCT_OFFER_FRESHNESS_MINUTES.map((minutes) => (
-              <button
-                key={minutes}
-                type="button"
-                onClick={() => onFreshWithinChange(minutes)}
-                aria-pressed={selectedFreshWithinMinutes === minutes}
-                className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                  selectedFreshWithinMinutes === minutes
-                    ? "bg-[#202829] text-white"
-                    : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-                }`}
-              >
-                {productOfferFreshnessFilterLabel(minutes).replace("内更新", "内")}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-xs leading-5 text-[#5a6061]">按 PriceAI 最近成功确认时间计算。</p>
-        </fieldset>
-      </div>
 
       <div className={compact ? "space-y-4 border-t border-[#edf0f1] pt-4" : "grid gap-4 border-t border-[#edf0f1] pt-3 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.15fr)_auto] lg:items-end"}>
         <fieldset className="min-w-0">
