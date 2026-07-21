@@ -1484,6 +1484,8 @@ async function buildExplorerDataFromSource(): Promise<ExplorerData> {
   const rpcData = await getExplorerDataFromDatabase();
   if (rpcData) return rpcData;
 
+  if (isSupabaseConfigured()) return emptyDegradedExplorerData();
+
   const publicData = await readPublicOfferData();
   const products = buildProductGroups(dedupePublicOffers(publicData.offers), publicData.products);
 
@@ -1495,6 +1497,18 @@ async function buildExplorerDataFromSource(): Promise<ExplorerData> {
     products: products.map(toExplorerProductSummary),
     sources: [],
     offerTotal: publicData.offers.length,
+  };
+}
+
+function emptyDegradedExplorerData(): ExplorerData {
+  return {
+    generatedAt: new Date().toISOString(),
+    configured: isSupabaseConfigured(),
+    degraded: true,
+    message: STALE_PUBLIC_DATA_MESSAGE,
+    products: [],
+    sources: [],
+    offerTotal: 0,
   };
 }
 
@@ -4786,6 +4800,20 @@ async function loadPublicProductOffers(
     return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, rpcData) : rpcData;
   }
 
+  if (isSupabaseConfigured()) {
+    const degradedValue: PublicProductOffersResult = {
+      offers: [],
+      total: 0,
+      filterFacets: [],
+      activeFilterTags: filters.filterTags,
+      limited: false,
+      generatedAt: new Date().toISOString(),
+      degraded: true,
+      message: STALE_PUBLIC_DATA_MESSAGE,
+    };
+    return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, degradedValue) : degradedValue;
+  }
+
   const { limit, offset, filterTags, query, excludeQuery, collector, minPrice, maxPrice, minStock, freshWithinMinutes } = filters;
   const excludeTerms = parseProductOfferKeywords(excludeQuery);
   const publicData = await readPublicOfferData();
@@ -5293,6 +5321,14 @@ async function buildPublicMerchants(options: { skipSnapshot?: boolean } = {}): P
     return staleSnapshotValue ? preferStalePublicMerchants(staleSnapshotValue, compactRpcData) : compactRpcData;
   }
 
+  if (isSupabaseConfigured()) {
+    const degradedValue = emptyCacheOnlyPublicMerchantsResult(
+      PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+      PUBLIC_OFFERS_SNAPSHOT_OFFSET,
+    );
+    return staleSnapshotValue ? preferStalePublicMerchants(staleSnapshotValue, degradedValue) : degradedValue;
+  }
+
   const publicData = await readPublicOfferData();
   const productGroups = buildProductGroups(publicData.offers, publicData.products).map(toExplorerProductSummary);
   const sources = publicData.sources || await listPublicSourcesForOffers(publicData.offers);
@@ -5512,6 +5548,17 @@ function comparePublicMerchantsBySort(a: PublicMerchantSummary, b: PublicMerchan
 async function loadPublicOffers(filters: OfferListFilters & { skipSnapshot?: boolean } = {}): Promise<PublicOffersResult> {
   const rpcData = await listPublicOffersFromDatabase(filters);
   if (rpcData) return rpcData;
+
+  if (isSupabaseConfigured()) {
+    return {
+      rows: [],
+      total: 0,
+      limited: false,
+      generatedAt: new Date().toISOString(),
+      degraded: true,
+      message: STALE_PUBLIC_DATA_MESSAGE,
+    };
+  }
 
   const publicData = await readPublicOfferData();
   const productGroups = buildProductGroups(publicData.offers, publicData.products).map(toExplorerProductSummary);

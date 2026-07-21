@@ -82,10 +82,14 @@ assert(/isPublicApiSnapshotFresh/.test(dataText), "src/lib/data.ts: default publ
 assert(/affectedProductIds/.test(dataText), "src/lib/data.ts: dirty snapshot state must keep affected product IDs for incremental refresh.");
 assert(/resolvePublicSnapshotProductIds/.test(dataText), "src/lib/data.ts: dirty source/offer scopes must resolve to product snapshot refreshes.");
 assert(!/PUBLIC_PRODUCT_OFFERS_SNAPSHOT_PRODUCT_LIMIT/.test(dataText), "src/lib/data.ts: product offer snapshots must warm all products with offers, not only a small top-N subset.");
+assert(/async function buildExplorerDataFromSource[\s\S]{0,300}if \(isSupabaseConfigured\(\)\) return emptyDegradedExplorerData\(\)/.test(dataText), "src/lib/data.ts: explorer RPC failures must not fall through to raw Supabase reads.");
+assert(/async function loadPublicProductOffers[\s\S]{0,3500}if \(isSupabaseConfigured\(\)\) \{[\s\S]{0,500}degraded: true/.test(dataText), "src/lib/data.ts: product offer RPC failures must not fall through to raw Supabase reads.");
+assert(/async function buildPublicMerchants[\s\S]{0,1800}if \(isSupabaseConfigured\(\)\) \{[\s\S]{0,250}emptyCacheOnlyPublicMerchantsResult/.test(dataText), "src/lib/data.ts: merchant RPC failures must not fall through to raw Supabase reads.");
+assert(/async function loadPublicOffers[\s\S]{0,500}if \(isSupabaseConfigured\(\)\) \{[\s\S]{0,250}degraded: true/.test(dataText), "src/lib/data.ts: public offer RPC failures must not fall through to raw Supabase reads.");
 
 const publicApiSnapshotsText = read("src/lib/public-api-snapshots.ts");
 assert(/public_api_snapshots/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: public API snapshots must use the shared snapshot table.");
-assert(/SNAPSHOT_READ_TIMEOUT_MS\s*=\s*2_500/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot reads must keep a short 2.5s timeout.");
+assert(/SNAPSHOT_READ_TIMEOUT_MS\s*=\s*PUBLIC_PRICE_CACHE_ONLY_MODE\s*\?\s*10_000\s*:\s*2_500/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: normal snapshot reads must keep a short 2.5s timeout while explicit incident mode may use 10s.");
 assert(/PUBLIC_API_SNAPSHOT_SCHEMA_VERSION\s*=\s*1/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot schema version must be explicit.");
 assert(/refresh_state/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot dirty state must use the shared snapshot table.");
 
@@ -154,6 +158,7 @@ if (latestFacetMigration) {
 const publicCachePolicyText = read("src/lib/public-cache-policy.ts");
 assert(/PRICE_DATA_EDGE_SECONDS\s*=\s*300/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: price data edge TTL must stay at 300s unless the cost plan is updated.");
 assert(/PRICE_DATA_STALE_SECONDS\s*=\s*1800/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: price data stale window must stay at 1800s unless the cost plan is updated.");
+assert(/PRICE_DATA_DEGRADED_EDGE_SECONDS\s*=\s*60/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: degraded public price responses must use a short 60s edge TTL.");
 assert(/PRICE_DATA_CACHE_TTL_MS\s*=\s*PRICE_DATA_EDGE_SECONDS\s*\*\s*1000/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: client/server TTL must derive from the shared edge TTL.");
 
 const priceExplorerText = read("src/components/PriceExplorer.tsx");

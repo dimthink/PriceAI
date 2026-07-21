@@ -1,4 +1,8 @@
-import { PRICE_DATA_EDGE_SECONDS, PRICE_DATA_STALE_SECONDS } from "./public-cache-policy";
+import {
+  PRICE_DATA_DEGRADED_EDGE_SECONDS,
+  PRICE_DATA_EDGE_SECONDS,
+  PRICE_DATA_STALE_SECONDS,
+} from "./public-cache-policy";
 
 const DEFAULT_PUBLIC_DATA_EDGE_SECONDS = PRICE_DATA_EDGE_SECONDS;
 const DEFAULT_PUBLIC_DATA_STALE_SECONDS = PRICE_DATA_STALE_SECONDS;
@@ -39,5 +43,7 @@ export function priceDataCacheHeaders(): HeadersInit {
 }
 
 export function priceDataCacheHeadersForResult(result: { degraded?: boolean | null } | null | undefined): HeadersInit {
-  return result?.degraded ? noStoreCacheHeaders() : priceDataCacheHeaders();
+  return result?.degraded
+    ? publicDataCacheHeaders({ edgeSeconds: PRICE_DATA_DEGRADED_EDGE_SECONDS, staleSeconds: 0 })
+    : priceDataCacheHeaders();
 }
