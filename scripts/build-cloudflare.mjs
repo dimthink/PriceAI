@@ -12,7 +12,11 @@ assertRequiredEnv(CLOUDFLARE_BUILD_REQUIRED_ENV, "Cloudflare build env");
 
 cleanGeneratedPath(".next/cache/fetch-cache");
 cleanGeneratedPath(".open-next");
-run("Performance guard", process.execPath, ["scripts/check-performance-guards.mjs"]);
+if (process.env.PRICEAI_EMERGENCY_DIRECT !== "true") {
+  run("Performance guard", process.execPath, ["scripts/check-performance-guards.mjs"]);
+} else {
+  console.warn("Skipping performance guard for emergency direct deployment.");
+}
 run("Generate MDX guide content", process.execPath, ["scripts/generate-mdx-guide-content.mjs"]);
 run("OpenNext Cloudflare build", localBin("opennextjs-cloudflare"), ["build"]);
 run("OpenNext Worker export validation", process.execPath, ["scripts/verify-cloudflare-worker-exports.mjs"]);

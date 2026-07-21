@@ -124,6 +124,8 @@ jobs:
         run: npm run lint
 
       - run: npm run build:cloudflare
+        env:
+          PRICEAI_EMERGENCY_DIRECT: ${{ inputs.emergency_direct }}
 
       - name: Upload candidate Worker version
         id: upload
