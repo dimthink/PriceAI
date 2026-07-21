@@ -660,7 +660,7 @@ export async function refreshPublicApiSnapshotsIfDue({
     completedAt,
     dirtiedDuringRefresh,
     globalRefreshed: refreshGlobal && failures.failedGlobalKinds.length === 0,
-    fullRefreshAttempted: mustRunFullRefresh && failures.failedGlobalKinds.length === 0,
+    fullRefreshAttempted: mustRunFullRefresh,
     latestState,
     minIntervalMs,
     previousState: state,
@@ -679,7 +679,6 @@ export async function refreshPublicApiSnapshotsIfDue({
     nextState.lastGlobalRefreshCompletedAt = state.lastGlobalRefreshCompletedAt;
     nextState.lastFullRefreshCompletedAt = state.lastFullRefreshCompletedAt;
     nextState.globalDirty = nextState.globalDirty || failures.failedGlobalKinds.length > 0;
-    nextState.fullRefreshRequired = nextState.fullRefreshRequired || (mustRunFullRefresh && failures.failedGlobalKinds.length > 0);
   }
 
   const refreshStateWritten = await writePublicApiSnapshot({

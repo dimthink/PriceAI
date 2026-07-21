@@ -63,4 +63,12 @@ assert.deepEqual(mergePendingPublicSnapshotProductIds({
   remainingProductIds: ["failed", "still-pending"],
 }), ["still-pending", "failed"], "processed products should clear while remaining failures stay queued");
 
+assert.deepEqual(mergePendingPublicSnapshotProductIds({
+  fullRefreshAttempted: true,
+  previousAffectedProductIds: ["old-scope"],
+  previousFullRefreshRequired: true,
+  processedProductIds: ["first-batch"],
+  remainingProductIds: ["second-batch", "third-batch"],
+}), ["second-batch", "third-batch"], "a failed global snapshot must not restart a successfully expanded product queue");
+
 console.log("public snapshot refresh failure tests passed");
