@@ -7,6 +7,11 @@ on:
         description: "URL to smoke test after deployment"
         required: false
         default: "https://priceai.cc"
+      emergency_direct:
+        description: "Emergency only: skip release gates and promote the built Worker directly"
+        required: false
+        type: boolean
+        default: false
       collector_runtime_base_ref:
         description: "Base ref for collector runtime watchlist preflight"
         required: false
@@ -75,6 +80,7 @@ jobs:
           cache: npm
 
       - name: Collector runtime preflight
+        if: ${{ !inputs.emergency_direct }}
         env:
           COLLECTOR_RUNTIME_BASE_REF: ${{ inputs.collector_runtime_base_ref }}
           COLLECTOR_RUNTIME_SYNC_REF: ${{ inputs.collector_runtime_sync_ref }}
@@ -105,13 +111,17 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run check:cloudflare-env
+      - if: ${{ !inputs.emergency_direct }}
+        run: npm run check:cloudflare-env
 
-      - run: npm run typecheck
+      - if: ${{ !inputs.emergency_direct }}
+        run: npm run typecheck
 
-      - run: npm test
+      - if: ${{ !inputs.emergency_direct }}
+        run: npm test
 
-      - run: npm run lint
+      - if: ${{ !inputs.emergency_direct }}
+        run: npm run lint
 
       - run: npm run build:cloudflare
 
@@ -189,6 +199,7 @@ jobs:
           echo "Candidate Worker version ID artifact is valid."
 
       - name: Stage candidate at zero percent
+        if: ${{ !inputs.emergency_direct }}
         id: stage
         run: |
           set -euo pipefail
@@ -196,6 +207,7 @@ jobs:
           npm run stage:cloudflare -- "$candidate_version_id"
 
       - name: Smoke staged candidate with version override
+        if: ${{ !inputs.emergency_direct }}
         env:
           CLOUDFLARE_SMOKE_VERSION_TAG: ${{ github.sha }}
         run: |
@@ -204,18 +216,29 @@ jobs:
           CLOUDFLARE_SMOKE_VERSION_ID="$candidate_version_id" npm run smoke:cloudflare -- "$CLOUDFLARE_SMOKE_BASE_URL"
 
       - name: Promote staged candidate
+        if: ${{ !inputs.emergency_direct }}
         run: |
           set -euo pipefail
           candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
           npm run promote:cloudflare -- "$candidate_version_id"
 
       - name: Smoke production deployment
+        if: ${{ !inputs.emergency_direct }}
         env:
           CLOUDFLARE_SMOKE_VERSION_TAG: ${{ github.sha }}
         run: |
           set -euo pipefail
           candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
           CLOUDFLARE_SMOKE_VERSION_ID="$candidate_version_id" npm run smoke:cloudflare -- "$CLOUDFLARE_SMOKE_BASE_URL"
+
+      - name: Emergency direct promotion
+        if: ${{ inputs.emergency_direct }}
+        env:
+          CLOUDFLARE_PROMOTE_MESSAGE: Emergency direct PriceAI ${{ github.sha }} without release gates
+        run: |
+          set -euo pipefail
+          candidate_version_id="$(tr -d "\r\n" < .priceai-deploy/cloudflare-version-id)"
+          npm run promote:cloudflare -- "$candidate_version_id"
 
       - name: Roll back previous Worker version
         if: ${{ failure() }}
