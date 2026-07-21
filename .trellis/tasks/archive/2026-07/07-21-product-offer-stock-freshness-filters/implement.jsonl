@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"快捷筛选组件、响应式与无障碍约束"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"URL、服务端、缓存和分页筛选状态约束"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"跨层筛选参数类型与入口校验"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"商品详情公开报价 RPC、fallback 与分页契约"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"Route Handler、快照和边缘缓存键约束"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"库存未知和最近成功确认时间口径"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"前端到数据库的完整筛选数据流"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用现有筛选与时间口径"}

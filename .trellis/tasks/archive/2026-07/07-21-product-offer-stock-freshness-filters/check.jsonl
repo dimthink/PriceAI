@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"公开筛选 UI、390px、lint 与 build 验收"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"筛选切换 race、分页和旧数据保留检查"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"RPC、fallback、payload 与分页验收"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"查询参数进入缓存键和响应头检查"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"成功确认时间与库存未知语义检查"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"migration 和公开 API 发布前检查边界"}
