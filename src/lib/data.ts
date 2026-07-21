@@ -109,6 +109,7 @@ const PUBLIC_DATA_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const EXPLORER_DATA_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const PRODUCT_OFFERS_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const PUBLIC_SUPABASE_READ_TIMEOUT_MS = 2_500;
+const PUBLIC_SUPABASE_REFRESH_READ_TIMEOUT_MS = 15_000;
 const PUBLIC_SUPABASE_BUILD_READ_TIMEOUT_MS = 15_000;
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 const DASHBOARD_DATA_CACHE_TTL_MS = 30_000;
@@ -2199,6 +2200,10 @@ function errorMessage(error: unknown): string {
 
 function publicSupabaseReadSignal(): AbortSignal {
   return AbortSignal.timeout(publicSupabaseReadTimeoutMs());
+}
+
+function publicSupabaseRefreshReadSignal(): AbortSignal {
+  return AbortSignal.timeout(PUBLIC_SUPABASE_REFRESH_READ_TIMEOUT_MS);
 }
 
 function publicSupabaseReadTimeoutMs(): number {
@@ -5587,7 +5592,9 @@ function comparePublicMerchantsBySort(a: PublicMerchantSummary, b: PublicMerchan
 }
 
 async function loadPublicOffers(filters: OfferListFilters & { skipSnapshot?: boolean } = {}): Promise<PublicOffersResult> {
-  const rpcData = await listPublicOffersFromDatabase(filters);
+  const rpcData = await listPublicOffersFromDatabase(filters, {
+    refresh: filters.skipSnapshot === true,
+  });
   if (rpcData) return rpcData;
 
   if (isSupabaseConfigured()) {
@@ -5677,7 +5684,10 @@ async function loadPublicOffers(filters: OfferListFilters & { skipSnapshot?: boo
   };
 }
 
-async function listPublicOffersFromDatabase(filters: OfferListFilters = {}) {
+async function listPublicOffersFromDatabase(
+  filters: OfferListFilters = {},
+  options: { refresh?: boolean } = {},
+) {
   const supabase = getSupabaseServerClient();
   if (!supabase) return null;
 
@@ -5695,7 +5705,7 @@ async function listPublicOffersFromDatabase(filters: OfferListFilters = {}) {
       p_limit: limit,
       p_offset: offset,
     })
-    .abortSignal(publicSupabaseReadSignal());
+    .abortSignal(options.refresh ? publicSupabaseRefreshReadSignal() : publicSupabaseReadSignal());
 
   if (error) {
     console.error("Public offers RPC failed:", error.message);

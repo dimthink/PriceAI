@@ -80,6 +80,8 @@ assert(/inspectPublicSnapshotRefreshFailures/.test(dataText), "src/lib/data.ts: 
 assert(/snapshot refresh incomplete/.test(dataText), "src/lib/data.ts: partial snapshot refresh failures must propagate to the protected refresh endpoint.");
 assert(/PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS\s*=\s*3\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: public API snapshot incremental refresh must stay on the 3 minute cadence.");
 assert(/PUBLIC_API_SNAPSHOT_GLOBAL_REFRESH_MIN_INTERVAL_MS\s*=\s*5\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: explorer/offers snapshot refresh must stay coalesced to 5 minutes.");
+assert(/PUBLIC_SUPABASE_REFRESH_READ_TIMEOUT_MS\s*=\s*15_000/.test(dataText), "src/lib/data.ts: protected snapshot refresh may use a longer 15 second Supabase read window.");
+assert(/options\.refresh\s*\?\s*publicSupabaseRefreshReadSignal\(\)\s*:\s*publicSupabaseReadSignal\(\)/.test(dataText), "src/lib/data.ts: long Supabase reads must be limited to protected background refreshes.");
 assert(/PUBLIC_API_SNAPSHOT_FULL_REFRESH_MAX_INTERVAL_MS\s*=\s*60\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: full public snapshot refresh must remain a low-frequency 60 minute fallback.");
 assert(/PUBLIC_API_SNAPSHOT_MAX_STALE_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS\s*\*\s*2/.test(dataText), "src/lib/data.ts: public API snapshots must stop serving old default snapshots after two public cache TTLs.");
 assert(/PUBLIC_API_SNAPSHOT_PRODUCT_REFRESH_BATCH_SIZE\s*=\s*4/.test(dataText), "src/lib/data.ts: product snapshot refreshes must stay batched to protect Worker CPU.");
@@ -101,6 +103,9 @@ assert(/refresh_state/.test(publicApiSnapshotsText), "src/lib/public-api-snapsho
 
 const publicApiSnapshotsRouteText = read("src/app/api/admin/public-api-snapshots/route.ts");
 assert(/refreshPublicApiSnapshotsIfDue/.test(publicApiSnapshotsRouteText), "src/app/api/admin/public-api-snapshots/route.ts: snapshot refresh endpoint must coalesce dirty writes instead of always refreshing.");
+
+const channelsPageText = read("src/app/channels/page.tsx");
+assert(!/listPublicOffers/.test(channelsPageText), "src/app/channels/page.tsx: the default product view must not prefetch the expensive all-offers list.");
 
 const crawlLogRouteText = read("src/app/api/admin/crawl-log/route.ts");
 assert(/markPublicApiSnapshotsDirty/.test(crawlLogRouteText), "src/app/api/admin/crawl-log/route.ts: crawl-log writes must only mark public snapshots dirty.");
