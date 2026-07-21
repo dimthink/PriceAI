@@ -24,6 +24,7 @@ import { CategoryTabBar, CategoryTabStrip, type CategoryTabItem } from "@/compon
 import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
 import { GuidePromptStrip } from "@/components/GuidePromptStrip";
 import { MerchantFeedbackDialog, OfferActions, OfferFeedbackButton, OfferFeedbackDialog, OfferLink } from "@/components/ProductOffersPanel";
+import { PriceCandleThumbnail, useProductPriceChartSummaries } from "@/components/PriceCandleThumbnail";
 import { SiteHeader } from "@/components/SiteHeader";
 import { clearFeedbackResumeRequest, getFeedbackResumeRequest } from "@/lib/feedback-draft";
 import { listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
@@ -49,6 +50,10 @@ import {
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_MERCHANT_PAGE_SIZE } from "@/lib/public-merchant-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
+import type {
+  PriceHistoryInterval,
+  ProductPriceChartSummary,
+} from "@/lib/price-history";
 import type {
   CanonicalProduct,
   ExplorerData,
@@ -191,6 +196,7 @@ export function PriceExplorer({
   const [minPrice, setMinPrice] = useState(initialState.minPrice ?? "");
   const [maxPrice, setMaxPrice] = useState(initialState.maxPrice ?? "");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [priceHistoryInterval, setPriceHistoryInterval] = useState<PriceHistoryInterval>("1d");
   const initialScopeMode = initialState.scopeMode ?? "products";
   const initialViewMode = normalizeViewModeForScope(initialScopeMode, initialState.viewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
@@ -319,6 +325,12 @@ export function PriceExplorer({
   const scopedMaxPrice = filterScope.showPrice ? maxPrice : "";
   const scopedMerchantCollector = filterScope.showMerchantFilters ? merchantCollector : "all";
   const scopedMerchantSignal = filterScope.showMerchantFilters ? merchantSignal : "all";
+  const priceHistory = useProductPriceChartSummaries({
+    interval: priceHistoryInterval,
+    platform,
+    productType: scopedProductType,
+    enabled: !showingOffers && !showingMerchants,
+  });
   const title = buildTitle(platform, scopedProductType, scopeMode);
   const searchPlaceholder = searchPlaceholderForScope(scopeMode);
   const activeFilterChips = buildActiveFilterChips({
@@ -1100,6 +1112,15 @@ export function PriceExplorer({
           </div>
         ) : null}
 
+        {!showingOffers && !showingMerchants ? (
+          <div className="mb-3 flex items-center justify-end">
+            <PriceHistoryIntervalSwitch
+              interval={priceHistoryInterval}
+              onChange={setPriceHistoryInterval}
+            />
+          </div>
+        ) : null}
+
         {showingMerchants ? (
           merchantsLoading && !visibleMerchantResponse ? (
             <EmptyState text="正在加载商家" />
@@ -1190,13 +1211,30 @@ export function PriceExplorer({
             {renderMobileProductList ? (
               <div className="grid grid-cols-1 gap-3 md:hidden">
                 {products.map((product) => (
-                  <MobileProductCard key={product.id} product={product} returnQuery={explorerQueryString} />
+                  <MobileProductCard
+                    key={product.id}
+                    product={product}
+                    returnQuery={explorerQueryString}
+                    priceSummary={priceHistory.summaries.get(product.id)}
+                    priceHistoryInterval={priceHistoryInterval}
+                    priceHistoryLoading={priceHistory.loading}
+                    priceHistoryError={priceHistory.error}
+                    onPriceHistoryRetry={priceHistory.retry}
+                  />
                 ))}
               </div>
             ) : null}
             {renderDesktopProductTable ? (
               <div className="hidden md:block">
-                <ProductTable products={products} returnQuery={explorerQueryString} />
+                <ProductTable
+                  products={products}
+                  returnQuery={explorerQueryString}
+                  priceSummaries={priceHistory.summaries}
+                  priceHistoryInterval={priceHistoryInterval}
+                  priceHistoryLoading={priceHistory.loading}
+                  priceHistoryError={priceHistory.error}
+                  onPriceHistoryRetry={priceHistory.retry}
+                />
               </div>
             ) : null}
           </>
@@ -1230,20 +1268,31 @@ export function PriceExplorer({
 function ProductTable({
   products,
   returnQuery,
+  priceSummaries,
+  priceHistoryInterval,
+  priceHistoryLoading,
+  priceHistoryError,
+  onPriceHistoryRetry,
 }: {
   products: ExplorerProductSummary[];
   returnQuery: string;
+  priceSummaries: Map<string, ProductPriceChartSummary>;
+  priceHistoryInterval: PriceHistoryInterval;
+  priceHistoryLoading: boolean;
+  priceHistoryError: string | null;
+  onPriceHistoryRetry: () => void;
 }) {
   return (
     <div className="overflow-hidden rounded-lg bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] ring-1 ring-[#adb3b4]/15">
       <div className="overflow-x-auto">
-        <table className="min-w-[1160px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1340px] w-full border-collapse text-left text-sm">
           <thead className="bg-[#f2f4f4] text-[0.68rem] font-semibold text-[#5a6061]">
             <tr>
               <TableHead>标准商品</TableHead>
               <TableHead>平台</TableHead>
               <TableHead>类型</TableHead>
               <TableHead>最低价</TableHead>
+              <TableHead>价格走势</TableHead>
               <TableHead>质保最低价</TableHead>
               <TableHead>库存</TableHead>
               <TableHead>渠道</TableHead>
@@ -1299,6 +1348,15 @@ function ProductTable({
                         {isAvailable ? "有货" : "缺货"}
                       </span>
                     </Link>
+                  </td>
+                  <td className="px-5 py-3">
+                    <PriceCandleThumbnail
+                      summary={priceSummaries.get(product.id)}
+                      interval={priceHistoryInterval}
+                      loading={priceHistoryLoading}
+                      error={priceHistoryError}
+                      onRetry={onPriceHistoryRetry}
+                    />
                   </td>
                   <td className="px-5 py-4">
                     <WarrantyLowestPrice
@@ -2059,9 +2117,19 @@ function RelativeTime({ value }: { value: string | null | undefined }) {
 function MobileProductCard({
   product,
   returnQuery,
+  priceSummary,
+  priceHistoryInterval,
+  priceHistoryLoading,
+  priceHistoryError,
+  onPriceHistoryRetry,
 }: {
   product: ExplorerProductSummary;
   returnQuery: string;
+  priceSummary?: ProductPriceChartSummary;
+  priceHistoryInterval: PriceHistoryInterval;
+  priceHistoryLoading: boolean;
+  priceHistoryError: string | null;
+  onPriceHistoryRetry: () => void;
 }) {
   const previewOffer = product.lowestOffer;
   const available = product.inStockCount > 0;
@@ -2115,6 +2183,16 @@ function MobileProductCard({
         </span>
       </div>
 
+      <div className="pointer-events-none mt-3 border-t border-[#edf0f1] pt-2.5">
+        <PriceCandleThumbnail
+          summary={priceSummary}
+          interval={priceHistoryInterval}
+          loading={priceHistoryLoading}
+          error={priceHistoryError}
+          onRetry={onPriceHistoryRetry}
+        />
+      </div>
+
       <div className="pointer-events-none mt-2.5 flex flex-wrap gap-1.5 text-xs">
         <CountBadge tone="good">有货 {product.inStockCount}</CountBadge>
         <CountBadge tone="danger">缺货 {product.outOfStockCount}</CountBadge>
@@ -2122,6 +2200,34 @@ function MobileProductCard({
       </div>
 
     </article>
+  );
+}
+
+function PriceHistoryIntervalSwitch({
+  interval,
+  onChange,
+}: {
+  interval: PriceHistoryInterval;
+  onChange: (value: PriceHistoryInterval) => void;
+}) {
+  return (
+    <div className="inline-flex h-9 items-center rounded-md bg-[#e8ecec] p-1" aria-label="价格走势周期">
+      {(["1h", "1d"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={interval === value}
+          onClick={() => onChange(value)}
+          className={`h-7 min-w-[58px] rounded px-3 text-xs font-semibold transition ${
+            interval === value
+              ? "bg-white text-[#202829] shadow-[0_3px_12px_rgba(45,52,53,0.08)]"
+              : "text-[#687071] hover:text-[#202829]"
+          }`}
+        >
+          {value === "1h" ? "1小时" : "1天"}
+        </button>
+      ))}
+    </div>
   );
 }
 

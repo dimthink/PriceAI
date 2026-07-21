@@ -32,6 +32,9 @@ assert(
 for (const requiredSql of [
   "create table if not exists canonical_products",
   "create table if not exists raw_offers",
+  "create table if not exists product_price_samples",
+  "create table if not exists product_price_candles",
+  "create or replace function record_product_price_samples",
   "create table if not exists public_user_profiles",
   "create or replace function public.claim_runtime_lease",
   "create or replace function public.consume_feedback_evidence_upload_quota",

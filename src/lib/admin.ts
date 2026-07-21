@@ -584,8 +584,11 @@ export async function upsertRawOffer(input: OfferInput & { sourceId?: string | n
     failureReason: existingManualHidden?.failureReason,
   };
 
-  const { error } = await supabase.from("raw_offers").upsert(toRawOfferRow(offer));
+  const row = toRawOfferRow(offer);
+  const { error } = await supabase.from("raw_offers").upsert(row);
   if (error) throw error;
+
+  await upsertRawOfferConfirmations([row]);
 
   return offer;
 }
@@ -914,6 +917,7 @@ function rawOfferConfirmationRow(row: Record<string, unknown>): Record<string, u
   return compactUndefined({
     raw_offer_id: String(row.id),
     source_id: row.source_id ? String(row.source_id) : null,
+    canonical_product_id: row.canonical_product_id ? String(row.canonical_product_id) : null,
     confirmed_at: confirmedAt,
     captured_at: normalizedDateString(stringOrNull(row.captured_at)) || confirmedAt,
     last_seen_at: normalizedDateString(stringOrNull(row.last_seen_at)) || confirmedAt,
