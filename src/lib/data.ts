@@ -2378,6 +2378,7 @@ function publicMerchantListSnapshotKeyForRequest(filters: MerchantListFilters): 
   const collector = normalizePublicSnapshotMerchantCollector(filters.collector);
   const signal = normalizePublicSnapshotMerchantSignal(filters.signal);
 
+  if (!platform && !stock && !collector && !signal) return PUBLIC_MERCHANTS_SNAPSHOT_KEY;
   if (!isAllowedMerchantListSnapshotView({ platform, stock, collector, signal })) return null;
 
   return publicListViewSnapshotKey("merchants", {
