@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://priceai.cc/price-radar-v1.schema.json",
+  "title": "PriceAI Price Radar v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "generated_at",
+    "published_at",
+    "stale",
+    "ranking_policy_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "price-radar.v1"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 10
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "ranking_policy_version": {
+      "const": "available-non-shared-first.v1"
+    },
+    "snapshot_url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "product_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "products": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/productSummary"
+      }
+    },
+    "resource_count": {
+      "const": 1
+    }
+  },
+  "$defs": {
+    "productSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "slug",
+        "name",
+        "platform",
+        "product_type",
+        "offer_count",
+        "in_stock_count",
+        "lowest_price",
+        "snapshot_generated_at",
+        "total",
+        "top_offers",
+        "presets"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "product_type": {
+          "type": "string"
+        },
+        "spec": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "offer_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "in_stock_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lowest_price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "lowest_offer": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/offer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "latest_seen_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "snapshot_generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "top_offers": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/offer"
+          }
+        },
+        "presets": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/preset"
+          }
+        }
+      }
+    },
+    "preset": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "group",
+        "description",
+        "total",
+        "generated_at",
+        "top_offers"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "group": { "type": "string" },
+        "description": { "type": "string" },
+        "total": { "type": "integer", "minimum": 0 },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "top_offers": {
+          "type": "array",
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/offer" }
+        }
+      }
+    },
+    "offer": {
+      "type": "object",
+      "required": [
+        "id",
+        "source_name",
+        "title",
+        "price",
+        "currency",
+        "status",
+        "url"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_name": {
+          "type": "string"
+        },
+        "source_store_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number",
+          "minimum": 0
+        },
+        "currency": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    }
+  }
+}

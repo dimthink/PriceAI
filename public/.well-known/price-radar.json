@@ -1,0 +1,12 @@
+{
+  "schema_version": "price-radar.discovery.v1",
+  "name": "PriceAI Price Radar",
+  "description": "PriceAI standard product minimum prices, Top 5 offers, and common preset snapshots.",
+  "latest_url": "https://data.priceai.cc/v1/latest.json",
+  "schema_url": "https://priceai.cc/price-radar-v1.schema.json",
+  "documentation_url": "https://priceai.cc/price-radar-api.md",
+  "refresh_interval_seconds": 300,
+  "authentication": "none",
+  "license": "PriceAI public data terms",
+  "homepage": "https://priceai.cc"
+}

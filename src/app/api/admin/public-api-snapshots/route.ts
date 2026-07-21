@@ -3,6 +3,7 @@ import { refreshPublicApiSnapshotsIfDue } from "@/lib/data";
 import { requireAdminOrCronRequest } from "@/lib/env";
 import { revalidatePublicOfferPaths } from "@/lib/public-revalidation";
 import { claimRuntimeLease, createRuntimeLeaseOwner, releaseRuntimeLease } from "@/lib/runtime-lease";
+import { publishPriceRadarSnapshot } from "@/lib/price-radar-storage";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -35,7 +36,10 @@ export async function POST(request: Request) {
     if (result.refreshed) {
       revalidatePublicOfferPaths();
     }
-    return Response.json({ ok: true, ...result });
+    const priceRadar = result.refreshed
+      ? await publishPriceRadarSnapshot()
+      : null;
+    return Response.json({ ok: true, ...result, priceRadar });
   } catch (error) {
     logApiError("admin public api snapshots", error);
     return Response.json(

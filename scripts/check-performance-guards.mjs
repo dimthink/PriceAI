@@ -115,6 +115,21 @@ assert(/refresh_state/.test(publicApiSnapshotsText), "src/lib/public-api-snapsho
 
 const publicApiSnapshotsRouteText = read("src/app/api/admin/public-api-snapshots/route.ts");
 assert(/refreshPublicApiSnapshotsIfDue/.test(publicApiSnapshotsRouteText), "src/app/api/admin/public-api-snapshots/route.ts: snapshot refresh endpoint must coalesce dirty writes instead of always refreshing.");
+assert(/publishPriceRadarSnapshot/.test(publicApiSnapshotsRouteText), "src/app/api/admin/public-api-snapshots/route.ts: protected refresh must publish the anonymous price radar after snapshots are healthy.");
+
+const priceRadarContractText = read("src/lib/price-radar-contract.ts");
+const priceRadarStorageText = read("src/lib/price-radar-storage.ts");
+const wranglerText = read("wrangler.jsonc");
+assert(/PRICE_RADAR_TOP_OFFER_LIMIT\s*=\s*5/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: anonymous rankings must keep a fixed Top 5 payload.");
+assert(/PRICE_RADAR_MAX_PRESETS_PER_PRODUCT\s*=\s*5/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: anonymous preset fanout must stay bounded.");
+assert(!/offerSearchText|riskFeedback|failureReason/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: anonymous price radar must not expose internal search or risk fields.");
+assert(/readPublicApiSnapshotsByKind/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: price radar publishing must read stored snapshots instead of rebuilding public data.");
+assert(!/listPublicOffers|listPublicProductOffers|getExplorerData/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: price radar publishing must not trigger public query or aggregation functions.");
+assert(!/priceRadarPresetTagsForProduct/.test(dataText), "src/lib/data.ts: price radar presets must not multiply snapshot refresh RPCs.");
+assert(/const objects: PriceRadarObject\[\] = \[\{/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: each publication must remain a single immutable data object.");
+assert(/bucket\.head\(PRICE_RADAR_LATEST_KEY\)/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: unchanged snapshots must skip R2 writes.");
+assert(/PRICE_RADAR_LATEST_KEY[\s\S]{0,2600}putJson\(bucket, PRICE_RADAR_LATEST_KEY/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: latest.json must be written only after immutable snapshot objects.");
+assert(/"binding"\s*:\s*"PRICE_RADAR_BUCKET"/.test(wranglerText), "wrangler.jsonc: production Worker must bind the dedicated price radar R2 bucket for publishing.");
 
 const channelsPageText = read("src/app/channels/page.tsx");
 assert(!/listPublicOffers/.test(channelsPageText), "src/app/channels/page.tsx: the default product view must not prefetch the expensive all-offers list.");

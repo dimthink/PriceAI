@@ -35,6 +35,15 @@ GitHub: [physics-dimension/PriceAI](https://github.com/physics-dimension/PriceAI
 - [Product detail pages](https://priceai.cc/products/)
 - [Sitemap](https://priceai.cc/sitemap.xml)
 
+## Machine-readable Price Radar
+
+- [Price Radar discovery](https://priceai.cc/.well-known/price-radar.json)
+- [Latest Price Radar snapshot](https://data.priceai.cc/v1/latest.json)
+- [Price Radar schema](https://priceai.cc/price-radar-v1.schema.json)
+- [Price Radar documentation](https://priceai.cc/price-radar-api.md)
+
+Agents and scripts should use the fixed Price Radar snapshots instead of crawling PriceAI HTML pages or internal `/api/` routes. The anonymous feed contains standard product summaries, current purchasable minimum prices, default Top 5 offers, and a bounded set of common preset rankings. It follows the existing snapshot cadence and does not provide request-time arbitrary queries.
+
 ## Data Boundary
 
 PriceAI does not sell AI subscriptions, does not process payments, and does not guarantee third-party sellers or channels.

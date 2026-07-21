@@ -46,6 +46,7 @@ try {
     merchants: payload.result?.merchants ?? null,
     productIds: payload.result?.productIds?.length || 0,
     productOffers: payload.result?.productOffers?.length || 0,
+    priceRadar: payload.priceRadar || null,
     dirty: payload.state?.dirty ?? null,
     dirtyAt: payload.state?.dirtyAt || null,
     lastRefreshCompletedAt: payload.state?.lastRefreshCompletedAt || null,
@@ -119,6 +120,10 @@ function collectHealthIssues(payload) {
     if (expectedGlobal && (payload.result.explorer === false || payload.result.offers === false)) {
       issues.push("全局快照写入未完全成功");
     }
+  }
+
+  if (payload.priceRadar?.configured === true && payload.priceRadar.published !== true) {
+    issues.push(`价格雷达快照发布失败：${payload.priceRadar.reason || "unknown"}`);
   }
 
   return issues;

@@ -6,6 +6,7 @@ import { PUBLIC_PRICE_CACHE_ONLY_MODE } from "@/lib/public-price-emergency";
 
 const SNAPSHOT_READ_TIMEOUT_MS = PUBLIC_PRICE_CACHE_ONLY_MODE ? 10_000 : 2_500;
 const SNAPSHOT_WRITE_TIMEOUT_MS = 15_000;
+const SNAPSHOT_BATCH_READ_LIMIT = 1000;
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 export const PUBLIC_API_SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -24,7 +25,12 @@ export type PublicApiSnapshotPayload<T> = {
   value: T;
 };
 
+export type PublicApiSnapshotEntry<T> = PublicApiSnapshotPayload<T> & {
+  cacheKey: string;
+};
+
 type PublicApiSnapshotRow = {
+  cache_key?: string | null;
   payload?: unknown;
   generated_at?: string | null;
   schema_version?: number | string | null;
@@ -63,6 +69,41 @@ export async function readPublicApiSnapshot<T>(
     generatedAt: row?.generated_at ? String(row.generated_at) : new Date().toISOString(),
     value: payload as T,
   };
+}
+
+export async function readPublicApiSnapshotsByKind<T>(
+  kind: PublicApiSnapshotKind,
+  { timeoutMs = SNAPSHOT_READ_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): Promise<Array<PublicApiSnapshotEntry<T>>> {
+  if (isProductionBuildPhase()) return [];
+
+  const supabase = getPublicApiSnapshotClient();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from("public_api_snapshots")
+    .select("cache_key,payload,generated_at,schema_version")
+    .eq("kind", kind)
+    .eq("schema_version", PUBLIC_API_SNAPSHOT_SCHEMA_VERSION)
+    .order("cache_key")
+    .limit(SNAPSHOT_BATCH_READ_LIMIT)
+    .abortSignal(AbortSignal.timeout(timeoutMs));
+
+  if (error) {
+    if (!isMissingSnapshotTableError(error.message)) {
+      console.warn("Public API snapshot batch read failed:", error.message);
+    }
+    return [];
+  }
+
+  return ((data || []) as PublicApiSnapshotRow[]).flatMap((row) => {
+    if (!row.cache_key || !row.payload || typeof row.payload !== "object") return [];
+    return [{
+      cacheKey: String(row.cache_key),
+      generatedAt: row.generated_at ? String(row.generated_at) : new Date().toISOString(),
+      value: row.payload as T,
+    }];
+  });
 }
 
 export async function writePublicApiSnapshot<T>({

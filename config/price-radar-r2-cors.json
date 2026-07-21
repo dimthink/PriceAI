@@ -1,0 +1,24 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "methods": [
+          "GET",
+          "HEAD"
+        ],
+        "origins": [
+          "*"
+        ],
+        "headers": [
+          "If-Modified-Since",
+          "If-None-Match"
+        ]
+      },
+      "exposeHeaders": [
+        "ETag",
+        "Last-Modified"
+      ],
+      "maxAgeSeconds": 86400
+    }
+  ]
+}
