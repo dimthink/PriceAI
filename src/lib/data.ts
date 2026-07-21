@@ -56,6 +56,13 @@ import {
   normalizePublicOfferQuery,
   PUBLIC_OFFER_DEFAULT_LIMIT,
 } from "./public-offer-query";
+import {
+  offerMatchesProductOperationalFilters,
+  parseProductOfferFreshnessMinutes,
+  parseProductOfferStockThreshold,
+  type ProductOfferFreshnessMinutes,
+  type ProductOfferStockThreshold,
+} from "./product-offer-filters";
 import { PRICE_DATA_CACHE_TTL_MS } from "./public-cache-policy";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
@@ -435,6 +442,8 @@ type ProductOfferListFilters = {
   collector?: string | null;
   minPrice?: number | null;
   maxPrice?: number | null;
+  minStock?: number | null;
+  freshWithinMinutes?: number | null;
 };
 
 export function clearPublicDataCache(): void {
@@ -1072,6 +1081,8 @@ async function refreshPublicProductOfferSnapshots(
       collector: "all",
       minPrice: null,
       maxPrice: null,
+      minStock: null,
+      freshWithinMinutes: null,
       skipSnapshot: true,
     });
     const defaultKey = publicProductOffersSnapshotKey(product.id);
@@ -2275,6 +2286,8 @@ function publicProductOffersSnapshotKeyForRequest(
     collector: MerchantCollectorFilter;
     minPrice: number | null;
     maxPrice: number | null;
+    minStock: ProductOfferStockThreshold | null;
+    freshWithinMinutes: ProductOfferFreshnessMinutes | null;
   },
 ): string | null {
   if (
@@ -2284,7 +2297,9 @@ function publicProductOffersSnapshotKeyForRequest(
     filters.excludeQuery ||
     filters.collector !== "all" ||
     filters.minPrice !== null ||
-    filters.maxPrice !== null
+    filters.maxPrice !== null ||
+    filters.minStock !== null ||
+    filters.freshWithinMinutes !== null
   ) {
     return null;
   }
@@ -4598,7 +4613,9 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   const collector = parseMerchantCollectorFilter(filters.collector);
   const minPrice = normalizeProductOfferPriceFilter(filters.minPrice);
   const maxPrice = normalizeProductOfferPriceFilter(filters.maxPrice);
-  const cacheKey = `${id}:${limit}:${offset}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice ?? "none"}:${maxPrice ?? "none"}:offer-filter-v9-ai-subscription-tags`;
+  const minStock = parseProductOfferStockThreshold(filters.minStock);
+  const freshWithinMinutes = parseProductOfferFreshnessMinutes(filters.freshWithinMinutes);
+  const cacheKey = `${id}:${limit}:${offset}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice ?? "none"}:${maxPrice ?? "none"}:${minStock ?? "none"}:${freshWithinMinutes ?? "none"}:offer-filter-v10-operational`;
   const now = Date.now();
   const cached = productOffersCache.get(cacheKey);
 
@@ -4607,7 +4624,19 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   }
 
   const staleValue = cached?.value || null;
-  const value = await loadPublicProductOffers(id, { limit, offset, filterTags, filterProductId, query, excludeQuery, collector, minPrice, maxPrice });
+  const value = await loadPublicProductOffers(id, {
+    limit,
+    offset,
+    filterTags,
+    filterProductId,
+    query,
+    excludeQuery,
+    collector,
+    minPrice,
+    maxPrice,
+    minStock,
+    freshWithinMinutes,
+  });
   const nextValue = sanitizePublicProductOffersResultForProduct(filterProductId, preferStaleProductOffers(staleValue, value));
   if (!nextValue.degraded) {
     productOffersCache.set(cacheKey, {
@@ -4638,6 +4667,8 @@ async function loadPublicProductOffers(
     collector: MerchantCollectorFilter;
     minPrice: number | null;
     maxPrice: number | null;
+    minStock: ProductOfferStockThreshold | null;
+    freshWithinMinutes: ProductOfferFreshnessMinutes | null;
     skipSnapshot?: boolean;
   },
 ) : Promise<PublicProductOffersResult> {
@@ -4668,7 +4699,7 @@ async function loadPublicProductOffers(
     return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, rpcData) : rpcData;
   }
 
-  const { limit, offset, filterTags, query, excludeQuery, collector, minPrice, maxPrice } = filters;
+  const { limit, offset, filterTags, query, excludeQuery, collector, minPrice, maxPrice, minStock, freshWithinMinutes } = filters;
   const excludeTerms = parseProductOfferKeywords(excludeQuery);
   const publicData = await readPublicOfferData();
   const products = publicData.products.length ? publicData.products : canonicalCatalog;
@@ -4699,7 +4730,8 @@ async function loadPublicProductOffers(
     .filter((offer) => offerMatchesProductOfferQuery(offer, query))
     .filter((offer) => offerMatchesProductOfferExcludeQuery(offer, excludeTerms))
     .filter((offer) => offerMatchesProductOfferCollector(offer, collector))
-    .filter((offer) => offerMatchesProductOfferPriceRange(offer, minPrice, maxPrice));
+    .filter((offer) => offerMatchesProductOfferPriceRange(offer, minPrice, maxPrice))
+    .filter((offer) => offerMatchesProductOperationalFilters(offer, minStock, freshWithinMinutes));
   const total = offers.length;
   const page = offers.slice(offset, offset + limit);
 
@@ -4736,6 +4768,8 @@ async function getPublicProductOffersFromDatabase(
     collector: MerchantCollectorFilter;
     minPrice: number | null;
     maxPrice: number | null;
+    minStock: ProductOfferStockThreshold | null;
+    freshWithinMinutes: ProductOfferFreshnessMinutes | null;
   },
 ): Promise<PublicProductOffersResult | null> {
   if (!isPublicProductKeyVisible(id) || !isPublicProductKeyVisible(filters.filterProductId)) {
@@ -4762,7 +4796,9 @@ async function getPublicProductOffersFromDatabase(
     filters.excludeQuery.length > 0 ||
     filters.collector !== "all" ||
     filters.minPrice !== null ||
-    filters.maxPrice !== null;
+    filters.maxPrice !== null ||
+    filters.minStock !== null ||
+    filters.freshWithinMinutes !== null;
   const rpcName = hasServerFilters
     ? "list_public_product_offers_page_v2"
     : "list_public_product_offers_page";
@@ -4775,6 +4811,8 @@ async function getPublicProductOffersFromDatabase(
         p_collector: filters.collector === "all" ? null : filters.collector,
         p_min_price: filters.minPrice,
         p_max_price: filters.maxPrice,
+        p_min_stock: filters.minStock,
+        p_fresh_within_minutes: filters.freshWithinMinutes,
         p_limit: filters.limit,
         p_offset: filters.offset,
       }

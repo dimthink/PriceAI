@@ -9,6 +9,7 @@ import { parseMerchantCollectorFilter } from "@/lib/merchant-collectors";
 import { parseOfferFilterTags } from "@/lib/offer-filter-tags";
 import { PRICE_DATA_EDGE_SECONDS } from "@/lib/public-cache-policy";
 import { normalizePublicOfferQuery, PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
+import { parseProductOfferFreshnessMinutes, parseProductOfferStockThreshold } from "@/lib/product-offer-filters";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,6 +27,8 @@ export async function GET(
     collector: parseMerchantCollectorFilter(searchParams.get("collector")),
     minPrice: parseNumberParam(searchParams.get("min")),
     maxPrice: parseNumberParam(searchParams.get("max")),
+    minStock: parseProductOfferStockThreshold(searchParams.get("minStock")),
+    freshWithinMinutes: parseProductOfferFreshnessMinutes(searchParams.get("freshWithin")),
   };
   const cachePagination = cachePaginationParams(searchParams);
 
@@ -39,6 +42,8 @@ export async function GET(
       collector: normalized.collector === "all" ? null : normalized.collector,
       min: normalized.minPrice,
       max: normalized.maxPrice,
+      minStock: normalized.minStock,
+      freshWithin: normalized.freshWithinMinutes,
       limit: cachePagination.limit,
       offset: cachePagination.offset,
     }),
@@ -55,6 +60,8 @@ export async function GET(
           collector: normalized.collector,
           minPrice: normalized.minPrice,
           maxPrice: normalized.maxPrice,
+          minStock: normalized.minStock,
+          freshWithinMinutes: normalized.freshWithinMinutes,
         });
 
         return NextResponse.json(result, {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ExternalLink, Filter, Flag, ShieldAlert, X } from "lucide-react";
+import { AlertTriangle, Boxes, Clock3, ExternalLink, Filter, Flag, ShieldAlert, X } from "lucide-react";
 import { type ClipboardEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { CommunityPrompt } from "@/components/FeedbackLink";
 import { FeedbackEvidenceUploader } from "@/components/FeedbackEvidenceUploader";
@@ -54,6 +54,17 @@ import {
 } from "@/lib/feedback-draft";
 import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
+import {
+  PRODUCT_OFFER_FRESHNESS_MINUTES,
+  PRODUCT_OFFER_STOCK_THRESHOLDS,
+  parseProductOfferFreshnessMinutes,
+  parseProductOfferStockThreshold,
+  productOfferFreshnessFilterLabel,
+  productOfferPublicTimestamp,
+  productOfferStockFilterLabel,
+  type ProductOfferFreshnessMinutes,
+  type ProductOfferStockThreshold,
+} from "@/lib/product-offer-filters";
 import { hasMoreProductOfferPage, mergeProductOfferPages } from "@/lib/product-offer-pagination";
 import { useDialogFocus } from "@/lib/use-dialog-focus";
 import { useFeedbackEvidenceUpload } from "@/lib/use-feedback-evidence-upload";
@@ -100,6 +111,8 @@ export function ProductOffersPanel({
   initialCollector = "all",
   initialMinPrice = "",
   initialMaxPrice = "",
+  initialMinStock = null,
+  initialFreshWithinMinutes = null,
 }: {
   productId: string;
   productSlug: string;
@@ -112,6 +125,8 @@ export function ProductOffersPanel({
   initialCollector?: string;
   initialMinPrice?: string;
   initialMaxPrice?: string;
+  initialMinStock?: number | null;
+  initialFreshWithinMinutes?: number | null;
 }) {
   const normalizedInitialFilterTags = useMemo(() => parseOfferFilterTagsForProduct(productId, initialFilterTags), [initialFilterTags, productId]);
   const normalizedInitialQuery = useMemo(() => normalizeOfferSearchQuery(initialQuery), [initialQuery]);
@@ -119,6 +134,11 @@ export function ProductOffersPanel({
   const normalizedInitialCollector = useMemo(() => parseMerchantCollectorFilter(initialCollector), [initialCollector]);
   const normalizedInitialMinPrice = useMemo(() => normalizeOfferPriceInput(initialMinPrice), [initialMinPrice]);
   const normalizedInitialMaxPrice = useMemo(() => normalizeOfferPriceInput(initialMaxPrice), [initialMaxPrice]);
+  const normalizedInitialMinStock = useMemo(() => parseProductOfferStockThreshold(initialMinStock), [initialMinStock]);
+  const normalizedInitialFreshWithinMinutes = useMemo(
+    () => parseProductOfferFreshnessMinutes(initialFreshWithinMinutes),
+    [initialFreshWithinMinutes],
+  );
   const [selectedFilterTags, setSelectedFilterTags] = useState<OfferFilterTagId[]>(normalizedInitialFilterTags);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedCollector, setSelectedCollector] = useState<MerchantCollectorFilter>(normalizedInitialCollector);
@@ -126,6 +146,8 @@ export function ProductOffersPanel({
   const [excludeInput, setExcludeInput] = useState(normalizedInitialExcludeQuery);
   const [minPriceInput, setMinPriceInput] = useState(normalizedInitialMinPrice);
   const [maxPriceInput, setMaxPriceInput] = useState(normalizedInitialMaxPrice);
+  const [selectedMinStock, setSelectedMinStock] = useState<ProductOfferStockThreshold | null>(normalizedInitialMinStock);
+  const [selectedFreshWithinMinutes, setSelectedFreshWithinMinutes] = useState<ProductOfferFreshnessMinutes | null>(normalizedInitialFreshWithinMinutes);
   const [offerQuery, setOfferQuery] = useState(normalizedInitialQuery);
   const [offerExcludeQuery, setOfferExcludeQuery] = useState(normalizedInitialExcludeQuery);
   const [offerMinPrice, setOfferMinPrice] = useState(normalizedInitialMinPrice);
@@ -145,6 +167,8 @@ export function ProductOffersPanel({
     normalizedInitialCollector,
     normalizedInitialMinPrice,
     normalizedInitialMaxPrice,
+    normalizedInitialMinStock,
+    normalizedInitialFreshWithinMinutes,
   );
   const activeCacheKey = productOffersCacheKey(
     productId,
@@ -155,6 +179,8 @@ export function ProductOffersPanel({
     selectedCollector,
     offerMinPriceKey,
     offerMaxPriceKey,
+    selectedMinStock,
+    selectedFreshWithinMinutes,
   );
   const activeCacheKeyRef = useRef(activeCacheKey);
   const cachedInitialData = newestUsableGeneratedDataset(productOffersMemoryCache.get(initialCacheKey), initialData);
@@ -191,7 +217,11 @@ export function ProductOffersPanel({
     const nextCollector = parseMerchantCollectorFilter(urlFilters.collector);
     const nextMinPrice = normalizeOfferPriceInput(urlFilters.minPrice);
     const nextMaxPrice = normalizeOfferPriceInput(urlFilters.maxPrice);
-    const hasUrlFilters = nextFilterTags.length > 0 || Boolean(nextQuery || nextExcludeQuery || nextMinPrice || nextMaxPrice || nextCollector !== "all");
+    const nextMinStock = parseProductOfferStockThreshold(urlFilters.minStock);
+    const nextFreshWithinMinutes = parseProductOfferFreshnessMinutes(urlFilters.freshWithinMinutes);
+    const hasUrlFilters = nextFilterTags.length > 0 || Boolean(
+      nextQuery || nextExcludeQuery || nextMinPrice || nextMaxPrice || nextCollector !== "all" || nextMinStock || nextFreshWithinMinutes,
+    );
     if (!hasUrlFilters) return;
 
     const frameId = window.requestAnimationFrame(() => {
@@ -201,6 +231,8 @@ export function ProductOffersPanel({
       setExcludeInput(nextExcludeQuery);
       setMinPriceInput(nextMinPrice);
       setMaxPriceInput(nextMaxPrice);
+      setSelectedMinStock(nextMinStock);
+      setSelectedFreshWithinMinutes(nextFreshWithinMinutes);
       setOfferQuery(nextQuery);
       setOfferExcludeQuery(nextExcludeQuery);
       setOfferMinPrice(nextMinPrice);
@@ -217,7 +249,18 @@ export function ProductOffersPanel({
     const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
     const minPrice = normalizeOfferPriceInput(offerMinPrice);
     const maxPrice = normalizeOfferPriceInput(offerMaxPrice);
-    const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
+    const cacheKey = productOffersCacheKey(
+      productId,
+      0,
+      filterTags,
+      query,
+      excludeQuery,
+      selectedCollector,
+      minPrice,
+      maxPrice,
+      selectedMinStock,
+      selectedFreshWithinMinutes,
+    );
     let cancelRefresh: (() => void) | null = null;
     let active = true;
 
@@ -229,7 +272,9 @@ export function ProductOffersPanel({
         excludeQuery === normalizedInitialExcludeQuery &&
         selectedCollector === normalizedInitialCollector &&
         minPrice === normalizedInitialMinPrice &&
-        maxPrice === normalizedInitialMaxPrice;
+        maxPrice === normalizedInitialMaxPrice &&
+        selectedMinStock === normalizedInitialMinStock &&
+        selectedFreshWithinMinutes === normalizedInitialFreshWithinMinutes;
       const cachedData = newestUsableGeneratedDataset(
         productOffersMemoryCache.get(cacheKey),
         shouldUseInitialData ? initialData : null,
@@ -251,7 +296,19 @@ export function ProductOffersPanel({
       cancelRefresh = timeout.cancel;
 
       try {
-        const nextData = await fetchProductOfferPage(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice, timeout.signal);
+        const nextData = await fetchProductOfferPage(
+          productId,
+          0,
+          filterTags,
+          query,
+          excludeQuery,
+          selectedCollector,
+          minPrice,
+          maxPrice,
+          selectedMinStock,
+          selectedFreshWithinMinutes,
+          timeout.signal,
+        );
         if (!active) return;
         const latestData = newestUsableGeneratedDataset(nextData, productOffersMemoryCache.get(cacheKey)) ?? nextData;
         rememberHealthyProductOffers(cacheKey, latestData);
@@ -287,6 +344,8 @@ export function ProductOffersPanel({
     normalizedInitialExcludeQuery,
     normalizedInitialCollector,
     normalizedInitialMaxPrice,
+    normalizedInitialMinStock,
+    normalizedInitialFreshWithinMinutes,
     normalizedInitialMinPrice,
     normalizedInitialQuery,
     offerExcludeQuery,
@@ -295,6 +354,8 @@ export function ProductOffersPanel({
     offerQuery,
     productId,
     selectedCollector,
+    selectedMinStock,
+    selectedFreshWithinMinutes,
     selectedFilterKey,
   ]);
 
@@ -317,7 +378,9 @@ export function ProductOffersPanel({
     });
     return () => window.cancelAnimationFrame(frameId);
   }, [feedbackOffer, offers]);
-  const total = visibleData?.total ?? (selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all") ? 0 : initialCount);
+  const total = visibleData?.total ?? (selectedFilterTags.length > 0 || Boolean(
+    offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all" || selectedMinStock || selectedFreshWithinMinutes,
+  ) ? 0 : initialCount);
   const filterFacets = productOfferFilterFacets(
     activeData?.filterFacets,
     data?.filterFacets,
@@ -325,7 +388,9 @@ export function ProductOffersPanel({
     selectedFilterTags,
   );
   const hasMore = activeData ? !loading && hasMoreProductOfferPage(activeData) : false;
-  const activeFilters = selectedFilterTags.length > 0 || Boolean(offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all");
+  const activeFilters = selectedFilterTags.length > 0 || Boolean(
+    offerQueryKey || offerExcludeQueryKey || offerMinPriceKey || offerMaxPriceKey || selectedCollector !== "all" || selectedMinStock || selectedFreshWithinMinutes,
+  );
 
   const loadMoreOffers = useCallback(async () => {
     if (!activeData || loading || paging || offers.length >= total) return;
@@ -334,7 +399,18 @@ export function ProductOffersPanel({
     const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
     const minPrice = normalizeOfferPriceInput(offerMinPrice);
     const maxPrice = normalizeOfferPriceInput(offerMaxPrice);
-    const requestCacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
+    const requestCacheKey = productOffersCacheKey(
+      productId,
+      0,
+      filterTags,
+      query,
+      excludeQuery,
+      selectedCollector,
+      minPrice,
+      maxPrice,
+      selectedMinStock,
+      selectedFreshWithinMinutes,
+    );
     if (dataCacheKey !== requestCacheKey) return;
     if (pagingControllerRef.current) return;
 
@@ -344,7 +420,19 @@ export function ProductOffersPanel({
     setError(null);
 
     try {
-      const nextPage = await fetchProductOfferPage(productId, offers.length, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice, controller.signal);
+      const nextPage = await fetchProductOfferPage(
+        productId,
+        offers.length,
+        filterTags,
+        query,
+        excludeQuery,
+        selectedCollector,
+        minPrice,
+        maxPrice,
+        selectedMinStock,
+        selectedFreshWithinMinutes,
+        controller.signal,
+      );
       if (activeCacheKeyRef.current !== requestCacheKey) return;
       setData((current) => {
         if (activeCacheKeyRef.current !== requestCacheKey) return current;
@@ -352,7 +440,18 @@ export function ProductOffersPanel({
 
         const mergedData = mergeProductOfferPages(current, nextPage);
 
-        const cacheKey = productOffersCacheKey(productId, 0, filterTags, query, excludeQuery, selectedCollector, minPrice, maxPrice);
+        const cacheKey = productOffersCacheKey(
+          productId,
+          0,
+          filterTags,
+          query,
+          excludeQuery,
+          selectedCollector,
+          minPrice,
+          maxPrice,
+          selectedMinStock,
+          selectedFreshWithinMinutes,
+        );
         rememberHealthyProductOffers(cacheKey, mergedData);
 
         return mergedData;
@@ -365,21 +464,21 @@ export function ProductOffersPanel({
       if (pagingControllerRef.current === controller) pagingControllerRef.current = null;
       if (!controller.signal.aborted && activeCacheKeyRef.current === requestCacheKey) setPaging(false);
     }
-  }, [activeData, dataCacheKey, loading, offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, offers.length, paging, productId, selectedCollector, selectedFilterTags, total]);
+  }, [activeData, dataCacheKey, loading, offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, offers.length, paging, productId, selectedCollector, selectedFilterTags, selectedFreshWithinMinutes, selectedMinStock, total]);
 
   const handleToggleFilterTag = useCallback((tagId: OfferFilterTagId) => {
     const nextTags = toggleOfferFilterTag(selectedFilterTags, tagId);
     setSelectedFilterTags(nextTags);
-    syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice);
-  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags]);
+    syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice, selectedMinStock, selectedFreshWithinMinutes);
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags, selectedFreshWithinMinutes, selectedMinStock]);
 
   const handleClearFilterTags = useCallback((tagIds: OfferFilterTagId[]) => {
     if (!tagIds.length) return;
     const removeIds = new Set(tagIds);
     const nextTags = selectedFilterTags.filter((tagId) => !removeIds.has(tagId));
     setSelectedFilterTags(nextTags);
-    syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice);
-  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags]);
+    syncOfferFiltersToUrl(nextTags, offerQuery, offerExcludeQuery, selectedCollector, offerMinPrice, offerMaxPrice, selectedMinStock, selectedFreshWithinMinutes);
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags, selectedFreshWithinMinutes, selectedMinStock]);
 
   const applyOfferFilters = useCallback(() => {
     const nextQuery = normalizeOfferSearchQuery(queryInput);
@@ -394,8 +493,17 @@ export function ProductOffersPanel({
     setOfferExcludeQuery(nextExcludeQuery);
     setOfferMinPrice(nextMinPrice);
     setOfferMaxPrice(nextMaxPrice);
-    syncOfferFiltersToUrl(selectedFilterTags, nextQuery, nextExcludeQuery, selectedCollector, nextMinPrice, nextMaxPrice);
-  }, [excludeInput, maxPriceInput, minPriceInput, queryInput, selectedCollector, selectedFilterTags]);
+    syncOfferFiltersToUrl(
+      selectedFilterTags,
+      nextQuery,
+      nextExcludeQuery,
+      selectedCollector,
+      nextMinPrice,
+      nextMaxPrice,
+      selectedMinStock,
+      selectedFreshWithinMinutes,
+    );
+  }, [excludeInput, maxPriceInput, minPriceInput, queryInput, selectedCollector, selectedFilterTags, selectedFreshWithinMinutes, selectedMinStock]);
 
   const handleSearchSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -409,8 +517,36 @@ export function ProductOffersPanel({
 
   const handleCollectorChange = useCallback((collector: MerchantCollectorFilter) => {
     setSelectedCollector(collector);
-    syncOfferFiltersToUrl(selectedFilterTags, offerQuery, offerExcludeQuery, collector, offerMinPrice, offerMaxPrice);
-  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedFilterTags]);
+    syncOfferFiltersToUrl(selectedFilterTags, offerQuery, offerExcludeQuery, collector, offerMinPrice, offerMaxPrice, selectedMinStock, selectedFreshWithinMinutes);
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedFilterTags, selectedFreshWithinMinutes, selectedMinStock]);
+
+  const handleMinStockChange = useCallback((minStock: ProductOfferStockThreshold | null) => {
+    setSelectedMinStock(minStock);
+    syncOfferFiltersToUrl(
+      selectedFilterTags,
+      offerQuery,
+      offerExcludeQuery,
+      selectedCollector,
+      offerMinPrice,
+      offerMaxPrice,
+      minStock,
+      selectedFreshWithinMinutes,
+    );
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags, selectedFreshWithinMinutes]);
+
+  const handleFreshWithinChange = useCallback((freshWithinMinutes: ProductOfferFreshnessMinutes | null) => {
+    setSelectedFreshWithinMinutes(freshWithinMinutes);
+    syncOfferFiltersToUrl(
+      selectedFilterTags,
+      offerQuery,
+      offerExcludeQuery,
+      selectedCollector,
+      offerMinPrice,
+      offerMaxPrice,
+      selectedMinStock,
+      freshWithinMinutes,
+    );
+  }, [offerExcludeQuery, offerMaxPrice, offerMinPrice, offerQuery, selectedCollector, selectedFilterTags, selectedMinStock]);
 
   const clearOfferFilters = useCallback(() => {
     setSelectedFilterTags([]);
@@ -423,8 +559,10 @@ export function ProductOffersPanel({
     setOfferExcludeQuery("");
     setOfferMinPrice("");
     setOfferMaxPrice("");
+    setSelectedMinStock(null);
+    setSelectedFreshWithinMinutes(null);
     setFilterOpen(false);
-    syncOfferFiltersToUrl([], "", "", "all", "", "");
+    syncOfferFiltersToUrl([], "", "", "all", "", "", null, null);
   }, []);
 
   if (loading && !data) {
@@ -454,6 +592,8 @@ export function ProductOffersPanel({
         facets={filterFacets}
         selectedTags={selectedFilterTags}
         selectedCollector={selectedCollector}
+        selectedMinStock={selectedMinStock}
+        selectedFreshWithinMinutes={selectedFreshWithinMinutes}
         total={total}
         active={activeFilters}
         pending={loading || !visibleData}
@@ -472,6 +612,8 @@ export function ProductOffersPanel({
         onFilterOpenChange={setFilterOpen}
         onMaxPriceInputChange={setMaxPriceInput}
         onMinPriceInputChange={setMinPriceInput}
+        onMinStockChange={handleMinStockChange}
+        onFreshWithinChange={handleFreshWithinChange}
         onApply={applyOfferFiltersAndClose}
         onSearchInputChange={setQueryInput}
         onSearchSubmit={handleSearchSubmit}
@@ -552,6 +694,8 @@ async function fetchProductOfferPage(
   collector: MerchantCollectorFilter = "all",
   minPrice = "",
   maxPrice = "",
+  minStock: ProductOfferStockThreshold | null = null,
+  freshWithinMinutes: ProductOfferFreshnessMinutes | null = null,
   signal?: AbortSignal,
 ): Promise<ProductOffersResponse> {
   const params = new URLSearchParams({
@@ -564,6 +708,8 @@ async function fetchProductOfferPage(
   if (collector !== "all") params.set("collector", collector);
   if (minPrice) params.set("min", minPrice);
   if (maxPrice) params.set("max", maxPrice);
+  if (minStock !== null) params.set("minStock", String(minStock));
+  if (freshWithinMinutes !== null) params.set("freshWithin", String(freshWithinMinutes));
   const response = await fetch(`/api/products/${encodeURIComponent(productId)}/offers?${params.toString()}`, {
     signal,
   });
@@ -582,8 +728,10 @@ function productOffersCacheKey(
   collector: MerchantCollectorFilter = "all",
   minPrice = "",
   maxPrice = "",
+  minStock: ProductOfferStockThreshold | null = null,
+  freshWithinMinutes: ProductOfferFreshnessMinutes | null = null,
 ): string {
-  return `priceai:product-offers:v15-plus-account-state:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice || "none"}:${maxPrice || "none"}`;
+  return `priceai:product-offers:v16-operational:${productId}:${offset}:${OFFER_PAGE_SIZE}:${filterTags.join(",") || "all"}:${query || "none"}:${excludeQuery || "none"}:${collector}:${minPrice || "none"}:${maxPrice || "none"}:${minStock ?? "none"}:${freshWithinMinutes ?? "none"}`;
 }
 
 function productOfferFilterFacets(
@@ -696,6 +844,8 @@ function readOfferFiltersFromUrl(): {
   collector: string | null;
   minPrice: string;
   maxPrice: string;
+  minStock: string | null;
+  freshWithinMinutes: string | null;
 } | null {
   if (typeof window === "undefined") return null;
 
@@ -707,6 +857,8 @@ function readOfferFiltersFromUrl(): {
     collector: params.get("collector"),
     minPrice: params.get("min") || "",
     maxPrice: params.get("max") || "",
+    minStock: params.get("minStock"),
+    freshWithinMinutes: params.get("freshWithin"),
   };
 }
 
@@ -717,6 +869,8 @@ function syncOfferFiltersToUrl(
   collector: MerchantCollectorFilter,
   minPrice: string,
   maxPrice: string,
+  minStock: ProductOfferStockThreshold | null,
+  freshWithinMinutes: ProductOfferFreshnessMinutes | null,
 ) {
   if (typeof window === "undefined") return;
 
@@ -755,6 +909,16 @@ function syncOfferFiltersToUrl(
   } else {
     url.searchParams.delete("max");
   }
+  if (minStock !== null) {
+    url.searchParams.set("minStock", String(minStock));
+  } else {
+    url.searchParams.delete("minStock");
+  }
+  if (freshWithinMinutes !== null) {
+    url.searchParams.set("freshWithin", String(freshWithinMinutes));
+  } else {
+    url.searchParams.delete("freshWithin");
+  }
 
   window.history.replaceState(window.history.state, "", url);
 }
@@ -764,6 +928,8 @@ function OfferFilterBar({
   facets,
   selectedTags,
   selectedCollector,
+  selectedMinStock,
+  selectedFreshWithinMinutes,
   total,
   active,
   pending,
@@ -782,6 +948,8 @@ function OfferFilterBar({
   onFilterOpenChange,
   onMaxPriceInputChange,
   onMinPriceInputChange,
+  onMinStockChange,
+  onFreshWithinChange,
   onApply,
   onClearTags,
   onSearchInputChange,
@@ -792,6 +960,8 @@ function OfferFilterBar({
   facets: OfferFilterTagFacet[];
   selectedTags: OfferFilterTagId[];
   selectedCollector: MerchantCollectorFilter;
+  selectedMinStock: ProductOfferStockThreshold | null;
+  selectedFreshWithinMinutes: ProductOfferFreshnessMinutes | null;
   total: number;
   active: boolean;
   pending: boolean;
@@ -810,6 +980,8 @@ function OfferFilterBar({
   onFilterOpenChange: (open: boolean) => void;
   onMaxPriceInputChange: (value: string) => void;
   onMinPriceInputChange: (value: string) => void;
+  onMinStockChange: (value: ProductOfferStockThreshold | null) => void;
+  onFreshWithinChange: (value: ProductOfferFreshnessMinutes | null) => void;
   onApply: () => void;
   onClearTags: (tagIds: OfferFilterTagId[]) => void;
   onSearchInputChange: (value: string) => void;
@@ -832,14 +1004,21 @@ function OfferFilterBar({
       })
     : [];
   const advancedTagIds = new Set(plusChannelFacets.map((facet) => facet.id));
-  const activeAdvancedChips = buildOfferActiveFilterChips({
-    selectedTags: selectedTags.filter((tagId) => advancedTagIds.has(tagId)),
-    selectedCollector,
-    queryInput: activeQuery,
-    excludeInput: activeExcludeQuery,
-    minPriceInput: activeMinPrice,
-    maxPriceInput: activeMaxPrice,
-  });
+  const stockQuickActive = selectedMinStock === 50;
+  const freshnessQuickActive = selectedFreshWithinMinutes === 60;
+  const activeAdvancedChips = [
+    ...buildOfferActiveFilterChips({
+      selectedTags: selectedTags.filter((tagId) => advancedTagIds.has(tagId)),
+      selectedCollector,
+      queryInput: activeQuery,
+      excludeInput: activeExcludeQuery,
+      minPriceInput: activeMinPrice,
+      maxPriceInput: activeMaxPrice,
+    }),
+    selectedMinStock !== null && !stockQuickActive ? productOfferStockFilterLabel(selectedMinStock) : null,
+    selectedFreshWithinMinutes !== null && !freshnessQuickActive ? productOfferFreshnessFilterLabel(selectedFreshWithinMinutes) : null,
+  ].filter((chip): chip is string => Boolean(chip));
+  const advancedFilterCount = activeAdvancedChips.length + Number(stockQuickActive) + Number(freshnessQuickActive);
 
   return (
     <section className="mt-3 border-y border-[#e5eaea] py-3 md:mt-5">
@@ -851,15 +1030,45 @@ function OfferFilterBar({
               onClick={() => onFilterOpenChange(!filterOpen)}
               aria-expanded={filterOpen}
               className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition ${
-                filterOpen || activeAdvancedChips.length > 0
+                filterOpen || advancedFilterCount > 0
                   ? "bg-[#202829] text-white"
                   : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
               }`}
             >
               <Filter size={15} />
-              筛选{activeAdvancedChips.length ? ` ${activeAdvancedChips.length}` : ""}
+              筛选{advancedFilterCount ? ` ${advancedFilterCount}` : ""}
             </button>
             <span className="text-xs text-[#7a8587]">{pending ? "正在加载" : active ? `当前 ${total} 条` : `${total} 条报价`}</span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2" aria-label="库存与更新时间快捷筛选">
+            <button
+              type="button"
+              onClick={() => onMinStockChange(stockQuickActive ? null : 50)}
+              aria-pressed={stockQuickActive}
+              title="只看库存数量达到所选下限的报价；库存未知不会进入结果"
+              className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
+                stockQuickActive
+                  ? "bg-[#202829] text-white"
+                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+              }`}
+            >
+              <Boxes size={14} />
+              库存 ≥50
+            </button>
+            <button
+              type="button"
+              onClick={() => onFreshWithinChange(freshnessQuickActive ? null : 60)}
+              aria-pressed={freshnessQuickActive}
+              title="按 PriceAI 最近成功确认时间筛选"
+              className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
+                freshnessQuickActive
+                  ? "bg-[#202829] text-white"
+                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+              }`}
+            >
+              <Clock3 size={14} />
+              1小时内更新
+            </button>
           </div>
           {visibleFacets.length ? (
             <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0" aria-label="商品特征">
@@ -913,6 +1122,8 @@ function OfferFilterBar({
             plusChannelFacets={plusChannelFacets}
             selectedTags={selectedTags}
             selectedCollector={selectedCollector}
+            selectedMinStock={selectedMinStock}
+            selectedFreshWithinMinutes={selectedFreshWithinMinutes}
             excludeInput={excludeInput}
             maxPriceInput={maxPriceInput}
             minPriceInput={minPriceInput}
@@ -921,6 +1132,8 @@ function OfferFilterBar({
             onExcludeInputChange={onExcludeInputChange}
             onMaxPriceInputChange={onMaxPriceInputChange}
             onMinPriceInputChange={onMinPriceInputChange}
+            onMinStockChange={onMinStockChange}
+            onFreshWithinChange={onFreshWithinChange}
             onClearTags={onClearTags}
             onSearchInputChange={onSearchInputChange}
             onToggleTag={onToggle}
@@ -931,7 +1144,7 @@ function OfferFilterBar({
       <MobileFilterSheet
         open={filterOpen}
         title="筛选渠道报价"
-        description="来源、价格和关键词都放在这里，商品特征可在页面上快速切换。"
+        description="库存、更新时间、来源、价格和关键词都可组合筛选。"
         resultCount={total}
         onClose={() => onFilterOpenChange(false)}
         onReset={onClear}
@@ -943,6 +1156,8 @@ function OfferFilterBar({
           plusChannelFacets={plusChannelFacets}
           selectedTags={selectedTags}
           selectedCollector={selectedCollector}
+          selectedMinStock={selectedMinStock}
+          selectedFreshWithinMinutes={selectedFreshWithinMinutes}
           excludeInput={excludeInput}
           maxPriceInput={maxPriceInput}
           minPriceInput={minPriceInput}
@@ -951,6 +1166,8 @@ function OfferFilterBar({
           onExcludeInputChange={onExcludeInputChange}
           onMaxPriceInputChange={onMaxPriceInputChange}
           onMinPriceInputChange={onMinPriceInputChange}
+          onMinStockChange={onMinStockChange}
+          onFreshWithinChange={onFreshWithinChange}
           onClearTags={onClearTags}
           onSearchInputChange={onSearchInputChange}
           onToggleTag={onToggle}
@@ -965,6 +1182,8 @@ function OfferAdvancedFilterFields({
   plusChannelFacets = [],
   selectedTags,
   selectedCollector,
+  selectedMinStock,
+  selectedFreshWithinMinutes,
   excludeInput,
   maxPriceInput,
   minPriceInput,
@@ -974,6 +1193,8 @@ function OfferAdvancedFilterFields({
   onClearTags,
   onMaxPriceInputChange,
   onMinPriceInputChange,
+  onMinStockChange,
+  onFreshWithinChange,
   onSearchInputChange,
   onToggleTag,
 }: {
@@ -981,6 +1202,8 @@ function OfferAdvancedFilterFields({
   plusChannelFacets?: OfferFilterTagFacet[];
   selectedTags: OfferFilterTagId[];
   selectedCollector: MerchantCollectorFilter;
+  selectedMinStock: ProductOfferStockThreshold | null;
+  selectedFreshWithinMinutes: ProductOfferFreshnessMinutes | null;
   excludeInput: string;
   maxPriceInput: string;
   minPriceInput: string;
@@ -990,6 +1213,8 @@ function OfferAdvancedFilterFields({
   onClearTags: (tagIds: OfferFilterTagId[]) => void;
   onMaxPriceInputChange: (value: string) => void;
   onMinPriceInputChange: (value: string) => void;
+  onMinStockChange: (value: ProductOfferStockThreshold | null) => void;
+  onFreshWithinChange: (value: ProductOfferFreshnessMinutes | null) => void;
   onSearchInputChange: (value: string) => void;
   onToggleTag: (tagId: OfferFilterTagId) => void;
 }) {
@@ -1062,6 +1287,76 @@ function OfferAdvancedFilterFields({
           </div>
         </fieldset>
       ) : null}
+
+      <div className={`grid gap-4 border-t border-[#edf0f1] pt-4 ${compact ? "" : "md:grid-cols-2"}`}>
+        <fieldset className="min-w-0">
+          <legend className="text-xs font-semibold text-[#5a6061]">库存数量</legend>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onMinStockChange(null)}
+              aria-pressed={selectedMinStock === null}
+              className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
+                selectedMinStock === null
+                  ? "bg-[#202829] text-white"
+                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+              }`}
+            >
+              不限
+            </button>
+            {PRODUCT_OFFER_STOCK_THRESHOLDS.map((threshold) => (
+              <button
+                key={threshold}
+                type="button"
+                onClick={() => onMinStockChange(threshold)}
+                aria-pressed={selectedMinStock === threshold}
+                className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
+                  selectedMinStock === threshold
+                    ? "bg-[#202829] text-white"
+                    : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+                }`}
+              >
+                ≥{threshold}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-[#5a6061]">库存未知的报价不会进入结果。</p>
+        </fieldset>
+
+        <fieldset className="min-w-0">
+          <legend className="text-xs font-semibold text-[#5a6061]">更新时间</legend>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onFreshWithinChange(null)}
+              aria-pressed={selectedFreshWithinMinutes === null}
+              className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
+                selectedFreshWithinMinutes === null
+                  ? "bg-[#202829] text-white"
+                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+              }`}
+            >
+              不限
+            </button>
+            {PRODUCT_OFFER_FRESHNESS_MINUTES.map((minutes) => (
+              <button
+                key={minutes}
+                type="button"
+                onClick={() => onFreshWithinChange(minutes)}
+                aria-pressed={selectedFreshWithinMinutes === minutes}
+                className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
+                  selectedFreshWithinMinutes === minutes
+                    ? "bg-[#202829] text-white"
+                    : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
+                }`}
+              >
+                {productOfferFreshnessFilterLabel(minutes).replace("内更新", "内")}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-[#5a6061]">按 PriceAI 最近成功确认时间计算。</p>
+        </fieldset>
+      </div>
 
       <div className={compact ? "space-y-4 border-t border-[#edf0f1] pt-4" : "grid gap-4 border-t border-[#edf0f1] pt-3 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.15fr)_auto] lg:items-end"}>
         <fieldset className="min-w-0">
@@ -2888,7 +3183,7 @@ function isOfferAvailable(offer: RawOffer): boolean {
 }
 
 function offerTimestamp(offer: RawOffer): string | null | undefined {
-  return offer.verifiedAt || offer.lastSeenAt || offer.capturedAt || offer.sourceUpdatedAt;
+  return productOfferPublicTimestamp(offer);
 }
 
 function sourceLabel(offer: RawOffer): string {

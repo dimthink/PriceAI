@@ -870,6 +870,8 @@ create or replace function list_public_product_offers_page_v2(
   p_collector text default null,
   p_min_price numeric default null,
   p_max_price numeric default null,
+  p_min_stock integer default null,
+  p_fresh_within_minutes integer default null,
   p_limit integer default 80,
   p_offset integer default 0
 )
@@ -975,6 +977,12 @@ as $$
       and (p_collector is null or trim(p_collector) = '' or p_collector = 'all' or filtered.collector_group = p_collector)
       and (p_min_price is null or filtered.price >= p_min_price)
       and (p_max_price is null or filtered.price <= p_max_price)
+      and (p_min_stock is null or filtered.stock_count >= p_min_stock)
+      and (
+        p_fresh_within_minutes is null
+        or coalesce(filtered.verified_at, filtered.last_seen_at, filtered.captured_at, filtered.source_updated_at)
+          >= now() - make_interval(mins => p_fresh_within_minutes)
+      )
   )
   select
     ranked.id,
@@ -1530,7 +1538,7 @@ as $$
 $$;
 
 revoke execute on function priceai_public_offer_filter_tags(text, text[]) from anon, public;
-revoke execute on function list_public_product_offers_page_v2(text, text[], text, text, text, numeric, numeric, integer, integer) from anon, authenticated, public;
+revoke execute on function list_public_product_offers_page_v2(text, text[], text, text, text, numeric, numeric, integer, integer, integer, integer) from anon, authenticated, public;
 revoke execute on function list_public_product_offer_filter_facets(text) from anon, authenticated, public;
 revoke execute on function list_public_offers_page(
   text,
@@ -1547,7 +1555,7 @@ revoke execute on function list_public_product_summaries() from anon, public;
 revoke execute on function get_public_product_summary(text) from anon, public;
 
 grant execute on function priceai_public_offer_filter_tags(text, text[]) to service_role;
-grant execute on function list_public_product_offers_page_v2(text, text[], text, text, text, numeric, numeric, integer, integer) to service_role;
+grant execute on function list_public_product_offers_page_v2(text, text[], text, text, text, numeric, numeric, integer, integer, integer, integer) to service_role;
 grant execute on function list_public_product_offer_filter_facets(text) to service_role;
 grant execute on function list_public_offers_page(
   text,
