@@ -4,6 +4,10 @@ import { join, relative } from "node:path";
 const cacheRoot = process.argv[2] || ".open-next/cache";
 const root = process.cwd();
 const absoluteCacheRoot = join(root, cacheRoot);
+const emergencyPriceCacheOnly = readFileSync(
+  join(root, "src/lib/public-price-emergency.ts"),
+  "utf8",
+).includes("PUBLIC_PRICE_CACHE_ONLY_MODE = true");
 
 const forbiddenMarkers = [
   { label: "demo data banner", patterns: ["当前使用内置演示数据", "配置 Supabase"] },
@@ -13,9 +17,17 @@ const forbiddenMarkers = [
     patterns: ['"configured":false', '\\"configured\\":false'],
     isAllowed: isSponsorSettingsDefaultMarker,
   },
-  { label: "static dataset source", patterns: ['"source":"static"', '\\"source\\":\\"static\\"'] },
+  {
+    label: "static dataset source",
+    patterns: ['"source":"static"', '\\"source\\":\\"static\\"'],
+    isAllowed: isEmergencyOfficialFallbackMarker,
+  },
   { label: "seed offer total", patterns: ['"offerTotal":10', '\\"offerTotal\\":10'] },
-  { label: "static source label", patterns: ["数据源：静态样本"] },
+  {
+    label: "static source label",
+    patterns: ["数据源：静态样本"],
+    isAllowed: isEmergencyOfficialFallbackMarker,
+  },
 ];
 
 if (!existsSync(absoluteCacheRoot)) {
@@ -31,7 +43,7 @@ for (const file of cacheFiles) {
   for (const marker of forbiddenMarkers) {
     const matchedPattern = marker.patterns.find((pattern) => {
       const index = content.indexOf(pattern);
-      return index >= 0 && !marker.isAllowed?.(content, index);
+      return index >= 0 && !marker.isAllowed?.(content, index, file);
     });
     if (!matchedPattern) continue;
 
@@ -56,6 +68,12 @@ function isSponsorSettingsDefaultMarker(content, index) {
     (after.includes('"tableReady":true') || after.includes('\\"tableReady\\":true')) &&
     after.includes("赞助位配置尚未保存") &&
     (after.includes('"placements":{') || after.includes('\\"placements\\":{'));
+}
+
+function isEmergencyOfficialFallbackMarker(_content, _index, file) {
+  if (!emergencyPriceCacheOnly) return false;
+  const cachePath = relative(root, file).replaceAll("\\\\", "/");
+  return cachePath.endsWith("/official-api.cache") || cachePath.endsWith("/official-prices.cache");
 }
 
 if (failures.length > 0) {
