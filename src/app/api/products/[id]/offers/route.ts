@@ -33,7 +33,7 @@ export async function GET(
   const cachePagination = cachePaginationParams(searchParams);
 
   return withCloudflarePublicCache(request, {
-    namespace: "product-offers-v3-cache-only",
+    namespace: "product-offers-v4-read-model",
     ttlSeconds: PRICE_DATA_EDGE_SECONDS,
     cacheKeySearchParams: cacheSearchParams({
       tags: normalized.filterTags.join(","),

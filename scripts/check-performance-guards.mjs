@@ -55,6 +55,7 @@ for (const routeFile of routeFilesWithPriceCache) {
 }
 
 const dataText = read("src/lib/data.ts");
+const publicPriceEmergencyText = read("src/lib/public-price-emergency.ts");
 assert(/PUBLIC_FALLBACK_MAX_ROWS\s*=\s*5000/.test(dataText), "src/lib/data.ts: public raw_offers fallback must keep a hard row cap.");
 assert(/for\s*\(\s*let\s+from\s*=\s*0;\s*from\s*<\s*PUBLIC_FALLBACK_MAX_ROWS/.test(dataText), "src/lib/data.ts: public raw_offers fallback must be bounded by PUBLIC_FALLBACK_MAX_ROWS.");
 assert(!/PUBLIC_OFFER_LIMIT\s*=\s*1200/.test(dataText), "src/lib/data.ts: public offer APIs must not allow 1200-row public pages.");
@@ -89,6 +90,10 @@ assert(/refreshPublicApiSnapshotsForScope[\s\S]{0,500}refreshPublicOfferReadMode
 assert(/list_public_offers_page_v2/.test(dataText), "src/lib/data.ts: public offer reads must prefer the precomputed v2 read-model RPC.");
 assert(/isMissingPublicOfferReadModelRpc/.test(dataText), "src/lib/data.ts: the legacy offers RPC may only bridge a missing read-model migration or schema cache entry.");
 assert(/refresh produced zero rows; preserving the previous generation/.test(readFileSync(path.join(repoRoot, "supabase", "schema.sql"), "utf8")), "supabase/schema.sql: an empty read-model rebuild must preserve the last known good generation.");
+assert(/PUBLIC_PRICE_CACHE_ONLY_MODE\s*=\s*false/.test(publicPriceEmergencyText), "src/lib/public-price-emergency.ts: incident cache-only mode must be disabled after the public offer read model is verified.");
+assert(/namespace:\s*["']offers-v4-read-model["']/.test(read("src/app/api/offers/route.ts")), "offers route must use the post-incident read-model cache namespace.");
+assert(/namespace:\s*["']explorer-v4-read-model["']/.test(read("src/app/api/explorer/route.ts")), "explorer route must use the post-incident read-model cache namespace.");
+assert(/namespace:\s*["']product-offers-v4-read-model["']/.test(read("src/app/api/products/[id]/offers/route.ts")), "product offers route must use the post-incident read-model cache namespace.");
 assert(/PUBLIC_API_SNAPSHOT_FULL_REFRESH_MAX_INTERVAL_MS\s*=\s*60\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: full public snapshot refresh must remain a low-frequency 60 minute fallback.");
 assert(/PUBLIC_API_SNAPSHOT_MAX_STALE_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS\s*\*\s*2/.test(dataText), "src/lib/data.ts: public API snapshots must stop serving old default snapshots after two public cache TTLs.");
 assert(/PUBLIC_API_SNAPSHOT_PRODUCT_REFRESH_BATCH_SIZE\s*=\s*4/.test(dataText), "src/lib/data.ts: product snapshot refreshes must stay batched to protect Worker CPU.");

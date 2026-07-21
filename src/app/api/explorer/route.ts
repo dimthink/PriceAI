@@ -10,7 +10,7 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   return withCloudflarePublicCache(request, {
-    namespace: "explorer-v3-cache-only",
+    namespace: "explorer-v4-read-model",
     ttlSeconds: PRICE_DATA_EDGE_SECONDS,
     cacheKeySearchParams: new URLSearchParams(),
     load: async () => {

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   const cachePagination = cachePaginationParams(params);
 
   return withCloudflarePublicCache(request, {
-    namespace: "offers-v3-cache-only",
+    namespace: "offers-v4-read-model",
     ttlSeconds: PRICE_DATA_EDGE_SECONDS,
     cacheKeySearchParams: cacheSearchParams({
       q: normalized.query,
