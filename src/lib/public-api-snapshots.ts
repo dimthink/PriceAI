@@ -2,8 +2,9 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getRuntimeEnv } from "@/lib/runtime-env";
+import { PUBLIC_PRICE_CACHE_ONLY_MODE } from "@/lib/public-price-emergency";
 
-const SNAPSHOT_READ_TIMEOUT_MS = 2_500;
+const SNAPSHOT_READ_TIMEOUT_MS = PUBLIC_PRICE_CACHE_ONLY_MODE ? 10_000 : 2_500;
 const SNAPSHOT_WRITE_TIMEOUT_MS = 15_000;
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 export const PUBLIC_API_SNAPSHOT_SCHEMA_VERSION = 1;
