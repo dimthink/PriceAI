@@ -1,15 +1,21 @@
 import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { PUBLIC_PRICE_CACHE_ONLY_MODE } from "@/lib/public-price-emergency";
 import { getRuntimeEnv } from "@/lib/runtime-env";
 
 const SUPABASE_DB_TIMEOUT_MS = 8_000;
 const SUPABASE_CIRCUIT_BREAKER_COOLDOWN_MS = 60_000;
+const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 
 let serverClient: SupabaseClient | null = null;
 let supabaseUnavailableUntil = 0;
 
 export function getSupabaseServerClient(): SupabaseClient | null {
+  if (PUBLIC_PRICE_CACHE_ONLY_MODE && process.env.NEXT_PHASE === NEXT_PRODUCTION_BUILD_PHASE) {
+    return null;
+  }
+
   const url = getRuntimeEnv("NEXT_PUBLIC_SUPABASE_URL");
   const key = getRuntimeEnv("SUPABASE_SERVICE_ROLE_KEY");
 
