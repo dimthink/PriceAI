@@ -6,7 +6,7 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: "*",
-      allow: ["/", "/.well-known/price-radar.json", "/price-radar-api.md", "/price-radar-v1.schema.json", "/official-prices", "/official-api", "/api-transit", "/wholesale", "/products/", "/platforms/", "/guides/"],
+      allow: ["/", "/.well-known/price-radar.json", "/price-radar-api.md", "/price-radar-v1.schema.json", "/developers/price-radar", "/official-prices", "/official-api", "/api-transit", "/wholesale", "/products/", "/platforms/", "/guides/"],
       disallow: [
         "/admin",
         "/api/",

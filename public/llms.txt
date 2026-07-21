@@ -34,6 +34,7 @@ GitHub: [physics-dimension/PriceAI](https://github.com/physics-dimension/PriceAI
 - [AI subscription card shop trust guide](https://priceai.cc/guides/are-ai-subscription-card-shops-reliable)
 - [Product detail pages](https://priceai.cc/products/)
 - [Sitemap](https://priceai.cc/sitemap.xml)
+- [Price Radar developer documentation](https://priceai.cc/developers/price-radar)
 
 ## Machine-readable Price Radar
 

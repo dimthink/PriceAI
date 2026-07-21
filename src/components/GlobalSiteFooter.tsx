@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpenText, Handshake, HeartHandshake, type LucideIcon } from "lucide-react";
+import { BookOpenText, Handshake, HeartHandshake, Radar, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { supportPagePath } from "@/lib/support";
@@ -16,6 +16,11 @@ const footerLinks: readonly FooterLink[] = [
     label: "入门指南",
     href: "/guides",
     icon: BookOpenText,
+  },
+  {
+    label: "Price Radar API",
+    href: "/developers/price-radar",
+    icon: Radar,
   },
   {
     label: "商业合作",

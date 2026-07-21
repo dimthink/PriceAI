@@ -11,6 +11,11 @@ import {
   type PriceRadarStoredProductSnapshot,
 } from "../src/lib/price-radar-contract.js";
 import type { ExplorerData, ExplorerProductSummary, RawOffer } from "../src/lib/types.js";
+import {
+  PRICE_RADAR_DEVELOPER_URL,
+  PRICE_RADAR_LATEST_URL,
+  withPriceRadarMigrationHeaders,
+} from "../src/lib/price-radar-migration.js";
 
 const GENERATED_AT = "2026-07-21T12:00:00.000Z";
 
@@ -107,6 +112,18 @@ async function main() {
     publishedAt: GENERATED_AT,
     snapshotId,
   }), /Missing healthy default product snapshot/);
+
+  const legacyResponse = new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { "Cache-Control": "public, max-age=0, must-revalidate" },
+  });
+  const migratedResponse = withPriceRadarMigrationHeaders(legacyResponse);
+  assert.equal(migratedResponse.status, legacyResponse.status);
+  assert.equal(migratedResponse.headers.get("Cache-Control"), legacyResponse.headers.get("Cache-Control"));
+  assert.equal(migratedResponse.headers.get("X-PriceAI-Migration"), "price-radar-v1");
+  assert.equal(migratedResponse.headers.get("X-PriceAI-Public-Data"), PRICE_RADAR_LATEST_URL);
+  assert.match(migratedResponse.headers.get("Link") || "", new RegExp(PRICE_RADAR_DEVELOPER_URL));
+  assert.deepEqual(await migratedResponse.json(), { ok: true });
 
   console.log("price radar contract tests passed");
 }

@@ -2,6 +2,8 @@
 
 PriceAI Price Radar is a read-only public snapshot feed for agents, scripts, and developers. Use it instead of crawling PriceAI HTML pages or internal `/api/` routes.
 
+Human-readable Chinese documentation and migration examples: `https://priceai.cc/developers/price-radar`.
+
 ## Start
 
 1. Fetch `https://data.priceai.cc/latest.json`.

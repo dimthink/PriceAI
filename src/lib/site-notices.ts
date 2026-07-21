@@ -30,6 +30,36 @@ export type SiteNoticeConfig = {
 
 export const siteNotices: SiteNoticeConfig[] = [
   {
+    id: "price-radar-public-api-202607",
+    surface: "modal",
+    startsAt: "2026-07-21T00:00:00+08:00",
+    endsAt: "2026-08-05T00:00:00+08:00",
+    delayMs: 1200,
+    routeRule: {
+      include: ["/channels", "/products", "/platforms"],
+    },
+    eyebrow: "开发者公告",
+    title: "Price Radar 公开数据接口已上线",
+    body: "如果你正在抓取 PriceAI 页面或旧价格接口，现在可以迁移到公开快照。一次读取即可获得标准商品最低价、默认 Top 5，以及当前已有快照的常见快速筛选标签排名。",
+    highlights: [
+      {
+        label: "对爬虫和智能体更稳定",
+        text: "先读取 latest.json，只在 snapshot_id 变化时下载新的不可变快照，不需要重复抓页面。",
+      },
+      {
+        label: "当前无需 API Key",
+        text: "匿名快照可直接调用；任意搜索、组合筛选和历史查询会在后续 API Key 版本中评估。",
+      },
+    ],
+    note: "旧接口暂不下线，但请尽快把只读价格采集迁移到 Price Radar，减少无效请求并获得更稳定的数据契约。",
+    footnote: "公告每天最多出现一次，打开文档后本轮公告不再自动提示。",
+    primaryAction: {
+      label: "查看 API 文档",
+      href: "https://priceai.cc/developers/price-radar",
+    },
+    secondaryActionLabel: "今天不再提示",
+  },
+  {
     id: "api-transit-survey-202606",
     surface: "modal",
     startsAt: "2026-06-12T00:00:00+08:00",
