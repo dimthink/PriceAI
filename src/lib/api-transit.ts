@@ -23,6 +23,7 @@ import {
   TRANSIT_STANDARD_MODEL_FAMILY,
   TRANSIT_COMMERCIAL_LABELS,
   TRANSIT_DEFAULT_COMMERCIAL_OFFER_DISCLOSURE,
+  isTransitModelFamily,
   isTransitStandardModel,
   isTransitTextModelFamily,
   transitModelPriceMatchesFamily,
@@ -58,6 +59,21 @@ export const ALLOWED_RETURN_KEYS = [
   "risk",
   "sort",
 ] as const;
+
+export function getTransitFocusedFamilyFromReturnQuery(
+  back: string | string[] | null | undefined
+): TransitModelFamily | null {
+  const returnQuery = Array.isArray(back) ? back[0] : back;
+  if (!returnQuery) return null;
+
+  const params = new URLSearchParams(returnQuery.replace(/^\?/, ""));
+  const model = params.get("model");
+  if (isTransitStandardModel(model)) return TRANSIT_STANDARD_MODEL_FAMILY[model];
+  if (isTransitModelFamily(model)) return model;
+
+  const family = params.get("family");
+  return isTransitModelFamily(family) ? family : null;
+}
 
 export async function getStations(): Promise<TransitStation[]> {
   const now = Date.now();

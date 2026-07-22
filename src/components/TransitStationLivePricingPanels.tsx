@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TransitStation } from "@/data/api-transit/types";
+import type { TransitModelFamily, TransitStation } from "@/data/api-transit/types";
 import {
   TransitStationPricingPanels,
   TransitStationPricingSkeleton,
@@ -20,9 +20,10 @@ type TransitDetailResponse =
 type Props = {
   slug: string;
   initialStation: TransitStation;
+  focusedFamily: TransitModelFamily | null;
 };
 
-export function TransitStationLivePricingPanels({ slug, initialStation }: Props) {
+export function TransitStationLivePricingPanels({ slug, initialStation, focusedFamily }: Props) {
   const [station, setStation] = useState(initialStation);
   const [requestedFreshData, setRequestedFreshData] = useState(false);
 
@@ -69,7 +70,7 @@ export function TransitStationLivePricingPanels({ slug, initialStation }: Props)
     return <TransitStationPricingSkeleton />;
   }
 
-  return <TransitStationPricingPanels station={station} />;
+  return <TransitStationPricingPanels station={station} focusedFamily={focusedFamily} />;
 }
 
 function isTransitStationPayload(value: unknown): value is TransitStation {

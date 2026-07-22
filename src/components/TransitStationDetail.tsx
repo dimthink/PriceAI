@@ -403,15 +403,22 @@ export default function TransitStationDetail({ station, children }: Props) {
   );
 }
 
-export function TransitStationPricingPanels({ station }: { station: TransitStation }) {
+export function TransitStationPricingPanels({
+  station,
+  focusedFamily = null,
+}: {
+  station: TransitStation;
+  focusedFamily?: TransitModelFamily | null;
+}) {
   const families = useMemo(() => getStationPriceFamilies(station), [station]);
   const familyKey = families.join("|");
 
   return (
     <TransitStationPricingPanelList
-      key={`${station.id}:${familyKey}`}
+      key={`${station.id}:${familyKey}:${focusedFamily ?? "default"}`}
       station={station}
       families={families}
+      focusedFamily={focusedFamily}
     />
   );
 }
@@ -419,12 +426,14 @@ export function TransitStationPricingPanels({ station }: { station: TransitStati
 function TransitStationPricingPanelList({
   station,
   families,
+  focusedFamily,
 }: {
   station: TransitStation;
   families: TransitModelFamily[];
+  focusedFamily: TransitModelFamily | null;
 }) {
   const [expandedFamilies, setExpandedFamilies] = useState<Set<TransitModelFamily>>(
-    () => getDefaultExpandedFamilies(families),
+    () => getDefaultExpandedFamilies(families, focusedFamily),
   );
 
   const toggleFamily = useCallback((family: TransitModelFamily) => {
@@ -455,7 +464,14 @@ function TransitStationPricingPanelList({
   );
 }
 
-function getDefaultExpandedFamilies(families: TransitModelFamily[]) {
+function getDefaultExpandedFamilies(
+  families: TransitModelFamily[],
+  focusedFamily: TransitModelFamily | null,
+) {
+  if (focusedFamily && families.includes(focusedFamily)) {
+    return new Set<TransitModelFamily>([focusedFamily]);
+  }
+
   const visibleCount = families.length > 3 ? 2 : families.length;
   return new Set(families.slice(0, visibleCount));
 }

@@ -8,6 +8,7 @@ import {
   getAvailabilityEvidenceMeta,
   getAggregatedTransitCacheUsage,
   getFamilyRateSummary,
+  getTransitFocusedFamilyFromReturnQuery,
   getStationComparisonSummary,
   getTextStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
@@ -38,6 +39,15 @@ import {
 } from "../src/data/api-transit/types";
 
 const now = "2026-07-02T07:00:00.000Z";
+
+assertEqual(getTransitFocusedFamilyFromReturnQuery("family=claude"), "claude");
+assertEqual(getTransitFocusedFamilyFromReturnQuery("model=Claude%20Sonnet%205"), "claude");
+assertEqual(getTransitFocusedFamilyFromReturnQuery("model=qwen"), "qwen");
+assertEqual(getTransitFocusedFamilyFromReturnQuery("family=video"), "video");
+assertEqual(getTransitFocusedFamilyFromReturnQuery("family=claude&model=Kimi%20K3"), "kimi");
+assertEqual(getTransitFocusedFamilyFromReturnQuery("family=unknown"), null);
+assertEqual(getTransitFocusedFamilyFromReturnQuery(["family=image", "family=video"]), "image");
+assertEqual(getTransitFocusedFamilyFromReturnQuery(null), null);
 
 assertDeepEqual(getOfficialTransitModelPrice("Kimi K3"), {
   input: 20,

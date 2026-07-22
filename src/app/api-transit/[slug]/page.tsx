@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import TransitStationDetail from "@/components/TransitStationDetail";
 import { TransitStationLivePricingPanels } from "@/components/TransitStationLivePricingPanels";
 import { JsonLd } from "@/components/JsonLd";
+import { getTransitFocusedFamilyFromReturnQuery } from "@/lib/api-transit";
 
 // Cache the stable detail shell; volatile pricing and monitoring data refreshes separately.
 export const revalidate = 300;
@@ -40,11 +41,14 @@ export async function generateMetadata({
 
 export default async function ApiTransitDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ back?: string | string[] }>;
 }) {
-  const { slug } = await params;
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
   const station = await getTransitStationBySlug(slug);
+  const focusedFamily = getTransitFocusedFamilyFromReturnQuery(query.back);
 
   if (!station) notFound();
 
@@ -73,7 +77,12 @@ export default async function ApiTransitDetailPage({
 
       <main className="mx-auto max-w-[1500px] px-4 py-6 pb-20 sm:px-5 sm:py-7">
         <TransitStationDetail station={station}>
-          <TransitStationLivePricingPanels key={slug} slug={slug} initialStation={station} />
+          <TransitStationLivePricingPanels
+            key={slug}
+            slug={slug}
+            initialStation={station}
+            focusedFamily={focusedFamily}
+          />
         </TransitStationDetail>
       </main>
     </div>
