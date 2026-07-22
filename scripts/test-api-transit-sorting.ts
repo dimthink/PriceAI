@@ -6,6 +6,7 @@ import {
   TRANSIT_RESPONSE_LATENCY_WEIGHTS,
   getActiveTransitCommercialOffers,
   getAvailabilityEvidenceMeta,
+  getAggregatedTransitCacheUsage,
   getFamilyRateSummary,
   getStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
@@ -401,6 +402,51 @@ familyBalancedLatencyStation.prices.push({
 const familyBalancedLatency = getStationPublishedAvailabilitySummary(familyBalancedLatencyStation);
 assertEqual(familyBalancedLatency.latestLatencyMs, 5000);
 assertEqual(familyBalancedLatency.avgLatency7dMs, 5000);
+
+const cacheScopeStation = station({
+  id: "cache-scope-station",
+  name: "Cache Scope Station",
+  claudeRate: 0.2,
+  availabilityRate: 0.99,
+  availabilitySamples: 180,
+});
+cacheScopeStation.prices = [
+  {
+    ...cacheScopeStation.prices[0]!,
+    family: "gpt",
+    standardModel: "GPT 5.5",
+    groupName: "GPT Shared",
+    cacheUsage: { hitRate: 0.9, sampleTokens: 1000 },
+  },
+  {
+    ...cacheScopeStation.prices[0]!,
+    family: "gpt",
+    standardModel: "GPT 5.4",
+    groupName: "GPT Shared",
+    cacheUsage: { hitRate: 0.9, sampleTokens: 1000 },
+  },
+  {
+    ...cacheScopeStation.prices[0]!,
+    family: "claude",
+    standardModel: "Claude Fable 5",
+    groupName: "Claude Shared",
+    cacheUsage: { hitRate: 0.5, sampleTokens: 100 },
+  },
+];
+const gptCacheUsage = getAggregatedTransitCacheUsage(
+  cacheScopeStation.prices.filter((price) => price.family === "gpt")
+);
+assertEqual(gptCacheUsage?.hitRate, 0.9);
+assertEqual(gptCacheUsage?.sampleTokens, 1000);
+const allCacheUsage = getAggregatedTransitCacheUsage(cacheScopeStation.prices, {
+  equalWeightFamilies: true,
+});
+assertEqual(allCacheUsage?.hitRate, 0.7);
+assertEqual(allCacheUsage?.sampleTokens, 1100);
+const cacheScopeScore = getTransitStationRankingBreakdowns([cacheScopeStation], { now })
+  .get(cacheScopeStation.id);
+assertEqual(cacheScopeScore?.cacheHitRate, 0.7);
+assertEqual(cacheScopeScore?.cacheHitScore, 7);
 
 const cheapImageStation = imageStation({
   id: "cheap-image-station",
@@ -836,6 +882,83 @@ familyReferenceStation.prices = sharedGroupModels.map((standardModel, index) => 
 assertEqual(getFamilyRateSummary(familyReferenceStation, "gpt").sevenDaySamples, 60);
 assertEqual(getFamilyRateSummary(familyReferenceStation, "gpt").referenceOnly, true);
 assertEqual(getTransitStationRankingBreakdowns([familyReferenceStation]).get(familyReferenceStation.id)?.stabilityRate, null);
+
+const modelEvidenceStation = station({
+  id: "model-evidence-station",
+  name: "Model Evidence Station",
+  claudeRate: 0.2,
+  availabilityRate: 0.94,
+  availabilitySamples: 60,
+});
+modelEvidenceStation.prices = sharedGroupModels.map((standardModel) => ({
+  ...duplicatePublicStatusPrice,
+  standardModel,
+  groupName: `Model ${standardModel}`,
+  availability: {
+    ...duplicatePublicStatusPrice.availability,
+    sevenDayRate: 0.94,
+    sevenDaySamples: 60,
+    scope: "model" as const,
+    matchLevel: "model" as const,
+    monitoringScopeId: `scope:model:${standardModel}`,
+  },
+}));
+assertEqual(getFamilyRateSummary(modelEvidenceStation, "gpt").referenceOnly, false);
+assertEqual(getStandardModelRateSummary(modelEvidenceStation, "GPT 5.5").referenceOnly, false);
+const modelEvidenceSummary = getStationPublishedAvailabilitySummary(modelEvidenceStation);
+assertEqual(modelEvidenceSummary.referenceOnly, false);
+assertEqual(modelEvidenceSummary.sevenDaySamples, 180);
+assertEqual(
+  getTransitStationRankingBreakdowns([modelEvidenceStation], { now }).get(modelEvidenceStation.id)?.eligible,
+  true,
+);
+
+const publicCatalogReferenceStation = station({
+  id: "public-catalog-reference",
+  name: "Public Catalog Reference",
+  claudeRate: 0.2,
+  availabilityRate: 0.98,
+  availabilitySamples: 60,
+});
+publicCatalogReferenceStation.prices = modelEvidenceStation.prices.map((price) => ({
+  ...price,
+  availability: {
+    ...price.availability,
+    sourceType: "public_model_catalog" as const,
+  },
+}));
+assertEqual(getFamilyRateSummary(publicCatalogReferenceStation, "gpt").referenceOnly, true);
+assertEqual(
+  getTransitStationRankingBreakdowns([publicCatalogReferenceStation], { now })
+    .get(publicCatalogReferenceStation.id)?.eligible,
+  false,
+);
+
+const stationFallbackEvidenceStation = station({
+  id: "station-fallback-evidence",
+  name: "Station Fallback Evidence",
+  claudeRate: 0.2,
+  availabilityRate: 0.93,
+  availabilitySamples: 60,
+});
+stationFallbackEvidenceStation.availability = {
+  ...availability(0.93, 60),
+  scope: "station",
+  matchLevel: "exact",
+};
+stationFallbackEvidenceStation.prices = familyReferenceStation.prices.map((price) => ({
+  ...price,
+  availability: { ...price.availability },
+}));
+const stationFallbackSummary = getStationPublishedAvailabilitySummary(stationFallbackEvidenceStation);
+assertEqual(stationFallbackSummary.referenceOnly, false);
+assertEqual(stationFallbackSummary.sevenDayRate, 0.93);
+assertEqual(stationFallbackSummary.sevenDaySamples, 60);
+assertEqual(
+  getTransitStationRankingBreakdowns([stationFallbackEvidenceStation], { now })
+    .get(stationFallbackEvidenceStation.id)?.eligible,
+  true,
+);
 const duplicateModelSummary = getTransitModelSummaries([duplicateAvailabilityStation], "gpt")
   .find((summary) => summary.standardModel === "GPT 5.5");
 assertEqual(duplicateModelSummary?.prices.length, 2);

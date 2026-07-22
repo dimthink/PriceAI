@@ -1,5 +1,6 @@
 import type {
   TransitAvailability,
+  TransitCacheUsage,
   TransitChannelType,
   TransitCommercialOffer,
   TransitModelDetectionSource,
@@ -722,13 +723,27 @@ export function getTransitAvailabilityRollupPrices(
 
 export function getPreferredTransitAvailabilityRollupPrices(
   station: TransitStation,
-  prices: TransitModelPrice[]
+  prices: TransitModelPrice[],
+  rankingScope: TransitAvailabilityRankingScope = "offer"
 ): TransitModelPrice[] {
   const availabilityPrices = getTransitAvailabilityRollupPrices(station, prices);
   const directEvidence = availabilityPrices.filter(
-    (price) => !isTransitAvailabilityReference(price.availability)
+    (price) => !isTransitAvailabilityReferenceForRankingScope(price.availability, rankingScope)
   );
   return directEvidence.length ? directEvidence : availabilityPrices;
+}
+
+export type TransitAvailabilityRankingScope = "station" | "family" | "model" | "offer";
+
+export function isTransitAvailabilityReferenceForRankingScope(
+  availability: Pick<TransitAvailability, "matchLevel" | "note" | "sourceType">,
+  rankingScope: TransitAvailabilityRankingScope
+): boolean {
+  if (availability.sourceType === "public_model_catalog") return true;
+  const matchLevel = getTransitAvailabilityMatchLevel(availability);
+  if (matchLevel === "family") return true;
+  if (matchLevel === "model") return rankingScope === "offer";
+  return false;
 }
 
 export function getTransitAvailabilityMatchLevel(
@@ -1054,10 +1069,14 @@ function summarizeRateScope(
   station: TransitStation,
   family: TransitModelFamily,
   prices: TransitModelPrice[],
-  options: { rollupByGroup?: boolean } = {}
+  options: {
+    rollupByGroup?: boolean;
+    rankingScope?: Extract<TransitAvailabilityRankingScope, "family" | "model">;
+  } = {}
 ): TransitFamilyRateSummary {
   const scopePrices = options.rollupByGroup ? getRepresentativePricesByGroup(prices) : prices;
-  const availabilityPrices = getPreferredTransitAvailabilityRollupPrices(station, prices);
+  const rankingScope = options.rankingScope ?? "family";
+  const availabilityPrices = getPreferredTransitAvailabilityRollupPrices(station, prices, rankingScope);
   const multipliers = scopePrices
     .map((price) => price.modelMultiplier)
     .filter((value): value is number => value !== null && Number.isFinite(value));
@@ -1094,7 +1113,9 @@ function summarizeRateScope(
   const avgLatency7dMs = weightedAverageLatency(availabilityPrices);
   const recentSamples = getRecentTransitAvailabilitySamples(availabilityPrices);
   const referenceOnly =
-    availabilitySamples > 0 && availabilityPrices.every((price) => isTransitAvailabilityReference(price.availability));
+    availabilitySamples > 0 && availabilityPrices.every((price) =>
+      isTransitAvailabilityReferenceForRankingScope(price.availability, rankingScope)
+    );
 
   return {
     family,
@@ -1121,7 +1142,10 @@ export function getFamilyRateSummary(
   station: TransitStation,
   family: TransitModelFamily
 ): TransitFamilyRateSummary {
-  return summarizeRateScope(station, family, getFamilyPrices(station, family), { rollupByGroup: true });
+  return summarizeRateScope(station, family, getFamilyPrices(station, family), {
+    rollupByGroup: true,
+    rankingScope: "family",
+  });
 }
 
 export function getStandardModelRateSummary(
@@ -1131,7 +1155,8 @@ export function getStandardModelRateSummary(
   return summarizeRateScope(
     station,
     TRANSIT_STANDARD_MODEL_FAMILY[standardModel],
-    getStandardModelPrices(station, standardModel)
+    getStandardModelPrices(station, standardModel),
+    { rankingScope: "model" }
   );
 }
 
@@ -1194,7 +1219,29 @@ export function getStationPublishedAvailabilitySummary(
   station: TransitStation,
   familySummaries?: TransitFamilyRateSummary[]
 ): TransitAvailabilityRollup {
-  const availabilityPrices = getPreferredTransitAvailabilityRollupPrices(station, station.prices);
+  const availabilityPrices = getPreferredTransitAvailabilityRollupPrices(station, station.prices, "station");
+  const hasRankablePriceEvidence = availabilityPrices.some((price) =>
+    !isTransitAvailabilityReferenceForRankingScope(price.availability, "station")
+  );
+  if (!hasRankablePriceEvidence && hasDirectStationAvailabilityEvidence(station.availability)) {
+    const recentSamples = normalizeRecentAvailabilitySamples(
+      transitAvailabilityRecentSamples(station.availability) || []
+    );
+    return {
+      sevenDayRate: station.availability.sevenDayRate,
+      sevenDaySamples: station.availability.sevenDaySamples,
+      firstCheckedAt: station.availability.firstCheckedAt ?? null,
+      lastCheckedAt: station.availability.lastCheckedAt,
+      recentSamples,
+      latestLatencyMs: station.availability.latestLatencyMs ?? null,
+      avgLatency7dMs: station.availability.avgLatency7dMs ?? null,
+      note: station.availability.note ?? "使用站点整体公开监测。",
+      sourceType: station.availability.sourceType,
+      sourceLabel: station.availability.sourceLabel,
+      sourceUrl: station.availability.sourceUrl,
+      referenceOnly: false,
+    };
+  }
   const samples = availabilityPrices.reduce(
     (total, price) => total + price.availability.sevenDaySamples,
     0
@@ -1254,8 +1301,21 @@ export function getStationPublishedAvailabilitySummary(
     sourceType: source.sourceType,
     sourceLabel: source.sourceLabel,
     sourceUrl: source.sourceUrl,
-    referenceOnly: availabilityPrices.every((price) => isTransitAvailabilityReference(price.availability)),
+    referenceOnly: availabilityPrices.every((price) =>
+      isTransitAvailabilityReferenceForRankingScope(price.availability, "station")
+    ),
   };
+}
+
+function hasDirectStationAvailabilityEvidence(availability: TransitAvailability): boolean {
+  return (
+    getTransitAvailabilityScope(availability) === "station" &&
+    getTransitAvailabilityMatchLevel(availability) === "exact" &&
+    availability.sourceType !== "public_model_catalog" &&
+    availability.sevenDayRate !== null &&
+    Number.isFinite(availability.sevenDayRate) &&
+    availability.sevenDaySamples > 0
+  );
 }
 
 function averageFamilyLatency(
@@ -1570,6 +1630,8 @@ export type TransitStationRankingBreakdown = {
   responseLatencyEnabled: boolean;
   responseLatencyCoverage: number;
   cacheHitScore: number;
+  cacheHitRate: number | null;
+  cacheHitSampleTokens: number;
   modelDetectionScore: number;
   eligible: boolean;
   comparisonRate: number | null;
@@ -1682,7 +1744,11 @@ function getTransitStationSortContext(
     stabilityRate: referenceOnly ? null : scope ? scope.sevenDayRate : summary.stabilityRate,
     stabilitySamples: referenceOnly ? 0 : scope ? scope.sevenDaySamples : summary.stabilitySamples,
     recentSamples: referenceOnly ? undefined : scope ? scope.recentSamples : summary.availability.recentSamples,
-    cacheUsage: getRepresentativeCacheUsage(prices),
+    cacheUsage: getAggregatedTransitCacheUsage(prices, {
+      equalWeightFamilies:
+        (!options.activeFamily || options.activeFamily === "all") &&
+        (!options.activeStandardModel || options.activeStandardModel === "all"),
+    }),
     lastCheckedAt: scope ? scope.lastCheckedAt : summary.availability.lastCheckedAt,
     latestLatencyMs: (scope ? scope.latestLatencyMs : summary.availability.latestLatencyMs) ?? null,
     avgLatency7dMs: (scope ? scope.avgLatency7dMs : summary.availability.avgLatency7dMs) ?? null,
@@ -1789,6 +1855,8 @@ function scoreTransitStationContexts(
       responseLatencyEnabled,
       responseLatencyCoverage,
       cacheHitScore,
+      cacheHitRate: context.cacheUsage?.hitRate ?? null,
+      cacheHitSampleTokens: context.cacheUsage?.sampleTokens ?? 0,
       modelDetectionScore,
       eligible,
       comparisonRate: context.cost,
@@ -2287,6 +2355,57 @@ export function getRepresentativeCacheUsage(
     })[0];
 }
 
+export function getAggregatedTransitCacheUsage(
+  prices: TransitModelPrice[],
+  options: { equalWeightFamilies?: boolean } = {}
+): TransitCacheUsage | undefined {
+  const grouped = new Map<string, TransitCacheUsage>();
+  for (const price of prices) {
+    if (isTransitFixedPrice(price)) continue;
+    const cacheUsage = price.cacheUsage;
+    if (
+      !cacheUsage ||
+      cacheUsage.hitRate === null ||
+      !Number.isFinite(cacheUsage.hitRate) ||
+      cacheUsage.sampleTokens <= 0
+    ) {
+      continue;
+    }
+    const key = [price.family, price.groupName || "默认分组"].join("|");
+    const existing = grouped.get(key);
+    if (!existing || cacheUsage.sampleTokens > existing.sampleTokens) {
+      grouped.set(key, cacheUsage);
+    }
+  }
+
+  if (!grouped.size) return undefined;
+  const byFamily = new Map<TransitModelFamily, TransitCacheUsage[]>();
+  for (const [key, cacheUsage] of grouped) {
+    const family = key.slice(0, key.indexOf("|")) as TransitModelFamily;
+    byFamily.set(family, [...(byFamily.get(family) || []), cacheUsage]);
+  }
+  const familySummaries = Array.from(byFamily.values()).map(summarizeTransitCacheUsages);
+  if (!options.equalWeightFamilies) return summarizeTransitCacheUsages(familySummaries);
+
+  return {
+    hitRate: familySummaries.reduce((total, cacheUsage) => total + (cacheUsage.hitRate ?? 0), 0) /
+      familySummaries.length,
+    sampleTokens: familySummaries.reduce((total, cacheUsage) => total + cacheUsage.sampleTokens, 0),
+  };
+}
+
+function summarizeTransitCacheUsages(cacheUsages: TransitCacheUsage[]): TransitCacheUsage {
+  const sampleTokens = cacheUsages.reduce((total, cacheUsage) => total + cacheUsage.sampleTokens, 0);
+  const weightedHits = cacheUsages.reduce(
+    (total, cacheUsage) => total + (cacheUsage.hitRate ?? 0) * cacheUsage.sampleTokens,
+    0
+  );
+  return {
+    hitRate: sampleTokens > 0 ? weightedHits / sampleTokens : null,
+    sampleTokens,
+  };
+}
+
 export type TransitModelDetectionTone = "success" | "info" | "warning" | "danger" | "muted";
 
 export function getTransitPriceDetectionSummary(
@@ -2524,7 +2643,7 @@ export function getAvailabilityEvidenceMeta(
     return {
       label: "同模型参考",
       tone: "warning",
-      title: "该数值来自同一标准模型的公开监测参考，不代表当前套餐独立实测，也不参与稳定性排名。",
+      title: "该数值来自同一标准模型的公开监测，不代表当前套餐独立实测；在具体模型、模型家族或站点总览中可作为同模型证据聚合。",
       reference: true,
     };
   }

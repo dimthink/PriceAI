@@ -63,7 +63,7 @@ import {
   getNormalizedSourceTags,
   getTransitOperatorType,
   getPrimaryTransitCommercialOffer,
-  getRepresentativeCacheUsage,
+  getAggregatedTransitCacheUsage,
   getStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
   getStationRechargeCoefficient,
@@ -590,7 +590,9 @@ function getScopedCacheUsage(
     return true;
   });
 
-  return getRepresentativeCacheUsage(prices);
+  return getAggregatedTransitCacheUsage(prices, {
+    equalWeightFamilies: activeFamily === "all" && activeStandardModel === "all",
+  });
 }
 
 function bestFamilyLabel(summary: ReturnType<typeof getStationComparisonSummary>): string {
