@@ -35,10 +35,12 @@ import {
   TRANSIT_INVOICE_SUPPORT_LABELS,
   TRANSIT_MODEL_FAMILY_LABELS,
   TRANSIT_MODEL_FAMILY_ORDER,
+  TRANSIT_TEXT_MODEL_FAMILY_ORDER,
   TRANSIT_OPERATOR_TYPE_LABELS,
   TRANSIT_STANDARD_MODELS,
   TRANSIT_STANDARD_MODEL_FAMILY,
   TRANSIT_STANDARD_MODEL_MODALITY,
+  isTransitTextModelFamily,
   isTransitModelFamily,
   transitModelPriceMatchesFamily,
 } from "@/data/api-transit/types";
@@ -65,6 +67,7 @@ import {
   getPrimaryTransitCommercialOffer,
   getAggregatedTransitCacheUsage,
   getStationComparisonSummary,
+  getTextStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
   getStationRechargeCoefficient,
   getTransitModelDetectionBadgeClass,
@@ -246,12 +249,12 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
   const rateColumnLabel = modelFilter !== "all"
     ? `${modelFilter} ${fixedPriceScope ? "人民币固定价" : "综合倍率"}`
     : effectiveFamilyFilter === "all"
-      ? "最低综合倍率"
+      ? "最低文本综合倍率"
       : `${TRANSIT_MODEL_FAMILY_LABELS[effectiveFamilyFilter]} ${fixedPriceScope ? "固定价" : "综合倍率"}`;
   const availabilityColumnExplanation = modelFilter !== "all"
     ? `${modelFilter} 近 7 日可用性样本汇总；最近样本只使用同模型、同分组或同家族的兼容监测范围。响应延迟是监测请求耗时，不等同于首 Token 或 TPS。`
     : effectiveFamilyFilter === "all"
-      ? "近 7 日站点整体可用性样本汇总；标签会标明来自 PriceAI 实测、公开监测页、公开模型页或站长接口。响应延迟是监测请求耗时，不等同于首 Token 或 TPS。"
+      ? "近 7 日文本模型可用性样本汇总；图片和视频不参与全部综合排序。标签会标明来自 PriceAI 实测、公开监测页、公开模型页或站长接口。响应延迟是监测请求耗时，不等同于首 Token 或 TPS。"
       : `${TRANSIT_MODEL_FAMILY_LABELS[effectiveFamilyFilter]} 近 7 日可用性样本汇总；最近样本只使用同模型、同分组或同家族的兼容监测范围。响应延迟是监测请求耗时，不等同于首 Token 或 TPS。`;
 
   const stationDetailHref = useCallback(
@@ -487,7 +490,9 @@ function CombinedRateCell({
   standardModel?: "all" | TransitStandardModel;
   compact?: boolean;
 }) {
-  const comparison = getStationComparisonSummary(station);
+  const comparison = family === "all" && standardModel === "all"
+    ? getTextStationComparisonSummary(station)
+    : getStationComparisonSummary(station);
   const summary = standardModel !== "all"
     ? getStandardModelRateSummary(station, standardModel)
     : family === "all"
@@ -529,11 +534,13 @@ function PriceBreakdownCell({
   activeStandardModel?: "all" | TransitStandardModel;
   compact?: boolean;
 }) {
-  const summary = getStationComparisonSummary(station);
+  const summary = activeFamily === "all" && activeStandardModel === "all"
+    ? getTextStationComparisonSummary(station)
+    : getStationComparisonSummary(station);
   const cacheUsage = getScopedCacheUsage(station, activeFamily, activeStandardModel);
   const visibleSummaries = activeStandardModel !== "all"
     ? [getStandardModelRateSummary(station, activeStandardModel)].filter((item) => item.priceCount > 0)
-    : TRANSIT_MODEL_FAMILY_ORDER
+    : TRANSIT_TEXT_MODEL_FAMILY_ORDER
       .map((family) => summary.families[family])
       .filter((item) => item.priceCount > 0 && (activeFamily === "all" || item.family === activeFamily))
       .slice(0, compact ? 3 : 4);
@@ -587,7 +594,7 @@ function getScopedCacheUsage(
   const prices = station.prices.filter((price) => {
     if (activeStandardModel !== "all") return price.standardModel === activeStandardModel;
     if (activeFamily !== "all") return transitModelPriceMatchesFamily(price, activeFamily);
-    return true;
+    return isTransitTextModelFamily(price.family);
   });
 
   return getAggregatedTransitCacheUsage(prices, {
@@ -779,7 +786,10 @@ function AvailabilityCell({
     : activeFamily === "all"
       ? null
       : getFamilyRateSummary(station, activeFamily);
-  const stationAvailability = getStationPublishedAvailabilitySummary(station);
+  const textSummary = activeFamily === "all" && activeStandardModel === "all"
+    ? getTextStationComparisonSummary(station)
+    : null;
+  const stationAvailability = textSummary?.availability ?? getStationPublishedAvailabilitySummary(station);
   const availability = scopedSummary || stationAvailability;
   const source = activeStandardModel !== "all"
     ? getStandardModelAvailabilitySourceMeta(station, activeStandardModel)
@@ -790,12 +800,12 @@ function AvailabilityCell({
     ? `${activeStandardModel} 稳定性`
     : scopedSummary
       ? `${scopedSummary.familyLabel} 稳定性`
-      : "站点整体稳定性";
+    : "文本综合稳定性";
   const sourceTitle = activeStandardModel !== "all"
     ? `${activeStandardModel} 近 7 日可用性样本；最近样本只使用同模型、同分组或同家族的兼容监测范围。`
     : scopedSummary
       ? `${scopedSummary.familyLabel} 分组近 7 日可用性样本；最近样本只使用同模型、同分组或同家族的兼容监测范围。`
-    : "按当前公开模型分组汇总的近 7 日可用性样本。";
+    : "仅按当前公开文本模型分组汇总的近 7 日可用性样本；图片和视频不参与综合排序。";
   const hasLatencySummary = availability.latestLatencyMs !== null && availability.latestLatencyMs !== undefined
     || availability.avgLatency7dMs !== null && availability.avgLatency7dMs !== undefined;
   const title = hasLatencySummary

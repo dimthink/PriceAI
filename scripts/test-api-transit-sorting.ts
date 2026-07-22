@@ -9,6 +9,7 @@ import {
   getAggregatedTransitCacheUsage,
   getFamilyRateSummary,
   getStationComparisonSummary,
+  getTextStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
   getStandardModelRateSummary,
   getTransitRecentAvailabilitySampleLookupScopes,
@@ -402,6 +403,48 @@ familyBalancedLatencyStation.prices.push({
 const familyBalancedLatency = getStationPublishedAvailabilitySummary(familyBalancedLatencyStation);
 assertEqual(familyBalancedLatency.latestLatencyMs, 5000);
 assertEqual(familyBalancedLatency.avgLatency7dMs, 5000);
+
+const textOnlyOverallStation = station({
+  id: "text-only-overall-station",
+  name: "Text Only Overall Station",
+  claudeRate: 0.2,
+  availabilityRate: 0.99,
+  availabilitySamples: 180,
+});
+setResponseLatency(textOnlyOverallStation, 1000, 1000);
+textOnlyOverallStation.prices[0]!.cacheUsage = { hitRate: 0.2, sampleTokens: 1000 };
+textOnlyOverallStation.prices.push({
+  ...textOnlyOverallStation.prices[0]!,
+  family: "image",
+  standardModel: "GPT Image 2",
+  groupName: "Image",
+  billingMode: "per_request",
+  modelMultiplier: null,
+  inputPrice: null,
+  outputPrice: null,
+  cacheReadPrice: null,
+  cacheWritePrice: null,
+  imageOutputPrice: 0.02,
+  fixedPrice: 0.02,
+  fixedPriceCurrency: "CNY",
+  fixedPriceUnit: "request",
+  availability: {
+    ...textOnlyOverallStation.prices[0]!.availability,
+    sevenDaySamples: 240,
+    latestLatencyMs: 37_000,
+    avgLatency7dMs: 37_000,
+  },
+  cacheUsage: { hitRate: 0.99, sampleTokens: 100_000 },
+});
+const textOnlySummary = getTextStationComparisonSummary(textOnlyOverallStation);
+assertEqual(textOnlySummary.availability.latestLatencyMs, 1000);
+assertEqual(textOnlySummary.availability.avgLatency7dMs, 1000);
+const textOnlyBreakdown = getTransitStationRankingBreakdowns([textOnlyOverallStation], { now }).get(
+  textOnlyOverallStation.id,
+);
+assertEqual(textOnlyBreakdown?.latestLatencyMs, 1000);
+assertEqual(textOnlyBreakdown?.avgLatency7dMs, 1000);
+assertEqual(textOnlyBreakdown?.cacheHitRate, 0.2);
 
 const cacheScopeStation = station({
   id: "cache-scope-station",

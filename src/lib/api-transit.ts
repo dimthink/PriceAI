@@ -18,11 +18,13 @@ import {
   TRANSIT_MODEL_FAMILY_OPTIONS,
   TRANSIT_MODEL_FAMILY_LABELS,
   TRANSIT_MODEL_FAMILY_ORDER,
+  TRANSIT_TEXT_MODEL_FAMILY_ORDER,
   TRANSIT_STANDARD_MODELS,
   TRANSIT_STANDARD_MODEL_FAMILY,
   TRANSIT_COMMERCIAL_LABELS,
   TRANSIT_DEFAULT_COMMERCIAL_OFFER_DISCLOSURE,
   isTransitStandardModel,
+  isTransitTextModelFamily,
   transitModelPriceMatchesFamily,
   transitStandardModelMatchesFamily,
 } from "@/data/api-transit/types";
@@ -1188,18 +1190,43 @@ export type TransitStationComparisonSummary = {
 export function getStationComparisonSummary(
   station: TransitStation
 ): TransitStationComparisonSummary {
+  return getStationComparisonSummaryForPrices(station, station.prices, TRANSIT_MODEL_FAMILY_ORDER);
+}
+
+export function getTextStationComparisonSummary(
+  station: TransitStation
+): TransitStationComparisonSummary {
+  const prices = getTransitTextModelPrices(station.prices);
+  return getStationComparisonSummaryForPrices(station, prices, TRANSIT_TEXT_MODEL_FAMILY_ORDER);
+}
+
+export function getTransitTextModelPrices(prices: TransitModelPrice[]): TransitModelPrice[] {
+  return prices.filter((price) => isTransitTextModelFamily(price.family));
+}
+
+function getStationComparisonSummaryForPrices(
+  station: TransitStation,
+  prices: TransitModelPrice[],
+  availabilityFamilies: readonly TransitModelFamily[],
+): TransitStationComparisonSummary {
   const families = TRANSIT_MODEL_FAMILY_ORDER.reduce(
     (accumulator, family) => ({
       ...accumulator,
-      [family]: getFamilyRateSummary(station, family),
+      [family]: summarizeRateScope(
+        station,
+        family,
+        prices.filter((price) => price.family === family),
+        { rollupByGroup: true, rankingScope: "family" },
+      ),
     }),
     {} as Record<TransitModelFamily, TransitFamilyRateSummary>
   );
-  const combinedRates = Object.values(families).map((summary) => summary.combinedRateMin).filter(
+  const scopedFamilies = availabilityFamilies.map((family) => families[family]);
+  const combinedRates = scopedFamilies.map((summary) => summary.combinedRateMin).filter(
     (value): value is number => value !== null
   );
   const bestCombinedRate = combinedRates.length ? Math.min(...combinedRates) : null;
-  const availability = getStationPublishedAvailabilitySummary(station, Object.values(families));
+  const availability = getStationPublishedAvailabilitySummary(station, scopedFamilies, prices);
   const stabilityRate = availability.sevenDayRate;
   const stabilitySamples = availability.sevenDaySamples;
 
@@ -1217,9 +1244,10 @@ export function getStationComparisonSummary(
 
 export function getStationPublishedAvailabilitySummary(
   station: TransitStation,
-  familySummaries?: TransitFamilyRateSummary[]
+  familySummaries?: TransitFamilyRateSummary[],
+  prices: TransitModelPrice[] = station.prices,
 ): TransitAvailabilityRollup {
-  const availabilityPrices = getPreferredTransitAvailabilityRollupPrices(station, station.prices, "station");
+  const availabilityPrices = getPreferredTransitAvailabilityRollupPrices(station, prices, "station");
   const hasRankablePriceEvidence = availabilityPrices.some((price) =>
     !isTransitAvailabilityReferenceForRankingScope(price.availability, "station")
   );
@@ -1731,7 +1759,12 @@ function getTransitStationSortContext(
   station: TransitStation,
   options: TransitStationRankingOptions
 ): TransitStationSortContext {
-  const summary = getStationComparisonSummary(station);
+  const allTextScope =
+    (!options.activeFamily || options.activeFamily === "all") &&
+    (!options.activeStandardModel || options.activeStandardModel === "all");
+  const summary = allTextScope
+    ? getTextStationComparisonSummary(station)
+    : getStationComparisonSummary(station);
   const scope = getActiveSortScope(station, summary, options);
   const prices = getActiveSortPrices(station, options);
   const referenceOnly = scope ? scope.referenceOnly : summary.availability.referenceOnly;
@@ -1765,7 +1798,7 @@ function getActiveSortPrices(
   if (options.activeFamily && options.activeFamily !== "all") {
     return getFamilyPrices(station, options.activeFamily);
   }
-  return station.prices;
+  return getTransitTextModelPrices(station.prices);
 }
 
 function transitSortCost(

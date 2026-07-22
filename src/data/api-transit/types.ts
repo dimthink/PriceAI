@@ -285,6 +285,17 @@ export const TRANSIT_MODEL_FAMILY_ORDER = [
   "video",
 ] as const satisfies readonly TransitModelFamily[];
 
+export const TRANSIT_TEXT_MODEL_FAMILY_ORDER = TRANSIT_MODEL_FAMILY_ORDER.filter(
+  (family): family is Exclude<TransitModelFamily, "image" | "video"> =>
+    family !== "image" && family !== "video",
+);
+
+export function isTransitTextModelFamily(
+  family: TransitModelFamily,
+): family is Exclude<TransitModelFamily, "image" | "video"> {
+  return family !== "image" && family !== "video";
+}
+
 export const TRANSIT_MODEL_FAMILY_OPTIONS: { id: TransitModelFamily; label: string }[] = [
   ...TRANSIT_MODEL_FAMILY_ORDER.map((id) => ({
     id,
