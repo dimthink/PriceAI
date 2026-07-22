@@ -31,7 +31,7 @@ const {
 } = await loadOfferFilterTagsModule();
 
 const cases = [
-  ["ChatGPT Plus 直充 卡密自助", "chatgpt-plus"],
+  ["ChatGPT Plus 直充 卡密自助", "chatgpt-plus-recharge"],
   ["ChatGPT Plus 成品号 独享账号", "chatgpt-plus"],
   ["UPI渠道-PLUS成品号30天（iCloud高权重母号邮箱）", "chatgpt-plus"],
   ["UPI渠道-PLUS独享成品号30天（iCloud高权重母号邮箱）", "chatgpt-plus"],
@@ -72,6 +72,11 @@ const cases = [
   ["USDT - 1个月GPT PLUS代充 订阅质保掉订阅 不可囤卡 谷歌渠道", "chatgpt-plus-recharge"],
   ["PLUS 谷歌渠道 秒充值可覆盖", "chatgpt-plus-recharge"],
   ["GPT Plus CDK 【谷歌渠道24小时秒冲】", "chatgpt-plus-recharge"],
+  ["GPT plus 质保30天月卡（官方渠道，保订阅，保封号）支持开票", "chatgpt-plus"],
+  ["GPT Plus 一个月[菲区]【质保订阅】", "chatgpt-plus"],
+  ["ChatGPT Plus iOS渠道质保订阅", "chatgpt-plus"],
+  ["GPT Plus 24小时自动充值 质保订阅", "chatgpt-plus-recharge"],
+  ["ChatGPT Plus 卡充 CDK 秒冲【质保订阅】", "chatgpt-plus-recharge"],
   ["GPT Plus 一个月会员 -卡密自助 Pix渠道【仅支持新号或老号有试用】【无质保】【巴西老哥人工充值】", "chatgpt-plus"],
   ["GPT Plus试用pix充值【巴西渠道】【官方试用】", "chatgpt-plus"],
   ["ChatGPT PLUS 自助充值卡密 (巴西Pix渠道）", "chatgpt-plus"],
@@ -370,10 +375,10 @@ for (const [title, price, expected] of priceCases) {
 }
 
 const groups = buildProductGroups([
-  makeOffer({ id: "available", title: "ChatGPT Plus 直充", price: 100, status: "in_stock" }),
-  makeOffer({ id: "cheap-out", title: "ChatGPT Plus 直充", price: 1, status: "out_of_stock" }),
-  makeOffer({ id: "unavailable", title: "ChatGPT Plus 直充", price: 2, status: "in_stock", effectiveStatus: "unavailable" }),
-  makeOffer({ id: "hidden", title: "ChatGPT Plus 直充", price: 0, status: "in_stock", hidden: true }),
+  makeOffer({ id: "available", title: "ChatGPT Plus 月卡", price: 100, status: "in_stock" }),
+  makeOffer({ id: "cheap-out", title: "ChatGPT Plus 月卡", price: 1, status: "out_of_stock" }),
+  makeOffer({ id: "unavailable", title: "ChatGPT Plus 月卡", price: 2, status: "in_stock", effectiveStatus: "unavailable" }),
+  makeOffer({ id: "hidden", title: "ChatGPT Plus 月卡", price: 0, status: "in_stock", hidden: true }),
 ]);
 
 const plusGroup = groups.find((group) => group.id === "chatgpt-plus");

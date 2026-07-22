@@ -2,7 +2,7 @@ import type { CanonicalProduct, ProductGroup, RawOffer } from "./types";
 import { hasChatGptPlusRechargeOfficialDirectSignal, offerMatchesFilterTags } from "./offer-filter-tags";
 import { API_CDK_PLATFORM, isPublicCatalogProduct } from "./trust-risk";
 
-export const OFFER_CLASSIFICATION_VERSION = "2026-07-22.chatgpt-plus-delivery-v2";
+export const OFFER_CLASSIFICATION_VERSION = "2026-07-22.chatgpt-plus-delivery-v3";
 
 export const allPlatformOptions = [
   "ChatGPT",
@@ -659,7 +659,7 @@ export function resolveOfferProduct(
   const canonicalMap = new Map(canonicalProducts.map((product) => [product.id, product]));
   const context = { tags: offer.tags, categorySlug: offer.categorySlug };
   const titleClassified = classifyOfferByTitle(offer.sourceTitle, context);
-  const classified = applyPriceFloor(titleClassified, offer.price);
+  const classified = applyPriceFloor(titleClassified, offer.price, offer.sourceTitle);
   const mappedId = offer.canonicalProductId ? legacyCanonicalIdMap[offer.canonicalProductId] || offer.canonicalProductId : null;
 
   if (classified.id !== "other-product") return classified;
@@ -675,7 +675,7 @@ export function classifyOffer(
   title: string,
   context: OfferClassificationContext = {},
 ): CanonicalProduct {
-  return applyPriceFloor(classifyOfferByTitle(title, context), context.price);
+  return applyPriceFloor(classifyOfferByTitle(title, context), context.price, title);
 }
 
 function classifyOfferByTitle(
@@ -691,12 +691,6 @@ function classifyOfferByTitle(
 
   if (isVerificationService(value)) {
     return getCanonicalProduct(classifyVerificationService(value));
-  }
-
-  // Resolve explicit Plus recharge before Google/iOS channel words can be
-  // interpreted as a different product family.
-  if (isChatGptPlusRecharge(value)) {
-    return getCanonicalProduct("chatgpt-plus-recharge");
   }
 
   if (isGooglePlayOrPixelRechargeProduct(value)) {
@@ -925,12 +919,25 @@ function classifyOfferByTitle(
   return getCanonicalProduct("other-product");
 }
 
-function applyPriceFloor(product: CanonicalProduct, price: number | null | undefined): CanonicalProduct {
+function applyPriceFloor(
+  product: CanonicalProduct,
+  price: number | null | undefined,
+  title?: string,
+): CanonicalProduct {
   const floor = priceFloorByProductId.get(product.id);
   if (floor === undefined) return product;
   if (typeof price !== "number" || !Number.isFinite(price)) return product;
 
-  return price < floor ? getCanonicalProduct("other-product") : product;
+  if (price >= floor) return product;
+  if (product.id === "chatgpt-plus-recharge" && title) {
+    const value = normalizeTitle(title);
+    const hasOfficialOrRegionalBillingPath =
+      hasChatGptPlusRechargeOfficialDirectSignal(value) ||
+      hasChatGptPlusTurkeyRegionSignal(value) ||
+      (hasChatGptPlusRegionSignal(value) && matches(value, ["ios", "app store", "appstore", "内购", "苹果内购"]));
+    if (!hasOfficialOrRegionalBillingPath) return getCanonicalProduct("chatgpt-plus");
+  }
+  return getCanonicalProduct("other-product");
 }
 
 function shouldBlockStoredProductFallback(title: string): boolean {
@@ -2768,7 +2775,7 @@ function isChatGptPlusRecharge(value: string): boolean {
   const hasRechargeSignal = hasChatGptPlusRechargeSignal(value);
 
   if (hasChatGptPlusRechargeOfficialDirectSignal(value)) return true;
-  if (matches(value, ["月卡批发"]) && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
+  if (hasRechargeSignal) return true;
   if (hasTurkeyRegionSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
   if (hasRegionSignal && hasAppleBillingSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
   if (hasRegionSignal && hasRechargeSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
@@ -2863,6 +2870,10 @@ function isChatGptPlusPixTrial(value: string): boolean {
     "质保48小时",
     "质保两天",
     "质保首登",
+    "渠道非成品",
+    "自备账号",
+    "自己账号",
+    "有team不能冲",
   ];
 
   if (matches(value, ["pix"])) {
@@ -2949,8 +2960,6 @@ function hasChatGptPlusRechargeSignal(value: string): boolean {
     "cdk",
     "兑换码",
     "自助卡密",
-    "月卡批发",
-    "批发",
     "卡冲",
     "卡充",
     "卡付",
