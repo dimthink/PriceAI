@@ -888,8 +888,8 @@ function hasChatGptPlusRechargeUsIosSignal(text: string): boolean {
   return hasUsRegionSignal(text) && hasIosPaymentSignal(text);
 }
 
-function hasChatGptPlusRechargeOfficialDirectSignal(text: string): boolean {
-  return /官方直充|官方充值|官方代充|官方订阅|正价代充|正规充值|正规官方|官网直充|官网代充|人工直充|自动直充|带账单|质保订阅/.test(text);
+export function hasChatGptPlusRechargeOfficialDirectSignal(text: string): boolean {
+  return /官方直充|官方充值|官方代充|官方订阅|正价代充|正价充值|正规充值|正规官方|正规卡付|正规卡冲|官网直充|官网直冲|官网代充|人工直充|自动直充|带账单|质保订阅|保订阅|(?:google|谷歌).{0,8}(?:内购|正价)|(?:内购|正价).{0,8}(?:google|谷歌)/i.test(text);
 }
 
 function addProMaxSubtypeFilterTags(output: Set<OfferFilterTagId>, text: string): void {

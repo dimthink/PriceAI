@@ -1,8 +1,8 @@
 import type { CanonicalProduct, ProductGroup, RawOffer } from "./types";
-import { offerMatchesFilterTags } from "./offer-filter-tags";
+import { hasChatGptPlusRechargeOfficialDirectSignal, offerMatchesFilterTags } from "./offer-filter-tags";
 import { API_CDK_PLATFORM, isPublicCatalogProduct } from "./trust-risk";
 
-export const OFFER_CLASSIFICATION_VERSION = "2026-07-19.feedback-contract-v1";
+export const OFFER_CLASSIFICATION_VERSION = "2026-07-22.chatgpt-plus-delivery-v2";
 
 export const allPlatformOptions = [
   "ChatGPT",
@@ -691,6 +691,12 @@ function classifyOfferByTitle(
 
   if (isVerificationService(value)) {
     return getCanonicalProduct(classifyVerificationService(value));
+  }
+
+  // Resolve explicit Plus recharge before Google/iOS channel words can be
+  // interpreted as a different product family.
+  if (isChatGptPlusRecharge(value)) {
+    return getCanonicalProduct("chatgpt-plus-recharge");
   }
 
   if (isGooglePlayOrPixelRechargeProduct(value)) {
@@ -2684,7 +2690,7 @@ function isChatGptPlus(value: string): boolean {
   const hasPlusSignal = matches(value, ["plus"]);
   if (!hasChatGptSignal && !hasPlusSignal) return false;
   if (matches(value, ["pro"]) && !matches(value, ["plus"])) return false;
-  if (matches(value, ["go", "go月卡", "go 年卡", "go-"])) return false;
+  if (isChatGptGoProduct(value)) return false;
   if (hasChatGptSignal && hasPlusSignal) return true;
 
   if (hasPlusSignal && !hasChatGptSignal) {
@@ -2753,8 +2759,7 @@ function isChatGptPlus(value: string): boolean {
 
 function isChatGptPlusRecharge(value: string): boolean {
   if (!isChatGptPlus(value)) return false;
-  if (isChatGptAccountTitle(value)) return false;
-  if (matches(value, ["成品号", "独享账号", "账密", "首登", "直登", "普通号", "白号"])) return false;
+  if (hasChatGptPlusAccountDeliverySignal(value)) return false;
   if (isChatGptPlusPixTrial(value)) return false;
 
   const hasTurkeyRegionSignal = hasChatGptPlusTurkeyRegionSignal(value);
@@ -2762,12 +2767,88 @@ function isChatGptPlusRecharge(value: string): boolean {
   const hasAppleBillingSignal = matches(value, ["ios", "app store", "appstore", "内购", "苹果内购"]);
   const hasRechargeSignal = hasChatGptPlusRechargeSignal(value);
 
+  if (hasChatGptPlusRechargeOfficialDirectSignal(value)) return true;
   if (matches(value, ["月卡批发"]) && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
   if (hasTurkeyRegionSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
   if (hasRegionSignal && hasAppleBillingSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
   if (hasRegionSignal && hasRechargeSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
 
   return hasAppleBillingSignal && hasRechargeSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"]);
+}
+
+function hasChatGptPlusAccountDeliverySignal(value: string): boolean {
+  if (matches(value, [
+    "自备账号",
+    "自备号",
+    "自己账号",
+    "自己的账号",
+    "自己号",
+    "自己的号",
+    "到自己账号",
+    "充值到自己账号",
+    "充自己号",
+    "给自己号",
+    "任何账号可充",
+  ])) {
+    return false;
+  }
+
+  if (matches(value, [
+    "成品号",
+    "成品账号",
+    "成品帐号",
+    "独享账号",
+    "独享账户",
+    "账密",
+    "首登",
+    "直登",
+    "未接码",
+    "已接码",
+    "网页号",
+    "半成品",
+    "母号邮箱",
+    "邮箱随机发货",
+    "拿到后立刻改密码",
+    "拿到后改密码",
+    "修改密码",
+    "改密码",
+    "支持登录codex",
+    "支持登录 codex",
+    "直接登录codex",
+    "直接登录 codex",
+    "登录codex",
+    "登录 codex",
+    "带2fa",
+    "带 2fa",
+    "2fa",
+    "二验",
+  ])) {
+    return true;
+  }
+
+  const hasEmailCredentialSignal = matches(value, [
+    "gmail邮箱",
+    "gmail 邮箱",
+    "icloud邮箱",
+    "icloud 邮箱",
+    "outlook邮箱",
+    "outlook 邮箱",
+    "微软邮箱",
+    "谷歌邮箱",
+  ]);
+  const hasLoginOrCredentialSignal = matches(value, [
+    "支持登录",
+    "可以登录",
+    "可登录",
+    "登录codex",
+    "登录 codex",
+    "可网页",
+    "动态家宽注册",
+    "2fa",
+    "二验",
+  ]);
+
+  return hasEmailCredentialSignal && hasLoginOrCredentialSignal;
 }
 
 function isChatGptPlusPixTrial(value: string): boolean {
@@ -2859,13 +2940,14 @@ function hasChatGptPlusRegionSignal(value: string): boolean {
 function hasChatGptPlusRechargeSignal(value: string): boolean {
   return matches(value, [
     "充值",
-    "冲",
     "秒冲",
     "代充",
     "直充",
     "直冲",
     "续费",
     "卡密",
+    "cdk",
+    "兑换码",
     "自助卡密",
     "月卡批发",
     "批发",
@@ -2876,7 +2958,6 @@ function hasChatGptPlusRechargeSignal(value: string): boolean {
     "官方直充",
     "官网直冲",
     "官方代充",
-    "官方渠道",
     "官方订阅",
     "正规充值",
     "正规官方",
@@ -2888,9 +2969,6 @@ function hasChatGptPlusRechargeSignal(value: string): boolean {
     "苹果内购",
     "带账单",
     "正规账单",
-    "渠道",
-    "凭证",
-    "可查",
     "充自己号",
     "自己的账号",
     "自备账号",
