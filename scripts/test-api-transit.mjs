@@ -20,6 +20,46 @@ for (const sourceFile of COLLECTOR_RUNTIME_SOURCE_FILES.filter((file) => file.en
   }
 }
 
+const stationWithOfferEvidenceFields = {
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+  availability_scope: "model",
+  availability_match_level: "family",
+  monitoring_scope_id: "monitoring-scope",
+};
+assert.deepEqual(__test.removeAvailabilityEvidenceFields([stationWithOfferEvidenceFields]), [{
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+}]);
+assert.deepEqual(stationWithOfferEvidenceFields, {
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+  availability_scope: "model",
+  availability_match_level: "family",
+  monitoring_scope_id: "monitoring-scope",
+}, "Station compatibility fallback must not mutate the original collector payload.");
+
+const stationUpsertAttempts = [];
+await __test.upsertRows({
+  from(table) {
+    assert.equal(table, "api_transit_stations");
+    return {
+      async upsert(rows) {
+        stationUpsertAttempts.push(rows);
+        return stationUpsertAttempts.length === 1
+          ? { error: { code: "PGRST204", message: "Could not find the 'availability_match_level' column of 'api_transit_stations' in the schema cache" } }
+          : { error: null };
+      },
+    };
+  },
+}, "api_transit_stations", [stationWithOfferEvidenceFields], { onConflict: "id" });
+assert.equal(stationUpsertAttempts.length, 2);
+assert.deepEqual(stationUpsertAttempts[0], [stationWithOfferEvidenceFields]);
+assert.deepEqual(stationUpsertAttempts[1], [{
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+}]);
+
 const leaseCliSmoke = spawnSync(process.execPath, [fileURLToPath(new URL("./collect-api-transit.mjs", import.meta.url)), "--post", "--source", "__lease_smoke__"], {
   cwd: fileURLToPath(new URL("..", import.meta.url)),
   encoding: "utf8",

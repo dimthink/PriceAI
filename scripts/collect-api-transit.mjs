@@ -4220,6 +4220,13 @@ async function upsertRows(supabase, table, rows, options = {}) {
       fallbackError.table = table;
       throw fallbackError;
     }
+    if (error && table === "api_transit_stations" && isAvailabilityEvidenceColumnError(error)) {
+      const compatibleChunk = removeAvailabilityEvidenceFields(chunk);
+      const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
     if (error && table === "api_transit_availability_samples" && isSampleOptionalColumnError(error)) {
       const compatibleChunk = removeSampleOptionalFields(chunk, error);
       const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
@@ -4675,6 +4682,7 @@ export const __test = {
   applyNewApiPerformanceSummaryAvailability,
   applyZivvStatusAvailability,
   mergeOfferForRefresh,
+  removeAvailabilityEvidenceFields,
   parseApinodePublicSiteInfoPayload,
   parseOneHopPublicModelsPayload,
   parsePricingPayload,
@@ -4682,4 +4690,5 @@ export const __test = {
   selectSources,
   standardizeModelName,
   shouldRestrictToPublishedStations,
+  upsertRows,
 };
