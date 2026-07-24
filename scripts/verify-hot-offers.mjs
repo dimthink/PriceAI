@@ -66,7 +66,7 @@ export async function runHotOfferVerification(options = {}) {
     collectorNodeType: "vps",
     collectorNodeRuntime: "systemd-hot-verifier",
     collectorNodeRegion: options.nodeRegion || process.env.PRICEAI_COLLECTOR_NODE_REGION || "cn",
-    pageDelayMs: requestDelayMs,
+    pageDelayMs: Math.min(requestDelayMs, 250),
   };
 
   try {
