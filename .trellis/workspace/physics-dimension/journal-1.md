@@ -359,3 +359,36 @@ Supabase Preview 与生产 RPC 验证成功；Cloudflare Actions 29804093084 发
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: 发布首页购买路径卡片对齐修复
+
+**Date**: 2026-07-24
+**Task**: 发布首页购买路径卡片对齐修复
+**Branch**: `main`
+
+### Summary
+
+仅发布首页购买路径卡片按钮对齐修复。Cloudflare Actions 30090526966 完成构建、0% 候选烟测、promotion 与生产 smoke；/api/deployment 返回 Cloudflare 版本 d3a22272-e7ca-43d8-9e39-51f995206958、versionTag 3822747；生产三张卡片按钮坐标一致，390px 无横向溢出，无数据库 migration。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3822747` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
