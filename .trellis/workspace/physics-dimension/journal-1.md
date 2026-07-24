@@ -392,3 +392,38 @@ Supabase Preview 与生产 RPC 验证成功；Cloudflare Actions 29804093084 发
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: 修复 API 中转监测过期数据误导
+
+**Date**: 2026-07-24
+**Task**: 修复 API 中转监测过期数据误导
+**Branch**: `main`
+
+### Summary
+
+已推送 main，同步 Huoshan2 collector runtime 到 8e3def8，并由 Cloudflare workflow 30091261787 完成候选烟测、100% 切流和生产 smoke；线上 RTOC 38 条、OneHop 22 条价格确认时间已更新且与可用性时间分离。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2762922` | (see git log) |
+| `2e27082` | (see git log) |
+| `8e3def8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
