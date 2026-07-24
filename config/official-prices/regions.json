@@ -374,5 +374,13 @@
     "currencyCode": "VND",
     "enabled": true,
     "priority": 470
+  },
+  {
+    "countryCode": "BO",
+    "countryLabel": "玻利维亚",
+    "storefrontCode": "bo",
+    "currencyCode": "USD",
+    "enabled": true,
+    "priority": 480
   }
 ]
