@@ -12,6 +12,7 @@ import {
   releaseCollectionLock,
   stableHashInt,
   stableOfferInputId,
+  verifyShopApiOffer,
 } from "./collect-prices.mjs";
 
 export const HOT_OFFER_SLICES = Object.freeze([
@@ -94,6 +95,7 @@ export async function runHotOfferVerification(options = {}) {
       verifiedCount: 0,
       changedCount: 0,
       writtenCount: 0,
+      writeFailedCount: 0,
       skippedCount: 0,
       failedCount: 0,
       proxyCount: 0,
@@ -180,8 +182,6 @@ export async function runHotOfferVerification(options = {}) {
           selectHotVerifiedOffers(pending, collected.offers)
             .map(({ candidate, offer }) => [candidate.id, offer]),
         );
-        const incompleteCollection = collected.details?.fullSnapshot === false;
-
         for (let index = 0; index < pending.length; index += 1) {
           if (Date.now() - startedAtMs >= maxDurationMs) {
             summary.deadlineReached = true;
@@ -191,16 +191,14 @@ export async function runHotOfferVerification(options = {}) {
           const candidate = pending[index];
           try {
             const structuredOffer = structuredOffersById.get(candidate.id) || null;
-            const result = structuredOffer
-              ? { status: "verified", route: sourceRequestRoute, message: "结构化来源候选核验成功。", offer: structuredOffer }
-              : {
-                  status: "inconclusive",
-                  route: sourceRequestRoute,
-                  message: incompleteCollection
-                    ? `结构化来源列表不完整，本次未匹配候选，暂不改变公开状态：${collected.details?.partialReason || "partial"}`
-                    : "结构化来源本次未返回该候选，暂不改变公开状态。",
-                  offer: null,
-                };
+            const result = await resolveHotCandidateVerification({
+              target,
+              candidate,
+              structuredOffer,
+              collectedDetails: collected.details,
+              sourceRequestRoute,
+              collectorOptions,
+            });
             if (result.status !== "verified" || !result.offer) {
               summary.skippedCount += 1;
               console.log(JSON.stringify({
@@ -241,24 +239,33 @@ export async function runHotOfferVerification(options = {}) {
 
         if (mode === "write" && verifiedOffers.length) {
           const collectedAt = new Date().toISOString();
-          const posted = await postCrawlLog(
-            target,
-            verifiedOffers,
-            "success",
-            `热门报价单链接核验完成：确认 ${verifiedOffers.length} 条，变化 ${changedOfferIds.length} 条。`,
-            collectorOptions,
-            {
-              collectionStartedAt: sourceStartedAt,
-              collectedAt,
-              fullSnapshot: false,
-              hotVerification: true,
-              hotVerificationMode: mode,
-              candidateCount: pending.length,
-              changedOfferIds,
-              shopApiRequestRoute: sourceRequestRoute,
-            },
-          );
-          summary.writtenCount += Number(posted.writtenCount || 0) + Number(posted.refreshedCount || 0);
+          try {
+            const posted = await postHotVerificationWithRetry({
+              target,
+              offers: verifiedOffers,
+              message: `热门报价单链接核验完成：确认 ${verifiedOffers.length} 条，变化 ${changedOfferIds.length} 条。`,
+              collectorOptions,
+              details: {
+                collectionStartedAt: sourceStartedAt,
+                collectedAt,
+                fullSnapshot: false,
+                hotVerification: true,
+                hotVerificationMode: mode,
+                candidateCount: pending.length,
+                changedOfferIds,
+                shopApiRequestRoute: sourceRequestRoute,
+              },
+            });
+            summary.writtenCount += Number(posted.writtenCount || 0) + Number(posted.refreshedCount || 0);
+          } catch (error) {
+            summary.writeFailedCount += verifiedOffers.length;
+            console.error(JSON.stringify({
+              event: "hot-verification-write-error",
+              sourceId: group.sourceId,
+              offerCount: verifiedOffers.length,
+              message: errorMessage(error),
+            }));
+          }
         }
       } finally {
         await releaseCollectionLock(target, lockOwner, console);
@@ -383,6 +390,72 @@ export function normalizeHotVerifiedOffer(current, verified, { priceTolerance = 
   return normalized;
 }
 
+export async function resolveHotCandidateVerification({
+  target,
+  candidate,
+  structuredOffer,
+  collectedDetails,
+  sourceRequestRoute = "direct",
+  collectorOptions = {},
+  verifyImpl = verifyShopApiOffer,
+}) {
+  if (structuredOffer) {
+    return {
+      status: "verified",
+      route: sourceRequestRoute,
+      message: "结构化来源候选核验成功。",
+      offer: structuredOffer,
+    };
+  }
+
+  if (target?.kind !== "shopApi") {
+    return {
+      status: "inconclusive",
+      route: sourceRequestRoute,
+      message: "结构化来源本次未返回该候选，暂不改变公开状态。",
+      offer: null,
+    };
+  }
+
+  try {
+    const result = await verifyImpl(target, candidate, collectorOptions);
+    return result.status === "verified" && result.offer
+      ? { ...result, offer: normalizeHotVerifiedOffer(candidate, result.offer) }
+      : result;
+  } catch (error) {
+    const partialReason = collectedDetails?.fullSnapshot === false
+      ? `；全店列表不完整：${collectedDetails?.partialReason || "partial"}`
+      : "";
+    return {
+      status: "inconclusive",
+      route: sourceRequestRoute,
+      message: `商品详情核验失败，暂不改变公开状态：${errorMessage(error)}${partialReason}`,
+      offer: null,
+    };
+  }
+}
+
+export async function postHotVerificationWithRetry({
+  target,
+  offers,
+  message,
+  collectorOptions,
+  details,
+  postImpl = postCrawlLog,
+  retryDelayMs = 1_000,
+}) {
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await postImpl(target, offers, "success", message, collectorOptions, details);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2 && retryDelayMs > 0) await delay(retryDelayMs);
+    }
+  }
+  throw lastError;
+}
+
 function priceWithinRelativeTolerance(current, verified, tolerance) {
   const currentPrice = numberOrNull(current);
   const verifiedPrice = numberOrNull(verified);
@@ -432,6 +505,10 @@ function sameNumber(left, right) {
   const rightNumber = numberOrNull(right);
   if (leftNumber === null || rightNumber === null) return leftNumber === rightNumber;
   return Math.abs(leftNumber - rightNumber) < 0.005;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function errorMessage(error) {

@@ -11,9 +11,11 @@ const {
   hotOfferShardIndex,
   mergeHotOfferCandidates,
   normalizeHotVerifiedOffer,
+  postHotVerificationWithRetry,
+  resolveHotCandidateVerification,
   selectHotVerifiedOffers,
 } = await import("./verify-hot-offers.mjs");
-const { stableOfferInputId } = await import("./collect-prices.mjs");
+const { stableOfferInputId, verifyShopApiOffer } = await import("./collect-prices.mjs");
 
 assert.equal(HOT_OFFER_SLICES.length, 5);
 assert.deepEqual(
@@ -136,6 +138,97 @@ assert.ok(requestedUrls.some((url) => url.includes("tags=account_verified")));
   assert.equal(soldOut.effectiveStatus, "unavailable");
 
   assert.deepEqual(selectHotVerifiedOffers([candidate], [unrelated]), []);
+
+  const removed = await verifyShopApiOffer(
+    { ...targetFields, kind: "shopApi", baseUrl },
+    candidate,
+    {
+      shopApiProxyMode: "on-exit",
+      shopApiRequestJson: async () => ({ code: 0, msg: "商品不存在", data: null }),
+    },
+  );
+  assert.equal(removed.status, "verified");
+  assert.equal(removed.offer.status, "out_of_stock");
+  assert.equal(removed.offer.effectiveStatus, "unavailable");
+  assert.equal(removed.offer.stockCount, 0);
+
+  const fallbackRemoved = await resolveHotCandidateVerification({
+    target: { ...targetFields, kind: "shopApi", baseUrl },
+    candidate,
+    structuredOffer: null,
+    collectedDetails: { fullSnapshot: true },
+    verifyImpl: async () => removed,
+  });
+  assert.equal(fallbackRemoved.status, "verified");
+  assert.equal(fallbackRemoved.offer.status, "out_of_stock");
+  assert.equal(fallbackRemoved.offer.stockCount, 0);
+
+  const ambiguous = await resolveHotCandidateVerification({
+    target: { ...targetFields, kind: "shopApi", baseUrl },
+    candidate,
+    structuredOffer: null,
+    verifyImpl: async () => ({
+      status: "inconclusive",
+      route: "direct",
+      message: "商品接口未返回详情，暂不改变公开状态。",
+      offer: null,
+    }),
+  });
+  assert.equal(ambiguous.status, "inconclusive");
+  assert.equal(ambiguous.offer, null);
+
+  const networkFailure = await resolveHotCandidateVerification({
+    target: { ...targetFields, kind: "shopApi", baseUrl },
+    candidate,
+    structuredOffer: null,
+    collectedDetails: { fullSnapshot: false, partialReason: "request-timeout" },
+    verifyImpl: async () => { throw new Error("fetch failed"); },
+  });
+  assert.equal(networkFailure.status, "inconclusive");
+  assert.equal(networkFailure.offer, null);
+  assert.match(networkFailure.message, /fetch failed/);
+}
+
+{
+  let attempts = 0;
+  const details = { collectionStartedAt: "2026-07-25T00:00:00.000Z", fullSnapshot: false };
+  const posted = await postHotVerificationWithRetry({
+    target: { sourceId: "source-1" },
+    offers: [{ id: "offer-1" }],
+    message: "fixture",
+    collectorOptions: {},
+    details,
+    retryDelayMs: 0,
+    postImpl: async (_target, _offers, status, _message, _options, postedDetails) => {
+      attempts += 1;
+      assert.equal(status, "success");
+      assert.equal(postedDetails, details);
+      if (attempts === 1) throw new Error("fetch failed");
+      return { writtenCount: 1, refreshedCount: 0 };
+    },
+  });
+  assert.equal(attempts, 2);
+  assert.equal(posted.writtenCount, 1);
+}
+
+{
+  let attempts = 0;
+  await assert.rejects(
+    postHotVerificationWithRetry({
+      target: { sourceId: "source-2" },
+      offers: [{ id: "offer-2" }],
+      message: "fixture",
+      collectorOptions: {},
+      details: { fullSnapshot: false },
+      retryDelayMs: 0,
+      postImpl: async () => {
+        attempts += 1;
+        throw new Error("write unavailable");
+      },
+    }),
+    /write unavailable/,
+  );
+  assert.equal(attempts, 2);
 }
 
 console.log("hot offer verifier tests passed");
