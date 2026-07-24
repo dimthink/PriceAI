@@ -899,8 +899,22 @@ export function getTransitAvailabilityFreshness(
   now: string | number | Date = Date.now(),
   station?: Pick<TransitStation, "collectionStatus" | "collectionError">,
 ): TransitAvailabilityFreshnessState {
-  if (availability.sevenDaySamples <= 0 || !availability.lastCheckedAt) return "empty";
-  const checkedAt = parseAvailabilityTimestamp(availability.lastCheckedAt);
+  return getTransitEvidenceFreshness(
+    availability.lastCheckedAt,
+    availability.sevenDaySamples > 0,
+    now,
+    station,
+  );
+}
+
+function getTransitEvidenceFreshness(
+  verifiedAt: string | null | undefined,
+  hasEvidence: boolean,
+  now: string | number | Date,
+  station?: Pick<TransitStation, "collectionStatus" | "collectionError">,
+): TransitAvailabilityFreshnessState {
+  if (!hasEvidence || !verifiedAt) return "empty";
+  const checkedAt = parseAvailabilityTimestamp(verifiedAt);
   const referenceAt = rankingTimestamp(now);
   if (checkedAt === null || !Number.isFinite(referenceAt)) return "empty";
 
@@ -1730,6 +1744,49 @@ export type TransitStationRankingOptions = {
   now?: string | number | Date;
 };
 
+export type TransitPriceFreshnessSummary = {
+  state: TransitAvailabilityFreshnessState;
+  lastVerifiedAt: string | null;
+};
+
+export function getTransitStationPriceFreshness(
+  station: TransitStation,
+  options: TransitStationRankingOptions = {},
+): TransitPriceFreshnessSummary {
+  const prices = getActiveSortPrices(station, options);
+  const pricedEvidence = prices
+    .map((price) => ({
+      price,
+      value: getCombinedRateForPrice(station, price) ?? getTransitFixedPriceValue(price),
+    }))
+    .filter((entry): entry is { price: TransitModelPrice; value: number } =>
+      entry.value !== null && Number.isFinite(entry.value) && entry.value > 0
+    );
+  const bestValue = pricedEvidence.length
+    ? Math.min(...pricedEvidence.map((entry) => entry.value))
+    : null;
+  const evidencePrices = bestValue === null
+    ? prices
+    : pricedEvidence
+      .filter((entry) => entry.value === bestValue)
+      .map((entry) => entry.price);
+  const lastVerifiedAt = evidencePrices
+    .map((price) => price.lastVerifiedAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? null;
+
+  return {
+    state: getTransitEvidenceFreshness(
+      lastVerifiedAt,
+      prices.length > 0,
+      options.now ?? Date.now(),
+      station,
+    ),
+    lastVerifiedAt,
+  };
+}
+
 export type TransitStationRankingBreakdown = {
   totalScore: number;
   costScore: number;
@@ -1767,6 +1824,7 @@ type TransitStationSortContext = {
   latestLatencyMs: number | null;
   avgLatency7dMs: number | null;
   freshness: TransitAvailabilityFreshnessState;
+  priceFreshness: TransitAvailabilityFreshnessState;
 };
 
 export function compareStations(
@@ -1800,7 +1858,11 @@ export function compareStations(
 
     if (sortBy === "claude_rate") {
       return (
-        compareNullableNumber(a.summary.claude.combinedRateMin, b.summary.claude.combinedRateMin, "asc") ||
+        compareNullableNumber(
+          rankableTransitFamilyRate(a, "claude", options),
+          rankableTransitFamilyRate(b, "claude", options),
+          "asc",
+        ) ||
         compareNullableNumber(a.cost, b.cost, "asc") ||
         compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
         b.stabilitySamples - a.stabilitySamples ||
@@ -1810,7 +1872,11 @@ export function compareStations(
 
     if (sortBy === "gpt_rate") {
       return (
-        compareNullableNumber(a.summary.gpt.combinedRateMin, b.summary.gpt.combinedRateMin, "asc") ||
+        compareNullableNumber(
+          rankableTransitFamilyRate(a, "gpt", options),
+          rankableTransitFamilyRate(b, "gpt", options),
+          "asc",
+        ) ||
         compareNullableNumber(a.cost, b.cost, "asc") ||
         compareNullableNumber(a.stabilityRate, b.stabilityRate, "desc") ||
         b.stabilitySamples - a.stabilitySamples ||
@@ -1861,12 +1927,14 @@ function getTransitStationSortContext(
     ?? (scope ? scope.referenceOnly : summary.availability.referenceOnly);
   const freshness = presentation?.freshness ?? getTransitAvailabilityFreshness(rankingAvailability, now, station);
   const availabilityExcluded = referenceOnly || freshness === "stale" || freshness === "empty";
+  const priceFreshness = getTransitStationPriceFreshness(station, { ...options, now }).state;
+  const priceExcluded = priceFreshness === "stale" || priceFreshness === "empty";
 
   return {
     station,
     summary,
     scope,
-    cost: transitSortCost(scope, summary),
+    cost: priceExcluded ? null : transitSortCost(scope, summary),
     stabilityRate: availabilityExcluded ? null : rankingAvailability.sevenDayRate,
     stabilitySamples: availabilityExcluded ? 0 : rankingAvailability.sevenDaySamples,
     recentSamples: availabilityExcluded ? undefined : rankingAvailability.recentSamples,
@@ -1879,7 +1947,23 @@ function getTransitStationSortContext(
     latestLatencyMs: rankingAvailability.latestLatencyMs ?? null,
     avgLatency7dMs: rankingAvailability.avgLatency7dMs ?? null,
     freshness,
+    priceFreshness,
   };
+}
+
+function rankableTransitFamilyRate(
+  context: TransitStationSortContext,
+  family: TransitModelFamily,
+  options: TransitStationRankingOptions,
+): number | null {
+  const priceFreshness = getTransitStationPriceFreshness(context.station, {
+    ...options,
+    activeFamily: family,
+    activeStandardModel: "all",
+  }).state;
+  return priceFreshness === "stale" || priceFreshness === "empty"
+    ? null
+    : context.summary.families[family].combinedRateMin;
 }
 
 function getActiveSortPrices(
@@ -1928,7 +2012,9 @@ function scoreTransitStationContexts(
     .filter((value): value is number => value !== null);
 
   return new Map(contexts.map((context) => {
-    const costScore = scoreTransitRelativeCost(context.cost, peerRates) * TRANSIT_RANKING_WEIGHTS.cost;
+    const priceFreshnessWeight = context.priceFreshness === "delayed" ? 0.5 : 1;
+    const costScore = scoreTransitRelativeCost(context.cost, peerRates) *
+      TRANSIT_RANKING_WEIGHTS.cost * priceFreshnessWeight;
     const freshnessWeight = context.freshness === "delayed" ? 0.5 : 1;
     const sevenDayReliability = scoreTransitReliability(
       context.stabilityRate,

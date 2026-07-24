@@ -14,6 +14,7 @@ import {
   getStationPublishedAvailabilitySummary,
   getTransitAvailabilityFreshness,
   getTransitStationAvailabilityPresentation,
+  getTransitStationPriceFreshness,
   getStandardModelRateSummary,
   getTransitRecentAvailabilitySampleLookupScopes,
   getTransitAvailabilityRollupPrices,
@@ -270,12 +271,12 @@ const wawa = station({
 });
 
 assertDeepEqual(
-  compareStations([neko, wawa], "overall", { activeFamily: "claude" }).map((item) => item.id),
+  compareStations([neko, wawa], "overall", { activeFamily: "claude", now }).map((item) => item.id),
   ["wawazz-xyz", "999555999-com"],
 );
 
 assertDeepEqual(
-  compareStations([neko, wawa], "rate", { activeFamily: "claude" }).map((item) => item.id),
+  compareStations([neko, wawa], "rate", { activeFamily: "claude", now }).map((item) => item.id),
   ["wawazz-xyz", "999555999-com"],
 );
 
@@ -518,7 +519,7 @@ const expensiveImageStation = imageStation({
   availabilitySamples: 240,
 });
 assertDeepEqual(
-  compareStations([expensiveImageStation, cheapImageStation], "rate", { activeFamily: "image" }).map((item) => item.id),
+  compareStations([expensiveImageStation, cheapImageStation], "rate", { activeFamily: "image", now }).map((item) => item.id),
   ["cheap-image-station", "expensive-image-station"],
 );
 const imageSummary = getTransitModelSummaries([expensiveImageStation, cheapImageStation], "image")
@@ -936,7 +937,7 @@ familyReferenceStation.prices = sharedGroupModels.map((standardModel, index) => 
 }));
 assertEqual(getFamilyRateSummary(familyReferenceStation, "gpt").sevenDaySamples, 60);
 assertEqual(getFamilyRateSummary(familyReferenceStation, "gpt").referenceOnly, true);
-assertEqual(getTransitStationRankingBreakdowns([familyReferenceStation]).get(familyReferenceStation.id)?.stabilityRate, null);
+assertEqual(getTransitStationRankingBreakdowns([familyReferenceStation], { now }).get(familyReferenceStation.id)?.stabilityRate, null);
 
 const modelEvidenceStation = station({
   id: "model-evidence-station",
@@ -1430,6 +1431,66 @@ const freshnessRanking = getTransitStationRankingBreakdowns(
 assertEqual(
   (freshnessRanking.get(delayedRankingStation.id)?.reliabilityScore ?? 0) <
     (freshnessRanking.get(freshRankingStation.id)?.reliabilityScore ?? 0),
+  true,
+);
+
+const delayedPriceStation = station({
+  id: "delayed-price",
+  name: "Delayed Price",
+  claudeRate: 0.2,
+  availabilityRate: 0.99,
+  availabilitySamples: 120,
+});
+delayedPriceStation.prices[0]!.lastVerifiedAt = "2026-07-02T04:00:00.000Z";
+assertEqual(getTransitStationPriceFreshness(delayedPriceStation, { now }).state, "delayed");
+
+const stalePriceStation = station({
+  id: "stale-price",
+  name: "Stale Price",
+  claudeRate: 0.01,
+  availabilityRate: 0.99,
+  availabilitySamples: 120,
+});
+stalePriceStation.prices[0]!.lastVerifiedAt = "2026-07-01T00:00:00.000Z";
+assertEqual(getTransitStationPriceFreshness(stalePriceStation, { now }).state, "stale");
+stalePriceStation.prices.push({
+  ...stalePriceStation.prices[0]!,
+  standardModel: "Claude Sonnet 5",
+  groupName: "Fresh expensive price",
+  modelMultiplier: 0.5,
+  inputPrice: 0.5,
+  outputPrice: 0.5,
+  cacheReadPrice: 0.5,
+  cacheWritePrice: 0.5,
+  lastVerifiedAt: now,
+});
+assertEqual(
+  getTransitStationPriceFreshness(stalePriceStation, { activeFamily: "claude", now }).state,
+  "stale",
+);
+const stalePriceRanking = getTransitStationRankingBreakdowns([stalePriceStation], { now });
+assertEqual(stalePriceRanking.get(stalePriceStation.id)?.eligible, false);
+assertEqual(stalePriceRanking.get(stalePriceStation.id)?.comparisonRate, null);
+assertEqual(stalePriceRanking.get(stalePriceStation.id)?.costScore, 0);
+
+const freshPriceStation = station({
+  id: "fresh-price",
+  name: "Fresh Price",
+  claudeRate: 0.2,
+  availabilityRate: 0.99,
+  availabilitySamples: 120,
+});
+assertEqual(
+  compareStations([stalePriceStation, freshPriceStation], "rate", { now })[0]?.id,
+  freshPriceStation.id,
+);
+const priceFreshnessRanking = getTransitStationRankingBreakdowns(
+  [freshPriceStation, delayedPriceStation],
+  { now },
+);
+assertEqual(
+  (priceFreshnessRanking.get(delayedPriceStation.id)?.costScore ?? 0) <
+    (priceFreshnessRanking.get(freshPriceStation.id)?.costScore ?? 0),
   true,
 );
 
