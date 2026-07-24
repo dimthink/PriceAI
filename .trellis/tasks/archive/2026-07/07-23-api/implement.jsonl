@@ -1,0 +1,13 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"采集失败不能误伤公开状态，写入必须保持兼容与可恢复。"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"约束 collector payload 与 Supabase station/offer 表边界。"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"约束 runtime 同步、生产发布和真实业务验证。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"本次问题发生在采集器到数据库的跨层字段契约边界。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"复用现有缺列兼容重试和字段剥离工具。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"列表桌面与移动端需要共享一致的监测状态表达。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"过期、延迟和失败状态需要可访问的文字语义与稳定布局。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"新增采集状态与新鲜度判定需保持严格类型边界。"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"将最近检查、最近成功监测和历史证据的语义拆开。"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"从 station 表透传已有采集状态字段，不新增数据库结构。"}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"倍率状态在桌面表格与移动列表共用同一展示组件。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"过期倍率不得参与最低价或综合排序。"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"以最近成功确认时间区分当前倍率与历史倍率。"}

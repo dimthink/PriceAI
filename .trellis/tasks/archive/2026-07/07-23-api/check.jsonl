@@ -1,0 +1,8 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"验证采集恢复且失败期间没有错误下架语义。"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"验证 station 与 offer 字段契约没有交叉污染。"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"验证 Cloudflare、Huoshan2 timer、公开接口与生产时间。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"验证桌面和移动端旧数据不会被误认为当前监测。"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"验证采集状态和新鲜度辅助函数的类型完整性。"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"验证过期公开证据退出排序且新鲜自测来源明确。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"验证过期综合倍率不再显示为当前最低价。"}
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"验证价格延迟降权、价格过期退出排序。"}
