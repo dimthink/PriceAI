@@ -10,8 +10,10 @@ const {
   hotOfferDiff,
   hotOfferShardIndex,
   mergeHotOfferCandidates,
+  normalizeHotVerifiedOffer,
+  selectHotVerifiedOffers,
 } = await import("./verify-hot-offers.mjs");
-const { verifyShopApiOffer } = await import("./collect-prices.mjs");
+const { stableOfferInputId } = await import("./collect-prices.mjs");
 
 assert.equal(HOT_OFFER_SLICES.length, 5);
 assert.deepEqual(
@@ -24,6 +26,11 @@ assert.deepEqual(
     ["chatgpt-team-business", "team_bug"],
   ],
 );
+assert.deepEqual(hotOfferDiff({ price: 10 }, { price: 10.5 }), {});
+assert.deepEqual(hotOfferDiff({ price: null }, { price: null }), {});
+assert.deepEqual(hotOfferDiff({ price: 10 }, { price: 10.51 }), {
+  price: { from: 10, to: 10.51 },
+});
 
 const merged = mergeHotOfferCandidates([
   { id: "plus-default", productId: "chatgpt-plus", offers: [{ id: "a", sourceId: "s1" }, { id: "b", sourceId: "s2" }] },
@@ -62,74 +69,73 @@ assert.equal(slices.length, 5);
 assert.ok(requestedUrls.every((url) => url.includes("limit=20") && url.includes("offset=0")));
 assert.ok(requestedUrls.some((url) => url.includes("tags=account_verified")));
 
-const fixtureRequestJson = async (_url, body) => {
-  const soldOut = body.goods_key === "sold-out";
-  return {
-      code: 1,
-      data: {
-        name: soldOut ? "Sold out fixture" : "Available fixture",
-        price: soldOut ? 9 : 12,
-        status: soldOut ? 0 : 1,
-        extend: { stock_count: soldOut ? 0 : 7 },
-      },
-  };
-};
 {
   const baseUrl = "https://fixture.example";
-  const target = {
+  const targetFields = {
     sourceId: "fixture-source",
     sourceName: "Fixture source",
     sourceStoreName: "Fixture store",
     sourceUrl: `${baseUrl}/shop/fixture`,
-    baseUrl,
-    kind: "shopApi",
   };
-  const available = await verifyShopApiOffer(target, {
+  const current = {
+    ...targetFields,
     sourceTitle: "Old title",
     price: 10,
     listedPrice: 10,
+    feeAmount: 0,
     priceBasis: "listed",
     status: "in_stock",
     effectiveStatus: "available",
     url: `${baseUrl}/item/available`,
     tags: ["fixture"],
-  }, { shopApiProxyMode: "on-exit", shopApiRequestJson: fixtureRequestJson });
-  assert.equal(available.status, "verified");
-  assert.equal(available.offer.price, 12);
-  assert.equal(available.offer.stockCount, 7);
-  assert.equal(available.offer.status, "in_stock");
-
-  const buyerFee = await verifyShopApiOffer({
-    ...target,
-    buyerFeeRate: 0.1,
-    buyerFeeStrategy: "manual_verified",
-  }, {
-    sourceTitle: "Old title",
-    price: 11,
-    listedPrice: 10,
-    priceBasis: "modeled",
+    stockCount: 7,
+  };
+  const collected = {
+    ...targetFields,
+    sourceTitle: "Current title",
+    price: 10.5,
+    listedPrice: 10.5,
+    feeAmount: null,
+    priceBasis: "listed_fallback",
     status: "in_stock",
     effectiveStatus: "available",
-    url: `${baseUrl}/item/available`,
+    url: current.url,
     tags: ["fixture"],
-  }, { shopApiProxyMode: "on-exit", shopApiRequestJson: fixtureRequestJson });
-  assert.equal(buyerFee.offer.listedPrice, 12);
-  assert.equal(buyerFee.offer.price, 13.2);
+    stockCount: 24,
+  };
+  const unrelated = { ...collected, url: `${baseUrl}/item/unrelated`, stockCount: 83 };
+  const candidate = { ...current, id: stableOfferInputId(collected) };
+  const selected = selectHotVerifiedOffers([candidate], [unrelated, collected]);
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].candidate.id, candidate.id);
+  assert.equal(selected[0].offer.stockCount, 24);
+  assert.equal(selected[0].offer.price, 10);
+  assert.equal(selected[0].offer.listedPrice, 10);
+  assert.deepEqual(hotOfferDiff(candidate, selected[0].offer), {
+    stockCount: { from: 7, to: 24 },
+  });
 
-  const soldOut = await verifyShopApiOffer(target, {
-    sourceTitle: "Old title",
-    price: 9,
-    listedPrice: 9,
-    priceBasis: "listed",
+  const unknownStock = normalizeHotVerifiedOffer(candidate, {
+    ...collected,
+    stockCount: null,
     status: "in_stock",
     effectiveStatus: "available",
-    url: `${baseUrl}/item/sold-out`,
-    tags: ["fixture"],
-  }, { shopApiProxyMode: "on-exit", shopApiRequestJson: fixtureRequestJson });
-  assert.equal(soldOut.status, "verified");
-  assert.equal(soldOut.offer.stockCount, 0);
-  assert.equal(soldOut.offer.status, "out_of_stock");
-  assert.equal(soldOut.offer.effectiveStatus, "unavailable");
+  });
+  assert.equal(unknownStock.stockCount, 7);
+  assert.equal(unknownStock.status, "in_stock");
+  assert.equal(unknownStock.effectiveStatus, "available");
+
+  const soldOut = normalizeHotVerifiedOffer(candidate, {
+    ...collected,
+    stockCount: 0,
+    status: "out_of_stock",
+    effectiveStatus: "available",
+  });
+  assert.equal(soldOut.stockCount, 0);
+  assert.equal(soldOut.status, "out_of_stock");
+  assert.equal(soldOut.effectiveStatus, "unavailable");
+
+  assert.deepEqual(selectHotVerifiedOffers([candidate], [unrelated]), []);
 }
 
 console.log("hot offer verifier tests passed");

@@ -12,7 +12,6 @@ import {
   releaseCollectionLock,
   stableHashInt,
   stableOfferInputId,
-  verifyShopApiOffer,
 } from "./collect-prices.mjs";
 
 export const HOT_OFFER_SLICES = Object.freeze([
@@ -28,6 +27,7 @@ const DEFAULT_HARD_LIMIT = 120;
 const DEFAULT_MAX_DURATION_MS = 270_000;
 const DEFAULT_RECENT_REUSE_MS = 90_000;
 const DEFAULT_REQUEST_DELAY_MS = 1_500;
+const DEFAULT_PRICE_TOLERANCE = 0.05;
 
 export async function runHotOfferVerification(options = {}) {
   const startedAtMs = Date.now();
@@ -66,6 +66,7 @@ export async function runHotOfferVerification(options = {}) {
     collectorNodeType: "vps",
     collectorNodeRuntime: "systemd-hot-verifier",
     collectorNodeRegion: options.nodeRegion || process.env.PRICEAI_COLLECTOR_NODE_REGION || "cn",
+    pageDelayMs: requestDelayMs,
   };
 
   try {
@@ -150,24 +151,36 @@ export async function runHotOfferVerification(options = {}) {
       const sourceStartedAt = new Date().toISOString();
       const verifiedOffers = [];
       const changedOfferIds = [];
-      let sourceProxyCount = 0;
+      let sourceRequestRoute = "direct";
       try {
-        let structuredOffersById = null;
-        if (target.kind !== "shopApi") {
-          try {
-            const collected = await collectTargetWithRetries(target, collectorOptions, console);
-            structuredOffersById = new Map(collected.offers.map((offer) => [stableOfferInputId(offer), offer]));
-          } catch (error) {
-            summary.failedCount += pending.length;
-            console.error(JSON.stringify({
-              event: "hot-verification-source-error",
-              sourceId: group.sourceId,
-              collectorKind: target.kind,
-              message: errorMessage(error),
-            }));
-            continue;
-          }
+        let collected;
+        try {
+          collected = await collectTargetWithRetries(target, {
+            ...collectorOptions,
+            ...(target.kind === "shopApi"
+              ? { shopApiListMode: "all_goods", shopApiPriceSampleSize: 0 }
+              : {}),
+          }, console);
+        } catch (error) {
+          summary.failedCount += pending.length;
+          console.error(JSON.stringify({
+            event: "hot-verification-source-error",
+            sourceId: group.sourceId,
+            collectorKind: target.kind,
+            message: errorMessage(error),
+          }));
+          continue;
         }
+
+        sourceRequestRoute = collected.details?.shopApiRequestRoute || "direct";
+        if (sourceRequestRoute === "proxy") {
+          summary.proxyCount += 1;
+        }
+        const structuredOffersById = new Map(
+          selectHotVerifiedOffers(pending, collected.offers)
+            .map(({ candidate, offer }) => [candidate.id, offer]),
+        );
+        const incompleteCollection = collected.details?.fullSnapshot === false;
 
         for (let index = 0; index < pending.length; index += 1) {
           if (Date.now() - startedAtMs >= maxDurationMs) {
@@ -177,16 +190,17 @@ export async function runHotOfferVerification(options = {}) {
 
           const candidate = pending[index];
           try {
-            const structuredOffer = structuredOffersById?.get(candidate.id) || null;
-            const result = target.kind === "shopApi"
-              ? await verifyShopApiOffer(target, candidate, collectorOptions)
-              : structuredOffer
-                ? { status: "verified", route: "direct", message: "结构化来源候选核验成功。", offer: structuredOffer }
-                : { status: "inconclusive", route: "direct", message: "结构化来源本次未返回该候选，暂不改变公开状态。", offer: null };
-            if (result.route === "proxy") {
-              summary.proxyCount += 1;
-              sourceProxyCount += 1;
-            }
+            const structuredOffer = structuredOffersById.get(candidate.id) || null;
+            const result = structuredOffer
+              ? { status: "verified", route: sourceRequestRoute, message: "结构化来源候选核验成功。", offer: structuredOffer }
+              : {
+                  status: "inconclusive",
+                  route: sourceRequestRoute,
+                  message: incompleteCollection
+                    ? `结构化来源列表不完整，本次未匹配候选，暂不改变公开状态：${collected.details?.partialReason || "partial"}`
+                    : "结构化来源本次未返回该候选，暂不改变公开状态。",
+                  offer: null,
+                };
             if (result.status !== "verified" || !result.offer) {
               summary.skippedCount += 1;
               console.log(JSON.stringify({
@@ -223,8 +237,6 @@ export async function runHotOfferVerification(options = {}) {
               message: errorMessage(error),
             }));
           }
-
-          if (index < pending.length - 1 && requestDelayMs > 0) await delay(requestDelayMs);
         }
 
         if (mode === "write" && verifiedOffers.length) {
@@ -243,7 +255,7 @@ export async function runHotOfferVerification(options = {}) {
               hotVerificationMode: mode,
               candidateCount: pending.length,
               changedOfferIds,
-              shopApiRequestRoute: sourceProxyCount > 0 ? "mixed" : "direct",
+              shopApiRequestRoute: sourceRequestRoute,
             },
           );
           summary.writtenCount += Number(posted.writtenCount || 0) + Number(posted.refreshedCount || 0);
@@ -319,7 +331,9 @@ export function groupCandidatesBySource(candidates) {
 
 export function hotOfferDiff(current, verified) {
   const diff = {};
-  if (!sameNumber(current?.price, verified?.price)) diff.price = { from: numberOrNull(current?.price), to: numberOrNull(verified?.price) };
+  if (!priceWithinRelativeTolerance(current?.price, verified?.price, DEFAULT_PRICE_TOLERANCE)) {
+    diff.price = { from: numberOrNull(current?.price), to: numberOrNull(verified?.price) };
+  }
   if (!sameNumber(current?.stockCount, verified?.stockCount)) diff.stockCount = { from: numberOrNull(current?.stockCount), to: numberOrNull(verified?.stockCount) };
   if (String(current?.status || "unknown") !== String(verified?.status || "unknown")) {
     diff.status = { from: current?.status || "unknown", to: verified?.status || "unknown" };
@@ -328,6 +342,54 @@ export function hotOfferDiff(current, verified) {
     diff.effectiveStatus = { from: current?.effectiveStatus || null, to: verified?.effectiveStatus || null };
   }
   return diff;
+}
+
+export function selectHotVerifiedOffers(candidates, collectedOffers) {
+  const collectedById = new Map(
+    (collectedOffers || []).map((offer) => [stableOfferInputId(offer), offer]),
+  );
+
+  return (candidates || []).flatMap((candidate) => {
+    const collected = collectedById.get(candidate?.id);
+    return collected
+      ? [{ candidate, offer: normalizeHotVerifiedOffer(candidate, collected) }]
+      : [];
+  });
+}
+
+export function normalizeHotVerifiedOffer(current, verified, { priceTolerance = DEFAULT_PRICE_TOLERANCE } = {}) {
+  const normalized = { ...verified };
+  if (priceWithinRelativeTolerance(current?.price, verified?.price, priceTolerance)) {
+    for (const field of ["price", "listedPrice", "feeAmount", "priceBasis"]) {
+      if (Object.hasOwn(current || {}, field)) normalized[field] = current[field];
+    }
+  }
+
+  const verifiedStock = numberOrNull(verified?.stockCount);
+  const explicitlyUnavailable =
+    String(verified?.status || "") === "out_of_stock" ||
+    String(verified?.effectiveStatus || "") === "unavailable";
+
+  if (verifiedStock === null && !explicitlyUnavailable) {
+    for (const field of ["stockCount", "status", "effectiveStatus", "failureReason"]) {
+      if (Object.hasOwn(current || {}, field)) normalized[field] = current[field];
+    }
+  } else if (verifiedStock === 0) {
+    normalized.status = "out_of_stock";
+    normalized.effectiveStatus = "unavailable";
+    normalized.failureReason ||= "热门报价核验：源站全店列表明确库存为 0";
+  }
+
+  return normalized;
+}
+
+function priceWithinRelativeTolerance(current, verified, tolerance) {
+  const currentPrice = numberOrNull(current);
+  const verifiedPrice = numberOrNull(verified);
+  if (currentPrice === null && verifiedPrice === null) return true;
+  if (currentPrice === null || verifiedPrice === null) return false;
+  if (currentPrice === 0) return verifiedPrice === 0;
+  return Math.abs(verifiedPrice - currentPrice) / Math.abs(currentPrice) <= tolerance + Number.EPSILON;
 }
 
 function isRecentCandidate(candidate, recentReuseMs) {
@@ -370,10 +432,6 @@ function sameNumber(left, right) {
   const rightNumber = numberOrNull(right);
   if (leftNumber === null || rightNumber === null) return leftNumber === rightNumber;
   return Math.abs(leftNumber - rightNumber) < 0.005;
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function errorMessage(error) {
