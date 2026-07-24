@@ -12,6 +12,8 @@ import {
   getStationComparisonSummary,
   getTextStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
+  getTransitAvailabilityFreshness,
+  getTransitStationAvailabilityPresentation,
   getStandardModelRateSummary,
   getTransitRecentAvailabilitySampleLookupScopes,
   getTransitAvailabilityRollupPrices,
@@ -1350,6 +1352,86 @@ const accountPoolOnlySourceStation = station({
 accountPoolOnlySourceStation.channelTypes = [];
 accountPoolOnlySourceStation.accountPools = ["kiro"];
 assertDeepEqual(getNormalizedSourceTags(accountPoolOnlySourceStation), []);
+
+const delayedAvailability = {
+  ...availability(0.99, 60),
+  lastCheckedAt: "2026-07-02T04:00:00.000Z",
+};
+assertEqual(getTransitAvailabilityFreshness(delayedAvailability, now), "delayed");
+
+const staleAvailability = {
+  ...availability(0.99, 60),
+  lastCheckedAt: "2026-07-01T06:59:59.000Z",
+};
+assertEqual(getTransitAvailabilityFreshness(staleAvailability, now), "stale");
+assertEqual(
+  getTransitAvailabilityFreshness(delayedAvailability, now, {
+    collectionStatus: "failed",
+    collectionError: "HTTP 404: Not Found",
+  }),
+  "stale",
+);
+
+const probeFallbackStation = station({
+  id: "probe-fallback",
+  name: "Probe Fallback",
+  claudeRate: 0.2,
+  availabilityRate: 0.995,
+  availabilitySamples: 60,
+});
+const stalePublicEvidence = {
+  ...getStationPublishedAvailabilitySummary(probeFallbackStation),
+  sourceType: "public_status" as const,
+  sourceLabel: "站方公开",
+  lastCheckedAt: "2026-07-01T00:00:00.000Z",
+};
+const probePresentation = getTransitStationAvailabilityPresentation(
+  probeFallbackStation,
+  stalePublicEvidence,
+  now,
+);
+assertEqual(probePresentation.availability.sourceType, "priceai_probe");
+assertEqual(probePresentation.freshness, "fresh");
+assertEqual(Boolean(probePresentation.replacedPublicEvidence), true);
+
+const staleRankingStation = station({
+  id: "stale-ranking",
+  name: "Stale Ranking",
+  claudeRate: 0.01,
+  availabilityRate: 1,
+  availabilitySamples: 600,
+});
+staleRankingStation.availability.lastCheckedAt = "2026-07-01T00:00:00.000Z";
+staleRankingStation.prices[0]!.availability.lastCheckedAt = "2026-07-01T00:00:00.000Z";
+const staleRanking = getTransitStationRankingBreakdowns([staleRankingStation], { now });
+assertEqual(staleRanking.get(staleRankingStation.id)?.eligible, false);
+assertEqual(staleRanking.get(staleRankingStation.id)?.reliabilityScore, 0);
+
+const freshRankingStation = station({
+  id: "fresh-ranking",
+  name: "Fresh Ranking",
+  claudeRate: 0.2,
+  availabilityRate: 0.99,
+  availabilitySamples: 120,
+});
+const delayedRankingStation = station({
+  id: "delayed-ranking",
+  name: "Delayed Ranking",
+  claudeRate: 0.2,
+  availabilityRate: 0.99,
+  availabilitySamples: 120,
+});
+delayedRankingStation.availability.lastCheckedAt = delayedAvailability.lastCheckedAt;
+delayedRankingStation.prices[0]!.availability.lastCheckedAt = delayedAvailability.lastCheckedAt;
+const freshnessRanking = getTransitStationRankingBreakdowns(
+  [freshRankingStation, delayedRankingStation],
+  { now },
+);
+assertEqual(
+  (freshnessRanking.get(delayedRankingStation.id)?.reliabilityScore ?? 0) <
+    (freshnessRanking.get(freshRankingStation.id)?.reliabilityScore ?? 0),
+  true,
+);
 
 console.log("api transit sorting test passed");
 

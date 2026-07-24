@@ -2,6 +2,7 @@ export type TransitStationStatus = "active" | "limited" | "unavailable" | "unkno
 export type TransitSourceType = "manual_collected" | "user_submitted" | "merchant_submitted";
 export type TransitCommercialRelation = "none" | "listed" | "partner" | "affiliate" | "sponsored" | "unknown";
 export type TransitDataStatus = "sample" | "pending_review" | "verified";
+export type TransitCollectionStatus = "pending" | "success" | "partial" | "failed" | "manual_review";
 export type TransitModelFamily =
   | "gpt"
   | "claude"
@@ -248,6 +249,9 @@ export interface TransitStation {
   riskLabels: TransitRiskLabel[];
   usageAdvice: TransitUsageAdvice;
   lastUpdatedAt: string;
+  collectionStatus?: TransitCollectionStatus;
+  collectionError?: string | null;
+  lastCollectedAt?: string | null;
   dataStatus: TransitDataStatus;
   availability: TransitAvailability;
   modelDetection?: TransitModelDetectionSummary;

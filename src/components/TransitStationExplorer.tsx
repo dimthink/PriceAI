@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowUpDown, ChevronRight, Filter, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowUpDown, ChevronRight, Filter, ShieldCheck } from "lucide-react";
 import {
   DataTableHead,
   DataTableShell,
@@ -69,6 +69,8 @@ import {
   getStationComparisonSummary,
   getTextStationComparisonSummary,
   getStationPublishedAvailabilitySummary,
+  getTransitAvailabilityFreshness,
+  getTransitStationAvailabilityPresentation,
   getStationRechargeCoefficient,
   getTransitModelDetectionBadgeClass,
   getTransitPriceDetectionSummary,
@@ -396,7 +398,7 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
                     <DataTableHead explanation={availabilityColumnExplanation}>稳定性</DataTableHead>
                     <DataTableHead explanation="模型真实性检测报告：用于识别模型掺水、暗调路由、私下替换等风险；无公开报告时只显示待检测。">模型检测</DataTableHead>
                     <DataTableHead explanation="公开披露或 PriceAI 推断的上游来源与号池类型，用于判断风险边界。">来源渠道</DataTableHead>
-                    <DataTableHead>更新时间</DataTableHead>
+                    <DataTableHead explanation="价格数据的最近更新时间；若站方同步失败，会单独显示最近检查时间。">价格更新</DataTableHead>
                     <DataTableHead className="w-[120px] text-center">操作</DataTableHead>
                   </tr>
                 </thead>
@@ -408,6 +410,7 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
                       href={stationDetailHref(station.slug)}
                       activeFamily={effectiveFamilyFilter}
                       activeStandardModel={modelFilter}
+                      rankingReferenceAt={rankingReferenceAt}
                       onClick={navigateToStation}
                       onWarm={() => prefetchStation(station.slug)}
                     />
@@ -424,6 +427,7 @@ export default function TransitStationExplorer({ stations, rankingReferenceAt }:
                 href={stationDetailHref(station.slug)}
                 activeFamily={effectiveFamilyFilter}
                 activeStandardModel={modelFilter}
+                rankingReferenceAt={rankingReferenceAt}
                 rateLabel={rateColumnLabel}
                 onClick={navigateToStation}
                 onWarm={() => prefetchStation(station.slug)}
@@ -623,6 +627,7 @@ function StationRow({
   href,
   activeFamily,
   activeStandardModel,
+  rankingReferenceAt,
   onClick,
   onWarm,
 }: {
@@ -630,6 +635,7 @@ function StationRow({
   href: string;
   activeFamily: "all" | TransitModelFamily;
   activeStandardModel: "all" | TransitStandardModel;
+  rankingReferenceAt: string;
   onClick: (href: string) => void;
   onWarm: () => void;
 }) {
@@ -665,7 +671,12 @@ function StationRow({
         />
       </td>
       <td className="px-5 py-4">
-        <AvailabilityCell station={station} activeFamily={activeFamily} activeStandardModel={activeStandardModel} />
+        <AvailabilityCell
+          station={station}
+          activeFamily={activeFamily}
+          activeStandardModel={activeStandardModel}
+          rankingReferenceAt={rankingReferenceAt}
+        />
       </td>
       <td className="px-5 py-4">
         <ModelDetectionCell
@@ -705,6 +716,7 @@ function StationCard({
   href,
   activeFamily,
   activeStandardModel,
+  rankingReferenceAt,
   rateLabel,
   onClick,
   onWarm,
@@ -713,6 +725,7 @@ function StationCard({
   href: string;
   activeFamily: "all" | TransitModelFamily;
   activeStandardModel: "all" | TransitStandardModel;
+  rankingReferenceAt: string;
   rateLabel: string;
   onClick: (href: string) => void;
   onWarm: () => void;
@@ -754,6 +767,7 @@ function StationCard({
           station={station}
           activeFamily={activeFamily}
           activeStandardModel={activeStandardModel}
+          rankingReferenceAt={rankingReferenceAt}
           compact
         />
       </div>
@@ -762,9 +776,7 @@ function StationCard({
         <div className="min-w-0 overflow-hidden">
           <PillList items={sourceTags} max={2} />
         </div>
-        <span className="shrink-0 text-[0.68rem] text-[#5a6061]">
-          {formatDateShortMinute(station.lastUpdatedAt)}
-        </span>
+        <UpdatedAtCell station={station} compact />
       </div>
     </div>
   );
@@ -774,11 +786,13 @@ function AvailabilityCell({
   station,
   activeFamily,
   activeStandardModel = "all",
+  rankingReferenceAt,
   compact = false,
 }: {
   station: TransitStation;
   activeFamily: "all" | TransitModelFamily;
   activeStandardModel?: "all" | TransitStandardModel;
+  rankingReferenceAt: string;
   compact?: boolean;
 }) {
   const scopedSummary = activeStandardModel !== "all"
@@ -790,12 +804,19 @@ function AvailabilityCell({
     ? getTextStationComparisonSummary(station)
     : null;
   const stationAvailability = textSummary?.availability ?? getStationPublishedAvailabilitySummary(station);
-  const availability = scopedSummary || stationAvailability;
+  const presentation = scopedSummary
+    ? null
+    : getTransitStationAvailabilityPresentation(station, stationAvailability, rankingReferenceAt);
+  const availability = scopedSummary || presentation?.availability || stationAvailability;
+  const freshness = presentation?.freshness
+    ?? getTransitAvailabilityFreshness(availability, rankingReferenceAt, station);
+  const isHistorical = freshness === "stale" || freshness === "empty";
+  const isDelayed = freshness === "delayed";
   const source = activeStandardModel !== "all"
     ? getStandardModelAvailabilitySourceMeta(station, activeStandardModel)
     : scopedSummary
       ? getFamilyAvailabilitySourceMeta(station, scopedSummary.family)
-      : getAvailabilitySourceMeta(stationAvailability);
+      : getAvailabilitySourceMeta(presentation?.availability ?? stationAvailability);
   const scopeLabel = activeStandardModel !== "all"
     ? `${activeStandardModel} 稳定性`
     : scopedSummary
@@ -806,40 +827,67 @@ function AvailabilityCell({
     : scopedSummary
       ? `${scopedSummary.familyLabel} 分组近 7 日可用性样本；最近样本只使用同模型、同分组或同家族的兼容监测范围。`
     : "仅按当前公开文本模型分组汇总的近 7 日可用性样本；图片和视频不参与综合排序。";
-  const hasLatencySummary = availability.latestLatencyMs !== null && availability.latestLatencyMs !== undefined
-    || availability.avgLatency7dMs !== null && availability.avgLatency7dMs !== undefined;
+  const hasLatencySummary = !isHistorical && (
+    (availability.latestLatencyMs !== null && availability.latestLatencyMs !== undefined) ||
+    (availability.avgLatency7dMs !== null && availability.avgLatency7dMs !== undefined)
+  );
   const title = hasLatencySummary
     ? `${sourceTitle} 响应延迟表示公开监测或 PriceAI 实测的请求耗时，不等同于首 Token 时间或 TPS 输出速度。`
     : sourceTitle;
 
   return (
     <div className={compact ? "" : "min-w-[118px]"} title={title}>
-      {compact ? (
+      {isHistorical ? (
+        <>
+          <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#9a5d12]">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>{freshness === "empty" ? "暂无监测数据" : "暂无近期监测"}</span>
+          </div>
+          {availability.sevenDaySamples > 0 ? (
+            <div className="mt-0.5 text-[10px] font-semibold text-[#7f8889]">
+              历史 {formatAvailability(availability)}
+            </div>
+          ) : null}
+        </>
+      ) : compact ? (
         <div className="mb-1 text-xs font-semibold text-[#5a6061]">
-          {scopeLabel} <span className="text-[#202829]">{formatAvailability(availability)}</span>
+          {isDelayed ? "监测延迟" : scopeLabel} <span className={isDelayed ? "text-[#9a5d12]" : "text-[#202829]"}>{formatAvailability(availability)}</span>
         </div>
       ) : (
         <>
-          <div className="text-[10px] font-bold text-[#7f8889]">{scopeLabel}</div>
+          <div className={`text-[10px] font-bold ${isDelayed ? "text-[#9a5d12]" : "text-[#7f8889]"}`}>
+            {isDelayed ? "监测延迟" : scopeLabel}
+          </div>
           <div className="mt-0.5 text-xs font-semibold text-[#202829]">{formatAvailability(availability)}</div>
         </>
       )}
-      <TransitAvailabilityStrip
-        rate={availability.sevenDayRate}
-        samples={availability.sevenDaySamples}
-        firstCheckedAt={availability.firstCheckedAt}
-        lastCheckedAt={availability.lastCheckedAt}
-        recentSamples={availability.recentSamples}
-        className="mt-1"
-      />
+      {isHistorical ? (
+        <HistoricalAvailabilityStrip className="mt-1" />
+      ) : (
+        <TransitAvailabilityStrip
+          rate={availability.sevenDayRate}
+          samples={availability.sevenDaySamples}
+          firstCheckedAt={availability.firstCheckedAt}
+          lastCheckedAt={availability.lastCheckedAt}
+          recentSamples={availability.recentSamples}
+          className="mt-1"
+        />
+      )}
       <div className="mt-1 flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[10px] text-[#7f8889]">
-        <span>{formatDateShortMinute(availability.lastCheckedAt)}</span>
+        <span>{availability.lastCheckedAt ? `${isHistorical || isDelayed ? "最后监测 " : ""}${formatDateShortMinute(availability.lastCheckedAt)}` : "未记录监测时间"}</span>
         <AvailabilitySourceBadge
           source={source}
           compact={compact}
           hidden={!shouldShowAvailabilitySourceBadge(availability, source)}
         />
       </div>
+      {presentation?.replacedPublicEvidence ? (
+        <div className="mt-1 text-[10px] font-semibold leading-4 text-[#9a5d12]">
+          站方公开监测已中断，当前为 PriceAI 实测
+        </div>
+      ) : station.collectionStatus === "failed" && (isHistorical || isDelayed) ? (
+        <div className="mt-1 text-[10px] font-semibold leading-4 text-[#9a5d12]">站方同步失败</div>
+      ) : null}
       {hasLatencySummary ? (
         <div className="mt-1">
           <TransitLatencyBadge
@@ -850,6 +898,23 @@ function AvailabilityCell({
           />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function HistoricalAvailabilityStrip({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`flex h-4 items-end gap-[2px] ${className}`}
+      role="img"
+      aria-label="最近没有可用的监测样本"
+    >
+      {Array.from({ length: 20 }, (_, index) => (
+        <span
+          key={index}
+          className="h-2.5 min-w-[3px] flex-1 rounded-[1px] bg-[#dfe4e4]"
+        />
+      ))}
     </div>
   );
 }
@@ -992,14 +1057,30 @@ function shouldShowAvailabilitySourceBadge(
   return availability.sevenDaySamples > 0 || source.tone !== "muted" || Boolean(source.url);
 }
 
-function UpdatedAtCell({ station }: { station: TransitStation }) {
+function UpdatedAtCell({ station, compact = false }: { station: TransitStation; compact?: boolean }) {
+  const failed = station.collectionStatus === "failed";
+  const checkedAt = station.lastCollectedAt || station.lastUpdatedAt;
+  if (compact) {
+    return (
+      <span
+        className={`shrink-0 text-[0.68rem] font-semibold ${failed ? "text-[#9a5d12]" : "text-[#5a6061]"}`}
+        title={failed ? `最近检查 ${formatDateMinute(checkedAt)} · 同步失败` : `价格更新 ${formatDateMinute(station.lastUpdatedAt)}`}
+      >
+        {failed ? `检查 ${formatDateShortMinute(checkedAt)} · 失败` : formatDateShortMinute(station.lastUpdatedAt)}
+      </span>
+    );
+  }
+
   return (
-    <span
-      className="inline-flex whitespace-nowrap rounded-full bg-[#f2f4f4] px-2.5 py-1 text-[11px] font-semibold text-[#5a6061]"
-      title={`${formatDateMinute(station.lastUpdatedAt)} · ${TRANSIT_DATA_STATUS_LABELS[station.dataStatus]}`}
-    >
-      {formatDateShortMinute(station.lastUpdatedAt)}
-    </span>
+    <div className="min-w-[102px] whitespace-nowrap">
+      <span
+        className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${failed ? "bg-[#fff4df] text-[#9a5d12]" : "bg-[#f2f4f4] text-[#5a6061]"}`}
+        title={failed ? station.collectionError || "最近一次站方数据同步失败" : `${formatDateMinute(station.lastUpdatedAt)} · ${TRANSIT_DATA_STATUS_LABELS[station.dataStatus]}`}
+      >
+        {failed ? `检查 ${formatDateShortMinute(checkedAt)}` : formatDateShortMinute(station.lastUpdatedAt)}
+      </span>
+      {failed ? <div className="mt-1 text-[10px] font-semibold text-[#9a5d12]">同步失败</div> : null}
+    </div>
   );
 }
 
