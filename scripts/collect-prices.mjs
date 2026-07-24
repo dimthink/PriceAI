@@ -661,6 +661,8 @@ export {
   collectorHeartbeatForWritebackFailure,
   cooldownSkipReason,
   createShopApiProxyReusePool,
+  closeShopApiProxyReusePool,
+  collectTargetWithRetries,
   extractProxyLeaseFromPayload,
   isDailyProbeFailure,
   isWeeklyProbeFailure,
@@ -679,6 +681,9 @@ export {
   shopApiSnapshotReportedGoodsCount,
   shopApiProductLevelFeeModel,
   loadTargets,
+  acquireCollectionLock,
+  releaseCollectionLock,
+  postCrawlLog,
   selectBuiltinTargets,
   selectTargets,
   shopApiFeeModelFromChannelRate,
@@ -686,6 +691,8 @@ export {
   shopApiStoredFeePolicy,
   shopCollectionSchedulerGroupMatches,
   selectShopApiPreferredChannel,
+  stableHashInt,
+  stableOfferInputId,
 };
 
 if (isCli()) {
@@ -939,6 +946,214 @@ async function collectShopApi(target, options = {}) {
     };
     return collected;
   }
+}
+
+export async function verifyShopApiOffer(target, currentOffer, options = {}) {
+  const itemUrl = normalizeShopApiItemOfferUrl(currentOffer?.url) || currentOffer?.url;
+  const goodsKey = goodsKeyFromUrl(itemUrl);
+  if (!goodsKey) {
+    return {
+      status: "inconclusive",
+      route: "none",
+      message: "未能从报价链接识别 ShopApi 商品编号。",
+      offer: null,
+    };
+  }
+
+  const activeTarget = {
+    ...target,
+    baseUrl: deriveBaseUrl(itemUrl) || target.baseUrl,
+  };
+  const proxyMode = shopApiProxyModeFor(options);
+  let useProxy = proxyMode !== "on_exit" || isShopApiDirectExitBlockedForTarget(activeTarget, options);
+  const attempts = [];
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const attemptOptions = {
+      ...options,
+      shopApiProxyLogger: options.shopApiProxyLogger || console,
+      ...(useProxy ? {} : { shopApiProxyDisabled: true }),
+    };
+    try {
+      const result = await verifyShopApiOfferOnce(activeTarget, currentOffer, goodsKey, itemUrl, attemptOptions);
+      return { ...result, attempts };
+    } catch (error) {
+      const message = errorMessage(error);
+      attempts.push({ attempt, route: useProxy ? "proxy" : "direct", message });
+      if (
+        !useProxy &&
+        proxyMode === "on_exit" &&
+        hasShopApiProxyConfigured(options) &&
+        isShopApiExitErrorMessage(message)
+      ) {
+        useProxy = true;
+        blockShopApiDirectExitForTarget(activeTarget, options);
+        options.shopApiProxyLogger?.log?.("Hot verifier direct exit failed; retrying through the shared proxy pool.");
+        continue;
+      }
+      if (useProxy && (isShopApiExitErrorMessage(message) || isShopApiProxyTransportErrorMessage(message))) {
+        await discardShopApiProxyReuseForTarget(activeTarget, options, {
+          logger: options.shopApiProxyLogger,
+          reason: isShopApiExitErrorMessage(message) ? "upstream-exit-error" : "proxy-transport-error",
+        });
+      }
+      throw error;
+    }
+  }
+
+  return {
+    status: "inconclusive",
+    route: useProxy ? "proxy" : "direct",
+    message: "单链接核验未得到明确结果。",
+    offer: null,
+    attempts,
+  };
+}
+
+async function verifyShopApiOfferOnce(target, currentOffer, goodsKey, itemUrl, options = {}) {
+  const proxyContext = await createShopApiProxyContext(target, options);
+  const requestOptions = proxyContext ? { dispatcher: proxyContext.dispatcher } : null;
+  const route = proxyContext ? "proxy" : "direct";
+
+  try {
+    const requestJson = options.shopApiRequestJson || postJson;
+    const payload = await requestJson(
+      `${target.baseUrl}/shopApi/Shop/goodsInfo`,
+      { goods_key: goodsKey, trade_no: "" },
+      itemUrl,
+      requestOptions,
+    );
+    const message = cleanText(payload?.msg || payload?.message || "");
+    const data = payload?.data?.goods || payload?.data?.item || payload?.data || null;
+
+    if (!data) {
+      if (isShopApiExitErrorMessage(message)) throw new Error(message);
+      if (isShopApiClosedMessage(message) || isShopApiRemovedMessage(message)) {
+        return {
+          status: "verified",
+          route,
+          message: message || "源站明确返回商品不可购买。",
+          offer: hotShopApiUnavailableOffer(target, currentOffer, itemUrl, message || "商品未上架"),
+        };
+      }
+      return {
+        status: "inconclusive",
+        route,
+        message: message || "商品接口未返回详情，暂不改变公开状态。",
+        offer: null,
+      };
+    }
+
+    const listedPrice = numberOrNull(data.price ?? data.real_price ?? currentOffer?.listedPrice ?? currentOffer?.price);
+    const stockCount = numberOrNull(data.extend?.stock_count ?? data.stock ?? data.inventory);
+    const itemStatus = numberOrNull(data.status ?? data.state);
+    const explicitlyUnavailable = itemStatus !== null && itemStatus !== 1;
+    const closed = isShopApiClosedMessage(message);
+    const outOfStock = explicitlyUnavailable || stockCount === 0 || isShopApiRemovedMessage(message);
+    const pricing = hotShopApiPricing(target, currentOffer, listedPrice);
+    const title = cleanText(data.name || data.goods_name || currentOffer?.sourceTitle || "");
+
+    if (!title || pricing.price === null) {
+      return {
+        status: "inconclusive",
+        route,
+        message: "商品详情缺少可验证的标题或价格，暂不改变公开状态。",
+        offer: null,
+      };
+    }
+
+    return {
+      status: "verified",
+      route,
+      message: closed
+        ? message || "店铺已打烊。"
+        : outOfStock
+          ? message || "源站明确返回无库存或未上架。"
+          : "源站商品详情核验成功。",
+      offer: makeOffer(target, {
+        title,
+        price: pricing.price,
+        listedPrice: pricing.listedPrice,
+        feeAmount: pricing.feeAmount,
+        priceBasis: pricing.priceBasis,
+        status: outOfStock ? "out_of_stock" : statusFromStock(stockCount),
+        effectiveStatus: closed || outOfStock ? "unavailable" : "available",
+        freshnessStatus: "fresh",
+        failureReason: closed || outOfStock ? `热门报价核验：${message || "源站明确不可购买"}` : null,
+        stockCount,
+        minOrderQuantity: shopApiMinOrderQuantity(data.extend?.limit_count ?? data.limit_count),
+        bulkPricingTiers: Array.isArray(data.multipleoffers)
+          ? shopApiBulkPricingTiers(data.multipleoffers)
+          : currentOffer?.bulkPricingTiers || [],
+        url: itemUrl,
+        tags: Array.isArray(currentOffer?.tags) ? currentOffer.tags : [],
+      }),
+    };
+  } finally {
+    if (!proxyContext?.shared && proxyContext?.dispatcher?.close) {
+      await proxyContext.dispatcher.close().catch(() => {});
+    }
+  }
+}
+
+function hotShopApiUnavailableOffer(target, currentOffer, itemUrl, reason) {
+  return makeOffer(target, {
+    title: currentOffer?.sourceTitle || "已下架商品",
+    price: numberOrNull(currentOffer?.price),
+    listedPrice: numberOrNull(currentOffer?.listedPrice),
+    feeAmount: numberOrNull(currentOffer?.feeAmount),
+    priceBasis: currentOffer?.priceBasis || null,
+    status: "out_of_stock",
+    effectiveStatus: "unavailable",
+    freshnessStatus: "fresh",
+    failureReason: `热门报价核验：${reason}`,
+    stockCount: 0,
+    minOrderQuantity: currentOffer?.minOrderQuantity ?? null,
+    bulkPricingTiers: currentOffer?.bulkPricingTiers || [],
+    url: itemUrl,
+    tags: Array.isArray(currentOffer?.tags) ? currentOffer.tags : [],
+  });
+}
+
+function hotShopApiPricing(target, currentOffer, listedPrice) {
+  if (listedPrice === null) {
+    return {
+      price: numberOrNull(currentOffer?.price),
+      listedPrice: numberOrNull(currentOffer?.listedPrice),
+      feeAmount: numberOrNull(currentOffer?.feeAmount),
+      priceBasis: currentOffer?.priceBasis || null,
+    };
+  }
+
+  if (String(target?.buyerFeeStrategy || "") === "manual_verified") {
+    return { price: listedPrice, listedPrice, feeAmount: 0, priceBasis: "listed" };
+  }
+
+  const previousListedPrice = numberOrNull(currentOffer?.listedPrice);
+  const previousPrice = numberOrNull(currentOffer?.price);
+  const priorBasis = String(currentOffer?.priceBasis || "");
+  if (previousListedPrice && previousPrice !== null && ["modeled", "settled"].includes(priorBasis)) {
+    const feeRate = (previousPrice - previousListedPrice) / previousListedPrice;
+    if (feeRate >= 0 && feeRate <= 0.2) {
+      const feeAmount = roundCurrency(listedPrice * feeRate);
+      return {
+        price: roundCurrency(listedPrice + feeAmount),
+        listedPrice,
+        feeAmount,
+        priceBasis: priorBasis,
+      };
+    }
+  }
+
+  return { price: listedPrice, listedPrice, feeAmount: 0, priceBasis: "listed" };
+}
+
+function isShopApiClosedMessage(value) {
+  return /店铺已打烊|店铺打烊|已打烊|暂停营业|停止营业|暂不营业/.test(String(value || ""));
+}
+
+function isShopApiRemovedMessage(value) {
+  return /未上架|已下架|商品不存在|不存在该商品|已删除|停售|无此商品/.test(String(value || ""));
 }
 
 async function collectShopApiOnce(target, options = {}) {

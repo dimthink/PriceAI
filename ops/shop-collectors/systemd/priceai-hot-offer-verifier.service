@@ -1,0 +1,17 @@
+[Unit]
+Description=PriceAI Plus and Team hot offer verifier
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/priceai-worker
+RuntimeDirectory=priceai-hot-offer-verifier
+RuntimeDirectoryMode=0750
+EnvironmentFile=/etc/priceai/hot-offer-verifier.env
+ExecStart=/opt/priceai-worker/ops/shop-collectors/run-hot-offer-verifier.sh
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TimeoutStartSec=290

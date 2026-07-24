@@ -52,7 +52,7 @@ import {
   readFeedbackDraft,
   writeFeedbackDraft,
 } from "@/lib/feedback-draft";
-import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
+import { priceDataCacheTtlMsForProduct } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import {
   PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES,
@@ -81,7 +81,6 @@ type ProductOffersResponse = {
 };
 
 const OFFER_PAGE_SIZE = PUBLIC_OFFER_DEFAULT_LIMIT;
-const PRODUCT_OFFERS_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const PRODUCT_OFFERS_REFRESH_TIMEOUT_MS = 10_000;
 const PRODUCT_OFFERS_MEMORY_CACHE_LIMIT = 40;
 const FEEDBACK_EVIDENCE_MAX_IMAGES = 5;
@@ -242,6 +241,7 @@ export function ProductOffersPanel({
   }, [productId]);
 
   useEffect(() => {
+    const productOffersCacheTtlMs = priceDataCacheTtlMsForProduct(productId);
     const filterTags = parseOfferFilterTagsForProduct(productId, selectedFilterKey);
     const query = normalizeOfferSearchQuery(offerQuery);
     const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
@@ -276,7 +276,7 @@ export function ProductOffersPanel({
       const cachedData = newestUsableGeneratedDataset(
         productOffersMemoryCache.get(cacheKey),
         shouldUseInitialData ? initialData : null,
-        readSessionCache<ProductOffersResponse>(cacheKey, PRODUCT_OFFERS_CACHE_TTL_MS),
+        readSessionCache<ProductOffersResponse>(cacheKey, productOffersCacheTtlMs),
       );
 
       if (cachedData) {
@@ -286,7 +286,7 @@ export function ProductOffersPanel({
         setLoading(false);
         setError(null);
 
-        if (!isGeneratedDatasetStale(cachedData, PRODUCT_OFFERS_CACHE_TTL_MS)) return;
+        if (!isGeneratedDatasetStale(cachedData, productOffersCacheTtlMs)) return;
       } else {
         setLoading(true);
       }

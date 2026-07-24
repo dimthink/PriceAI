@@ -63,7 +63,7 @@ import {
   type ProductOfferFreshnessMinutes,
   type ProductOfferStockThreshold,
 } from "./product-offer-filters";
-import { PRICE_DATA_CACHE_TTL_MS } from "./public-cache-policy";
+import { PRICE_DATA_CACHE_TTL_MS, priceDataCacheTtlMsForProduct } from "./public-cache-policy";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
 import { API_CDK_PLATFORM, getPublicRiskPrecheck, isPublicCatalogProduct } from "./trust-risk";
@@ -107,7 +107,6 @@ const SUPABASE_PAGE_SIZE = 1000;
 const PUBLIC_FALLBACK_MAX_ROWS = 5000;
 const PUBLIC_DATA_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const EXPLORER_DATA_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
-const PRODUCT_OFFERS_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const PUBLIC_SUPABASE_READ_TIMEOUT_MS = 2_500;
 const PUBLIC_SUPABASE_REFRESH_READ_TIMEOUT_MS = 15_000;
 const PUBLIC_SUPABASE_BUILD_READ_TIMEOUT_MS = 15_000;
@@ -4756,7 +4755,7 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   const nextValue = sanitizePublicProductOffersResultForProduct(filterProductId, preferStaleProductOffers(staleValue, value));
   if (!nextValue.degraded) {
     productOffersCache.set(cacheKey, {
-      expiresAt: Date.now() + PRODUCT_OFFERS_CACHE_TTL_MS,
+      expiresAt: Date.now() + priceDataCacheTtlMsForProduct(filterProductId),
       value: nextValue,
     });
   }
@@ -5049,7 +5048,7 @@ async function getPublicProductOfferFilterFacetsFromDatabase(id: string, filterP
 
   const facets = filterOfferFilterFacetsForProduct(filterProductId, buildOfferFilterFacetsFromCounts(counts));
   productOfferFacetsCache.set(cacheKey, {
-    expiresAt: Date.now() + PRODUCT_OFFERS_CACHE_TTL_MS,
+    expiresAt: Date.now() + priceDataCacheTtlMsForProduct(filterProductId),
     value: facets,
   });
   if (productOfferFacetsCache.size > 120) {

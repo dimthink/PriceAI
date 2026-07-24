@@ -42,8 +42,14 @@ export function priceDataCacheHeaders(): HeadersInit {
   });
 }
 
-export function priceDataCacheHeadersForResult(result: { degraded?: boolean | null } | null | undefined): HeadersInit {
+export function priceDataCacheHeadersForResult(
+  result: { degraded?: boolean | null } | null | undefined,
+  options: { edgeSeconds?: number; staleSeconds?: number } = {},
+): HeadersInit {
   return result?.degraded
     ? publicDataCacheHeaders({ edgeSeconds: PRICE_DATA_DEGRADED_EDGE_SECONDS, staleSeconds: 0 })
-    : priceDataCacheHeaders();
+    : publicDataCacheHeaders({
+        edgeSeconds: options.edgeSeconds ?? PRICE_DATA_EDGE_SECONDS,
+        staleSeconds: options.staleSeconds ?? PRICE_DATA_STALE_SECONDS,
+      });
 }

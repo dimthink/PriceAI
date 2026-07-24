@@ -7,7 +7,10 @@ import { withCloudflarePublicCache } from "@/lib/cloudflare-edge-cache";
 import { cacheSearchParams } from "@/lib/cloudflare-cache-key";
 import { parseMerchantCollectorFilter } from "@/lib/merchant-collectors";
 import { parseOfferFilterTags } from "@/lib/offer-filter-tags";
-import { PRICE_DATA_EDGE_SECONDS } from "@/lib/public-cache-policy";
+import {
+  priceDataEdgeSecondsForProduct,
+  priceDataStaleSecondsForProduct,
+} from "@/lib/public-cache-policy";
 import { normalizePublicOfferQuery, PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import { parseProductOfferFreshnessMinutes, parseProductOfferStockThreshold } from "@/lib/product-offer-filters";
 
@@ -31,10 +34,12 @@ export async function GET(
     freshWithinMinutes: parseProductOfferFreshnessMinutes(searchParams.get("freshWithin")),
   };
   const cachePagination = cachePaginationParams(searchParams);
+  const edgeSeconds = priceDataEdgeSecondsForProduct(id);
+  const staleSeconds = priceDataStaleSecondsForProduct(id);
 
   return withCloudflarePublicCache(request, {
     namespace: "product-offers-v4-read-model",
-    ttlSeconds: PRICE_DATA_EDGE_SECONDS,
+    ttlSeconds: edgeSeconds,
     cacheKeySearchParams: cacheSearchParams({
       tags: normalized.filterTags.join(","),
       q: normalized.query,
@@ -65,7 +70,7 @@ export async function GET(
         });
 
         return NextResponse.json(result, {
-          headers: priceDataCacheHeadersForResult(result),
+          headers: priceDataCacheHeadersForResult(result, { edgeSeconds, staleSeconds }),
         });
       } catch (error) {
         return publicPriceApiErrorResponse("public product offers API", error);
