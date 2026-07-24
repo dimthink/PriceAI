@@ -991,7 +991,7 @@ function buildAiTransitSnapshotOfferRow({
     availability_scope: availabilitySource.availability_scope || null,
     availability_match_level: availabilitySource.availability_match_level || null,
     monitoring_scope_id: availabilitySource.monitoring_scope_id || null,
-    last_verified_at: availabilitySource.lastCheckedAt || generatedAt || collectedAt,
+    last_verified_at: generatedAt || collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
     raw_payload: {
@@ -1508,7 +1508,6 @@ function applyAiTransitTimelineAvailability(offers, availabilitySamples) {
     if (offer.availability_seven_day_rate === null || offer.availability_seven_day_rate === undefined) {
       offer.availability_seven_day_rate = round(okSamples / samples.length, 6);
     }
-    offer.last_verified_at = offer.availability_last_checked_at || offer.last_verified_at;
   }
 }
 
@@ -2179,7 +2178,6 @@ function applyAvailabilityToOffer(offer, availability) {
   offer.availability_scope = availability.availability_scope ?? offer.availability_scope ?? null;
   offer.availability_match_level = availability.availability_match_level ?? offer.availability_match_level ?? null;
   offer.monitoring_scope_id = availability.monitoring_scope_id ?? offer.monitoring_scope_id ?? null;
-  offer.last_verified_at = availability.lastCheckedAt || offer.last_verified_at;
 }
 
 function buildAvailabilitySampleRow(input) {
@@ -2364,7 +2362,7 @@ function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
     availability_last_checked_at: availability.lastCheckedAt,
     availability_note: availability.note,
     ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicModelCatalog),
-    last_verified_at: availability.lastCheckedAt || collectedAt,
+    last_verified_at: collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
     raw_payload: {
@@ -2431,7 +2429,7 @@ function buildApinodePublicSiteInfoOfferRow({
     availability_last_checked_at: availability?.lastCheckedAt ?? generatedAt,
     availability_note: apinodeAvailabilityNote(standard, availability),
     ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
-    last_verified_at: availability?.lastCheckedAt || generatedAt || collectedAt,
+    last_verified_at: generatedAt || collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
     raw_payload: {

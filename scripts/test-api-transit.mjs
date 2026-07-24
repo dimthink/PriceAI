@@ -1297,6 +1297,7 @@ const apinodeGpt55Economy = apinode.offers.find(
 );
 assert.equal(apinodeGpt55Economy.model_multiplier, 0.3);
 assert.equal(apinodeGpt55Economy.availability_seven_day_rate, 0.976494);
+assert.equal(apinodeGpt55Economy.last_verified_at, "2026-06-30T07:11:17Z");
 assert.match(apinodeGpt55Economy.availability_note, /非 PriceAI API Key 实测/);
 
 const aiTransitSnapshot = __test.parsePricingPayload(
@@ -1525,6 +1526,7 @@ assert.equal(longAiTransitStationSamples.length, 60);
 assert.equal(longAiTransitStationSamples[0].checked_at, longAiTransitTimeline[3].checked_at);
 assert.equal(longAiTransitStationSamples.at(-1).checked_at, longAiTransitTimeline.at(-1).checked_at);
 assert.equal(longAiTransitOffer.availability_seven_day_samples, 60);
+assert.equal(longAiTransitOffer.last_verified_at, "2026-07-05T09:00:00.000Z");
 assert.equal(longAiTransitSnapshot.station.availability_seven_day_samples, 60);
 
 const aiTransitGroupRateSnapshot = __test.parsePricingPayload(
@@ -2317,6 +2319,9 @@ const onehop = __test.parseOneHopPublicModelsPayload(
           officialInputPricePer1m: "1.40000000",
           officialOutputPricePer1m: "4.40000000",
           available: true,
+          displayMetrics: {
+            uptime14d: [{ day: "2026-06-30", rate: 0.99 }],
+          },
         },
         {
           fullSlug: "deepseek/deepseek-v4-flash",
@@ -2338,6 +2343,7 @@ const onehopGlm = onehop.offers.find((offer) => offer.standard_model === "GLM-5.
 assert.equal(onehopGlm.model_multiplier, 0.0875);
 assert.equal(onehopGlm.input_price, 0.0875);
 assert.equal(onehopGlm.output_price, 0.078571);
+assert.equal(onehopGlm.last_verified_at, "2026-07-02T07:30:00.000Z");
 const onehopDeepSeek = onehop.offers.find((offer) => offer.standard_model === "DeepSeek V4 Flash");
 assert.equal(onehopDeepSeek.model_multiplier, 0.112);
 assert.equal(onehopDeepSeek.output_price, 0.112);
