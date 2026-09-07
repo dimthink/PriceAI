@@ -8,13 +8,11 @@ import {
   readJsonWithLimit,
 } from "@/lib/public-request";
 
-const MAX_BATCH_SIZE = 10;
-const BATCH_RATE_LIMIT_PER_HOUR = 30;
 const PUBLIC_SUBMISSION_RATE_LIMIT_PER_HOUR = 20;
 
 const schema = z.object({
   url: z.string().url().max(2048).optional().nullable(),
-  urls: z.array(z.string().url().max(2048)).max(MAX_BATCH_SIZE).optional(),
+  urls: z.array(z.string().url().max(2048)).max(10).optional(),
   name: z.string().trim().max(200).optional().nullable(),
   contact: z.string().trim().max(200).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
@@ -38,6 +36,7 @@ function getErrorStatus(error: unknown, message: string): number {
   if (message.includes("提交过于频繁")) return 429;
   if (
     message.includes("URL 格式") ||
+    message.includes("一次只能申请") ||
     message.includes("仅支持") ||
     message.includes("不允许") ||
     message.includes("无法解析")
@@ -70,9 +69,11 @@ export async function POST(request: Request) {
 
     const urls = uniqueUrls(payload);
     if (!urls.length) {
-      return Response.json({ ok: false, message: "请至少提交一个链接。" }, { status: 400 });
+      return Response.json({ ok: false, message: "请填写店铺入口。" }, { status: 400 });
     }
-
+    if (urls.length > 1) {
+      return Response.json({ ok: false, message: "一次只能申请一个店铺。" }, { status: 400 });
+    }
     const results = [];
 
     for (const url of urls) {
@@ -80,11 +81,10 @@ export async function POST(request: Request) {
         const result = await createSubmission({
           url,
           name: payload.name ?? null,
-          contact: payload.contact ?? null,
+          contact: payload.contact?.trim() || null,
           notes: payload.notes ?? null,
           honeypot: null,
           submitterIp,
-          rateLimitPerHour: urls.length > 1 ? BATCH_RATE_LIMIT_PER_HOUR : undefined,
         });
         if ("ignored" in result) {
           results.push({ url, ok: true, ignored: true });

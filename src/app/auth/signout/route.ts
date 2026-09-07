@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { ACCOUNT_AUTH_HINT_COOKIE } from "@/lib/account-auth-hint";
 import { createSupabaseAuthServerClient } from "@/lib/auth";
+import { getAccountAuthHintCookieOptions, getAccountAuthHintCookieValue } from "@/lib/auth-cookie-options";
 import { noStoreCacheHeaders } from "@/lib/cache-headers";
 import { isSameOriginMutation, sameOriginRequiredResponse } from "@/lib/request-origin";
 
@@ -15,8 +17,15 @@ export async function POST(request: Request) {
       { status: 500, headers: noStoreCacheHeaders() },
     );
   }
-  if (isJson) return Response.json({ ok: true, scope }, { headers: noStoreCacheHeaders() });
-  return NextResponse.redirect(new URL("/", request.url), { status: 303 });
+  const response = isJson
+    ? NextResponse.json({ ok: true, scope }, { headers: noStoreCacheHeaders() })
+    : NextResponse.redirect(new URL("/", request.url), { status: 303 });
+  response.cookies.set(
+    ACCOUNT_AUTH_HINT_COOKIE,
+    getAccountAuthHintCookieValue(false),
+    getAccountAuthHintCookieOptions(),
+  );
+  return response;
 }
 
 async function readSignOutScope(request: Request, isJson: boolean): Promise<"local" | "global"> {

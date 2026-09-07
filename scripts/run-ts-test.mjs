@@ -56,6 +56,7 @@ try {
   const compiledEntry = path.join(outDir, entry.replace(/\.ts$/, ".js"));
   await rewriteAliases(compiledEntry);
   await rewriteAliases(path.join(outDir, "src", "lib", "api-transit.js"));
+  await rewriteAliases(path.join(outDir, "src", "lib", "auth-cookie-options.js"));
 
   const nodePath = [path.join(repoRoot, "node_modules"), process.env.NODE_PATH]
     .filter(Boolean)
@@ -79,6 +80,7 @@ async function rewriteAliases(filePath) {
   }
 
   const next = text.replaceAll("\"@/data/api-transit/types\"", "\"../data/api-transit/types.js\"")
-    .replaceAll("\"@/data/api-transit/stations\"", "\"../data/api-transit/stations.js\"");
+    .replaceAll("\"@/data/api-transit/stations\"", "\"../data/api-transit/stations.js\"")
+    .replaceAll("\"@/lib/account-auth-hint\"", "\"./account-auth-hint.js\"");
   if (next !== text) await writeFile(filePath, next, "utf8");
 }

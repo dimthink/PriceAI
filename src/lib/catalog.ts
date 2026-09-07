@@ -1,8 +1,8 @@
 import type { CanonicalProduct, ProductGroup, RawOffer } from "./types";
-import { offerMatchesFilterTags } from "./offer-filter-tags";
+import { hasChatGptPlusRechargeOfficialDirectSignal, offerMatchesFilterTags } from "./offer-filter-tags";
 import { API_CDK_PLATFORM, isPublicCatalogProduct } from "./trust-risk";
 
-export const OFFER_CLASSIFICATION_VERSION = "2026-07-19.feedback-contract-v1";
+export const OFFER_CLASSIFICATION_VERSION = "2026-07-29.semantic-classification-v6";
 
 export const allPlatformOptions = [
   "ChatGPT",
@@ -122,26 +122,16 @@ export const canonicalCatalog: CanonicalProduct[] = [
     displayName: "ChatGPT Plus 正价代充",
     platform: "ChatGPT",
     productType: "订阅/会员",
-    spec: "官方地区价 · iOS 内购 · 直充/续费",
-    summary: "ChatGPT Plus 正价代充、官方地区价、App Store 内购、菲区卡充、美区 iOS、直充、代充或续费渠道。",
+    spec: "官方充值 · 正价/正规 · 真实付费",
+    summary: "明确标注官方、官网、正价、正规或真实付费的 ChatGPT Plus 充值渠道。普通 CDK、卡密和未知渠道充值归入试用订阅。",
     aliases: [
-      "ios土区",
-      "土区 ios",
-      "ios 土区",
-      "土耳其 plus",
-      "菲律宾 plus",
-      "菲区 plus",
-      "巴西 plus",
-      "埃及 plus",
-      "日区 plus",
-      "plus 土区",
-      "plus 充值代充",
-      "plus 代充",
-      "plus 直充",
-      "plus 卡冲",
       "plus 官方充值",
-      "plus 内购",
-      "月卡批发",
+      "plus 官方直充",
+      "plus 官方代充",
+      "plus 官网直充",
+      "plus 正价充值",
+      "plus 正规充值",
+      "plus 真实付费",
     ],
   },
   {
@@ -197,12 +187,12 @@ export const canonicalCatalog: CanonicalProduct[] = [
   {
     id: "chatgpt-codex-service",
     slug: "chatgpt-codex-service",
-    displayName: "Codex / ChatGPT 周边服务",
+    displayName: "Codex / ChatGPT 周边与自助服务",
     platform: "ChatGPT",
     productType: "辅助服务",
-    spec: "Codex / ChatGPT 辅助",
-    summary: "Codex 或 ChatGPT 的额度重置、链接提取、服务包等周边辅助服务，不含 API 额度、接码或账号会员。",
-    aliases: ["codex 重置额度", "重置额度", "长链提取", "链接提取", "服务包", "周边服务"],
+    spec: "提链 · 扫码 · 自助充值 · 额度重置",
+    summary: "Codex 或 ChatGPT 使用过程中的提链、支付二维码处理、扫码对接、自助充值、额度重置和其他辅助服务。不含成品账号、独立接码服务、API 额度或人工正价代充。",
+    aliases: ["codex 重置额度", "重置额度", "长链提取", "链接提取", "提链", "扫码对接", "自助充值", "服务包", "周边服务"],
   },
   {
     id: "claude-pro-month",
@@ -609,20 +599,7 @@ const legacyCanonicalIdMap: Record<string, string> = {
 type OfferClassificationContext = {
   tags?: string[] | string | null;
   categorySlug?: string | null;
-  price?: number | null;
 };
-
-const priceFloorByProductId = new Map<string, number>([
-  ["chatgpt-plus-recharge", 50],
-  ["chatgpt-pro-5x", 100],
-  ["chatgpt-pro-20x", 100],
-  ["claude-pro-month", 40],
-  ["claude-team-standard", 100],
-  ["claude-team-premium", 100],
-  ["claude-max-5x", 100],
-  ["claude-max-20x", 200],
-  ["gemini-ultra", 50],
-]);
 
 export function getCanonicalProduct(id: string): CanonicalProduct {
   return catalogById.get(legacyCanonicalIdMap[id] || id) ?? catalogById.get("other-product")!;
@@ -658,12 +635,10 @@ export function resolveOfferProduct(
 ): CanonicalProduct {
   const canonicalMap = new Map(canonicalProducts.map((product) => [product.id, product]));
   const context = { tags: offer.tags, categorySlug: offer.categorySlug };
-  const titleClassified = classifyOfferByTitle(offer.sourceTitle, context);
-  const classified = applyPriceFloor(titleClassified, offer.price);
+  const classified = classifyOfferByTitle(offer.sourceTitle, context);
   const mappedId = offer.canonicalProductId ? legacyCanonicalIdMap[offer.canonicalProductId] || offer.canonicalProductId : null;
 
   if (classified.id !== "other-product") return classified;
-  if (titleClassified.id !== "other-product") return classified;
   if (shouldBlockStoredProductFallback(offer.sourceTitle)) return classified;
   if (mappedId && catalogById.has(mappedId)) return getCanonicalProduct(mappedId);
   if (mappedId && canonicalMap.has(mappedId)) return canonicalMap.get(mappedId)!;
@@ -675,7 +650,7 @@ export function classifyOffer(
   title: string,
   context: OfferClassificationContext = {},
 ): CanonicalProduct {
-  return applyPriceFloor(classifyOfferByTitle(title, context), context.price);
+  return classifyOfferByTitle(title, context);
 }
 
 function classifyOfferByTitle(
@@ -684,6 +659,10 @@ function classifyOfferByTitle(
 ): CanonicalProduct {
   const value = normalizeTitle(title);
   const contextValue = normalizeTitle([normalizeTags(context.tags), context.categorySlug].filter(Boolean).join(" "));
+
+  if (isPriceAdjustmentListing(value)) {
+    return getCanonicalProduct("other-product");
+  }
 
   if (isCodexPhoneVerification(value)) {
     return getCanonicalProduct("openai-phone-verification");
@@ -919,18 +898,10 @@ function classifyOfferByTitle(
   return getCanonicalProduct("other-product");
 }
 
-function applyPriceFloor(product: CanonicalProduct, price: number | null | undefined): CanonicalProduct {
-  const floor = priceFloorByProductId.get(product.id);
-  if (floor === undefined) return product;
-  if (typeof price !== "number" || !Number.isFinite(price)) return product;
-
-  return price < floor ? getCanonicalProduct("other-product") : product;
-}
-
 function shouldBlockStoredProductFallback(title: string): boolean {
   const value = normalizeTitle(title);
 
-  return isMixedChatGptProTier(value) || isTelegramLanguagePack(value);
+  return isMixedChatGptProTier(value) || isTelegramLanguagePack(value) || isPriceAdjustmentListing(value);
 }
 
 export function buildProductGroups(
@@ -1193,6 +1164,37 @@ function isSupportService(value: string): boolean {
   }
 
   return false;
+}
+
+function isPriceAdjustmentListing(value: string): boolean {
+  if (matches(value, ["定金", "订金", "占位价", "占位链接", "改价专用", "拍下改价"])) {
+    return true;
+  }
+
+  if (matches(value, [
+    "无需补差价",
+    "无须补差价",
+    "不需补差价",
+    "不需要补差价",
+    "不用补差价",
+    "无需补差",
+    "无需补款",
+    "无须补款",
+    "不需补款",
+    "不需要补款",
+    "不用补款",
+  ])) {
+    return false;
+  }
+
+  return matches(value, [
+    "补差价",
+    "补差链接",
+    "差价链接",
+    "补款",
+    "补款链接",
+    "补拍",
+  ]);
 }
 
 function hasNegatedTutorialMention(value: string): boolean {
@@ -2278,9 +2280,36 @@ function isICloudBackedAiAccountProduct(value: string): boolean {
 
 function isChatGptPeripheralService(value: string): boolean {
   const hasPaymentLinkExtractionSignal = isChatGptPaymentLinkExtractionService(value);
-  if (!hasPaymentLinkExtractionSignal && !matches(value, ["codex", "chatgpt", "gpt", "openai", "plus"])) return false;
+  const hasSelfServiceRechargeSignal = isChatGptSelfServiceRecharge(value);
+  if (
+    !hasPaymentLinkExtractionSignal &&
+    !hasSelfServiceRechargeSignal &&
+    !matches(value, ["codex", "chatgpt", "gpt", "openai", "plus"])
+  ) {
+    return false;
+  }
+  if (isCodexPhoneVerification(value)) return false;
+  if (isApiProductCoreSignal(value)) return false;
+  if (hasSelfServiceRechargeSignal) {
+    const hasAccountDeliverySignal = matches(value, ["成品号", "成品账号", "成品帐号", "独享账号", "独享账户", "账密", "首登", "直登"]);
+    const hasOwnAccountSignal = matches(value, [
+      "非成品",
+      "自备账号",
+      "自备号",
+      "自己账号",
+      "自己的账号",
+      "自己号",
+      "到自己账号",
+      "冲自己号",
+      "充值自己号",
+      "给自己号",
+      "任何账号可充",
+      "kakao自助充值",
+    ]);
+    if (hasAccountDeliverySignal && !hasOwnAccountSignal) return false;
+    return true;
+  }
   if (hasPaymentLinkExtractionSignal) {
-    if (isCodexPhoneVerification(value)) return false;
     if (matches(value, ["代付代扫", "代付服务", "代扫服务"])) return true;
     if (matches(value, ["成品号", "账号", "账户", "账密", "月卡", "会员", "直充", "代充"])) return false;
 
@@ -2293,13 +2322,35 @@ function isChatGptPeripheralService(value: string): boolean {
     matches(value, ["长链提取", "长链接提取", "链接提取", "提取服务", "提取服务包", "长链服务包"]) ||
     (matches(value, ["服务包"]) && matches(value, ["长链", "提取", "codex", "chatgpt", "gpt", "plus"]));
   if (!hasPeripheralSignal) return false;
-  if (isCodexPhoneVerification(value)) return false;
-  if (isApiProductCoreSignal(value)) return false;
   if (matches(value, ["成品号", "账号", "账户", "账密", "月卡", "会员", "直充", "代充", "卡密", "cdk"])) {
     return false;
   }
 
   return true;
+}
+
+function isChatGptSelfServiceRecharge(value: string): boolean {
+  if (isEmailOnlyForAiAccountSetup(value)) return false;
+  if (isMixedChatGptProTier(value)) return false;
+  if (isChatGptGoProduct(value) || isChatGptTeamDominant(value) || isChatGptPro20(value) || isChatGptPro5(value)) return false;
+  if (matches(value, ["gemini", "google ai", "claude", "grok", "perplexity", "telegram", "twitter", "x premium"])) return false;
+
+  const hasChatGptSignal = matches(value, ["chatgpt", "gpt", "openai", "plus", "kakao"]);
+  if (!hasChatGptSignal) return false;
+
+  return matches(value, [
+    "自助充值",
+    "自助开通",
+    "自助卡密",
+    "卡密自助",
+    "自助激活",
+    "自动充值",
+    "自动开通",
+    "自动激活",
+    "全自动充值",
+    "全自动开通",
+    "全自动激活",
+  ]);
 }
 
 function isChatGptPaymentLinkExtractionService(value: string): boolean {
@@ -2309,6 +2360,11 @@ function isChatGptPaymentLinkExtractionService(value: string): boolean {
 
   return matches(value, [
     "提链",
+    "提炼",
+    "提取链接",
+    "链接提取",
+    "长链提取",
+    "长链接提取",
     "扫码对接",
     "提取upi支付二维码",
     "提取 upi 支付二维码",
@@ -2414,6 +2470,7 @@ function isGeminiUltraProduct(value: string): boolean {
   if (isGeminiProUltraMixedTitle(value)) return false;
   if (matches(value, ["google ai ultra", "gemini ultra", "ai ultra", "企业 ultra", "企业ultra"])) return true;
   if (matches(value, ["250美元", "250 美元", "250美金", "250 美金", "250刀", "45k", "25k"]) && matches(value, ["gemini", "google ai", "ultra", "flow"])) return true;
+  if (matches(value, ["gemini pro", "google ai pro", "ai pro", "pro 12个月", "pro12个月"])) return false;
 
   return matches(value, ["flow"]) && matches(value, ["gemini", "google ai", "ultra"]);
 }
@@ -2684,7 +2741,7 @@ function isChatGptPlus(value: string): boolean {
   const hasPlusSignal = matches(value, ["plus"]);
   if (!hasChatGptSignal && !hasPlusSignal) return false;
   if (matches(value, ["pro"]) && !matches(value, ["plus"])) return false;
-  if (matches(value, ["go", "go月卡", "go 年卡", "go-"])) return false;
+  if (isChatGptGoProduct(value)) return false;
   if (hasChatGptSignal && hasPlusSignal) return true;
 
   if (hasPlusSignal && !hasChatGptSignal) {
@@ -2753,21 +2810,85 @@ function isChatGptPlus(value: string): boolean {
 
 function isChatGptPlusRecharge(value: string): boolean {
   if (!isChatGptPlus(value)) return false;
-  if (isChatGptAccountTitle(value)) return false;
-  if (matches(value, ["成品号", "独享账号", "账密", "首登", "直登", "普通号", "白号"])) return false;
+  if (hasChatGptPlusAccountDeliverySignal(value)) return false;
   if (isChatGptPlusPixTrial(value)) return false;
 
-  const hasTurkeyRegionSignal = hasChatGptPlusTurkeyRegionSignal(value);
-  const hasRegionSignal = hasTurkeyRegionSignal || hasChatGptPlusRegionSignal(value);
-  const hasAppleBillingSignal = matches(value, ["ios", "app store", "appstore", "内购", "苹果内购"]);
-  const hasRechargeSignal = hasChatGptPlusRechargeSignal(value);
+  return hasChatGptPlusRechargeOfficialDirectSignal(value);
+}
 
-  if (matches(value, ["月卡批发"]) && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
-  if (hasTurkeyRegionSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
-  if (hasRegionSignal && hasAppleBillingSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
-  if (hasRegionSignal && hasRechargeSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"])) return true;
+function hasChatGptPlusAccountDeliverySignal(value: string): boolean {
+  if (matches(value, [
+    "自备账号",
+    "自备号",
+    "自己账号",
+    "自己的账号",
+    "自己号",
+    "自己的号",
+    "到自己账号",
+    "充值到自己账号",
+    "充自己号",
+    "给自己号",
+    "任何账号可充",
+  ])) {
+    return false;
+  }
 
-  return hasAppleBillingSignal && hasRechargeSignal && matches(value, ["plus", "chatgpt", "gpt", "openai"]);
+  if (matches(value, [
+    "成品号",
+    "成品账号",
+    "成品帐号",
+    "独享账号",
+    "独享账户",
+    "账密",
+    "首登",
+    "直登",
+    "未接码",
+    "已接码",
+    "网页号",
+    "半成品",
+    "母号邮箱",
+    "邮箱随机发货",
+    "拿到后立刻改密码",
+    "拿到后改密码",
+    "修改密码",
+    "改密码",
+    "支持登录codex",
+    "支持登录 codex",
+    "直接登录codex",
+    "直接登录 codex",
+    "登录codex",
+    "登录 codex",
+    "带2fa",
+    "带 2fa",
+    "2fa",
+    "二验",
+  ])) {
+    return true;
+  }
+
+  const hasEmailCredentialSignal = matches(value, [
+    "gmail邮箱",
+    "gmail 邮箱",
+    "icloud邮箱",
+    "icloud 邮箱",
+    "outlook邮箱",
+    "outlook 邮箱",
+    "微软邮箱",
+    "谷歌邮箱",
+  ]);
+  const hasLoginOrCredentialSignal = matches(value, [
+    "支持登录",
+    "可以登录",
+    "可登录",
+    "登录codex",
+    "登录 codex",
+    "可网页",
+    "动态家宽注册",
+    "2fa",
+    "二验",
+  ]);
+
+  return hasEmailCredentialSignal && hasLoginOrCredentialSignal;
 }
 
 function isChatGptPlusPixTrial(value: string): boolean {
@@ -2782,6 +2903,10 @@ function isChatGptPlusPixTrial(value: string): boolean {
     "质保48小时",
     "质保两天",
     "质保首登",
+    "渠道非成品",
+    "自备账号",
+    "自己账号",
+    "有team不能冲",
   ];
 
   if (matches(value, ["pix"])) {
@@ -2795,106 +2920,6 @@ function isChatGptPlusPixTrial(value: string): boolean {
   }
 
   return matches(value, ["巴西渠道"]) && matches(value, trialSignals);
-}
-
-function hasChatGptPlusTurkeyRegionSignal(value: string): boolean {
-  return matches(value, [
-    "ios土区",
-    "土区 ios",
-    "ios 土区",
-    "土耳其",
-    "土区",
-    "土耳其区",
-  ]);
-}
-
-function hasChatGptPlusRegionSignal(value: string): boolean {
-  return matches(value, [
-    "菲律宾",
-    "菲律宾区",
-    "菲区",
-    "非区",
-    "ph区",
-    "ph 区",
-    "巴西",
-    "巴西区",
-    "br区",
-    "br 区",
-    "埃及",
-    "埃及区",
-    "eg区",
-    "eg 区",
-    "巴基斯坦",
-    "巴基斯坦区",
-    "pk区",
-    "pk 区",
-    "加拿大",
-    "加拿大区",
-    "ca区",
-    "ca 区",
-    "日本",
-    "日本区",
-    "日区",
-    "jp区",
-    "jp 区",
-    "越南",
-    "越南区",
-    "vn区",
-    "vn 区",
-    "韩国",
-    "韩国区",
-    "kr区",
-    "kr 区",
-    "尼日利亚",
-    "尼区",
-    "ng区",
-    "ng 区",
-    "美区",
-    "美国区",
-    "us区",
-    "us 区",
-  ]);
-}
-
-function hasChatGptPlusRechargeSignal(value: string): boolean {
-  return matches(value, [
-    "充值",
-    "冲",
-    "秒冲",
-    "代充",
-    "直充",
-    "直冲",
-    "续费",
-    "卡密",
-    "自助卡密",
-    "月卡批发",
-    "批发",
-    "卡冲",
-    "卡充",
-    "卡付",
-    "官方充值",
-    "官方直充",
-    "官网直冲",
-    "官方代充",
-    "官方渠道",
-    "官方订阅",
-    "正规充值",
-    "正规官方",
-    "正规卡付",
-    "正规卡冲",
-    "app store",
-    "appstore",
-    "内购",
-    "苹果内购",
-    "带账单",
-    "正规账单",
-    "渠道",
-    "凭证",
-    "可查",
-    "充自己号",
-    "自己的账号",
-    "自备账号",
-  ]);
 }
 
 function isChatGptAccountTitle(value: string): boolean {

@@ -24,11 +24,14 @@ const DEFAULT_TIMEOUT_MS = 25000;
 const FETCH_DELAY_MS = 250;
 const DEFAULT_FETCH_CONCURRENCY = 4;
 const MAX_FETCH_CONCURRENCY = 8;
+const APP_STORE_FETCH_ATTEMPTS = 3;
+const APP_STORE_RETRY_BASE_MS = 500;
 const APPLE_STOREFRONT_IDS = {
   AR: "143505",
   AT: "143445",
   AU: "143460",
   BE: "143446",
+  BO: "143556",
   BR: "143503",
   CA: "143455",
   CH: "143459",
@@ -189,6 +192,8 @@ export async function collectOfficialPrices(options = {}) {
     runItems.push(item.runItem);
   }
 
+  const appHealth = buildOfficialAppRunHealth(runItems, apps.map((app) => app.slug));
+
   const result = {
     generatedAt: fetchedAt,
     dryRun: Boolean(options.dryRun),
@@ -221,6 +226,7 @@ export async function collectOfficialPrices(options = {}) {
       needsReviewCount: rows.filter((row) => row.status === "needs_review").length,
       unmatchedCount: unmatchedItems.length,
       failureCount: failures.length,
+      appHealth,
       items: runItems,
     },
   };
@@ -442,12 +448,14 @@ async function readJson(filePath) {
 
 async function postOfficialPriceSnapshot(result, configs, options) {
   const dbRows = expandRowsForDatabase(result, configs);
+  const currentDbRows = filterOfficialCurrentRowsForHealthyApps(dbRows, result.run.appHealth);
   const plan = {
     dryRun: Boolean(options.dryRun),
     apps: configs.apps.length,
     regions: configs.regions.length,
     plans: configs.rules.length,
-    currentRows: dbRows.length,
+    currentRows: currentDbRows.length,
+    protectedApps: (result.run.appHealth || []).filter((item) => !item.publishCurrent).map((item) => item.appSlug),
     availableRows: dbRows.filter((row) => row.status === "available").length,
     nonAvailableRows: dbRows.filter((row) => row.status !== "available").length,
     snapshots: dbRows.length,
@@ -472,8 +480,8 @@ async function postOfficialPriceSnapshot(result, configs, options) {
   const regionMap = await upsertOfficialRegions(supabase, configs.regions);
   const planMap = await upsertOfficialPlans(supabase, configs.rules, appMap);
   const runId = await insertOfficialCollectRun(supabase, result, options);
-  const existingByKey = await listExistingCurrentPrices(supabase, dbRows, appMap, regionMap, planMap);
-  const currentRows = buildCurrentPriceRows(dbRows, appMap, regionMap, planMap, existingByKey);
+  const existingByKey = await listExistingCurrentPrices(supabase, currentDbRows, appMap, regionMap, planMap);
+  const currentRows = buildCurrentPriceRows(currentDbRows, appMap, regionMap, planMap, existingByKey);
   const snapshotRows = buildSnapshotRows(dbRows, appMap, regionMap, planMap, runId);
   const fxRows = buildFxRows(result.fx, result.generatedAt);
 
@@ -745,6 +753,7 @@ async function insertOfficialCollectRun(supabase, result, options) {
         source: result.source,
         scope: result.scope,
         items: result.run.items,
+        appHealth: result.run.appHealth,
         failures: result.failures,
         unmatchedItems: result.unmatchedItems,
       },
@@ -1014,30 +1023,63 @@ export function loadFallbackFxSnapshot(currencies, latestPath = defaultOutPath) 
 }
 
 async function fetchText(url, { timeoutMs = DEFAULT_TIMEOUT_MS, headers = {} } = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  for (let attempt = 1; attempt <= APP_STORE_FETCH_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "accept-language": "en-US,en;q=0.9",
-        "user-agent": userAgent,
-        ...headers,
-      },
-      signal: controller.signal,
-    });
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "accept-language": "en-US,en;q=0.9",
+          "user-agent": userAgent,
+          ...headers,
+        },
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const error = new Error(`HTTP ${response.status} for ${url}`);
-      error.status = response.status;
-      error.url = url;
-      throw error;
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status} for ${url}`);
+        error.status = response.status;
+        error.url = url;
+        await response.body?.cancel().catch(() => undefined);
+        if (attempt < APP_STORE_FETCH_ATTEMPTS && isRecoverableOfficialFetchStatus(response.status)) {
+          await delay(APP_STORE_RETRY_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 250));
+          continue;
+        }
+        throw error;
+      }
+
+      return await response.text();
+    } finally {
+      clearTimeout(timer);
     }
-
-    return await response.text();
-  } finally {
-    clearTimeout(timer);
   }
+
+  throw new Error(`App Store fetch attempts exhausted for ${url}`);
+}
+
+export function isRecoverableOfficialFetchStatus(status) {
+  return status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+export function buildOfficialAppRunHealth(items, appSlugs = []) {
+  return appSlugs.map((appSlug) => {
+    const appItems = items.filter((item) => item.appSlug === appSlug);
+    const successfulRegions = appItems.filter((item) => item.status === "success" || item.status === "missing").length;
+    const failedRegions = appItems.length - successfulRegions;
+    return {
+      appSlug,
+      regionCount: appItems.length,
+      successfulRegions,
+      failedRegions,
+      publishCurrent: successfulRegions > 0,
+    };
+  });
+}
+
+export function filterOfficialCurrentRowsForHealthyApps(rows, appHealth = []) {
+  const writableAppSlugs = new Set(appHealth.filter((item) => item.publishCurrent).map((item) => item.appSlug));
+  return rows.filter((row) => writableAppSlugs.has(row.appSlug));
 }
 
 export function extractInAppPurchasePairs(html, sourceUrl = "") {
@@ -1605,6 +1647,11 @@ function printSummary(result) {
       `failures=${result.run.failureCount}`,
     ].join(" "),
   );
+  for (const item of result.run.appHealth || []) {
+    console.log(
+      `app=${item.appSlug} successful_regions=${item.successfulRegions} failed_regions=${item.failedRegions} publish_current=${item.publishCurrent}`,
+    );
+  }
   if (result.source.fxFallback) {
     const fallbackLabel = result.source.fxFallbackGeneratedAt ? `local snapshot ${result.source.fxFallbackGeneratedAt}` : result.source.fxSource;
     console.log(`FX fallback used: ${result.fx.date} from ${fallbackLabel} (${result.source.fxFallbackReason})`);

@@ -12,15 +12,15 @@ export const revalidate = false;
 const pageUrl = "https://priceai.cc/guides";
 
 export const metadata: Metadata = {
-  title: "PriceAI 快速入门：如何比价、判断渠道、提交渠道和反馈问题",
+  title: "PriceAI 快速入门：如何比价、判断渠道、申请收录和反馈问题",
   description:
-    "PriceAI 快速入门，了解这个 AI 订阅比价工具能做什么，如何查卡网订阅、官方订阅、官方 API，以及如何提交渠道、举报商品和反馈建议。",
+    "PriceAI 快速入门，了解这个 AI 订阅比价工具能做什么，如何查卡网订阅、官方订阅、官方 API，以及如何申请收录自营店铺、举报商品和反馈建议。",
   alternates: {
     canonical: "/guides",
   },
   openGraph: {
-    title: "PriceAI 快速入门：如何比价、判断渠道、提交渠道和反馈问题 | PriceAI",
-    description: "了解 PriceAI 的定位、使用路径、渠道判断边界、提交渠道、举报商品和意见反馈入口。",
+    title: "PriceAI 快速入门：如何比价、判断渠道、申请收录和反馈问题 | PriceAI",
+    description: "了解 PriceAI 的定位、使用路径、渠道判断边界、自营店铺申请收录、举报商品和意见反馈入口。",
     url: pageUrl,
   },
 };
@@ -51,10 +51,10 @@ const verificationSteps = [
 
 const communityActions = [
   {
-    title: "提交新渠道",
-    text: "如果你手里有更低价、更稳定的 AI 订阅渠道，可以提交给 PriceAI。每个人发现的渠道都有限，但大家把自己的低价渠道贡献出来，后面所有人都能少翻 Telegram、少刷闲鱼，直接在 PriceAI 里完成比价。好的平台需要大家一起共创。",
+    title: "申请收录自营店铺",
+    text: "PriceAI 目前仅接受自营店铺申请。店内 AI 相关在售商品原则上不超过 25 个，并需要具备有价格优势的商品。提交申请后，可通过 QQ 或 Telegram 提供脱敏运营截图，核验通过后再进入试采集和收录。",
     href: "/channels#submit-channel",
-    label: "提交渠道",
+    label: "申请收录",
     icon: Send,
   },
   {
@@ -118,7 +118,7 @@ export default function GuidesIndexPage() {
                 href="#contribute"
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#edf0f1] px-4 text-sm font-semibold text-[#2d3435] transition hover:bg-[#dde4e5]"
               >
-                提交渠道或反馈
+                申请收录或反馈
                 <ArrowRight size={15} />
               </a>
               <Link
@@ -325,7 +325,7 @@ function buildGuidesJsonLd() {
       name: "PriceAI 快速入门",
       inLanguage: "zh-CN",
       url: pageUrl,
-      description: "PriceAI 快速入门，了解如何比价、判断渠道、提交渠道和反馈问题。",
+      description: "PriceAI 快速入门，了解如何比价、判断渠道、申请收录和反馈问题。",
       isPartOf: {
         "@type": "WebSite",
         name: "PriceAI",

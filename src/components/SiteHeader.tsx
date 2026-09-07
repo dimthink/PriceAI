@@ -12,7 +12,7 @@ import { IntentPrefetchLink } from "@/components/IntentPrefetchLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import type { AccountUser } from "@/lib/account-client";
 import { useAccountUser } from "@/lib/account-client";
-import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
+import { buildLoginHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 import { useCommunitySettings } from "@/lib/community-settings-client";
 import type { CommunitySettingsSummary } from "@/lib/community-settings-shared";
 import { supportPagePath } from "@/lib/support";
@@ -343,12 +343,12 @@ function MobileAccountLinks({
 
   if (!user) {
     return (
-      <a href={buildGoogleAuthHref(getBrowserAuthNextPath())} onClick={onClose} className={rowClassName}>
+      <IntentPrefetchLink href={buildLoginHref(getBrowserAuthNextPath())} onClick={onClose} className={rowClassName}>
         <span className="inline-flex items-center gap-3">
           <LogIn size={17} />
           登录
         </span>
-      </a>
+      </IntentPrefetchLink>
     );
   }
 

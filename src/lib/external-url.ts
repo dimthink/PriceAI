@@ -9,3 +9,14 @@ export function safeExternalHttpUrl(value: string | null | undefined): string | 
     return null;
   }
 }
+
+export function safeExternalShopUrl(value: string | null | undefined): string | null {
+  const href = safeExternalHttpUrl(value);
+  if (!href) return null;
+
+  try {
+    return /\/item\//i.test(new URL(href).pathname) ? null : href;
+  } catch {
+    return null;
+  }
+}

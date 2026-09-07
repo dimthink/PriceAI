@@ -1,5 +1,6 @@
 import "server-only";
 
+import { nextSourceAvailabilityObservation } from "../../scripts/out-of-stock-observation.mjs";
 import { canonicalCatalog, classifyOffer } from "./catalog";
 import { freshnessFields } from "./freshness";
 import {
@@ -549,7 +550,7 @@ export async function upsertRawOffer(input: OfferInput & { sourceId?: string | n
   const tags = parseTags(input.tags || "");
   const status = normalizeStatus(input.status || "");
   const trustFields = freshnessFields({ method: "manual", status, verifiedAt: now });
-  const canonical = classifyOffer(input.sourceTitle, { tags, price: input.price ?? null });
+  const canonical = classifyOffer(input.sourceTitle, { tags });
   const existingManualHidden = await getManualHiddenOffer(rawOfferInputId(input));
   const offer: RawOffer = {
     id: rawOfferInputId(input),
@@ -629,7 +630,7 @@ export async function upsertRawOffers(
     };
     const status = normalizeStatus(offer.status || "");
     const tags = parseTags(offer.tags || "");
-    const canonical = classifyOffer(offer.sourceTitle, { tags, price: offer.price ?? null });
+    const canonical = classifyOffer(offer.sourceTitle, { tags });
     const trustFields = freshnessFields({ method: collectionMethod, status, verifiedAt: checkedAt });
     const explicitEffectiveStatus = normalizeEffectiveStatus(offer.effectiveStatus || null);
     const effectiveStatus = explicitEffectiveStatus || trustFields.effective_status;
@@ -1137,16 +1138,30 @@ export async function recordSourceCollectionResult(input: {
   message?: string | null;
   seenOfferIds?: string[];
   fullSnapshot?: boolean;
+  hasSellableOffers?: boolean;
   hideMissingOffersImmediately?: boolean;
 }): Promise<{ changedOfferCount: number }> {
   const supabase = getSupabaseServerClient();
   if (!supabase) throw new Error("Supabase 尚未配置，无法记录来源采集状态。");
 
-  const { data: existing } = await supabase
+  let { data: existing, error: existingError } = await supabase
     .from("sources")
-    .select("collector_kind,consecutive_failures,last_success_at")
+    .select("collector_kind,consecutive_failures,last_success_at,availability_status,out_of_stock_since,consecutive_out_of_stock_snapshots")
     .eq("id", input.sourceId)
     .maybeSingle();
+
+  let availabilityObservationColumnsAvailable = true;
+  if (isMissingSourceAvailabilityObservationColumnError(existingError)) {
+    availabilityObservationColumnsAvailable = false;
+    const compatibilityResult = await supabase
+      .from("sources")
+      .select("collector_kind,consecutive_failures,last_success_at")
+      .eq("id", input.sourceId)
+      .maybeSingle();
+    existing = compatibilityResult.data as typeof existing;
+    existingError = compatibilityResult.error;
+  }
+  if (existingError) throw existingError;
 
   // Skip failure if another channel succeeded recently (within 1 hour)
   if (input.status === "failed" && existing?.last_success_at) {
@@ -1172,16 +1187,22 @@ export async function recordSourceCollectionResult(input: {
           ? "failing"
           : "retrying";
 
+  const completeAvailabilitySnapshot = input.status === "success" && input.fullSnapshot === true && typeof input.hasSellableOffers === "boolean";
+  const sourceUpdate: Record<string, unknown> = {
+    health_status: healthStatus,
+    last_checked_at: input.checkedAt,
+    last_success_at: input.status === "failed" ? existing?.last_success_at || null : input.checkedAt,
+    consecutive_failures: consecutiveFailures,
+    last_error: input.status === "failed" ? input.message || "采集失败，等待重试。" : null,
+    updated_at: input.checkedAt,
+  };
+  if (availabilityObservationColumnsAvailable && completeAvailabilitySnapshot) {
+    Object.assign(sourceUpdate, nextSourceAvailabilityObservation(existing, input.checkedAt, input.hasSellableOffers));
+  }
+
   const { error: sourceError } = await supabase
     .from("sources")
-    .update({
-      health_status: healthStatus,
-      last_checked_at: input.checkedAt,
-      last_success_at: input.status === "failed" ? existing?.last_success_at || null : input.checkedAt,
-      consecutive_failures: consecutiveFailures,
-      last_error: input.status === "failed" ? input.message || "采集失败，等待重试。" : null,
-      updated_at: input.checkedAt,
-    })
+    .update(sourceUpdate)
     .eq("id", input.sourceId);
 
   if (sourceError) throw sourceError;
@@ -1227,6 +1248,13 @@ function isCollectorWritebackFailureMessage(message: string | null | undefined):
     text.includes("upload failed after") ||
     text.includes("crawl-log upload failed")
   );
+}
+
+function isMissingSourceAvailabilityObservationColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const text = [candidate.message, candidate.details, candidate.hint].map((value) => String(value || "")).join(" ");
+  return String(candidate.code || "") === "42703" || /availability_status|out_of_stock_since|consecutive_out_of_stock_snapshots/.test(text);
 }
 
 async function expireStaleOffersAfterRepeatedFailures(
@@ -3967,7 +3995,7 @@ async function listSubmissionPriceBenchmarks(
   probe: ReviewSubmissionProbeResult,
 ): Promise<Map<string, SubmissionPriceBenchmark>> {
   const productIds = Array.from(new Set((probe.offers || [])
-    .map((offer) => classifyOffer(offer.sourceTitle, { tags: offer.tags, price: offer.price }).id)
+    .map((offer) => classifyOffer(offer.sourceTitle, { tags: offer.tags }).id)
     .filter((id) => id !== "other-product")));
   if (!productIds.length) return new Map();
 

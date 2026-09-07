@@ -225,6 +225,7 @@ const openAiPricingUrl = "https://developers.openai.com/api/docs/pricing";
 const chatGptPricingUrl = "https://chatgpt.com/pricing/";
 const claudeApiPricingUrl = "https://platform.claude.com/docs/en/about-claude/pricing";
 const claudePricingUrl = "https://claude.com/pricing";
+const claudeOpus5AnnouncementUrl = "https://www.anthropic.com/news/claude-opus-5";
 const geminiApiPricingUrl = "https://ai.google.dev/gemini-api/docs/pricing";
 const googleAiPlansUrl = "https://one.google.com/intl/en_us/about/google-ai-plans/";
 const geminiModelDocsUrl = "https://ai.google.dev/gemini-api/docs/models";
@@ -235,6 +236,7 @@ const klingPricingUrl = "https://kling.ai/dev/pricing";
 export const apiModelUpdatedAt = "2026-06-07";
 export const apiMediaModelUpdatedAt = "2026-07-03";
 export const apiOfficialPlatformUpdatedAt = "2026-07-06";
+const claudeOpus5UpdatedAt = "2026-07-24";
 const apiLatestChineseModelUpdatedAt = "2026-07-20";
 const happyHorseUpdatedAt = "2026-07-17";
 
@@ -500,6 +502,19 @@ export const apiModels: ApiModel[] = [
     capabilities: ["json", "classification", "extraction"],
     suitableTools: ["自建应用", "Open WebUI", "批量处理"],
     updatedAt: apiOfficialPlatformUpdatedAt,
+  },
+  {
+    id: "claude-opus-5",
+    displayName: "Claude Opus 5",
+    family: "Claude",
+    modelId: "claude-opus-5",
+    description: "Anthropic 旗舰模型，面向长时间运行的 Agent、复杂代码任务、深度推理和高价值专业工作。",
+    contextWindow: "1M context · 128K 最大输出",
+    sourceUrl: claudeOpus5AnnouncementUrl,
+    sourceLabel: "Anthropic Claude Opus 5",
+    capabilities: ["reasoning", "coding", "tool-calls", "agent", "long-context"],
+    suitableTools: ["Claude Code", "Codex", "Cursor", "自建应用"],
+    updatedAt: claudeOpus5UpdatedAt,
   },
   {
     id: "claude-fable-5",
@@ -2384,6 +2399,20 @@ export const apiModelOffers: ApiModelOffer[] = [
     pricingUrl: openAiPricingUrl,
     updatedAt: apiOfficialPlatformUpdatedAt,
   }),
+  offer("anthropic-claude-opus-5", "claude-opus-5", "anthropic-claude-api", {
+    routeModelId: "claude-opus-5",
+    inputPrice: usd(5),
+    outputPrice: usd(25),
+    cacheWritePrice: usd(6.25),
+    cacheReadPrice: usd(0.5),
+    freeOrPlan: "Anthropic 官方 Console API 按量计费，与 Claude Pro/Max 订阅分开。",
+    limitations: "缓存写入列取 5m Cache Writes；1h Cache Writes 为 $10/1M tokens。Fast 模式单独按输入 $10、输出 $50 计费，不混入本条标准模式报价。",
+    limitSummary: "按输入、5 分钟缓存写入、缓存读取和输出 tokens 计费；标准价格与 Claude Opus 4.8 一致。",
+    compatibility: ["Anthropic-compatible", "官方 API", "Coding Agent", "Claude Code"],
+    sourceLabel: "Claude API Pricing",
+    pricingUrl: claudeApiPricingUrl,
+    updatedAt: claudeOpus5UpdatedAt,
+  }),
   offer("anthropic-claude-fable-5", "claude-fable-5", "anthropic-claude-api", {
     routeModelId: "claude-fable-5",
     inputPrice: usd(10),
@@ -2733,7 +2762,7 @@ export const apiModelOffers: ApiModelOffer[] = [
 
 export const staticApiModelDataset: ApiModelDataset = {
   source: "static",
-  generatedAt: apiOfficialPlatformUpdatedAt,
+  generatedAt: claudeOpus5UpdatedAt,
   fxSummary: apiModelFxSummary,
   models: apiModels,
   providers: apiProviders,
@@ -3878,6 +3907,7 @@ const modelOrder = [
   "gpt-5-4",
   "gpt-5-4-mini",
   "gpt-5-4-nano",
+  "claude-opus-5",
   "claude-fable-5",
   "claude-opus-4-8",
   "claude-opus-4-7",

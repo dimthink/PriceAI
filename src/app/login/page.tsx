@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { LoginPanel } from "@/components/LoginPanel";
-import { buildGoogleAuthHref, safeAuthNextPath } from "@/lib/auth-paths";
+import { safeAuthNextPath } from "@/lib/auth-paths";
 
 export const metadata: Metadata = {
   title: "登录",
@@ -17,13 +16,12 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   const next = safeAuthNextPath(params.next);
-  if (!params.error) redirect(buildGoogleAuthHref(next));
 
   return (
     <main className="min-h-screen bg-[#f7f9f9]">
       <SiteHeader />
-      <section className="mx-auto flex max-w-[460px] px-4 pb-16 pt-10 sm:px-8">
-        <div className="w-full rounded-xl bg-white p-5 ring-1 ring-[#adb3b4]/18">
+      <section className="mx-auto flex max-w-[480px] px-4 pb-16 pt-8 sm:px-8 sm:pt-12">
+        <div className="w-full rounded-lg bg-white p-5 ring-1 ring-[#adb3b4]/20 sm:p-7">
           <LoginPanel next={next} errorMessage={loginErrorMessage(params.error)} />
         </div>
       </section>
@@ -31,7 +29,8 @@ export default async function LoginPage({
   );
 }
 
-function loginErrorMessage(error?: string): string {
+function loginErrorMessage(error?: string): string | undefined {
+  if (!error) return undefined;
   if (error === "auth_config") return "登录服务尚未配置，请稍后再试。";
   if (error === "oauth_cancelled") return "你已取消 Google 登录，当前页面和数据没有发生变化。";
   if (error === "oauth_provider_failed") return "Google 没有完成授权，请返回原页面或重新登录。";

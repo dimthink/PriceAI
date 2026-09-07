@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Building2, Boxes } from "lucide-react";
 import { isTransitModelFamily } from "@/data/api-transit/types";
+import { useClientSearchParams } from "@/lib/client-url-state";
 
 export function TransitViewTabs({
   active,
@@ -14,7 +15,8 @@ export function TransitViewTabs({
   className?: string;
   itemClassName?: string;
 }) {
-  const searchParams = useSearchParams();
+  const routeSearchParams = useSearchParams();
+  const searchParams = useClientSearchParams(routeSearchParams.toString());
   const stationHref = buildViewHref("/api-transit", searchParams);
   const modelHref = buildViewHref("/api-transit/models", searchParams);
 

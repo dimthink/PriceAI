@@ -17,7 +17,8 @@ export type OfficialPriceRegion = {
   sourceUrl: string;
   evidenceSource: "app_store_html";
   fetchedAt: string;
-  status: "available" | "missing";
+  lastSuccessAt: string;
+  status: "available" | "stale";
 };
 
 export type OfficialPriceRow = OfficialPriceRegion & {
@@ -341,14 +342,16 @@ function getOfficialPricesDatasetIndex(dataset: OfficialPricesDatasetShape): Off
   }
 
   for (const rows of rowsByPlanKey.values()) {
-    rows.sort((a, b) => a.cnyPrice - b.cnyPrice);
+    rows.sort((a, b) => Number(a.status === "stale") - Number(b.status === "stale") || a.cnyPrice - b.cnyPrice);
   }
 
   const planSummaries = dataset.plans
     .map((plan) => {
       const app = appBySlug.get(plan.appSlug) ?? null;
       const rows = rowsByPlanKey.get(officialPlanKey(plan.appSlug, plan.slug)) || [];
-      const latestFetchedAt = rows.reduce((latest, row) => (row.fetchedAt > latest ? row.fetchedAt : latest), "");
+      const latestFetchedAt = rows.reduce((latest, row) => (row.lastSuccessAt > latest ? row.lastSuccessAt : latest), "");
+      const availableRows = rows.filter((row) => row.status === "available");
+      const lowestCandidates = availableRows.length ? availableRows : rows;
 
       return {
         id: officialPricePlanId(plan.appSlug, plan.slug),
@@ -361,7 +364,10 @@ function getOfficialPricesDatasetIndex(dataset: OfficialPricesDatasetShape): Off
         notes: plan.notes,
         sampleCount: rows.length,
         latestFetchedAt,
-        lowestRow: rows[0] ?? null,
+        lowestRow: lowestCandidates.reduce<OfficialPriceRow | null>(
+          (lowest, row) => (!lowest || row.cnyPrice < lowest.cnyPrice ? row : lowest),
+          null,
+        ),
       };
     })
     .sort((a, b) => compareOfficialPlanOrder(a.appSlug, a.planSlug, b.appSlug, b.planSlug, appOrder, planOrder) || a.label.localeCompare(b.label, "zh-CN"));
@@ -434,6 +440,7 @@ function price(
     sourceUrl,
     evidenceSource: "app_store_html",
     fetchedAt,
+    lastSuccessAt: fetchedAt,
     status: "available",
   };
 }

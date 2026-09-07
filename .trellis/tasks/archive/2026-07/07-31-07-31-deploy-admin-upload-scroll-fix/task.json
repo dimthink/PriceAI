@@ -1,0 +1,41 @@
+{
+  "id": "07-31-deploy-admin-upload-scroll-fix",
+  "name": "07-31-deploy-admin-upload-scroll-fix",
+  "title": "后台上传滚动白屏修复生产发布",
+  "description": "将后台上传控件修复隔离发布到 Cloudflare Workers/OpenNext，并完成生产交互验收。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "frontend",
+  "package": null,
+  "priority": "P2",
+  "creator": "physics-dimension",
+  "assignee": "physics-dimension",
+  "createdAt": "2026-07-31",
+  "completedAt": "2026-07-31",
+  "branch": "main",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "7a50487d3c9fb30ed879c9591888b5bf9cb3698c",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Cloudflare workflow 30606558258 成功；生产 /api/deployment 返回 platform=cloudflare、versionId=9b57879c-b766-485e-86e4-171601e2b595、versionTag=7a50487d3c9fb30ed879c9591888b5bf9cb3698c。Chrome 生产验收确认 9 个文件输入均为 display:none、0x0、position:static，不再嵌套于 label，前置控件均为 button[type=button]，window.scrollY=0，且无控制台错误。",
+  "meta": {
+    "workCommit": "af32ae22b2e9c63a8347bfe2d9f5d4a0783b1d4c",
+    "releaseCommit": "7a50487d3c9fb30ed879c9591888b5bf9cb3698c",
+    "deploymentWorkflowRun": "30606558258",
+    "deploymentWorkflowUrl": "https://github.com/dimthink/PriceAI/actions/runs/30606558258",
+    "productionVersionId": "9b57879c-b766-485e-86e4-171601e2b595",
+    "productionVersionTag": "7a50487d3c9fb30ed879c9591888b5bf9cb3698c",
+    "productionVerification": {
+      "fileInputCount": 9,
+      "fileInputsHiddenAndZeroSized": true,
+      "fileInputsNestedInLabel": false,
+      "triggersAreButtons": true,
+      "scrollY": 0,
+      "consoleErrors": 0
+    }
+  }
+}

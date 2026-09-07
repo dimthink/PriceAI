@@ -37,7 +37,7 @@ export async function withCloudflarePublicCache(
   const stored = response.clone();
   const storedHeaders = new Headers(stored.headers);
   storedHeaders.set("X-PriceAI-Origin-Cache-Control", storedHeaders.get("Cache-Control") || "");
-  storedHeaders.set("Cache-Control", `public, max-age=${boundedTtl(input.ttlSeconds)}`);
+  storedHeaders.set("Cache-Control", `public, max-age=${responseCacheTtl(storedHeaders, input.ttlSeconds)}`);
   storedHeaders.delete("Set-Cookie");
   const cacheResponse = new Response(stored.body, {
     status: stored.status,
@@ -101,4 +101,12 @@ function withEdgeCacheHeader(response: Response, state: string): Response {
 
 function boundedTtl(value: number): number {
   return Math.max(5, Math.min(Math.floor(value), 3600));
+}
+
+function responseCacheTtl(headers: Headers, fallbackSeconds: number): number {
+  for (const name of ["Cloudflare-CDN-Cache-Control", "CDN-Cache-Control", "Cache-Control"]) {
+    const match = headers.get(name)?.match(/(?:s-maxage|max-age)=(\d+)/i);
+    if (match) return Math.min(boundedTtl(Number(match[1])), boundedTtl(fallbackSeconds));
+  }
+  return boundedTtl(fallbackSeconds);
 }

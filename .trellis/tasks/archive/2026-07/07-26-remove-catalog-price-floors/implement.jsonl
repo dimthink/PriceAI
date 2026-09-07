@@ -1,0 +1,3 @@
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"分类改动影响 raw_offers、公开读模型、快照和最低价数据契约。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"统一检查采集写入、存储分类、公开读取和展示链路。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"异常价判断必须集中在统一分类入口，避免多套规则漂移。"}

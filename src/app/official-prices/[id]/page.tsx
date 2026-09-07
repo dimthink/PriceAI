@@ -103,7 +103,10 @@ export default async function OfficialPriceDetailPage({
             </div>
 
             <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4">
-              <Metric label="最低地区价" value={cheapest ? formatCurrency(cheapest.cnyPrice, "CNY") : "待确认"} />
+              <Metric
+                label={cheapest?.status === "stale" ? "历史最低地区价" : "最低地区价"}
+                value={cheapest ? formatCurrency(cheapest.cnyPrice, "CNY") : "待确认"}
+              />
               <Metric label="最低地区" value={cheapest?.countryLabel || "暂无"} />
               <Metric label="地区报价" value={`${summary.sampleCount}`} />
               <Metric label="汇率日期" value={dataset.fxSummary.date} />
@@ -115,12 +118,12 @@ export default async function OfficialPriceDetailPage({
           <div>
             <h2 className="font-serif text-3xl font-semibold tracking-normal text-[#202829]">地区报价表</h2>
             <p className="mt-2 text-sm text-[#5a6061]">
-              {rows.length} 条公开地区价格 · 按折算人民币从低到高排序
+              {rows.length} 条公开地区价格 · 当前价优先，同状态按折算人民币从低到高排序
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-[#5a6061]">
             <Clock3 size={16} />
-            最近记录 {formatRelativeTime(summary.latestFetchedAt)}
+            {cheapest?.status === "stale" ? "最后成功" : "最近记录"} {formatRelativeTime(summary.latestFetchedAt)}
           </div>
         </div>
 
@@ -154,7 +157,12 @@ export default async function OfficialPriceDetailPage({
                     <td className="px-5 py-4 text-[#5a6061]">
                       1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}
                     </td>
-                    <td className="px-5 py-4 text-[#5a6061]">{formatRelativeTime(row.fetchedAt)}</td>
+                    <td className="px-5 py-4 text-[#5a6061]">
+                      {row.status === "stale" ? <HistoryLabel /> : null}
+                      <span className={row.status === "stale" ? "ml-2" : ""}>
+                        {row.status === "stale" ? "最后成功：" : ""}{formatRelativeTime(row.lastSuccessAt)}
+                      </span>
+                    </td>
                     <td className="px-5 py-4">
                       <a
                         href={row.sourceUrl}
@@ -207,7 +215,8 @@ function OfficialPriceMobileList({ rows }: { rows: OfficialPriceRow[] }) {
 
           <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-[#5a6061]">
             <span>1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}</span>
-            <span>{formatRelativeTime(row.fetchedAt)}</span>
+            {row.status === "stale" ? <HistoryLabel /> : null}
+            <span>{row.status === "stale" ? "最后成功：" : ""}{formatRelativeTime(row.lastSuccessAt)}</span>
           </div>
 
           <a
@@ -240,6 +249,14 @@ function Badge({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#5a6061] ring-1 ring-[#adb3b4]/15">
       {children}
+    </span>
+  );
+}
+
+function HistoryLabel() {
+  return (
+    <span className="inline-flex rounded-full bg-[#fff1d6] px-2 py-0.5 text-[0.68rem] font-semibold text-[#805b16]">
+      历史价
     </span>
   );
 }

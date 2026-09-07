@@ -3,15 +3,16 @@ import { requireAdminOrCronRequest } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { getLdxpDomainSettings } from "@/lib/ldxp-domain-settings";
 import { isLdxpHost, rewriteLdxpUrlHost, type LdxpDomainSettingsSummary } from "@/lib/ldxp-domain-settings-shared";
+import {
+  legacyFailureObservationInterval,
+  outOfStockObservationSchedule,
+} from "../../../../../../scripts/out-of-stock-observation.mjs";
 import { z } from "zod";
 
 const DEFAULT_LIMIT = 3;
 const MAX_LIMIT = 20;
 const DEFAULT_COOLDOWN_MINUTES = 25;
 const TRANSIENT_UPSTREAM_COOLDOWN_MINUTES = 5;
-const OBSERVATION_PROBE_FAILURE_THRESHOLD = 3;
-const DAILY_PROBE_INTERVAL_MINUTES = 24 * 60;
-const WEEKLY_PROBE_INTERVAL_MINUTES = 7 * DAILY_PROBE_INTERVAL_MINUTES;
 const FAMILY_SCOPED_FETCH_LIMIT = 1000;
 const FAMILY_HOSTS: Record<string, string[]> = {
   "liandong-shop": ["www.ldxp.cn", "pay.ldxp.cn", "ldxp.cn"],
@@ -32,6 +33,25 @@ const SHARD_FAMILY_ALIASES: Record<string, string> = {
   "catfk.com": "yunmao",
 };
 const ALL_SHOPAPI_FAMILIES = new Set(["all", "*", "shopapi", "shop-api"]);
+type CollectorSourceRow = {
+  id: unknown;
+  name?: unknown;
+  base_url?: unknown;
+  entry_url?: unknown;
+  collection_method?: unknown;
+  collector_kind?: unknown;
+  last_checked_at?: unknown;
+  last_success_at?: unknown;
+  consecutive_failures?: unknown;
+  last_error?: unknown;
+  availability_status?: unknown;
+  out_of_stock_since?: unknown;
+  consecutive_out_of_stock_snapshots?: unknown;
+  collection_group?: unknown;
+  buyer_fee_rate?: unknown;
+  buyer_fee_payment_method?: unknown;
+  buyer_fee_strategy?: unknown;
+};
 
 const querySchema = z.object({
   kind: z.string().optional().default("shopApi"),
@@ -113,7 +133,7 @@ export async function GET(request: Request) {
       : Math.max(query.limit * 50 * query.shardCount, query.limit);
     let sourcesQuery = supabase
       .from("sources")
-      .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,consecutive_failures,last_error,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy")
+      .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,consecutive_failures,last_error,availability_status,out_of_stock_since,consecutive_out_of_stock_snapshots,collection_group,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy")
       .eq("enabled", true)
       .eq("collector_kind", query.kind)
       .order("last_checked_at", { ascending: true, nullsFirst: true })
@@ -124,7 +144,26 @@ export async function GET(request: Request) {
       sourcesQuery = sourcesQuery.or(`last_checked_at.is.null,last_checked_at.lte.${staleBefore}`);
     }
 
-    const { data: sources, error } = await sourcesQuery;
+    const sourceResult = await sourcesQuery;
+    let sources = sourceResult.data as CollectorSourceRow[] | null;
+    let error = sourceResult.error;
+
+    if (isMissingSourceAvailabilityObservationColumnError(error)) {
+      let compatibilityQuery = supabase
+        .from("sources")
+        .select("id,name,base_url,entry_url,collection_method,collector_kind,enabled,last_checked_at,last_success_at,consecutive_failures,last_error,collection_group,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy")
+        .eq("enabled", true)
+        .eq("collector_kind", query.kind)
+        .order("last_checked_at", { ascending: true, nullsFirst: true })
+        .order("name", { ascending: true })
+        .limit(Math.min(fetchLimit, 1000));
+      if (staleBefore) {
+        compatibilityQuery = compatibilityQuery.or(`last_checked_at.is.null,last_checked_at.lte.${staleBefore}`);
+      }
+      const compatibilityResult = await compatibilityQuery;
+      sources = compatibilityResult.data as CollectorSourceRow[] | null;
+      error = compatibilityResult.error;
+    }
 
     if (error) throw error;
 
@@ -558,7 +597,15 @@ function isMissingReapRpcError(error: unknown): boolean {
 }
 
 function sourceWithinCooldown(
-  source: { last_checked_at?: unknown; last_error?: unknown; consecutive_failures?: unknown },
+  source: {
+    last_checked_at?: unknown;
+    last_error?: unknown;
+    consecutive_failures?: unknown;
+    availability_status?: unknown;
+    out_of_stock_since?: unknown;
+    consecutive_out_of_stock_snapshots?: unknown;
+    collection_group?: unknown;
+  },
   nowIso: string,
 ): boolean {
   if (!source.last_checked_at) return false;
@@ -568,7 +615,8 @@ function sourceWithinCooldown(
   if (!Number.isFinite(checkedAt) || !Number.isFinite(now)) return false;
 
   const consecutiveFailures = Number(source.consecutive_failures || 0);
-  const observationIntervalMinutes = sourceObservationIntervalMinutes(source.last_error, consecutiveFailures);
+  const observationIntervalMinutes = outOfStockObservationSchedule(source, now)?.intervalMinutes
+    ?? sourceObservationIntervalMinutes(source.last_error, consecutiveFailures);
   const cooldownMinutes = observationIntervalMinutes ?? (isTransientUpstreamError(source.last_error)
     ? TRANSIENT_UPSTREAM_COOLDOWN_MINUTES
     : DEFAULT_COOLDOWN_MINUTES);
@@ -577,12 +625,14 @@ function sourceWithinCooldown(
 }
 
 function sourceObservationIntervalMinutes(lastError: unknown, consecutiveFailures: number): number | null {
-  if (consecutiveFailures < OBSERVATION_PROBE_FAILURE_THRESHOLD) return null;
+  return legacyFailureObservationInterval(lastError, consecutiveFailures);
+}
 
-  const message = String(lastError || "");
-  const isConfirmedEmptyShop = /(?:店铺接口正常[^。\n]*(?:完整)?商品快照为空|店铺正常[^。\n]*(?:没有商品|无商品|商品为空)|shop (?:api )?(?:reachable|healthy)[^\n]*(?:0 goods|empty (?:goods )?snapshot)|goods_count\s*[=:]\s*0)/i.test(message);
-  if (isConfirmedEmptyShop) return DAILY_PROBE_INTERVAL_MINUTES;
-  return WEEKLY_PROBE_INTERVAL_MINUTES;
+function isMissingSourceAvailabilityObservationColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const text = [candidate.message, candidate.details, candidate.hint].map((value) => String(value || "")).join(" ");
+  return String(candidate.code || "") === "42703" || /availability_status|out_of_stock_since|consecutive_out_of_stock_snapshots/.test(text);
 }
 
 function isTransientUpstreamError(value: unknown): boolean {

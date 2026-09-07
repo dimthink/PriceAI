@@ -1,0 +1,4 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"检查缺倍率报价下架和完整快照语义"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"检查可用性来源和公开展示契约"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"检查生产发布和真实业务状态"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"检查公开快照与缓存更新"}

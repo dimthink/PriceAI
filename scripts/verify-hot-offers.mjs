@@ -1,0 +1,738 @@
+#!/usr/bin/env node
+
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
+
+import {
+  acquireCollectionLock,
+  closeShopApiProxyReusePool,
+  collectTargetWithRetries,
+  createShopApiProxyReusePool,
+  loadTargets,
+  postCollectorHeartbeat,
+  postCrawlLog,
+  releaseCollectionLock,
+  restoreShopApiProxyReusePool,
+  stableHashInt,
+  stableOfferInputId,
+  verifyShopApiOffer,
+} from "./collect-prices.mjs";
+
+export const HOT_OFFER_SLICES = Object.freeze([
+  { id: "plus-default", productId: "chatgpt-plus", tag: null },
+  { id: "plus-unverified", productId: "chatgpt-plus", tag: "account_unverified" },
+  { id: "plus-verified", productId: "chatgpt-plus", tag: "account_verified" },
+  { id: "team-default", productId: "chatgpt-team-business", tag: null },
+  { id: "team-bug", productId: "chatgpt-team-business", tag: "team_bug" },
+]);
+
+const DEFAULT_SLICE_LIMIT = 20;
+const DEFAULT_HARD_LIMIT = 120;
+const DEFAULT_MAX_DURATION_MS = 270_000;
+const DEFAULT_RECENT_REUSE_MS = 90_000;
+const DEFAULT_REQUEST_DELAY_MS = 1_500;
+const DEFAULT_PRICE_TOLERANCE = 0.05;
+const DEFAULT_STICKY_CANDIDATE_MS = 30 * 60_000;
+const DEFAULT_STALE_ALERT_MS = 20 * 60_000;
+
+export async function runHotOfferVerification(options = {}) {
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  const mode = normalizeMode(options.mode);
+  const endpoint = String(options.endpoint || process.env.CRON_PUBLIC_BASE_URL || "https://priceai.cc").replace(/\/$/, "");
+  const nodeCount = integerInRange(options.nodeCount ?? process.env.PRICEAI_HOT_VERIFY_NODE_COUNT, 1, 16, 2);
+  const nodeIndex = integerInRange(options.nodeIndex ?? process.env.PRICEAI_HOT_VERIFY_NODE_INDEX, 0, nodeCount - 1, 0);
+  const nodeId = String(options.nodeId || process.env.PRICEAI_COLLECTOR_NODE_ID || `hot-node-${nodeIndex}`).trim();
+  const sliceLimit = integerInRange(options.sliceLimit, 1, 50, DEFAULT_SLICE_LIMIT);
+  const hardLimit = integerInRange(options.hardLimit, 1, 500, DEFAULT_HARD_LIMIT);
+  const maxDurationMs = integerInRange(options.maxDurationMs, 30_000, 15 * 60_000, DEFAULT_MAX_DURATION_MS);
+  const recentReuseMs = integerInRange(options.recentReuseMs, 0, 10 * 60_000, DEFAULT_RECENT_REUSE_MS);
+  const requestDelayMs = integerInRange(options.requestDelayMs, 0, 30_000, DEFAULT_REQUEST_DELAY_MS);
+  const stickyCandidateMs = integerInRange(
+    options.stickyCandidateMs,
+    0,
+    24 * 60 * 60_000,
+    DEFAULT_STICKY_CANDIDATE_MS,
+  );
+  const staleAlertMs = integerInRange(
+    options.staleAlertMs,
+    60_000,
+    24 * 60 * 60_000,
+    DEFAULT_STALE_ALERT_MS,
+  );
+  const candidateStatePath = String(options.candidateStatePath || "").trim() || null;
+  const takeoverAfterMs = integerInRange(
+    options.takeoverAfterMs,
+    0,
+    60 * 60_000,
+    mode === "write" ? 10 * 60_000 : 0,
+  );
+  const lockOwner = `${nodeId}:hot:${startedAt.replace(/\D/g, "").slice(0, 14)}`;
+  const proxyPool = createShopApiProxyReusePool({
+    shopApiProxyReuseLimit: options.proxyReuseLimit ?? 0,
+    shopApiProxyReuseTtlMs: options.proxyReuseTtlMs ?? 600_000,
+    shopApiProxyStatePath: options.proxyStatePath,
+    shopApiProxyMaxRuns: options.proxyMaxRuns ?? 2,
+    shopApiProxyLogger: console,
+  });
+  await restoreShopApiProxyReusePool(proxyPool);
+  const collectorOptions = {
+    endpoint,
+    password: options.password,
+    lockSeconds: Math.ceil(maxDurationMs / 1000) + 30,
+    shopApiProxyMode: "on-exit",
+    shopApiProxyParallelism: 1,
+    shopApiProxyReusePool: proxyPool,
+    shopApiProxyLogger: console,
+    collectorNodeId: nodeId,
+    collectorNodeName: options.nodeName || process.env.PRICEAI_COLLECTOR_NODE_NAME || nodeId,
+    collectorNodeType: "vps",
+    collectorNodeRuntime: "systemd-hot-verifier",
+    collectorNodeRegion: options.nodeRegion || process.env.PRICEAI_COLLECTOR_NODE_REGION || "cn",
+    heartbeatScope: "hot-offers:plus-team",
+    pageDelayMs: Math.min(requestDelayMs, 250),
+  };
+
+  try {
+    const sliceResults = await fetchHotOfferSlices({ endpoint, sliceLimit, fetchImpl: options.fetchImpl || fetch });
+    const currentCandidates = mergeHotOfferCandidates(sliceResults, { hardLimit });
+    const storedCandidates = loadHotCandidateState(candidateStatePath, { nowMs: startedAtMs, stickyCandidateMs });
+    const candidatePool = mergeHotCandidatePool(currentCandidates, storedCandidates, {
+      nowMs: startedAtMs,
+      stickyCandidateMs,
+      hardLimit,
+    });
+    const candidates = candidatePool.candidates;
+    const primaryAssigned = candidates.filter((candidate) => hotOfferShardIndex(candidate, nodeCount) === nodeIndex);
+    const takeoverAssigned = takeoverAfterMs > 0
+      ? candidates.filter((candidate) =>
+          hotOfferShardIndex(candidate, nodeCount) !== nodeIndex && candidateAgeMs(candidate) > takeoverAfterMs)
+      : [];
+    const assigned = mergeCandidateLists(primaryAssigned, takeoverAssigned);
+    const targetBySourceId = new Map((await loadTargets()).map((target) => [target.sourceId, target]));
+    const groups = groupCandidatesBySource(assigned);
+    const summary = {
+      mode,
+      nodeId,
+      nodeIndex,
+      nodeCount,
+      sliceCount: sliceResults.length,
+      currentCandidateCount: currentCandidates.length,
+      candidateCount: candidates.length,
+      stickyCandidateCount: candidatePool.stickyCandidateCount,
+      compensationCandidateCount: 0,
+      assignedCount: assigned.length,
+      takeoverCount: takeoverAssigned.length,
+      sourceCount: groups.length,
+      reusedCount: 0,
+      verifiedCount: 0,
+      changedCount: 0,
+      writtenCount: 0,
+      writeFailedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      unsupportedSourceCount: groups.filter((group) => {
+        const kind = targetBySourceId.get(group.sourceId)?.kind;
+        return !["shopApi", "kami", "dujiao"].includes(kind);
+      }).length,
+      unsupportedCandidateCount: groups.reduce((count, group) => {
+        const kind = targetBySourceId.get(group.sourceId)?.kind;
+        return count + (["shopApi", "kami", "dujiao"].includes(kind) ? 0 : group.candidates.length);
+      }, 0),
+      staleCandidateCount: candidates.filter((candidate) => candidateAgeMs(candidate, startedAtMs) > staleAlertMs).length,
+      staleAlertMinutes: Math.round(staleAlertMs / 60_000),
+      proxyCount: 0,
+      deadlineReached: false,
+      durationMs: 0,
+      startedAt,
+      finishedAt: null,
+    };
+
+    console.log(JSON.stringify({ event: "hot-verification-plan", ...summary }));
+    await postHotVerifierHeartbeat("running", summary, collectorOptions, options.heartbeatImpl);
+
+    for (const group of groups) {
+      if (Date.now() - startedAtMs >= maxDurationMs) {
+        summary.deadlineReached = true;
+        break;
+      }
+
+      const target = targetBySourceId.get(group.sourceId);
+      if (!target || !["shopApi", "kami", "dujiao"].includes(target.kind)) {
+        summary.skippedCount += group.candidates.length;
+        console.log(JSON.stringify({
+          event: "hot-verification-skip",
+          sourceId: group.sourceId,
+          reason: target ? `unsupported-collector:${target.kind}` : "source-not-found",
+          candidateCount: group.candidates.length,
+        }));
+        continue;
+      }
+
+      const pending = group.candidates.filter((candidate) => {
+        if (!isRecentCandidate(candidate, recentReuseMs)) return true;
+        summary.reusedCount += 1;
+        console.log(JSON.stringify({
+          event: "hot-verification-reuse",
+          offerId: candidate.id,
+          sourceId: group.sourceId,
+          verifiedAt: candidate.verifiedAt || candidate.lastSeenAt || null,
+        }));
+        return false;
+      });
+      if (!pending.length) continue;
+
+      const lock = await acquireCollectionLock(target, lockOwner, collectorOptions);
+      if (!lock.acquired) {
+        summary.skippedCount += pending.length;
+        console.log(JSON.stringify({
+          event: "hot-verification-skip",
+          sourceId: group.sourceId,
+          reason: "source-lock-busy",
+          message: lock.message || null,
+          candidateCount: pending.length,
+        }));
+        continue;
+      }
+
+      const sourceStartedAt = new Date().toISOString();
+      const verifiedOffers = [];
+      const changedOfferIds = [];
+      let sourceRequestRoute = "direct";
+      try {
+        let collected;
+        try {
+          collected = await collectTargetWithRetries(target, {
+            ...collectorOptions,
+            ...(target.kind === "shopApi"
+              ? { shopApiListMode: "all_goods", shopApiPriceSampleSize: 0 }
+              : {}),
+          }, console);
+        } catch (error) {
+          summary.failedCount += pending.length;
+          console.error(JSON.stringify({
+            event: "hot-verification-source-error",
+            sourceId: group.sourceId,
+            collectorKind: target.kind,
+            message: errorMessage(error),
+          }));
+          continue;
+        }
+
+        sourceRequestRoute = collected.details?.shopApiRequestRoute || "direct";
+        if (sourceRequestRoute === "proxy") {
+          summary.proxyCount += 1;
+        }
+        const structuredOffersById = new Map(
+          selectHotVerifiedOffers(pending, collected.offers)
+            .map(({ candidate, offer }) => [candidate.id, offer]),
+        );
+        for (let index = 0; index < pending.length; index += 1) {
+          if (Date.now() - startedAtMs >= maxDurationMs) {
+            summary.deadlineReached = true;
+            break;
+          }
+
+          const candidate = pending[index];
+          try {
+            const structuredOffer = structuredOffersById.get(candidate.id) || null;
+            const result = await resolveHotCandidateVerification({
+              target,
+              candidate,
+              structuredOffer,
+              collectedDetails: collected.details,
+              sourceRequestRoute,
+              collectorOptions,
+            });
+            if (result.status !== "verified" || !result.offer) {
+              summary.skippedCount += 1;
+              console.log(JSON.stringify({
+                event: "hot-verification-inconclusive",
+                offerId: candidate.id,
+                sourceId: group.sourceId,
+                route: result.route,
+                message: result.message,
+              }));
+            } else {
+              const diff = hotOfferDiff(candidate, result.offer);
+              summary.verifiedCount += 1;
+              if (Object.keys(diff).length) {
+                summary.changedCount += 1;
+                changedOfferIds.push(candidate.id);
+              }
+              verifiedOffers.push(result.offer);
+              console.log(JSON.stringify({
+                event: "hot-verification-result",
+                offerId: candidate.id,
+                sourceId: group.sourceId,
+                route: result.route,
+                mode,
+                diff,
+                message: result.message,
+              }));
+            }
+          } catch (error) {
+            summary.failedCount += 1;
+            console.error(JSON.stringify({
+              event: "hot-verification-error",
+              offerId: candidate.id,
+              sourceId: group.sourceId,
+              message: errorMessage(error),
+            }));
+          }
+        }
+
+        if (mode === "write" && verifiedOffers.length) {
+          const collectedAt = new Date().toISOString();
+          try {
+            const posted = await postHotVerificationWithRetry({
+              target,
+              offers: verifiedOffers,
+              message: `热门报价单链接核验完成：确认 ${verifiedOffers.length} 条，变化 ${changedOfferIds.length} 条。`,
+              collectorOptions,
+              details: {
+                collectionStartedAt: sourceStartedAt,
+                collectedAt,
+                fullSnapshot: false,
+                hotVerification: true,
+                hotVerificationMode: mode,
+                candidateCount: pending.length,
+                changedOfferIds,
+                shopApiRequestRoute: sourceRequestRoute,
+              },
+            });
+            summary.writtenCount += Number(posted.writtenCount || 0) + Number(posted.refreshedCount || 0);
+          } catch (error) {
+            summary.writeFailedCount += verifiedOffers.length;
+            console.error(JSON.stringify({
+              event: "hot-verification-write-error",
+              sourceId: group.sourceId,
+              offerCount: verifiedOffers.length,
+              message: errorMessage(error),
+            }));
+          }
+        }
+      } finally {
+        await releaseCollectionLock(target, lockOwner, console);
+      }
+    }
+
+    try {
+      const finalSliceResults = await fetchHotOfferSlices({ endpoint, sliceLimit, fetchImpl: options.fetchImpl || fetch });
+      const finalCandidates = mergeHotOfferCandidates(finalSliceResults, { hardLimit });
+      const initialIds = new Set(currentCandidates.map((candidate) => candidate.id));
+      summary.compensationCandidateCount = finalCandidates.filter((candidate) => !initialIds.has(candidate.id)).length;
+      persistHotCandidateState(candidateStatePath, mergeHotCandidatePool(
+        finalCandidates,
+        candidatePool.stateEntries,
+        { nowMs: Date.now(), stickyCandidateMs, hardLimit },
+      ).stateEntries);
+    } catch (error) {
+      console.error(JSON.stringify({ event: "hot-verification-compensation-error", message: errorMessage(error) }));
+      persistHotCandidateState(candidateStatePath, candidatePool.stateEntries);
+    }
+
+    summary.finishedAt = new Date().toISOString();
+    summary.durationMs = Date.now() - startedAtMs;
+    console.log(JSON.stringify({ event: "hot-verification-summary", ...summary }));
+    await postHotVerifierHeartbeat(hotVerifierHeartbeatStatus(summary), summary, collectorOptions, options.heartbeatImpl);
+    return summary;
+  } finally {
+    await closeShopApiProxyReusePool(proxyPool);
+  }
+}
+
+export async function fetchHotOfferSlices({ endpoint, sliceLimit = DEFAULT_SLICE_LIMIT, fetchImpl = fetch }) {
+  return Promise.all(HOT_OFFER_SLICES.map(async (slice) => {
+    const url = new URL(`/api/products/${encodeURIComponent(slice.productId)}/offers`, endpoint);
+    url.searchParams.set("limit", String(sliceLimit));
+    url.searchParams.set("offset", "0");
+    if (slice.tag) url.searchParams.set("tags", slice.tag);
+    const response = await fetchImpl(url, {
+      headers: { accept: "application/json", "user-agent": "PriceAI-Hot-Offer-Verifier/1.0" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`${slice.id} candidates returned HTTP ${response.status}`);
+    const body = await response.json();
+    if (!Array.isArray(body?.offers)) throw new Error(`${slice.id} candidates returned an invalid payload`);
+    return { ...slice, offers: body.offers };
+  }));
+}
+
+export function mergeHotOfferCandidates(sliceResults, { hardLimit = DEFAULT_HARD_LIMIT } = {}) {
+  const byId = new Map();
+  for (const slice of sliceResults) {
+    for (let rank = 0; rank < (slice.offers || []).length; rank += 1) {
+      const offer = slice.offers[rank];
+      const id = String(offer?.id || "").trim();
+      if (!id) continue;
+      const existing = byId.get(id);
+      if (existing) {
+        existing.hotSlices.push({ id: slice.id, rank: rank + 1 });
+        continue;
+      }
+      byId.set(id, {
+        ...offer,
+        hotProductId: slice.productId,
+        hotSlices: [{ id: slice.id, rank: rank + 1 }],
+      });
+    }
+  }
+  return [...byId.values()].slice(0, Math.max(1, hardLimit));
+}
+
+export function mergeHotCandidatePool(currentCandidates, storedEntries = [], {
+  nowMs = Date.now(),
+  stickyCandidateMs = DEFAULT_STICKY_CANDIDATE_MS,
+  hardLimit = DEFAULT_HARD_LIMIT,
+} = {}) {
+  const currentById = new Map();
+  for (const candidate of currentCandidates || []) {
+    if (!candidate?.id) continue;
+    currentById.set(candidate.id, {
+      candidate: { ...candidate, hotSticky: false },
+      lastRankedAt: new Date(nowMs).toISOString(),
+    });
+  }
+
+  const stickyEntries = [];
+  for (const entry of storedEntries || []) {
+    const id = String(entry?.candidate?.id || "").trim();
+    const lastRankedAtMs = Date.parse(entry?.lastRankedAt || "");
+    if (!id || currentById.has(id) || !Number.isFinite(lastRankedAtMs)) continue;
+    if (stickyCandidateMs <= 0 || nowMs - lastRankedAtMs > stickyCandidateMs || nowMs < lastRankedAtMs) continue;
+    stickyEntries.push({
+      candidate: { ...entry.candidate, hotSticky: true },
+      lastRankedAt: new Date(lastRankedAtMs).toISOString(),
+    });
+  }
+
+  stickyEntries.sort((left, right) => candidateAgeMs(right.candidate, nowMs) - candidateAgeMs(left.candidate, nowMs));
+  const allEntries = [
+    ...currentById.values(),
+    ...stickyEntries,
+  ];
+  const selectedEntries = allEntries.slice(0, Math.max(1, hardLimit));
+  selectedEntries.sort((left, right) => {
+    const ageDifference = candidateAgeMs(right.candidate, nowMs) - candidateAgeMs(left.candidate, nowMs);
+    return ageDifference || String(left.candidate.id).localeCompare(String(right.candidate.id));
+  });
+
+  return {
+    candidates: selectedEntries.map((entry) => entry.candidate),
+    stateEntries: allEntries.slice(0, Math.max(1, hardLimit * 2)).map((entry) => ({
+      candidate: { ...entry.candidate, hotSticky: undefined },
+      lastRankedAt: entry.lastRankedAt,
+    })),
+    stickyCandidateCount: selectedEntries.filter((entry) => !currentById.has(entry.candidate.id)).length,
+  };
+}
+
+export function loadHotCandidateState(statePath, {
+  nowMs = Date.now(),
+  stickyCandidateMs = DEFAULT_STICKY_CANDIDATE_MS,
+} = {}) {
+  if (!statePath || !existsSync(statePath)) return [];
+  try {
+    const stored = JSON.parse(readFileSync(statePath, "utf8"));
+    const entries = Array.isArray(stored?.entries) ? stored.entries : [];
+    return entries.filter((entry) => {
+      const lastRankedAtMs = Date.parse(entry?.lastRankedAt || "");
+      return entry?.candidate?.id && Number.isFinite(lastRankedAtMs) &&
+        nowMs >= lastRankedAtMs && nowMs - lastRankedAtMs <= stickyCandidateMs;
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "hot-candidate-state-invalid", message: errorMessage(error) }));
+    rmSync(statePath, { force: true });
+    return [];
+  }
+}
+
+export function persistHotCandidateState(statePath, entries) {
+  if (!statePath) return false;
+  const temporaryPath = `${statePath}.${process.pid}.tmp`;
+  try {
+    mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+    writeFileSync(temporaryPath, `${JSON.stringify({ version: 1, entries })}\n`, { mode: 0o600 });
+    renameSync(temporaryPath, statePath);
+    chmodSync(statePath, 0o600);
+    return true;
+  } catch (error) {
+    rmSync(temporaryPath, { force: true });
+    console.error(JSON.stringify({ event: "hot-candidate-state-write-error", message: errorMessage(error) }));
+    return false;
+  }
+}
+
+export function hotOfferShardIndex(candidate, nodeCount) {
+  const sourceKey = candidate?.sourceId || candidate?.id || "unknown";
+  return stableHashInt(sourceKey) % Math.max(1, nodeCount);
+}
+
+export function groupCandidatesBySource(candidates) {
+  const bySource = new Map();
+  for (const candidate of candidates) {
+    const sourceId = String(candidate?.sourceId || "").trim();
+    if (!sourceId) continue;
+    const current = bySource.get(sourceId) || { sourceId, candidates: [] };
+    current.candidates.push(candidate);
+    bySource.set(sourceId, current);
+  }
+  return [...bySource.values()];
+}
+
+export function hotOfferDiff(current, verified) {
+  const diff = {};
+  if (!priceWithinRelativeTolerance(current?.price, verified?.price, DEFAULT_PRICE_TOLERANCE)) {
+    diff.price = { from: numberOrNull(current?.price), to: numberOrNull(verified?.price) };
+  }
+  if (!sameNumber(current?.stockCount, verified?.stockCount)) diff.stockCount = { from: numberOrNull(current?.stockCount), to: numberOrNull(verified?.stockCount) };
+  if (String(current?.status || "unknown") !== String(verified?.status || "unknown")) {
+    diff.status = { from: current?.status || "unknown", to: verified?.status || "unknown" };
+  }
+  if (String(current?.effectiveStatus || "") !== String(verified?.effectiveStatus || "")) {
+    diff.effectiveStatus = { from: current?.effectiveStatus || null, to: verified?.effectiveStatus || null };
+  }
+  return diff;
+}
+
+export function selectHotVerifiedOffers(candidates, collectedOffers) {
+  const collectedById = new Map(
+    (collectedOffers || []).map((offer) => [stableOfferInputId(offer), offer]),
+  );
+
+  return (candidates || []).flatMap((candidate) => {
+    const collected = collectedById.get(candidate?.id);
+    return collected
+      ? [{ candidate, offer: normalizeHotVerifiedOffer(candidate, collected) }]
+      : [];
+  });
+}
+
+export function normalizeHotVerifiedOffer(current, verified, { priceTolerance = DEFAULT_PRICE_TOLERANCE } = {}) {
+  const normalized = { ...verified };
+  if (priceWithinRelativeTolerance(current?.price, verified?.price, priceTolerance)) {
+    for (const field of ["price", "listedPrice", "feeAmount", "priceBasis"]) {
+      if (Object.hasOwn(current || {}, field)) normalized[field] = current[field];
+    }
+  }
+
+  const verifiedStock = numberOrNull(verified?.stockCount);
+  const explicitlyUnavailable =
+    String(verified?.status || "") === "out_of_stock" ||
+    String(verified?.effectiveStatus || "") === "unavailable";
+
+  if (verifiedStock === null && !explicitlyUnavailable) {
+    for (const field of ["stockCount", "status", "effectiveStatus", "failureReason"]) {
+      if (Object.hasOwn(current || {}, field)) normalized[field] = current[field];
+    }
+  } else if (verifiedStock === 0) {
+    normalized.status = "out_of_stock";
+    normalized.effectiveStatus = "unavailable";
+    normalized.failureReason ||= "热门报价核验：源站全店列表明确库存为 0";
+  }
+
+  return normalized;
+}
+
+export async function resolveHotCandidateVerification({
+  target,
+  candidate,
+  structuredOffer,
+  collectedDetails,
+  sourceRequestRoute = "direct",
+  collectorOptions = {},
+  verifyImpl = verifyShopApiOffer,
+}) {
+  if (structuredOffer) {
+    return {
+      status: "verified",
+      route: sourceRequestRoute,
+      message: "结构化来源候选核验成功。",
+      offer: structuredOffer,
+    };
+  }
+
+  if (target?.kind !== "shopApi") {
+    return {
+      status: "inconclusive",
+      route: sourceRequestRoute,
+      message: "结构化来源本次未返回该候选，暂不改变公开状态。",
+      offer: null,
+    };
+  }
+
+  try {
+    const result = await verifyImpl(target, candidate, collectorOptions);
+    return result.status === "verified" && result.offer
+      ? { ...result, offer: normalizeHotVerifiedOffer(candidate, result.offer) }
+      : result;
+  } catch (error) {
+    const partialReason = collectedDetails?.fullSnapshot === false
+      ? `；全店列表不完整：${collectedDetails?.partialReason || "partial"}`
+      : "";
+    return {
+      status: "inconclusive",
+      route: sourceRequestRoute,
+      message: `商品详情核验失败，暂不改变公开状态：${errorMessage(error)}${partialReason}`,
+      offer: null,
+    };
+  }
+}
+
+export async function postHotVerificationWithRetry({
+  target,
+  offers,
+  message,
+  collectorOptions,
+  details,
+  postImpl = postCrawlLog,
+  retryDelayMs = 1_000,
+}) {
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await postImpl(target, offers, "success", message, collectorOptions, details);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2 && retryDelayMs > 0) await delay(retryDelayMs);
+    }
+  }
+  throw lastError;
+}
+
+function priceWithinRelativeTolerance(current, verified, tolerance) {
+  const currentPrice = numberOrNull(current);
+  const verifiedPrice = numberOrNull(verified);
+  if (currentPrice === null && verifiedPrice === null) return true;
+  if (currentPrice === null || verifiedPrice === null) return false;
+  if (currentPrice === 0) return verifiedPrice === 0;
+  return Math.abs(verifiedPrice - currentPrice) / Math.abs(currentPrice) <= tolerance + Number.EPSILON;
+}
+
+function isRecentCandidate(candidate, recentReuseMs) {
+  if (recentReuseMs <= 0) return false;
+  const timestamp = Date.parse(candidate?.verifiedAt || candidate?.lastSeenAt || "");
+  return Number.isFinite(timestamp) && Date.now() - timestamp >= 0 && Date.now() - timestamp <= recentReuseMs;
+}
+
+function candidateAgeMs(candidate, nowMs = Date.now()) {
+  const timestamp = Date.parse(candidate?.verifiedAt || candidate?.lastSeenAt || "");
+  return Number.isFinite(timestamp) ? Math.max(0, nowMs - timestamp) : Number.POSITIVE_INFINITY;
+}
+
+export function hotVerifierHeartbeatStatus(summary) {
+  if (summary.deadlineReached || summary.failedCount > 0 || summary.writeFailedCount > 0 ||
+      summary.staleCandidateCount > 0 || summary.unsupportedCandidateCount > 0) return "partial";
+  return summary.verifiedCount > 0 || summary.reusedCount > 0 ? "success" : "idle";
+}
+
+async function postHotVerifierHeartbeat(status, summary, collectorOptions, heartbeatImpl = postCollectorHeartbeat) {
+  try {
+    await heartbeatImpl(status, collectorOptions, {
+      startedAt: summary.startedAt,
+      finishedAt: status === "running" ? null : summary.finishedAt,
+      successCount: summary.verifiedCount,
+      failureCount: summary.failedCount + summary.writeFailedCount,
+      skippedCount: summary.skippedCount,
+      offerCount: summary.candidateCount,
+      message: status === "running"
+        ? `热门报价核验开始：候选 ${summary.candidateCount} 条。`
+        : `热门报价核验完成：确认 ${summary.verifiedCount} 条，超过 ${summary.staleAlertMinutes} 分钟 ${summary.staleCandidateCount} 条，补偿 ${summary.compensationCandidateCount} 条。`,
+      details: {
+        hotVerification: true,
+        mode: summary.mode,
+        nodeIndex: summary.nodeIndex,
+        nodeCount: summary.nodeCount,
+        currentCandidateCount: summary.currentCandidateCount,
+        candidateCount: summary.candidateCount,
+        stickyCandidateCount: summary.stickyCandidateCount,
+        compensationCandidateCount: summary.compensationCandidateCount,
+        assignedCount: summary.assignedCount,
+        takeoverCount: summary.takeoverCount,
+        sourceCount: summary.sourceCount,
+        verifiedCount: summary.verifiedCount,
+        changedCount: summary.changedCount,
+        writtenCount: summary.writtenCount,
+        writeFailedCount: summary.writeFailedCount,
+        reusedCount: summary.reusedCount,
+        skippedCount: summary.skippedCount,
+        failedCount: summary.failedCount,
+        unsupportedSourceCount: summary.unsupportedSourceCount,
+        unsupportedCandidateCount: summary.unsupportedCandidateCount,
+        staleCandidateCount: summary.staleCandidateCount,
+        staleAlertMinutes: summary.staleAlertMinutes,
+        proxyCount: summary.proxyCount,
+        deadlineReached: summary.deadlineReached,
+        durationMs: summary.durationMs,
+      },
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "hot-verification-heartbeat-error", status, message: errorMessage(error) }));
+  }
+}
+
+function mergeCandidateLists(...lists) {
+  const byId = new Map();
+  for (const candidate of lists.flat()) {
+    if (candidate?.id && !byId.has(candidate.id)) byId.set(candidate.id, candidate);
+  }
+  return [...byId.values()];
+}
+
+function normalizeMode(value) {
+  return String(value || process.env.PRICEAI_HOT_VERIFY_MODE || "shadow").toLowerCase() === "write" ? "write" : "shadow";
+}
+
+function integerInRange(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(Math.trunc(parsed), max));
+}
+
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sameNumber(left, right) {
+  const leftNumber = numberOrNull(left);
+  const rightNumber = numberOrNull(right);
+  if (leftNumber === null || rightNumber === null) return leftNumber === rightNumber;
+  return Math.abs(leftNumber - rightNumber) < 0.005;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseArgs(values) {
+  const output = {};
+  for (let index = 0; index < values.length; index += 1) {
+    const item = values[index];
+    if (!item.startsWith("--")) continue;
+    const [rawKey, inlineValue] = item.slice(2).split("=", 2);
+    const key = rawKey.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+    if (inlineValue !== undefined) output[key] = inlineValue;
+    else if (values[index + 1] && !values[index + 1].startsWith("--")) output[key] = values[++index];
+    else output[key] = true;
+  }
+  return output;
+}
+
+function isCli() {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+if (isCli()) {
+  runHotOfferVerification(parseArgs(process.argv.slice(2))).catch((error) => {
+    console.error(errorMessage(error));
+    process.exitCode = 1;
+  });
+}

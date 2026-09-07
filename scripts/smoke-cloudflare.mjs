@@ -64,6 +64,17 @@ const checks = [
     },
   },
   {
+    path: "/channels",
+    status: 200,
+    text: {
+      forbidden: fallbackHtmlMarkers,
+      requiredAny: [
+        { label: "current-deployment-recovery", patterns: ["priceai-resource-recovery"] },
+        { label: "channel-products", patterns: ["卡网订阅"] },
+      ],
+    },
+  },
+  {
     path: "/official-prices",
     status: 200,
     retries: SMOKE_DATA_RETRY_ATTEMPTS,
@@ -72,6 +83,18 @@ const checks = [
       requiredAny: [{ label: "source=supabase", patterns: ['"source":"supabase"', '\\"source\\":\\"supabase\\"'] }],
     },
   },
+  ...["supergrok-lite", "supergrok", "supergrok-heavy"].map((plan) => ({
+    path: `/official-prices/grok__${plan}`,
+    status: 200,
+    retries: SMOKE_DATA_RETRY_ATTEMPTS,
+    text: {
+      forbidden: [...fallbackHtmlMarkers, ...staticDatasetMarkers],
+      requiredAny: [
+        { label: "grok-plan", patterns: ["SuperGrok"] },
+        { label: "grok-regions", patterns: ["地区报价表"] },
+      ],
+    },
+  })),
   {
     path: "/official-api",
     status: 200,

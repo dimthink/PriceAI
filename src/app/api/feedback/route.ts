@@ -27,6 +27,13 @@ import {
 } from "@/lib/public-request";
 import { feedbackRequiresContact, HIGH_RISK_FEEDBACK_REASONS, MODEL_PRECHECK_FEEDBACK_REASONS, shouldCreateFeedbackVerification } from "@/lib/trust-risk";
 import { offerFeedbackReasonValues } from "@/lib/types";
+import {
+  OFFER_FILTER_TAG_BY_ID,
+  deriveOfferFilterTags,
+  offerFilterTagAppliesToProduct,
+  parseOfferFilterTagsForProduct,
+  type OfferFilterTagId,
+} from "@/lib/offer-filter-tags";
 import { getSupabaseServerClient } from "@/lib/supabase";
 
 const PUBLIC_OFFER_FEEDBACK_RATE_LIMIT_PER_HOUR = 20;
@@ -56,6 +63,8 @@ const schema = z.object({
   reason: reasonSchema,
   issueDimension: issueDimensionSchema.nullable().optional(),
   expectedProductId: z.string().trim().max(200).nullable().optional(),
+  reportedFilterTagId: z.string().trim().max(100).nullable().optional(),
+  expectedFilterTagId: z.string().trim().max(100).nullable().optional(),
   userExpectedAction: userExpectedActionSchema.nullable().optional(),
   evidenceText: z.string().trim().max(1000).nullable().optional(),
   evidenceUrls: z.array(
@@ -70,8 +79,24 @@ const schema = z.object({
     context.addIssue({ code: "custom", path: ["issueDimension"], message: "请选择具体是哪一类分类问题。" });
     return;
   }
-  if (value.issueDimension === "product_category" && !value.expectedProductId && (value.notes?.trim().length || 0) < 4) {
-    context.addIssue({ code: "custom", path: ["expectedProductId"], message: "请选择正确分类，或在补充说明中写明应该如何归类。" });
+  if (value.feedbackScope === "offer" && !value.offerId) {
+    context.addIssue({ code: "custom", path: ["offerId"], message: "缺少报价 ID，请刷新页面后重试。" });
+  }
+  if (value.issueDimension === "product_category" && !value.expectedProductId) {
+    context.addIssue({ code: "custom", path: ["expectedProductId"], message: "请选择正确分类。" });
+  }
+  if (value.issueDimension === "product_category" && value.expectedProductId === value.productId) {
+    context.addIssue({ code: "custom", path: ["expectedProductId"], message: "期望分类不能与当前分类相同。" });
+  }
+  if (value.issueDimension === "filter_tag" && !value.reportedFilterTagId && !value.expectedFilterTagId) {
+    context.addIssue({ code: "custom", path: ["reportedFilterTagId"], message: "请选择错误标签，或选择应该补充的标签。" });
+  }
+  if (
+    value.issueDimension === "filter_tag" &&
+    value.reportedFilterTagId &&
+    value.reportedFilterTagId === value.expectedFilterTagId
+  ) {
+    context.addIssue({ code: "custom", path: ["expectedFilterTagId"], message: "错误标签与期望标签不能相同。" });
   }
 });
 
@@ -143,11 +168,41 @@ export async function POST(request: Request) {
       );
     }
 
+    let authoritativeOffer: {
+      canonical_product_id: string | null;
+      source_title: string | null;
+      tags: unknown;
+      public_filter_tags: unknown;
+    } | null = null;
+    if (payload.reason === "wrong_category" && feedbackScope === "offer") {
+      const supabase = getSupabaseServerClient();
+      if (!supabase) {
+        return Response.json({ ok: false, message: "反馈服务暂不可用，请稍后重试。" }, { status: 503 });
+      }
+      const { data, error } = await supabase
+        .from("raw_offers")
+        .select("canonical_product_id,source_title,tags,public_filter_tags")
+        .eq("id", payload.offerId || "")
+        .maybeSingle();
+      if (error || !data) {
+        return Response.json({ ok: false, message: "报价不存在或已更新，请刷新页面后重试。" }, { status: 400 });
+      }
+      authoritativeOffer = data;
+    }
+
+    const authoritativeProductId = authoritativeOffer?.canonical_product_id || payload.productId || null;
+    const authoritativeSourceTitle = authoritativeOffer?.source_title || payload.sourceTitle || "";
+    const authoritativeOfferTags = Array.isArray(authoritativeOffer?.tags)
+      ? authoritativeOffer.tags.filter((tag): tag is string => typeof tag === "string")
+      : payload.offerTags || [];
+    const storedFilterTags = Array.isArray(authoritativeOffer?.public_filter_tags)
+      ? authoritativeOffer.public_filter_tags.filter((tag): tag is string => typeof tag === "string")
+      : [];
+
     const feedbackId = crypto.randomUUID();
     const classifiedProduct = payload.reason === "wrong_category"
-      ? classifyOffer(payload.sourceTitle || "", {
-        tags: payload.offerTags || [],
-        price: payload.offerPrice ?? null,
+      ? classifyOffer(authoritativeSourceTitle, {
+        tags: authoritativeOfferTags,
       })
       : null;
     const expectedProduct = payload.expectedProductId
@@ -156,17 +211,62 @@ export async function POST(request: Request) {
     if (payload.expectedProductId && !expectedProduct) {
       return Response.json({ ok: false, message: "期望分类不存在，请刷新页面后重试。" }, { status: 400 });
     }
+    if (payload.issueDimension === "product_category" && expectedProduct?.id === authoritativeProductId) {
+      return Response.json({ ok: false, message: "期望分类与当前分类相同；如果是标签不对，请选择筛选标签错误。" }, { status: 400 });
+    }
+    const reportedFilterTag = payload.reportedFilterTagId
+      ? OFFER_FILTER_TAG_BY_ID.get(payload.reportedFilterTagId as OfferFilterTagId)
+      : null;
+    const expectedFilterTag = payload.expectedFilterTagId
+      ? OFFER_FILTER_TAG_BY_ID.get(payload.expectedFilterTagId as OfferFilterTagId)
+      : null;
+    if (payload.reportedFilterTagId && !reportedFilterTag) {
+      return Response.json({ ok: false, message: "错误标签不存在，请刷新页面后重试。" }, { status: 400 });
+    }
+    if (payload.expectedFilterTagId && !expectedFilterTag) {
+      return Response.json({ ok: false, message: "期望标签不存在，请刷新页面后重试。" }, { status: 400 });
+    }
+    if (
+      payload.issueDimension === "filter_tag" &&
+      authoritativeProductId &&
+      reportedFilterTag &&
+      !offerFilterTagAppliesToProduct(authoritativeProductId, reportedFilterTag.id)
+    ) {
+      return Response.json({ ok: false, message: "错误标签不适用于当前商品，请刷新页面后重试。" }, { status: 400 });
+    }
+    if (
+      payload.issueDimension === "filter_tag" &&
+      authoritativeProductId &&
+      expectedFilterTag &&
+      !offerFilterTagAppliesToProduct(authoritativeProductId, expectedFilterTag.id)
+    ) {
+      return Response.json({ ok: false, message: "期望标签不适用于当前商品，请刷新页面后重试。" }, { status: 400 });
+    }
+    const currentFilterTags = authoritativeProductId
+      ? parseOfferFilterTagsForProduct(
+          authoritativeProductId,
+          storedFilterTags.length
+            ? storedFilterTags
+            : deriveOfferFilterTags({ sourceTitle: authoritativeSourceTitle, tags: authoritativeOfferTags }),
+        )
+      : [];
+    if (reportedFilterTag && !currentFilterTags.includes(reportedFilterTag.id)) {
+      return Response.json({ ok: false, message: "所报错误标签已不在当前报价中，请刷新页面后重试。" }, { status: 400 });
+    }
+    if (expectedFilterTag && currentFilterTags.includes(expectedFilterTag.id)) {
+      return Response.json({ ok: false, message: "期望标签已存在于当前报价，请刷新页面后重试。" }, { status: 400 });
+    }
     const result = await createOfferFeedback({
       id: feedbackId,
       feedbackScope,
       publicStatus: payload.publicConsent === false ? "not_public" : undefined,
-      productId: payload.productId || null,
+      productId: authoritativeProductId,
       productSlug: payload.productSlug || null,
       productName: payload.productName || null,
       offerId: payload.offerId || null,
       sourceId: payload.sourceId || null,
       sourceName: payload.sourceName || null,
-      sourceTitle: payload.sourceTitle || null,
+      sourceTitle: authoritativeSourceTitle || null,
       offerUrl: payload.offerUrl || null,
       offerPrice: payload.offerPrice ?? null,
       offerCurrency: payload.offerCurrency || null,
@@ -182,8 +282,10 @@ export async function POST(request: Request) {
         productId: classifiedProduct.id,
         platform: classifiedProduct.platform,
         productType: classifiedProduct.productType,
-        sourceTitle: payload.sourceTitle || null,
-        tags: payload.offerTags || [],
+        sourceTitle: authoritativeSourceTitle || null,
+        tags: authoritativeOfferTags,
+        reportedFilterTagId: payload.issueDimension === "filter_tag" ? reportedFilterTag?.id || null : null,
+        expectedFilterTagId: payload.issueDimension === "filter_tag" ? expectedFilterTag?.id || null : null,
       } : null,
       userExpectedAction: payload.userExpectedAction || "unsure",
       evidenceText: payload.evidenceText || null,

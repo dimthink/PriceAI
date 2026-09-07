@@ -59,7 +59,6 @@ export async function POST(request: Request) {
       for (const row of rows) {
         const canonical = classifyOffer(String(row.source_title || ""), {
           tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
-          price: typeof row.price === "number" ? row.price : null,
         });
         classifiedProductByOfferId.set(String(row.id), canonical.id);
         distribution.set(canonical.id, (distribution.get(canonical.id) || 0) + 1);
@@ -178,7 +177,6 @@ type ReclassifyOfferRow = {
   tags: unknown;
   category_slug: unknown;
   canonical_product_id: unknown;
-  price: unknown;
 };
 
 async function forEachRawOfferPage(
@@ -190,7 +188,7 @@ async function forEachRawOfferPage(
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from("raw_offers")
-      .select("id,source_title,tags,category_slug,canonical_product_id,price")
+      .select("id,source_title,tags,category_slug,canonical_product_id")
       .order("id", { ascending: true })
       .range(from, to);
 

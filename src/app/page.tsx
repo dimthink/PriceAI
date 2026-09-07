@@ -202,7 +202,10 @@ export default async function Home() {
                   const Icon = path.icon;
 
                   return (
-                    <article key={path.title} className="rounded-lg bg-[var(--color-panel)] p-5 ring-1 ring-[var(--color-border-soft)]">
+                    <article
+                      key={path.title}
+                      className="flex h-full flex-col rounded-lg bg-[var(--color-panel)] p-5 ring-1 ring-[var(--color-border-soft)]"
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-surface)] text-[var(--color-text-primary)] ring-1 ring-[var(--color-border-soft)]">
                           <Icon size={18} />
@@ -213,7 +216,7 @@ export default async function Home() {
                       </div>
                       <h3 className="mt-4 text-lg font-semibold text-[var(--color-text-primary)]">{path.title}</h3>
                       <p className="mt-2 text-sm leading-6 text-[var(--color-text-muted)]">{path.body}</p>
-                      <div className="mt-5 flex flex-col gap-2 sm:flex-row lg:flex-col">
+                      <div className="mt-auto flex flex-col gap-2 pt-5 sm:flex-row lg:flex-col">
                         <Link
                           href={path.primaryHref}
                           className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-text-on-primary)] transition hover:bg-[var(--color-primary-hover)]"

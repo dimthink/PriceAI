@@ -1,0 +1,17 @@
+[Unit]
+Description=PriceAI VIP shopApi 15-minute collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/priceai-worker
+RuntimeDirectory=priceai-shop-vip-scheduler
+RuntimeDirectoryMode=0750
+EnvironmentFile=/etc/priceai/shop-vip-scheduler.env
+ExecStart=/opt/priceai-worker/run-shop-vip-scheduler.sh
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TimeoutStartSec=900

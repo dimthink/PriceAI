@@ -6,7 +6,7 @@ import { AccountFeedbackList } from "@/components/AccountFeedbackList";
 import { AccountSignOutControls } from "@/components/AccountSignOutControls";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
-import { buildGoogleAuthHref } from "@/lib/auth-paths";
+import { buildLoginHref } from "@/lib/auth-paths";
 import { listUserDetectorJobs, listUserOfferFeedback } from "@/lib/account";
 import type { OfferFeedback, TransitDetectorJob } from "@/lib/types";
 
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default async function AccountPage() {
   const user = await getCurrentUser();
-  if (!user) redirect(buildGoogleAuthHref("/account"));
+  if (!user) redirect(buildLoginHref("/account"));
 
   let feedback: OfferFeedback[] = [];
   let feedbackError = "";

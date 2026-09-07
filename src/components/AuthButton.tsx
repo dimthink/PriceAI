@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { CircleUserRound, UserRoundPlus } from "lucide-react";
+import { IntentPrefetchLink } from "@/components/IntentPrefetchLink";
 import type { AccountUser } from "@/lib/account-client";
-import { buildGoogleAuthHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
+import { buildLoginHref, getBrowserAuthNextPath } from "@/lib/auth-paths";
 
 type HeaderActionLabelFrom = "sm" | "2xl" | "never";
 
@@ -75,17 +75,17 @@ export function AuthButton({
 
   if (!user) {
     return (
-      <a href={buildGoogleAuthHref(getBrowserAuthNextPath())} className={baseClassName} aria-label="登录 PriceAI">
+      <IntentPrefetchLink href={buildLoginHref(getBrowserAuthNextPath())} className={baseClassName} aria-label="登录 PriceAI" title="登录">
         <UserRoundPlus size={16} />
         <span className={labelClassName}>登录</span>
-      </a>
+      </IntentPrefetchLink>
     );
   }
 
   return (
-    <Link href="/account" className={baseClassName} aria-label="账户中心">
+    <IntentPrefetchLink href="/account" className={baseClassName} aria-label="账户中心">
       <AccountMark user={user} size={16} />
       <span className={labelClassName}>账户中心</span>
-    </Link>
+    </IntentPrefetchLink>
   );
 }

@@ -1,0 +1,2 @@
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"核对 workflow、生产版本、平台响应头和真实业务端点"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"核对前端构建与交互修复质量门槛"}

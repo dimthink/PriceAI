@@ -47,7 +47,7 @@ exec "$node_bin" scripts/collect-prices.mjs \
   --shop-scheduler-bucket-minutes 30 \
   --shop-scheduler-shard-count 1 \
   --shop-scheduler-shard-index 0 \
-  --liandong-shop-limit 3 \
+  --liandong-shop-limit 0 \
   --liandong-shop-delay-ms 5000 \
   --shop-api-proxy-mode on-exit \
   --shop-api-proxy-parallelism 1 \

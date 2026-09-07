@@ -1,0 +1,4 @@
+interface:
+  display_name: "Transit Onboard"
+  short_description: "核验并录入 API 中转站，默认保持后台待审核状态"
+  default_prompt: "使用 $transit-onboard 核验这个 API 中转站并录入 PriceAI 后台待审核。"

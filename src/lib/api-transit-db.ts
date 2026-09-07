@@ -5,6 +5,7 @@ import type {
   TransitAvailabilityMatchLevel,
   TransitAvailabilityScope,
   TransitAvailabilitySourceType,
+  TransitCollectionStatus,
   TransitModelFamily,
   TransitMultiplierHistoryPoint,
   TransitModelPrice,
@@ -80,6 +81,9 @@ const STATION_CORE_BASE_COLUMNS = [
   "feedback_merchant_responded_count",
   "feedback_main_themes",
   "feedback_public_notes",
+  "collection_status",
+  "collection_error",
+  "last_collected_at",
   "last_updated_at",
   "updated_at",
 ];
@@ -1328,6 +1332,9 @@ function mapStationRow(
     riskLabels: enumArray(row.risk_labels, isTransitRiskLabel),
     usageAdvice: usageAdvice(row.usage_advice),
     lastUpdatedAt: updatedAt,
+    collectionStatus: collectionStatus(row.collection_status),
+    collectionError: nullableString(row.collection_error),
+    lastCollectedAt: nullableTimestamp(row.last_collected_at),
     dataStatus: dataStatus(row.data_status),
     availability: {
       sevenDayRate: numberValue(row.availability_seven_day_rate),
@@ -1501,6 +1508,13 @@ function stationGroupMultiplierFromRawPayload(value: unknown): number | null {
 function billingMode(value: unknown): TransitModelPrice["billingMode"] {
   const text = nullableString(value);
   return text === "token" || text === "per_request" || text === "fixed" ? text : null;
+}
+
+function collectionStatus(value: unknown): TransitCollectionStatus | undefined {
+  const text = nullableString(value);
+  return text === "pending" || text === "success" || text === "partial" || text === "failed" || text === "manual_review"
+    ? text
+    : undefined;
 }
 
 function fixedPriceCurrency(value: unknown): TransitModelPrice["fixedPriceCurrency"] {

@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseAuthServerClient, normalizeSupabaseUser, upsertPublicUserProfile } from "@/lib/auth";
-import { getAuthCookieWriteOptions, isAuthCodeVerifierCookieName } from "@/lib/auth-cookie-options";
+import { ACCOUNT_AUTH_HINT_COOKIE } from "@/lib/account-auth-hint";
+import {
+  getAccountAuthHintCookieOptions,
+  getAccountAuthHintCookieValue,
+  getAuthCookieWriteOptions,
+  isAuthCodeVerifierCookieName,
+} from "@/lib/auth-cookie-options";
 import { getCanonicalAuthOrigin, safeAuthNextPath } from "@/lib/auth-paths";
 
 export async function GET(request: NextRequest) {
@@ -24,6 +30,11 @@ export async function GET(request: NextRequest) {
     if (error || !data.user) return redirectToLoginResult(request, origin, next, "callback_exchange_failed");
     await upsertPublicUserProfile(normalizeSupabaseUser(data.user));
     const response = NextResponse.redirect(new URL(next, origin), { status: 303 });
+    response.cookies.set(
+      ACCOUNT_AUTH_HINT_COOKIE,
+      getAccountAuthHintCookieValue(true),
+      getAccountAuthHintCookieOptions(),
+    );
     clearAuthCodeVerifierCookies(request, response);
     return response;
   } catch {

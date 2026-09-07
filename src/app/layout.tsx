@@ -8,6 +8,7 @@ import { QQGroupAutoPrompt } from "@/components/QQGroupAutoPrompt";
 import { SiteNoticePrompt } from "@/components/SiteNoticePrompt";
 import { SupportNudgePrompt } from "@/components/SupportNudgePrompt";
 import { UmamiAnalytics } from "@/components/UmamiAnalytics";
+import { EARLY_RESOURCE_RECOVERY_SCRIPT } from "@/lib/early-resource-recovery";
 import "./globals.css";
 
 const themeInitScript = `
@@ -73,6 +74,11 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
+        <Script
+          id="priceai-resource-recovery"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: EARLY_RESOURCE_RECOVERY_SCRIPT }}
+        />
         <Script id="priceai-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <GlobalSponsorPlacements>
           {children}

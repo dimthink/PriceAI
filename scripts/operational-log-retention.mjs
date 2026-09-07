@@ -1,5 +1,5 @@
 export async function pruneOperationalLogs(supabase, env = {}) {
-  const { error } = await supabase.rpc("prune_priceai_operational_logs", {
+  const { error: operationalError } = await supabase.rpc("prune_priceai_operational_logs", {
     p_crawl_runs_per_source: readBoundedIntEnv(env, "PRICEAI_CRAWL_RUNS_PER_SOURCE", 5, 1, 50),
     p_crawl_run_failure_retention_days: readBoundedIntEnv(env, "PRICEAI_CRAWL_RUN_FAILURE_RETENTION_DAYS", 7, 1, 90),
     p_crawl_run_global_limit: readBoundedIntEnv(env, "PRICEAI_CRAWL_RUN_GLOBAL_LIMIT", 1000, 100, 100000),
@@ -8,8 +8,17 @@ export async function pruneOperationalLogs(supabase, env = {}) {
     p_api_collect_runs_limit: readBoundedIntEnv(env, "PRICEAI_API_COLLECT_RUNS_LIMIT", 5, 1, 5000),
   });
 
-  if (error) {
-    console.warn(`Failed to prune operational logs: ${error.message}`);
+  if (operationalError) {
+    console.warn(`Failed to prune operational logs: ${operationalError.message}`);
+  }
+
+  const { error: outboundAnalyticsError } = await supabase.rpc("prune_outbound_analytics_events", {
+    p_retention_days: readBoundedIntEnv(env, "PRICEAI_OUTBOUND_ANALYTICS_RETENTION_DAYS", 45, 30, 365),
+    p_batch_size: readBoundedIntEnv(env, "PRICEAI_OUTBOUND_ANALYTICS_RETENTION_BATCH_SIZE", 5000, 100, 10000),
+  });
+
+  if (outboundAnalyticsError && !["42883", "PGRST202"].includes(outboundAnalyticsError.code)) {
+    console.warn(`Failed to prune outbound analytics events: ${outboundAnalyticsError.message}`);
   }
 }
 

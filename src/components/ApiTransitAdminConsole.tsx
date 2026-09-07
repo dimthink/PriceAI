@@ -16,17 +16,19 @@ import {
   Inbox,
   KeyRound,
   Loader2,
-  ImageUp,
   Pencil,
   RefreshCcw,
   Search,
   Server,
+  SlidersHorizontal,
+  X,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AdminImageUploadButton } from "@/components/admin/AdminImageUploadButton";
 import type {
   ApiTransitAdminData,
   ApiTransitAdminOffer,
@@ -164,6 +166,8 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
   const [statusFilter, setStatusFilter] = useState<WholesaleLeadStatusFilter>("all");
   const [qualityFilter, setQualityFilter] = useState<WholesaleLeadQualityFilter>("all");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [adminNoteDrafts, setAdminNoteDrafts] = useState<Record<string, string>>({});
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
@@ -235,6 +239,32 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
   const sellerCount = wholesaleLeads.filter((lead) => wholesaleRoleValue(lead.submittedMeta) === "seller").length;
   const insufficientCount = wholesaleLeads.filter((lead) => leadAssessments.get(lead.id)?.quality === "insufficient").length;
   const matchableCount = wholesaleLeads.filter((lead) => leadAssessments.get(lead.id)?.quality === "matchable").length;
+  const activeFilterCount = [roleFilter, directionFilter, statusFilter, qualityFilter].filter((value) => value !== "all").length;
+
+  function resetWholesaleFilters() {
+    setRoleFilter("all");
+    setDirectionFilter("all");
+    setStatusFilter("all");
+    setQualityFilter("all");
+  }
+
+  useEffect(() => {
+    if (!filterPanelOpen && !mobileDetailOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setFilterPanelOpen(false);
+      setMobileDetailOpen(false);
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [filterPanelOpen, mobileDetailOpen]);
 
   async function updateWholesaleLead(
     lead: ApiTransitAdminSubmission,
@@ -325,70 +355,69 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
     <section className="space-y-4 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
       {message ? <MessageBox message={message} onDismiss={() => setMessage(null)} /> : null}
 
-      <div className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-[#202829]">批发线索池</h3>
-              <StatusBadge tone={pendingCount ? "warn" : "muted"}>{pendingCount} 待处理</StatusBadge>
-              <StatusBadge tone={followUpCount ? "info" : "muted"}>{followUpCount} 待跟进</StatusBadge>
-            </div>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-[#5a6061]">
-              独立承接买方需求和源头供给；这里先做人工初筛、联系和备注，不进入中转站探测流程。
-            </p>
+      <div className="rounded-lg border border-[#adb3b4]/20 bg-white p-3 shadow-[0_8px_24px_rgba(45,52,53,0.04)] sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge tone={pendingCount ? "warn" : "muted"}>{pendingCount} 待处理</StatusBadge>
+            <StatusBadge tone={followUpCount ? "info" : "muted"}>{followUpCount} 待跟进</StatusBadge>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs sm:flex sm:flex-wrap sm:justify-end">
-            <span className="rounded-lg bg-[#f2f4f4] px-3 py-2 font-medium text-[#2d3435]">全部 {wholesaleLeads.length}</span>
-            <span className="rounded-lg bg-[#eef3f8] px-3 py-2 font-medium text-[#47657a]">买方 {buyerCount}</span>
-            <span className="rounded-lg bg-[#e8f3ec] px-3 py-2 font-medium text-[#2f7a4b]">源头 {sellerCount}</span>
-            <span className="rounded-lg bg-[#fff7e8] px-3 py-2 font-medium text-[#7a541b]">需补充 {insufficientCount}</span>
-            <span className="rounded-lg bg-[#e8f3ec] px-3 py-2 font-medium text-[#2f7a4b]">可撮合 {matchableCount}</span>
-            <span className="rounded-lg bg-[#fff7e8] px-3 py-2 font-medium text-[#7a541b]">筛选 {filteredLeads.length}</span>
+          <div className="hidden items-center gap-3 text-xs text-[#5a6061] lg:flex">
+            <span>全部 {wholesaleLeads.length}</span>
+            <span>买方 {buyerCount}</span>
+            <span>源头 {sellerCount}</span>
+            <span>需补充 {insufficientCount}</span>
+            <span>可撮合 {matchableCount}</span>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(240px,1fr)_auto] xl:items-start">
-          <label className="relative block">
+        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <label className="relative block min-w-0">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#9aa2a3]" />
             <span className="sr-only">搜索批发线索</span>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索标题、联系方式、需求、价格、证明链接..."
+              placeholder="搜索线索、联系或需求..."
               className="h-10 w-full rounded-lg border border-[#adb3b4]/25 bg-white pl-9 pr-3 text-sm text-[#202829] outline-none transition placeholder:text-[#7c8586] focus:border-[#2d3435]"
             />
           </label>
-
-          <div className="flex flex-wrap gap-2">
-            <WholesaleFilterButton active={roleFilter === "all"} onClick={() => setRoleFilter("all")}>全部角色</WholesaleFilterButton>
-            <WholesaleFilterButton active={roleFilter === "buyer"} onClick={() => setRoleFilter("buyer")}>买方需求</WholesaleFilterButton>
-            <WholesaleFilterButton active={roleFilter === "seller"} onClick={() => setRoleFilter("seller")}>源头供给</WholesaleFilterButton>
+          <button
+            type="button"
+            onClick={() => setFilterPanelOpen(true)}
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#adb3b4]/25 bg-white px-3 text-sm font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2d3435]/20"
+            aria-label={`打开筛选${activeFilterCount ? `，已启用 ${activeFilterCount} 项` : ""}`}
+          >
+            <SlidersHorizontal size={15} />
+            <span className="hidden sm:inline">筛选</span>
+            {activeFilterCount ? <span className="rounded-full bg-[#2d3435] px-1.5 py-0.5 text-[10px] text-white">{activeFilterCount}</span> : null}
+          </button>
+        </div>
+        {activeFilterCount ? (
+          <div className="mt-2 flex items-center justify-between gap-3 border-t border-[#edf0f1] pt-2 text-xs">
+            <span className="truncate text-[#5a6061]">已启用 {activeFilterCount} 项筛选 · {filteredLeads.length} 条结果</span>
+            <button type="button" onClick={resetWholesaleFilters} className="shrink-0 font-semibold text-[#47657a] hover:text-[#202829]">清空</button>
           </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          <WholesaleFilterButton active={directionFilter === "all"} onClick={() => setDirectionFilter("all")}>全部方向</WholesaleFilterButton>
-          <WholesaleFilterButton active={directionFilter === "api_transit"} onClick={() => setDirectionFilter("api_transit")}>API 中转</WholesaleFilterButton>
-          <WholesaleFilterButton active={directionFilter === "subscription_channel"} onClick={() => setDirectionFilter("subscription_channel")}>卡网/订阅</WholesaleFilterButton>
-          <WholesaleFilterButton active={directionFilter === "other"} onClick={() => setDirectionFilter("other")}>其他源头</WholesaleFilterButton>
-          <span className="mx-1 hidden h-8 w-px bg-[#adb3b4]/25 sm:inline-block" />
-          <WholesaleFilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>全部状态</WholesaleFilterButton>
-          <WholesaleFilterButton active={statusFilter === "pending"} onClick={() => setStatusFilter("pending")}>待处理</WholesaleFilterButton>
-          <WholesaleFilterButton active={statusFilter === "collector_todo"} onClick={() => setStatusFilter("collector_todo")}>待跟进</WholesaleFilterButton>
-          <WholesaleFilterButton active={statusFilter === "approved"} onClick={() => setStatusFilter("approved")}>初筛通过</WholesaleFilterButton>
-          <WholesaleFilterButton active={statusFilter === "rejected"} onClick={() => setStatusFilter("rejected")}>已拒绝</WholesaleFilterButton>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#edf0f1] pt-3">
-          <span className="text-xs font-semibold text-[#5a6061]">资料质量</span>
-          <WholesaleFilterButton active={qualityFilter === "all"} onClick={() => setQualityFilter("all")}>全部</WholesaleFilterButton>
-          <WholesaleFilterButton active={qualityFilter === "insufficient"} onClick={() => setQualityFilter("insufficient")}>需补充</WholesaleFilterButton>
-          <WholesaleFilterButton active={qualityFilter === "review"} onClick={() => setQualityFilter("review")}>待判断</WholesaleFilterButton>
-          <WholesaleFilterButton active={qualityFilter === "matchable"} onClick={() => setQualityFilter("matchable")}>可撮合</WholesaleFilterButton>
-        </div>
+        ) : null}
       </div>
 
+      {filterPanelOpen ? (
+        <WholesaleFiltersDialog
+          roleFilter={roleFilter}
+          directionFilter={directionFilter}
+          statusFilter={statusFilter}
+          qualityFilter={qualityFilter}
+          resultCount={filteredLeads.length}
+          onRoleFilterChange={setRoleFilter}
+          onDirectionFilterChange={setDirectionFilter}
+          onStatusFilterChange={setStatusFilter}
+          onQualityFilterChange={setQualityFilter}
+          onReset={resetWholesaleFilters}
+          onClose={() => setFilterPanelOpen(false)}
+        />
+      ) : null}
+
       <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[#adb3b4]/20 bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+        <section className="flex min-h-0 flex-col rounded-lg border border-[#adb3b4]/20 bg-white shadow-[0_20px_55px_rgba(45,52,53,0.045)] xl:overflow-hidden">
           <div className="flex items-center justify-between border-b border-[#edf0f1] bg-[#f2f4f4] px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-[#202829]">
               <Inbox size={16} />
@@ -396,7 +425,7 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
             </div>
             <span className="text-xs font-medium text-[#5a6061]">{filteredLeads.length} 条</span>
           </div>
-          <div className="min-h-0 flex-1 divide-y divide-[#edf0f1] overflow-y-auto overscroll-contain">
+          <div className="min-h-0 flex-1 divide-y divide-[#edf0f1] xl:overflow-y-auto xl:overscroll-contain">
             {filteredLeads.map((lead) => (
               <WholesaleLeadRow
                 key={lead.id}
@@ -404,7 +433,10 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
                 assessment={leadAssessments.get(lead.id) || assessWholesaleSubmission(lead)}
                 selected={selectedLead?.id === lead.id}
                 loadingAction={loadingAction}
-                onSelect={() => setSelectedLeadId(lead.id)}
+                onSelect={() => {
+                  setSelectedLeadId(lead.id);
+                  setMobileDetailOpen(true);
+                }}
                 onCopyContact={() => copyContact(lead)}
                 onUpdate={(reviewStatus) => updateWholesaleLead(lead, reviewStatus)}
               />
@@ -415,6 +447,8 @@ export function WholesaleAdminPanel({ data }: { data: ApiTransitAdminData }) {
 
         <WholesaleLeadDetailPanel
           lead={selectedLead}
+          mobileOpen={mobileDetailOpen}
+          onMobileClose={() => setMobileDetailOpen(false)}
           assessment={selectedAssessment}
           candidates={selectedCandidates}
           matches={selectedMatches}
@@ -1558,6 +1592,91 @@ function WholesaleFilterButton({
   );
 }
 
+function WholesaleFiltersDialog({
+  directionFilter,
+  onClose,
+  onDirectionFilterChange,
+  onQualityFilterChange,
+  onReset,
+  onRoleFilterChange,
+  onStatusFilterChange,
+  qualityFilter,
+  resultCount,
+  roleFilter,
+  statusFilter,
+}: {
+  directionFilter: WholesaleLeadDirectionFilter;
+  onClose: () => void;
+  onDirectionFilterChange: (value: WholesaleLeadDirectionFilter) => void;
+  onQualityFilterChange: (value: WholesaleLeadQualityFilter) => void;
+  onReset: () => void;
+  onRoleFilterChange: (value: WholesaleLeadRoleFilter) => void;
+  onStatusFilterChange: (value: WholesaleLeadStatusFilter) => void;
+  qualityFilter: WholesaleLeadQualityFilter;
+  resultCount: number;
+  roleFilter: WholesaleLeadRoleFilter;
+  statusFilter: WholesaleLeadStatusFilter;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label="筛选批发线索">
+      <button type="button" aria-label="关闭筛选" onClick={onClose} className="absolute inset-0 h-full w-full bg-[#202829]/35 backdrop-blur-[1px]" />
+      <section className="relative z-10 max-h-[82dvh] w-full overflow-y-auto rounded-t-xl bg-[#f9f9f9] px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_36px_rgba(45,52,53,0.18)] sm:max-w-xl sm:rounded-lg sm:p-5">
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-[#adb3b4]/60 sm:hidden" />
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-base font-semibold text-[#202829]">筛选线索</h3>
+            <p className="mt-1 text-xs text-[#5a6061]">当前显示 {resultCount} 条，调整后即时更新。</p>
+          </div>
+          <button type="button" autoFocus onClick={onClose} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e4e9ea] text-[#5a6061] hover:bg-[#dde4e5] hover:text-[#202829]" aria-label="关闭筛选">
+            <X size={17} />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          <WholesaleFilterGroup label="角色">
+            <WholesaleFilterButton active={roleFilter === "all"} onClick={() => onRoleFilterChange("all")}>全部</WholesaleFilterButton>
+            <WholesaleFilterButton active={roleFilter === "buyer"} onClick={() => onRoleFilterChange("buyer")}>买方需求</WholesaleFilterButton>
+            <WholesaleFilterButton active={roleFilter === "seller"} onClick={() => onRoleFilterChange("seller")}>源头供给</WholesaleFilterButton>
+          </WholesaleFilterGroup>
+          <WholesaleFilterGroup label="方向">
+            <WholesaleFilterButton active={directionFilter === "all"} onClick={() => onDirectionFilterChange("all")}>全部</WholesaleFilterButton>
+            <WholesaleFilterButton active={directionFilter === "api_transit"} onClick={() => onDirectionFilterChange("api_transit")}>API 中转</WholesaleFilterButton>
+            <WholesaleFilterButton active={directionFilter === "subscription_channel"} onClick={() => onDirectionFilterChange("subscription_channel")}>卡网/订阅</WholesaleFilterButton>
+            <WholesaleFilterButton active={directionFilter === "other"} onClick={() => onDirectionFilterChange("other")}>其他源头</WholesaleFilterButton>
+          </WholesaleFilterGroup>
+          <WholesaleFilterGroup label="处理状态">
+            <WholesaleFilterButton active={statusFilter === "all"} onClick={() => onStatusFilterChange("all")}>全部</WholesaleFilterButton>
+            <WholesaleFilterButton active={statusFilter === "pending"} onClick={() => onStatusFilterChange("pending")}>待处理</WholesaleFilterButton>
+            <WholesaleFilterButton active={statusFilter === "collector_todo"} onClick={() => onStatusFilterChange("collector_todo")}>待跟进</WholesaleFilterButton>
+            <WholesaleFilterButton active={statusFilter === "approved"} onClick={() => onStatusFilterChange("approved")}>初筛通过</WholesaleFilterButton>
+            <WholesaleFilterButton active={statusFilter === "rejected"} onClick={() => onStatusFilterChange("rejected")}>已拒绝</WholesaleFilterButton>
+          </WholesaleFilterGroup>
+          <WholesaleFilterGroup label="资料质量">
+            <WholesaleFilterButton active={qualityFilter === "all"} onClick={() => onQualityFilterChange("all")}>全部</WholesaleFilterButton>
+            <WholesaleFilterButton active={qualityFilter === "insufficient"} onClick={() => onQualityFilterChange("insufficient")}>需补充</WholesaleFilterButton>
+            <WholesaleFilterButton active={qualityFilter === "review"} onClick={() => onQualityFilterChange("review")}>待判断</WholesaleFilterButton>
+            <WholesaleFilterButton active={qualityFilter === "matchable"} onClick={() => onQualityFilterChange("matchable")}>可撮合</WholesaleFilterButton>
+          </WholesaleFilterGroup>
+        </div>
+
+        <div className="mt-5 grid grid-cols-[auto_1fr] gap-2 border-t border-[#dfe4e5] pt-4">
+          <button type="button" onClick={onReset} className="h-10 rounded-lg border border-[#adb3b4]/30 bg-white px-4 text-sm font-semibold text-[#5a6061] hover:bg-[#f2f4f4]">重置</button>
+          <button type="button" onClick={onClose} className="h-10 rounded-lg bg-[#2d3435] px-4 text-sm font-semibold text-[#f8f8f8] hover:bg-[#202829]">查看 {resultCount} 条线索</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function WholesaleFilterGroup({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <section>
+      <p className="mb-2 text-xs font-semibold text-[#5a6061]">{label}</p>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </section>
+  );
+}
+
 function WholesaleLeadRow({
   assessment,
   lead,
@@ -1660,7 +1779,7 @@ function WholesaleLeadRow({
           type="button"
           disabled={lead.reviewStatus === "collector_todo" || loadingAction === `wholesale-collector_todo-${lead.id}`}
           onClick={() => onUpdate("collector_todo")}
-          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+          className="hidden h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50 lg:inline-flex"
         >
           {loadingAction === `wholesale-collector_todo-${lead.id}` ? <Loader2 size={13} className="animate-spin" /> : <ClipboardList size={13} />}
           跟进
@@ -1669,7 +1788,7 @@ function WholesaleLeadRow({
           type="button"
           disabled={lead.reviewStatus === "approved" || loadingAction === `wholesale-approved-${lead.id}`}
           onClick={() => onUpdate("approved")}
-          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50"
+          className="hidden h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50 lg:inline-flex"
         >
           {loadingAction === `wholesale-approved-${lead.id}` ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
           初筛
@@ -1686,10 +1805,12 @@ function WholesaleLeadDetailPanel({
   lead,
   loadingAction,
   matches,
+  mobileOpen,
   onAdminNoteDraftChange,
   onCopyContact,
   onCreateMatch,
   onSaveAdminNote,
+  onMobileClose,
   onUpdate,
   onUpdateMatchStatus,
 }: {
@@ -1699,16 +1820,18 @@ function WholesaleLeadDetailPanel({
   lead: ApiTransitAdminSubmission | null;
   loadingAction: string | null;
   matches: WholesaleAdminMatch[];
+  mobileOpen: boolean;
   onAdminNoteDraftChange: (value: string) => void;
   onCopyContact?: () => void;
   onCreateMatch: (candidate: WholesaleMatchCandidate<ApiTransitAdminSubmission>) => void;
   onSaveAdminNote: () => void;
+  onMobileClose: () => void;
   onUpdate?: (reviewStatus: ApiTransitSubmissionReviewStatus) => void;
   onUpdateMatchStatus: (match: WholesaleAdminMatch, status: WholesaleMatchStatus) => void;
 }) {
   if (!lead) {
     return (
-      <aside className="rounded-lg border border-[#adb3b4]/20 bg-white p-6 text-sm leading-6 text-[#5a6061] shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
+      <aside className="hidden rounded-lg border border-[#adb3b4]/20 bg-white p-6 text-sm leading-6 text-[#5a6061] shadow-[0_20px_55px_rgba(45,52,53,0.045)] xl:block">
         选择一条批发线索后，可以在这里查看完整字段、复制联系方式、打开证明链接和记录后台备注。
       </aside>
     );
@@ -1734,7 +1857,24 @@ function WholesaleLeadDetailPanel({
   ];
 
   return (
-    <aside className="min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1 xl:self-stretch">
+    <>
+      {mobileOpen ? <button type="button" className="fixed inset-0 z-[70] bg-[#202829]/35 xl:hidden" aria-label="关闭线索详情" onClick={onMobileClose} /> : null}
+      <aside
+        role="dialog"
+        aria-modal={mobileOpen ? "true" : undefined}
+        aria-label="批发线索详情"
+        className={`${mobileOpen ? "fixed inset-0 z-[80] flex" : "hidden"} min-h-0 flex-col bg-[#f9f9f9] xl:static xl:z-auto xl:flex xl:space-y-4 xl:overflow-y-auto xl:overscroll-contain xl:bg-transparent xl:pr-1 xl:self-stretch`}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-[#dfe4e5] bg-white px-4 py-3 xl:hidden">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-[#5a6061]">线索详情</p>
+            <p className="truncate text-sm font-semibold text-[#202829]">{lead.submittedName || "批发线索"}</p>
+          </div>
+          <button type="button" autoFocus onClick={onMobileClose} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e4e9ea] text-[#5a6061]" aria-label="关闭线索详情">
+            <X size={17} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 pb-24 xl:contents">
       <section className="rounded-lg border border-[#adb3b4]/20 bg-white p-4 shadow-[0_20px_55px_rgba(45,52,53,0.045)]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1774,7 +1914,7 @@ function WholesaleLeadDetailPanel({
             type="button"
             disabled={!onUpdate || lead.reviewStatus === "collector_todo" || loadingAction === `wholesale-collector_todo-${lead.id}`}
             onClick={() => onUpdate?.("collector_todo")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50"
+            className="hidden h-9 items-center gap-1.5 rounded-full border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition-colors hover:bg-[#f2f4f4] disabled:opacity-50 xl:inline-flex"
           >
             <ClipboardList size={13} />
             待跟进
@@ -1783,7 +1923,7 @@ function WholesaleLeadDetailPanel({
             type="button"
             disabled={!onUpdate || lead.reviewStatus === "approved" || loadingAction === `wholesale-approved-${lead.id}`}
             onClick={() => onUpdate?.("approved")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50"
+            className="hidden h-9 items-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition-colors hover:bg-[#202829] disabled:opacity-50 xl:inline-flex"
           >
             <CheckCircle2 size={13} />
             初筛通过
@@ -1792,7 +1932,7 @@ function WholesaleLeadDetailPanel({
             type="button"
             disabled={!onUpdate || lead.reviewStatus === "rejected" || loadingAction === `wholesale-rejected-${lead.id}`}
             onClick={() => onUpdate?.("rejected")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[#e5b5ad] bg-white px-3 text-xs font-semibold text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50"
+            className="hidden h-9 items-center gap-1.5 rounded-full border border-[#e5b5ad] bg-white px-3 text-xs font-semibold text-[#9b3328] transition-colors hover:bg-[#fbe9e7] disabled:opacity-50 xl:inline-flex"
           >
             <XCircle size={13} />
             拒绝
@@ -1920,7 +2060,14 @@ function WholesaleLeadDetailPanel({
           保存备注
         </button>
       </section>
-    </aside>
+        </div>
+        <div className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-3 gap-2 border-t border-[#dfe4e5] bg-white/95 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-[14px] xl:hidden">
+          <button type="button" disabled={!onUpdate || lead.reviewStatus === "collector_todo" || loadingAction === `wholesale-collector_todo-${lead.id}`} onClick={() => onUpdate?.("collector_todo")} className="h-10 rounded-lg border border-[#adb3b4]/30 text-xs font-semibold text-[#2d3435] disabled:opacity-50">待跟进</button>
+          <button type="button" disabled={!onUpdate || lead.reviewStatus === "approved" || loadingAction === `wholesale-approved-${lead.id}`} onClick={() => onUpdate?.("approved")} className="h-10 rounded-lg bg-[#2d3435] text-xs font-semibold text-white disabled:opacity-50">初筛通过</button>
+          <button type="button" disabled={!onUpdate || lead.reviewStatus === "rejected" || loadingAction === `wholesale-rejected-${lead.id}`} onClick={() => onUpdate?.("rejected")} className="h-10 rounded-lg border border-[#e5b5ad] text-xs font-semibold text-[#9b3328] disabled:opacity-50">拒绝</button>
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -2434,20 +2581,11 @@ function StationLogoField({ station }: { station: ApiTransitAdminStation }) {
           className={adminFieldClassName}
           placeholder="留空则使用系统默认 Logo"
         />
-        <label className="inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-[#adb3b4]/30 bg-white px-3 text-xs font-semibold text-[#2d3435] transition hover:bg-[#f2f4f4]">
-          {uploading ? <Loader2 size={14} className="animate-spin" /> : <ImageUp size={14} />}
-          上传
-          <input
-            type="file"
-            accept="image/svg+xml,image/png,image/jpeg,image/webp"
-            className="sr-only"
-            disabled={uploading}
-            onChange={(event) => {
-              void uploadLogo(event.target.files?.[0]);
-              event.currentTarget.value = "";
-            }}
-          />
-        </label>
+        <AdminImageUploadButton
+          accept="image/svg+xml,image/png,image/jpeg,image/webp"
+          loading={uploading}
+          onSelect={(file) => void uploadLogo(file)}
+        />
       </div>
       <div className="flex min-h-8 items-center gap-2 text-xs text-[#5a6061]">
         {previewUrl ? (

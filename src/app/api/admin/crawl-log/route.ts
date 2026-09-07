@@ -12,6 +12,7 @@ import { requireAdminOrCronRequest } from "@/lib/env";
 import { pruneOperationalLogs } from "@/lib/operational-logs";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { stableId } from "@/lib/utils";
+import { hasSellableOffers as crawlOffersHaveSellableInventory } from "../../../../../scripts/out-of-stock-observation.mjs";
 import { z } from "zod";
 
 const bulkPricingTierSchema = z.object({
@@ -196,20 +197,24 @@ async function saveCrawlLogRun(
     const seenOfferIds = seenOfferIdsFromDetails(payload.details) || offers.map(rawOfferInputId);
     const fullSnapshot = fullSnapshotFromDetails(payload.details, payload.status, offers.length);
     const collectionStatus = normalizeCrawlLogCollectionStatus(payload, fullSnapshot, offers.length);
+    const hasSellableOffers = fullSnapshot ? crawlOffersHaveSellableInventory(offers) : undefined;
     const hideMissingOffersImmediately = false;
     const changedByPayload = upsertResult.writtenCount > 0 || upsertResult.refreshedCount > 0;
     const affectedOfferIds = changedByPayload ? offers.map(rawOfferInputId) : [];
     const affectedProductIds = changedByPayload ? offers.map(productIdFromCrawlOffer) : [];
 
-    const sourceCollectionResult = await recordSourceCollectionResult({
-      sourceId: source.id,
-      status: collectionStatus,
-      checkedAt: collectedAt,
-      message: payload.message || null,
-      seenOfferIds,
-      fullSnapshot,
-      hideMissingOffersImmediately,
-    });
+    const sourceCollectionResult = payload.details?.hotVerification === true
+      ? { changedOfferCount: 0 }
+      : await recordSourceCollectionResult({
+          sourceId: source.id,
+          status: collectionStatus,
+          checkedAt: collectedAt,
+          message: payload.message || null,
+          seenOfferIds,
+          fullSnapshot,
+          hasSellableOffers,
+          hideMissingOffersImmediately,
+        });
 
     const crawlRunRow = {
       id: runId,
@@ -900,7 +905,6 @@ function supabaseErrorMessage(error: unknown): string {
 function productIdFromCrawlOffer(offer: z.infer<typeof offerSchema>): string {
   return classifyOffer(offer.sourceTitle, {
     tags: offer.tags || [],
-    price: offer.price ?? null,
   }).id;
 }
 

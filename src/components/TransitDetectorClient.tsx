@@ -435,15 +435,22 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
   const pollDetectorJob = useCallback(async (statusUrl: string, runId: number, localId: string) => {
     const statusEndpoint = normalizeLocalDetectorStatusEndpoint(statusUrl);
 
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; ; attempt += 1) {
       const visibleDelay = attempt < 3 ? 1000 : attempt < 10 ? 2500 : 5000;
       await sleep(document.hidden ? Math.max(visibleDelay, 15_000) : visibleDelay);
       if (runIdRef.current !== runId) return;
 
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 12_000);
-      const response = await fetch(statusEndpoint, { cache: "no-store", signal: controller.signal })
-        .finally(() => window.clearTimeout(timeout));
+      let response: Response;
+      try {
+        response = await fetch(statusEndpoint, { cache: "no-store", signal: controller.signal });
+      } catch {
+        updateResult(localId, { message: "网络暂时不可用，任务仍在服务端运行，将继续重试。" });
+        continue;
+      } finally {
+        window.clearTimeout(timeout);
+      }
       const data = (await response.json().catch(() => ({}))) as DetectorStatusPayload;
       if (!response.ok && data.retryable) {
         updateResult(localId, { message: data.message || "检测服务暂时不可达，正在降低频率重试。" });
@@ -478,8 +485,6 @@ export function TransitDetectorClient({ serviceUrl = "", stations = [], turnstil
         });
       }
     }
-
-    throw new Error("检测等待超时，稍后可用任务编号查询报告。");
   }, [updateResult]);
 
   function handleForcePreflightRetry(item: DetectionResult) {
@@ -1081,7 +1086,7 @@ function parseCachedDetectionResult(value: unknown): DetectionResult | null {
   if (!isRecord(value)) return null;
 
   const status = parseDetectionStatus(value.status);
-  if (status !== "done" && status !== "error") return null;
+  if (!status) return null;
 
   const localId = stringValue(value.localId);
   const modelLabel = stringValue(value.modelLabel);
@@ -1098,7 +1103,7 @@ function parseCachedDetectionResult(value: unknown): DetectionResult | null {
   }
 
   const statusUrl = stringValue(value.statusUrl);
-  const hasRestorableJob = statusUrl || status === "done" || status === "error";
+  const hasRestorableJob = Boolean(statusUrl) || status === "done" || status === "error";
 
   return {
     localId,

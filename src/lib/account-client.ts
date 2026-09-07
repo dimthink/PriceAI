@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  ACCOUNT_AUTH_HINT_COOKIE,
+  ACCOUNT_AUTH_HINT_MAX_AGE_SECONDS,
+  type AccountAuthHint,
+} from "@/lib/account-auth-hint";
 
 const ACCOUNT_SYNC_KEY = "priceai:account-sync:v1";
 const ACCOUNT_REQUEST_TTL_MS = 5_000;
@@ -77,20 +82,42 @@ export function useAccountUser() {
 
 export function notifyAccountChanged(user: AccountUser | null = null): void {
   accountRequest = null;
+  writeAccountAuthHint(user ? "authenticated" : "anonymous");
   broadcastAccountSignature(user, true);
 }
 
 function fetchAccountUser(force: boolean): Promise<AccountUser | null> {
   const now = Date.now();
+  if (readAccountAuthHint() === "anonymous") return Promise.resolve(null);
   if (accountRequest && accountRequest.expiresAt > now && (!force || now - accountRequest.startedAt < 1_000)) {
     return accountRequest.promise;
   }
 
   const promise = fetch("/api/account/me", { cache: "no-store" })
-    .then(async (response) => response.ok ? parseAccountUser(await response.json()) : null)
+    .then(async (response) => {
+      if (!response.ok) return null;
+      const user = parseAccountUser(await response.json());
+      writeAccountAuthHint(user ? "authenticated" : "anonymous");
+      return user;
+    })
     .catch(() => null);
   accountRequest = { startedAt: now, expiresAt: now + ACCOUNT_REQUEST_TTL_MS, promise };
   return promise;
+}
+
+function readAccountAuthHint(): AccountAuthHint | null {
+  const prefix = `${ACCOUNT_AUTH_HINT_COOKIE}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  const value = cookie?.slice(prefix.length);
+  return value === "authenticated" || value === "anonymous" ? value : null;
+}
+
+function writeAccountAuthHint(value: AccountAuthHint): void {
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${ACCOUNT_AUTH_HINT_COOKIE}=${value}; Path=/; Max-Age=${ACCOUNT_AUTH_HINT_MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
 }
 
 function broadcastAccountSignature(user: AccountUser | null, force = false): void {

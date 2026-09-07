@@ -179,6 +179,15 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 staging="$remote_root/.incoming/source-sync-$timestamp"
 backup="$remote_root/backups/source-sync/$timestamp"
 manifest_dir="$remote_root/manifests"
+active_root="$remote_root"
+current_real="$(readlink -f "$remote_root/current" 2>/dev/null || true)"
+if [ -n "$current_real" ] && [ -d "$current_real" ]; then
+  active_root="$current_real"
+fi
+target_roots=("$remote_root")
+if [ "$active_root" != "$remote_root" ]; then
+  target_roots+=("$active_root")
+fi
 
 if ! mkdir "$lock_dir" 2>/dev/null; then
   echo "Collector runtime sync lock already exists: $lock_dir" >&2
@@ -200,24 +209,35 @@ while IFS= read -r file; do
     ""|/*|../*|*/../*) echo "Unsafe runtime file path: $file" >&2; exit 1 ;;
   esac
 
-  if [ -e "$remote_root/$file" ]; then
-    mkdir -p "$backup/$(dirname "$file")"
-    cp -a "$remote_root/$file" "$backup/$file"
-  fi
+  target_index=0
+  for target_root in "\${target_roots[@]}"; do
+    target_index=$((target_index + 1))
+    if [ -e "$target_root/$file" ]; then
+      mkdir -p "$backup/target-$target_index/$(dirname "$file")"
+      cp -a "$target_root/$file" "$backup/target-$target_index/$file"
+    fi
 
-  mkdir -p "$remote_root/$(dirname "$file")"
-  cp -a "$staging/$file" "$remote_root/$file"
+    mkdir -p "$target_root/$(dirname "$file")"
+    cp -a "$staging/$file" "$target_root/$file"
+  done
 done < "$staging/.collector-runtime/files.txt"
 
 cp -a "$staging/.collector-runtime/runtime-manifest.json" "$remote_root/runtime-manifest.json"
 cp -a "$staging/.collector-runtime/runtime-manifest.json" "$manifest_dir/source-sync-$timestamp.json"
-(cd "$remote_root" && sha256sum -c "$staging/.collector-runtime/source-sync.sha256")
+if [ "$active_root" != "$remote_root" ]; then
+  mkdir -p "$active_root/.collector-runtime"
+  cp -a "$staging/.collector-runtime/runtime-manifest.json" "$active_root/.collector-runtime/runtime-manifest.json"
+fi
+for target_root in "\${target_roots[@]}"; do
+  (cd "$target_root" && sha256sum -c "$staging/.collector-runtime/source-sync.sha256")
+done
 
 if [ "$manage_systemd" = "1" ]; then
   for unit in "\${timers[@]}"; do ${sudo}systemctl start "$unit" 2>/dev/null || true; done
 fi
 
 rm -f "$archive_path"
+echo "Collector runtime active root: $active_root"
 echo "Collector runtime source sync complete: $remote_root"
 `;
 }

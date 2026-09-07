@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "检查弹窗 a11y、表单 label 和 390px 布局"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "检查公开 UI 改动与本地验证"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "检查前后端输入校验一致"}
+{"file": "docs/planning/archive/pending/product/2026-07-15_admin-channel-quality-and-shopapi-probe-queue-plan.md", "reason": "检查准入文案不混淆质量信号"}
+{"file": ".trellis/tasks/07-10-api/prd.md", "reason": "检查中转站长申请和普通线索仍可达"}

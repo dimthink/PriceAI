@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { AccountFeedbackDetailClient } from "@/components/AccountFeedbackDetailClient";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
-import { buildGoogleAuthHref } from "@/lib/auth-paths";
+import { buildLoginHref } from "@/lib/auth-paths";
 import { getUserOfferFeedback, listUserFeedbackFollowups } from "@/lib/account";
 
 export const metadata: Metadata = {
@@ -19,7 +19,7 @@ export default async function AccountFeedbackDetailPage({
 }) {
   const { feedbackId } = await params;
   const user = await getCurrentUser();
-  if (!user) redirect(buildGoogleAuthHref(`/account/feedback/${encodeURIComponent(feedbackId)}`));
+  if (!user) redirect(buildLoginHref(`/account/feedback/${encodeURIComponent(feedbackId)}`));
 
   const feedback = await getUserOfferFeedback(user.id, feedbackId);
   if (!feedback) notFound();

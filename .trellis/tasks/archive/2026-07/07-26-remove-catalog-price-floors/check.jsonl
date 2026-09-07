@@ -1,0 +1,3 @@
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"验证公开报价分类和最低价仍满足数据契约。"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"明确本次不部署，并保留后续生产重分类、快照刷新和回滚步骤。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"复核新旧报价、存量分类和公开读取的一致性。"}

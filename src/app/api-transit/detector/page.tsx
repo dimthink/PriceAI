@@ -1,12 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Suspense } from "react";
 import { ArrowLeft, Network, ShieldCheck } from "lucide-react";
-import { getTransitModelFamilyOptions } from "@/lib/api-transit";
 import { getTransitStations } from "@/lib/api-transit-db";
 import { TRANSIT_CHANNEL_TYPE_LABELS } from "@/data/api-transit/types";
 import { SiteHeader } from "@/components/SiteHeader";
-import { TransitFamilyTabs } from "@/components/TransitFamilyTabs";
 import { TransitDetectorClient, type DetectorStationOption } from "@/components/TransitDetectorClient";
 import { JsonLd } from "@/components/JsonLd";
 
@@ -25,7 +22,6 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function ApiTransitDetectorPage() {
-  const familyOptions = getTransitModelFamilyOptions();
   const detectorServiceUrl = process.env.NEXT_PUBLIC_TRANSIT_DETECTOR_API_BASE_URL ?? "";
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
   const stations = await getTransitStations();
@@ -67,9 +63,6 @@ export default async function ApiTransitDetectorPage() {
 
       <div className="sticky top-0 z-40 bg-[#f9f9f9]/95 shadow-[0_10px_24px_rgba(45,52,53,0.035)] backdrop-blur-[18px]">
         <SiteHeader activeSection="transit" />
-        <Suspense fallback={<TransitFamilyTabsFallback />}>
-          <TransitFamilyTabs options={familyOptions} />
-        </Suspense>
       </div>
 
       <main className="mx-auto max-w-[1500px] px-5 py-6 pb-20">
@@ -107,15 +100,5 @@ export default async function ApiTransitDetectorPage() {
         />
       </main>
     </div>
-  );
-}
-
-function TransitFamilyTabsFallback() {
-  return (
-    <section className="border-y border-[#dfe4e5] py-2">
-      <div className="mx-auto max-w-[1500px] px-5 sm:px-8">
-        <div className="h-10" />
-      </div>
-    </section>
   );
 }

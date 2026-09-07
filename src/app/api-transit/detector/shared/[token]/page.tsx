@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { DetectorReportShell } from "@/components/DetectorReportShell";
 import { TransitDetectorReport, TransitDetectorReportUnavailable } from "@/components/TransitDetectorReport";
-import { getTransitModelFamilyOptions } from "@/lib/api-transit";
 import {
   hashDetectorReportShareToken,
   isValidDetectorReportShareToken,
@@ -25,13 +24,12 @@ export default async function SharedDetectorReportPage({
 }: {
   params: Promise<{ token: string }>;
 }) {
-  const familyOptions = getTransitModelFamilyOptions();
   const { token } = await params;
   const access = await resolveSharedReport(token);
 
   if (access.error) {
     return (
-      <DetectorReportShell familyOptions={familyOptions}>
+      <DetectorReportShell>
         <TransitDetectorReportUnavailable title="分享不可用" message={access.error} />
       </DetectorReportShell>
     );
@@ -40,14 +38,14 @@ export default async function SharedDetectorReportPage({
   const report = await loadSharedReport(access.detectorJobId, access.serviceUrl);
   if (!report) {
     return (
-      <DetectorReportShell familyOptions={familyOptions}>
+      <DetectorReportShell>
         <TransitDetectorReportUnavailable title="报告暂时不可用" message="检测服务暂时无法读取这份分享报告，请稍后再试。" />
       </DetectorReportShell>
     );
   }
 
   return (
-    <DetectorReportShell familyOptions={familyOptions}>
+    <DetectorReportShell>
       <div className="mb-4 rounded-lg border border-[#cfe5d8] bg-[#edf8f1] px-4 py-3 text-sm leading-6 text-[#2f6f49]">
         这是报告所有者主动创建的脱敏分享。接口地址、Key、内部错误和原始证据字段不会公开；所有者可随时撤销链接。
       </div>

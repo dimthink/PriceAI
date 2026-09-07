@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
 import { DetectorReportShareControl } from "@/components/DetectorReportShareControl";
 import { getCurrentUser } from "@/lib/auth";
-import { buildGoogleAuthHref } from "@/lib/auth-paths";
+import { buildLoginHref } from "@/lib/auth-paths";
 import { listUserDetectorJobs } from "@/lib/account";
 import { buildPriceAiDetectorReportHref } from "@/lib/transit-detector-report";
 import type { TransitDetectorJob } from "@/lib/types";
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default async function AccountDetectorReportsPage() {
   const user = await getCurrentUser();
-  if (!user) redirect(buildGoogleAuthHref("/account/detector-reports"));
+  if (!user) redirect(buildLoginHref("/account/detector-reports"));
 
   let jobs: TransitDetectorJob[] = [];
   let errorMessage = "";
@@ -125,5 +125,8 @@ function detectorStatusLabel(value: TransitDetectorJob["status"]) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString("zh-CN", { hour12: false });
+  return new Date(value).toLocaleString("zh-CN", {
+    hour12: false,
+    timeZone: "Asia/Shanghai",
+  });
 }

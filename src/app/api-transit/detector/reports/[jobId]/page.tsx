@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { getTransitModelFamilyOptions } from "@/lib/api-transit";
 import { getCurrentUser } from "@/lib/auth";
 import { ADMIN_SESSION_COOKIE, verifyAdminSessionToken } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase";
@@ -35,12 +34,11 @@ export async function generateMetadata({ params }: DetectorReportPageProps): Pro
 
 export default async function ApiTransitDetectorReportPage({ params }: DetectorReportPageProps) {
   const { jobId } = await params;
-  const familyOptions = getTransitModelFamilyOptions();
   const serviceUrl = getDetectorServiceUrl();
 
   if (!serviceUrl) {
     return (
-      <DetectorReportShell familyOptions={familyOptions}>
+      <DetectorReportShell>
         <TransitDetectorReportUnavailable
           title="检测服务未配置"
           message="当前 PriceAI 前端没有配置检测服务地址，暂时无法读取这份报告。请先配置检测服务地址，再重新打开报告。"
@@ -52,7 +50,7 @@ export default async function ApiTransitDetectorReportPage({ params }: DetectorR
   const access = await resolveDetectorReportAccess(jobId);
   if (access.error) {
     return (
-      <DetectorReportShell familyOptions={familyOptions}>
+      <DetectorReportShell>
         <TransitDetectorReportUnavailable
           title="报告为私密"
           message={access.error}
@@ -64,7 +62,7 @@ export default async function ApiTransitDetectorReportPage({ params }: DetectorR
   const reportResult = await loadDetectorReport(access.detectorJobId, serviceUrl);
   if (reportResult.error) {
     return (
-      <DetectorReportShell familyOptions={familyOptions}>
+      <DetectorReportShell>
         <TransitDetectorReportUnavailable
           title="报告暂时不可用"
           message={reportResult.error}
@@ -91,7 +89,7 @@ export default async function ApiTransitDetectorReportPage({ params }: DetectorR
   };
 
   return (
-    <DetectorReportShell familyOptions={familyOptions} jsonLdData={jsonLdData}>
+    <DetectorReportShell jsonLdData={jsonLdData}>
       <TransitDetectorReport report={report} />
     </DetectorReportShell>
   );

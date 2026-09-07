@@ -2,7 +2,7 @@
 set -euo pipefail
 
 runtime_root="${PRICEAI_COLLECTOR_RUNTIME_ROOT:-$(cd "$(dirname "$0")" && pwd)}"
-release_dir="${PRICEAI_COLLECTOR_RELEASE_DIR:-$runtime_root}"
+release_dir="${PRICEAI_COLLECTOR_RELEASE_DIR:-$runtime_root/current}"
 
 cd "$release_dir"
 set -a

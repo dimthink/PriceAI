@@ -55,12 +55,13 @@ for (const routeFile of routeFilesWithPriceCache) {
 }
 
 const dataText = read("src/lib/data.ts");
+const publicPriceEmergencyText = read("src/lib/public-price-emergency.ts");
 assert(/PUBLIC_FALLBACK_MAX_ROWS\s*=\s*5000/.test(dataText), "src/lib/data.ts: public raw_offers fallback must keep a hard row cap.");
 assert(/for\s*\(\s*let\s+from\s*=\s*0;\s*from\s*<\s*PUBLIC_FALLBACK_MAX_ROWS/.test(dataText), "src/lib/data.ts: public raw_offers fallback must be bounded by PUBLIC_FALLBACK_MAX_ROWS.");
 assert(!/PUBLIC_OFFER_LIMIT\s*=\s*1200/.test(dataText), "src/lib/data.ts: public offer APIs must not allow 1200-row public pages.");
 assert(/PUBLIC_DATA_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(dataText), "src/lib/data.ts: public data in-memory TTL must use the shared price cache policy.");
 assert(/EXPLORER_DATA_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(dataText), "src/lib/data.ts: explorer data TTL must use the shared price cache policy.");
-assert(/PRODUCT_OFFERS_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(dataText), "src/lib/data.ts: product offer TTL must use the shared price cache policy.");
+assert(/priceDataCacheTtlMsForProduct\(filterProductId\)/.test(dataText), "src/lib/data.ts: product offer TTL must use the shared per-product price cache policy.");
 assert(/function\s+toExplorerOfferSearchText/.test(dataText), "src/lib/data.ts: explorer search text must use a JSON-safe truncation helper.");
 assert(/function\s+truncateJsonSafeString/.test(dataText), "src/lib/data.ts: public snapshot text truncation must preserve complete Unicode characters.");
 assert(!/offerSearchText:\s*String\(row\.offer_search_text\s*\|\|\s*["']["']\)\.slice/.test(dataText), "src/lib/data.ts: explorer row search text must not use raw slice truncation.");
@@ -69,11 +70,30 @@ assert(/readPublicApiSnapshot<ExplorerData>\(\s*["']explorer["']/.test(dataText)
 assert(/readPublicApiSnapshot<PublicOffersResult>\(\s*["']offers["']/.test(dataText), "src/lib/data.ts: default public offer list must try the shared public API snapshot before expensive source reads.");
 assert(/readPublicApiSnapshot<PublicProductOffersResult>\(\s*[\r\n\s]*["']product_offers["']/.test(dataText), "src/lib/data.ts: default product offer pages must try the shared public API snapshot before expensive source reads.");
 assert(/readPublicApiSnapshot<PublicMerchantsResult>\(\s*["']merchants["']/.test(dataText), "src/lib/data.ts: default public merchant list must try the shared public API snapshot before expensive source reads.");
+assert(/if \(!platform && !stock && !collector && !signal\) return PUBLIC_MERCHANTS_SNAPSHOT_KEY/.test(dataText), "src/lib/data.ts: the unfiltered merchant route must reuse the warmed default merchant snapshot key.");
+assert(/needsDefaultCatalogPagination[\s\S]{0,220}hydrate[dD]Value\.limit == null[\s\S]{0,220}paginatePublicMerchants\(hydratedValue, normalizedFilters\)/.test(dataText), "src/lib/data.ts: full default merchant catalog snapshots must be paginated once without re-paginating already paginated snapshots.");
 assert(/refreshPublicApiSnapshots/.test(dataText), "src/lib/data.ts: public API snapshot refresh must stay available for writes and manual warmup.");
 assert(/markPublicApiSnapshotsDirty/.test(dataText), "src/lib/data.ts: public API snapshot writes must support a cheap dirty marker.");
 assert(/refreshPublicApiSnapshotsIfDue/.test(dataText), "src/lib/data.ts: public API snapshot refresh must be coalesced and rate-limited.");
+assert(
+  !/refreshPublicApiSnapshotsIfDue[\s\S]{0,1200}PUBLIC_PRICE_CACHE_ONLY_MODE/.test(dataText),
+  "src/lib/data.ts: cache-only public reads must not disable the protected background snapshot refresh path.",
+);
+assert(/inspectPublicSnapshotRefreshFailures/.test(dataText), "src/lib/data.ts: snapshot refresh must inspect partial global and product failures.");
+assert(/snapshot refresh incomplete/.test(dataText), "src/lib/data.ts: partial snapshot refresh failures must propagate to the protected refresh endpoint.");
 assert(/PUBLIC_API_SNAPSHOT_INCREMENTAL_REFRESH_MIN_INTERVAL_MS\s*=\s*3\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: public API snapshot incremental refresh must stay on the 3 minute cadence.");
 assert(/PUBLIC_API_SNAPSHOT_GLOBAL_REFRESH_MIN_INTERVAL_MS\s*=\s*5\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: explorer/offers snapshot refresh must stay coalesced to 5 minutes.");
+assert(/PUBLIC_SUPABASE_REFRESH_READ_TIMEOUT_MS\s*=\s*15_000/.test(dataText), "src/lib/data.ts: protected snapshot refresh may use a longer 15 second Supabase read window.");
+assert(/options\.background\s*\?\s*publicSupabaseRefreshReadSignal\(\)\s*:\s*publicSupabaseReadSignal\(\)/.test(dataText), "src/lib/data.ts: long Supabase reads must be limited to protected background refreshes.");
+assert(/refresh_public_offer_read_model/.test(dataText), "src/lib/data.ts: protected offers snapshot refresh must rebuild the public offer read model first.");
+assert(/refreshPublicApiSnapshotsForScope[\s\S]{0,500}refreshPublicOfferReadModel\(\)/.test(dataText), "src/lib/data.ts: product-scoped snapshot refreshes must also rebuild the global offer read model.");
+assert(/list_public_offers_page_v2/.test(dataText), "src/lib/data.ts: public offer reads must prefer the precomputed v2 read-model RPC.");
+assert(/isMissingPublicOfferReadModelRpc/.test(dataText), "src/lib/data.ts: the legacy offers RPC may only bridge a missing read-model migration or schema cache entry.");
+assert(/refresh produced zero rows; preserving the previous generation/.test(readFileSync(path.join(repoRoot, "supabase", "schema.sql"), "utf8")), "supabase/schema.sql: an empty read-model rebuild must preserve the last known good generation.");
+assert(/PUBLIC_PRICE_CACHE_ONLY_MODE\s*=\s*false/.test(publicPriceEmergencyText), "src/lib/public-price-emergency.ts: incident cache-only mode must be disabled after the public offer read model is verified.");
+assert(/namespace:\s*["']offers-v4-read-model["']/.test(read("src/app/api/offers/route.ts")), "offers route must use the post-incident read-model cache namespace.");
+assert(/namespace:\s*["']explorer-v4-read-model["']/.test(read("src/app/api/explorer/route.ts")), "explorer route must use the post-incident read-model cache namespace.");
+assert(/namespace:\s*["']product-offers-v4-read-model["']/.test(read("src/app/api/products/[id]/offers/route.ts")), "product offers route must use the post-incident read-model cache namespace.");
 assert(/PUBLIC_API_SNAPSHOT_FULL_REFRESH_MAX_INTERVAL_MS\s*=\s*60\s*\*\s*60\s*\*\s*1000/.test(dataText), "src/lib/data.ts: full public snapshot refresh must remain a low-frequency 60 minute fallback.");
 assert(/PUBLIC_API_SNAPSHOT_MAX_STALE_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS\s*\*\s*2/.test(dataText), "src/lib/data.ts: public API snapshots must stop serving old default snapshots after two public cache TTLs.");
 assert(/PUBLIC_API_SNAPSHOT_PRODUCT_REFRESH_BATCH_SIZE\s*=\s*4/.test(dataText), "src/lib/data.ts: product snapshot refreshes must stay batched to protect Worker CPU.");
@@ -82,19 +102,52 @@ assert(/isPublicApiSnapshotFresh/.test(dataText), "src/lib/data.ts: default publ
 assert(/affectedProductIds/.test(dataText), "src/lib/data.ts: dirty snapshot state must keep affected product IDs for incremental refresh.");
 assert(/resolvePublicSnapshotProductIds/.test(dataText), "src/lib/data.ts: dirty source/offer scopes must resolve to product snapshot refreshes.");
 assert(!/PUBLIC_PRODUCT_OFFERS_SNAPSHOT_PRODUCT_LIMIT/.test(dataText), "src/lib/data.ts: product offer snapshots must warm all products with offers, not only a small top-N subset.");
+assert(/async function buildExplorerDataFromSource[\s\S]{0,300}if \(isSupabaseConfigured\(\)\) return emptyDegradedExplorerData\(\)/.test(dataText), "src/lib/data.ts: explorer RPC failures must not fall through to raw Supabase reads.");
+assert(/async function loadPublicProductOffers[\s\S]{0,3500}if \(isSupabaseConfigured\(\)\) \{[\s\S]{0,500}degraded: true/.test(dataText), "src/lib/data.ts: product offer RPC failures must not fall through to raw Supabase reads.");
+assert(/async function buildPublicMerchants[\s\S]{0,1800}if \(isSupabaseConfigured\(\)\) \{[\s\S]{0,250}emptyCacheOnlyPublicMerchantsResult/.test(dataText), "src/lib/data.ts: merchant RPC failures must not fall through to raw Supabase reads.");
+assert(/async function loadPublicOffers[\s\S]{0,500}if \(isSupabaseConfigured\(\)\) \{[\s\S]{0,250}degraded: true/.test(dataText), "src/lib/data.ts: public offer RPC failures must not fall through to raw Supabase reads.");
 
 const publicApiSnapshotsText = read("src/lib/public-api-snapshots.ts");
 assert(/public_api_snapshots/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: public API snapshots must use the shared snapshot table.");
-assert(/SNAPSHOT_READ_TIMEOUT_MS\s*=\s*2_500/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot reads must keep a short 2.5s timeout.");
+assert(/SNAPSHOT_READ_TIMEOUT_MS\s*=\s*PUBLIC_PRICE_CACHE_ONLY_MODE\s*\?\s*10_000\s*:\s*2_500/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: normal snapshot reads must keep a short 2.5s timeout while explicit incident mode may use 10s.");
 assert(/PUBLIC_API_SNAPSHOT_SCHEMA_VERSION\s*=\s*1/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot schema version must be explicit.");
 assert(/refresh_state/.test(publicApiSnapshotsText), "src/lib/public-api-snapshots.ts: snapshot dirty state must use the shared snapshot table.");
 
 const publicApiSnapshotsRouteText = read("src/app/api/admin/public-api-snapshots/route.ts");
 assert(/refreshPublicApiSnapshotsIfDue/.test(publicApiSnapshotsRouteText), "src/app/api/admin/public-api-snapshots/route.ts: snapshot refresh endpoint must coalesce dirty writes instead of always refreshing.");
+assert(/publishPriceRadarSnapshot/.test(publicApiSnapshotsRouteText), "src/app/api/admin/public-api-snapshots/route.ts: protected refresh must publish the anonymous price radar after snapshots are healthy.");
+
+const priceRadarContractText = read("src/lib/price-radar-contract.ts");
+const priceRadarStorageText = read("src/lib/price-radar-storage.ts");
+const wranglerText = read("wrangler.jsonc");
+assert(/PRICE_RADAR_TOP_OFFER_LIMIT\s*=\s*5/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: anonymous rankings must keep a fixed Top 5 payload.");
+assert(/PRICE_RADAR_MAX_PRESETS_PER_PRODUCT\s*=\s*5/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: anonymous preset fanout must stay bounded.");
+assert(!/offerSearchText|riskFeedback|failureReason/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: anonymous price radar must not expose internal search or risk fields.");
+assert(/readPublicApiSnapshotsByKind/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: price radar publishing must read stored snapshots instead of rebuilding public data.");
+assert(!/listPublicOffers|listPublicProductOffers|getExplorerData/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: price radar publishing must not trigger public query or aggregation functions.");
+assert(!/priceRadarPresetTagsForProduct/.test(dataText), "src/lib/data.ts: price radar presets must not multiply snapshot refresh RPCs.");
+assert(/const objects: PriceRadarObject\[\] = \[\{/.test(priceRadarContractText), "src/lib/price-radar-contract.ts: each publication must remain a single immutable data object.");
+assert(/bucket\.head\(PRICE_RADAR_LATEST_KEY\)/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: unchanged snapshots must skip R2 writes.");
+assert(/PRICE_RADAR_LATEST_KEY[\s\S]{0,2600}putJson\(bucket, PRICE_RADAR_LATEST_KEY/.test(priceRadarStorageText), "src/lib/price-radar-storage.ts: latest.json must be written only after immutable snapshot objects.");
+assert(/"binding"\s*:\s*"PRICE_RADAR_BUCKET"/.test(wranglerText), "wrangler.jsonc: production Worker must bind the dedicated price radar R2 bucket for publishing.");
+
+const channelsPageText = read("src/app/channels/page.tsx");
+assert(!/listPublicOffers/.test(channelsPageText), "src/app/channels/page.tsx: the default product view must not prefetch the expensive all-offers list.");
+
+const middlewareText = read("src/middleware.ts");
+assert(!/staleDeploymentCssResponse/.test(middlewareText), "src/middleware.ts: deployment-skewed CSS must fail visibly so the client can recover instead of accepting an empty stylesheet.");
+assert(/www\.priceai\.cc/.test(middlewareText) && /\(\?!_next\/static/.test(middlewareText), "src/middleware.ts: canonical www redirects must cover public pages while excluding static assets.");
+
+const chunkRecoveryText = read("src/lib/chunk-load-recovery.ts");
+assert(/static\\\/\(\?:chunks\|css\)/.test(chunkRecoveryText), "src/lib/chunk-load-recovery.ts: both stale JavaScript and CSS deployment assets must trigger guarded recovery.");
+
+const rootLayoutText = read("src/app/layout.tsx");
+assert(/priceai-resource-recovery/.test(rootLayoutText) && /strategy="beforeInteractive"/.test(rootLayoutText), "src/app/layout.tsx: initial deployment asset failures need recovery before hydration starts.");
 
 const crawlLogRouteText = read("src/app/api/admin/crawl-log/route.ts");
 assert(/markPublicApiSnapshotsDirty/.test(crawlLogRouteText), "src/app/api/admin/crawl-log/route.ts: crawl-log writes must only mark public snapshots dirty.");
 assert(!/refreshPublicApiSnapshots/.test(crawlLogRouteText), "src/app/api/admin/crawl-log/route.ts: crawl-log writes must not synchronously refresh all public API snapshots.");
+assert(/payload\.details\?\.hotVerification === true[\s\S]{0,100}\? \{ changedOfferCount: 0 \}/.test(crawlLogRouteText), "src/app/api/admin/crawl-log/route.ts: hot verification writes must not refresh source-level full-store collection timestamps.");
 
 const adminText = read("src/lib/admin.ts");
 assert(/upsertRawOfferConfirmations/.test(adminText), "src/lib/admin.ts: unchanged offers must write lightweight confirmation rows instead of refreshing raw_offers.");
@@ -128,6 +181,13 @@ assert(/\/api\/products\/chatgpt-plus\/offers\?limit=30/.test(cloudflareSmokeTex
 assert(!/\/api\/offers\?limit=80/.test(cloudflareSmokeText), "scripts/smoke-cloudflare.mjs: production smoke must not use the heavy 80-row offers path as the default health signal.");
 assert(!/\/api\/products\/chatgpt-plus\/offers\?limit=80/.test(cloudflareSmokeText), "scripts/smoke-cloudflare.mjs: production smoke must not use the heavy 80-row product offers path as the default health signal.");
 
+const cloudflareDeployWorkflowText = read(".github/workflows/deploy-cloudflare-worker.yml");
+assert(/Promote staged candidate[\s\S]{0,800}Revalidate deployment page cache[\s\S]{0,400}Smoke production deployment/.test(cloudflareDeployWorkflowText), ".github/workflows/deploy-cloudflare-worker.yml: production promotion must revalidate deployment-skewed HTML before smoke.");
+
+const deploymentRevalidationRouteText = read("src/app/api/cron/deployment-revalidate/route.ts");
+assert(/authorizeCronRequest/.test(deploymentRevalidationRouteText), "src/app/api/cron/deployment-revalidate/route.ts: deployment-wide cache invalidation must require cron authorization.");
+assert(/revalidatePath\(["']\/["'],\s*["']layout["']\)/.test(deploymentRevalidationRouteText), "src/app/api/cron/deployment-revalidate/route.ts: deployment releases must invalidate the root layout and all nested pages.");
+
 const snapshotRefreshScriptText = read("scripts/refresh-public-api-snapshots.mjs");
 assert(/PRICEAI_BASE_URL/.test(snapshotRefreshScriptText), "scripts/refresh-public-api-snapshots.mjs: server snapshot refresh must support an explicit production base URL.");
 assert(/CRON_SECRET/.test(snapshotRefreshScriptText), "scripts/refresh-public-api-snapshots.mjs: server snapshot refresh must use the protected cron secret.");
@@ -137,11 +197,18 @@ const collectPricesScriptText = read("scripts/collect-prices.mjs");
 assert(!/NEXT_PUBLIC_SUPABASE_ANON_KEY/.test(collectPricesScriptText), "scripts/collect-prices.mjs: collector Supabase client must not fall back to the public anon key.");
 assert(/function cronWriteHeaders/.test(collectPricesScriptText), "scripts/collect-prices.mjs: collector writeback must use shared cron auth headers.");
 assert(!/["']x-admin-password["']\s*:/.test(collectPricesScriptText), "scripts/collect-prices.mjs: collector writeback must not post with the legacy admin password header.");
+assert(/run\.details\?\.hotVerification === true\) continue/.test(collectPricesScriptText), "scripts/collect-prices.mjs: full-store scheduling must ignore hot verification crawl runs.");
 
 const publicApiSnapshotsMigrationText = read("supabase/migrations/20260624083000_public_api_snapshots.sql");
 assert(/create table if not exists public_api_snapshots/.test(publicApiSnapshotsMigrationText), "public API snapshots migration must create the snapshot table.");
 assert(/primary key \(kind, cache_key\)/.test(publicApiSnapshotsMigrationText), "public API snapshots migration must key snapshots by kind and cache key.");
 assert(/grant select, insert, update, delete on table public_api_snapshots to service_role/.test(publicApiSnapshotsMigrationText), "public API snapshots migration must grant service_role access only.");
+
+const publicOfferReadModelMigrationText = read("supabase/migrations/20260721180000_public_offer_read_model.sql");
+assert(/create table if not exists public_offer_read_model/.test(publicOfferReadModelMigrationText), "public offer read model migration must create a precomputed table.");
+assert(/create or replace function refresh_public_offer_read_model\(\)/.test(publicOfferReadModelMigrationText), "public offer read model migration must provide a protected atomic rebuild RPC.");
+assert(/create or replace function list_public_offers_page_v2/.test(publicOfferReadModelMigrationText), "public offer read model migration must provide the v2 pagination RPC.");
+assert(!/delete from public_api_snapshots\s+where kind = 'offers'/i.test(publicOfferReadModelMigrationText), "public offer read model migration must preserve last-known-good offers snapshots.");
 
 const latestFacetMigration = latestMigrationDefining("list_public_product_offer_filter_facets");
 assert(Boolean(latestFacetMigration), "supabase/migrations: list_public_product_offer_filter_facets must be defined by a migration.");
@@ -154,20 +221,32 @@ if (latestFacetMigration) {
 const publicCachePolicyText = read("src/lib/public-cache-policy.ts");
 assert(/PRICE_DATA_EDGE_SECONDS\s*=\s*300/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: price data edge TTL must stay at 300s unless the cost plan is updated.");
 assert(/PRICE_DATA_STALE_SECONDS\s*=\s*1800/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: price data stale window must stay at 1800s unless the cost plan is updated.");
+assert(/PRICE_DATA_DEGRADED_EDGE_SECONDS\s*=\s*60/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: degraded public price responses must use a short 60s edge TTL.");
 assert(/PRICE_DATA_CACHE_TTL_MS\s*=\s*PRICE_DATA_EDGE_SECONDS\s*\*\s*1000/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: client/server TTL must derive from the shared edge TTL.");
+assert(/HOT_PRODUCT_PRICE_DATA_EDGE_SECONDS\s*=\s*60/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: Plus and Team hot product edge TTL must stay at 60s.");
+assert(/HOT_PRODUCT_PRICE_DATA_IDS\s*=\s*new Set\(\["chatgpt-plus",\s*"chatgpt-team-business"\]\)/.test(publicCachePolicyText), "src/lib/public-cache-policy.ts: hot product TTL scope must remain limited to Plus and Team.");
 
 const priceExplorerText = read("src/components/PriceExplorer.tsx");
 assert(/EXPLORER_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(priceExplorerText), "src/components/PriceExplorer.tsx: explorer client cache must use the shared price cache policy.");
 assert(/OFFER_LIST_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(priceExplorerText), "src/components/PriceExplorer.tsx: offer list client cache must use the shared price cache policy.");
 
 const productOffersPanelText = read("src/components/ProductOffersPanel.tsx");
-assert(/PRODUCT_OFFERS_CACHE_TTL_MS\s*=\s*PRICE_DATA_CACHE_TTL_MS/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer client cache must use the shared price cache policy.");
+assert(/priceDataCacheTtlMsForProduct\(productId\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer client cache must use the shared per-product price cache policy.");
 assert(/PRODUCT_OFFERS_REFRESH_TIMEOUT_MS\s*=\s*10_000/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer refresh timeout must tolerate slow-tail product API responses.");
 assert(/createTimeoutSignal\(PRODUCT_OFFERS_REFRESH_TIMEOUT_MS\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offers must use the product-specific refresh timeout.");
 assert(!/IntersectionObserver/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: deep product offer pages must require an explicit load-more action.");
 assert(/hasMoreProductOfferPage\(activeData\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: product offer pagination must honor the server end-of-list signal.");
 assert(/mergeProductOfferPages\(current, nextPage\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: empty or duplicate product offer pages must stop pagination.");
 assert(/pagingControllerRef\.current\?\.abort\(\)/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: changing filters must abort the previous pagination request.");
+assert(/PRODUCT_OFFER_QUICK_STOCK_THRESHOLD/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: keep the fixed stock quick filter.");
+assert(/PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: keep the fixed freshness quick filter.");
+assert(!/PRODUCT_OFFER_STOCK_THRESHOLDS|PRODUCT_OFFER_FRESHNESS_MINUTES/.test(productOffersPanelText), "src/components/ProductOffersPanel.tsx: operational quick filters must not expand back into full threshold matrices.");
+
+const productOfferFiltersText = read("src/lib/product-offer-filters.ts");
+assert(/PRODUCT_OFFER_QUICK_STOCK_THRESHOLD\s*=\s*50/.test(productOfferFiltersText), "src/lib/product-offer-filters.ts: stock quick preset must stay fixed at 50.");
+assert(/PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES\s*=\s*60/.test(productOfferFiltersText), "src/lib/product-offer-filters.ts: freshness quick preset must stay fixed at 60 minutes.");
+assert(!/PRODUCT_OFFER_STOCK_THRESHOLDS|PRODUCT_OFFER_FRESHNESS_MINUTES/.test(productOfferFiltersText), "src/lib/product-offer-filters.ts: API parsers must not accept arbitrary operational threshold matrices.");
+assert(/filterPublicProductOffersSnapshot/.test(dataText), "src/lib/data.ts: fixed operational quick filters must narrow the last-known-good snapshot before live RPC.");
 
 const clientHooksText = read("src/lib/client-hooks.ts");
 assert(/export function useMediaQuery/.test(clientHooksText), "src/lib/client-hooks.ts: shared client media query hook must stay centralized.");
@@ -324,6 +403,20 @@ assert(/prefetch=\{shouldPrefetch \? null : false\}/.test(intentPrefetchLinkText
 const siteHeaderText = read("src/components/SiteHeader.tsx");
 assert(/IntentPrefetchLink/.test(siteHeaderText), "src/components/SiteHeader.tsx: high-traffic module navigation must use intent-based prefetching.");
 
+const globalSiteFooterText = read("src/components/GlobalSiteFooter.tsx");
+assert(/IntentPrefetchLink/.test(globalSiteFooterText), "src/components/GlobalSiteFooter.tsx: global footer links must wait for user intent before prefetching.");
+
+const authButtonText = read("src/components/AuthButton.tsx");
+assert(/IntentPrefetchLink/.test(authButtonText), "src/components/AuthButton.tsx: login and account links must wait for user intent before prefetching.");
+
+const accountClientText = read("src/lib/account-client.ts");
+assert(/readAccountAuthHint\(\) === ["']anonymous["']/.test(accountClientText), "src/lib/account-client.ts: known anonymous browsers must skip repeated account probes.");
+
+for (const authRouteFile of ["src/app/auth/callback/route.ts", "src/app/auth/signout/route.ts"]) {
+  const text = read(authRouteFile);
+  assert(/ACCOUNT_AUTH_HINT_COOKIE/.test(text), `${authRouteFile}: auth transitions must keep the non-authoritative account hint synchronized.`);
+}
+
 for (const longListFile of [
   "src/components/PriceExplorer.tsx",
   "src/components/OfficialPricesExplorer.tsx",
@@ -399,6 +492,27 @@ assert(/check-performance-guards\.mjs/.test(buildCloudflareText), "scripts/build
 
 const qualityWorkflowText = read(".github/workflows/quality.yml");
 assert(/npm run check:performance/.test(qualityWorkflowText), ".github/workflows/quality.yml: run performance guards before build.");
+
+const hotVerifierLauncherText = read("ops/shop-collectors/run-hot-offer-verifier.sh");
+assert(/STATE_DIRECTORY/.test(hotVerifierLauncherText), "hot offer verifier must persist proxy leases in its systemd state directory.");
+assert(/--proxy-state-path/.test(hotVerifierLauncherText), "hot offer verifier must pass the proxy lease state path.");
+assert(/--proxy-max-runs/.test(hotVerifierLauncherText), "hot offer verifier must cap cross-run proxy lease reuse.");
+assert(/--candidate-state-path/.test(hotVerifierLauncherText), "hot offer verifier must persist sticky candidates in its systemd state directory.");
+assert(/PRICEAI_HOT_VERIFY_STICKY_CANDIDATE_MS:-1800000/.test(hotVerifierLauncherText), "hot offer verifier must retain ranked candidates for thirty minutes.");
+assert(/PRICEAI_HOT_VERIFY_STALE_ALERT_MS:-1200000/.test(hotVerifierLauncherText), "hot offer verifier must flag candidates older than twenty minutes.");
+assert(/PRICEAI_HOT_VERIFY_PROXY_REUSE_TTL_MS:-600000/.test(hotVerifierLauncherText), "hot offer verifier fallback lease TTL must cover two five-minute runs.");
+
+const hotVerifierServiceText = read("ops/shop-collectors/systemd/priceai-hot-offer-verifier.service");
+assert(/StateDirectory=priceai-hot-offer-verifier/.test(hotVerifierServiceText), "hot offer verifier must use a protected systemd state directory.");
+assert(/StateDirectoryMode=0700/.test(hotVerifierServiceText), "hot offer verifier state directory must remain private.");
+
+const hotVerifierEnvExampleText = read("ops/shop-collectors/hot-offer-verifier.env.example");
+assert(/PRICEAI_HOT_VERIFY_PROXY_REUSE_TTL_MS=600000/.test(hotVerifierEnvExampleText), "hot offer verifier env must preserve the ten-minute proxy lease TTL.");
+assert(/PRICEAI_HOT_VERIFY_PROXY_MAX_RUNS=2/.test(hotVerifierEnvExampleText), "hot offer verifier env must cap proxy leases at two runs.");
+assert(/PRICEAI_HOT_VERIFY_STICKY_CANDIDATE_MS=1800000/.test(hotVerifierEnvExampleText), "hot offer verifier env must keep the thirty-minute sticky candidate window.");
+assert(/PRICEAI_HOT_VERIFY_STALE_ALERT_MS=1200000/.test(hotVerifierEnvExampleText), "hot offer verifier env must keep the twenty-minute stale alert threshold.");
+const collectorDataText = read("src/lib/data.ts");
+assert(/"shanghai-hot-1"/.test(collectorDataText), "collector health must surface the Shanghai hot verifier node.");
 
 for (const file of listSourceFiles(["src/app", "src/lib"])) {
   if (!isPublicRuntimeFile(file)) continue;

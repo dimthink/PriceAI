@@ -14,6 +14,7 @@ import {
 } from "@/lib/sponsor-settings-shared";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { isQQGroupPromptUrl, qqGroupPromptEventName } from "@/lib/community";
+import { trackOutboundEvent } from "@/lib/outbound-analytics-client";
 import { sponsorAssetDisplayUrl } from "@/lib/sponsor-asset-url";
 
 type SponsoredPlacementPreviewProps = {
@@ -186,6 +187,10 @@ export function SponsoredPlacementPreview({ kind, settings = null, className = "
     return <FooterSponsorSection copy={copy} creatives={creatives} kind={kind} className={className} onDismiss={dismiss} pathname={pathname} />;
   }
 
+  if (kind === "apiTransit" || kind === "apiTransitModels") {
+    return <TransitSponsorSection copy={copy} creatives={creatives} kind={kind} className={className} onDismiss={dismiss} pathname={pathname} />;
+  }
+
   return <DisplayAdCard copy={copy} creative={creatives[0]} kind={kind} className={className} onDismiss={dismiss} pathname={pathname} />;
 }
 
@@ -321,6 +326,61 @@ function DisplayAdCard({
         path={pathname}
         compact
       />
+    </section>
+  );
+}
+
+function TransitSponsorSection({
+  copy,
+  creatives,
+  kind,
+  className,
+  onDismiss,
+  pathname,
+}: {
+  copy: PlacementCopy;
+  creatives: SponsorCreative[];
+  kind: SponsorPlacementKind;
+  className: string;
+  onDismiss: () => void;
+  pathname: string;
+}) {
+  return (
+    <section
+      aria-label={`${copy.eyebrow}广告位`}
+      className={`relative rounded-lg bg-white p-4 text-[#202829] ring-1 ring-[#dfe4e5] ${className}`}
+    >
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#f2f4f4] text-[#5a6061] transition hover:bg-[#e4e9ea] hover:text-[#202829]"
+        aria-label="关闭中转 API 赞助展示区广告"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+
+      <div className="pr-8">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="text-base font-extrabold text-[#202829]">赞助商</h2>
+          <Link href="/commercial#slots" className="text-xs font-bold text-[#2f6fff] transition hover:text-[#1c52c7]">
+            成为赞助商
+          </Link>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-start gap-3">
+          {creatives.map((card) => (
+            <SponsorCard
+              key={card.id}
+              card={card}
+              copy={copy}
+              kind={kind}
+              placementId={copy.id}
+              path={pathname}
+              compact
+            />
+          ))}
+        </div>
+      </div>
     </section>
   );
 }
@@ -472,6 +532,20 @@ function SponsorLink({ creative, placement, placementId, path, children, ...prop
           campaign_id: creative.campaignId || campaignSlug(placement, creative),
           target_url: href,
           path,
+        });
+        trackOutboundEvent({
+          eventType: "sponsor_click",
+          entityType: "sponsor",
+          entityId: creative.campaignId || creative.id,
+          placement,
+          creativeId: creative.id,
+          campaignId: creative.campaignId || campaignSlug(placement, creative),
+          targetUrl: typeof href === "string" ? href : String(href),
+          metadata: {
+            placement_id: placementId,
+            sponsor_name: creative.sponsorName || creative.title,
+            path,
+          },
         });
         if (shouldOpenQQGroupPrompt && shouldHandleInCurrentTab(event, target)) {
           event.preventDefault();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Layers3 } from "lucide-react";
 import { BrandIcon } from "@/components/BrandIcon";
 import { CategoryTabBar, type CategoryTabItem } from "@/components/CategoryTabBar";
@@ -12,6 +12,7 @@ import {
   TRANSIT_MODEL_FAMILY_ORDER,
   isTransitModelFamily,
 } from "@/data/api-transit/types";
+import { replaceClientSearchParams, useClientSearchParams } from "@/lib/client-url-state";
 
 type FamilyFilter = "all" | TransitModelFamily;
 
@@ -42,8 +43,8 @@ export function TransitFamilyTabs({
   className?: string;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const routeSearchParams = useSearchParams();
+  const searchParams = useClientSearchParams(routeSearchParams.toString());
   const activeFamily = coerceFamily(searchParams.get("family") ?? searchParams.get("model"));
 
   const tabs = useMemo<CategoryTabItem[]>(() => {
@@ -72,22 +73,10 @@ export function TransitFamilyTabs({
 
   function updateFamily(value: string) {
     const nextFamily = coerceFamily(value);
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("model");
-
-    if (nextFamily === "all") {
-      params.delete("family");
-    } else {
-      params.set("family", nextFamily);
-    }
-
-    const query = params.toString();
-    const nextUrl = query ? `${pathname}?${query}` : pathname;
-    const currentUrl = `${window.location.pathname}${window.location.search}`;
-
-    if (currentUrl === nextUrl) return;
-
-    router.replace(nextUrl, { scroll: false });
+    replaceClientSearchParams(pathname, {
+      model: null,
+      family: nextFamily === "all" ? null : nextFamily,
+    });
   }
 
   return (

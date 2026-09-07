@@ -10,6 +10,8 @@ export const COLLECTOR_RUNTIME_DEPENDENCY_FILES = [".nvmrc", "package.json", "pa
 export const COLLECTOR_RUNTIME_SOURCE_FILES = [
   "scripts/collect-api-transit.mjs",
   "scripts/collect-prices.mjs",
+  "scripts/out-of-stock-observation.mjs",
+  "scripts/verify-hot-offers.mjs",
   "scripts/import-sub2api-api-transit.mjs",
   "scripts/probe-api-transit.mjs",
   "scripts/refresh-public-api-snapshots.mjs",
@@ -34,6 +36,13 @@ export const COLLECTOR_RUNTIME_LAUNCHER_FILES = [
   "ops/collector-runtime/run-dujiao.sh",
   "ops/collector-runtime/run-generic-html-canary.sh",
   "ops/collector-runtime/run-main.sh",
+  "ops/shop-collectors/run-hot-offer-verifier.sh",
+  "ops/shop-collectors/hot-offer-verifier.env.example",
+  "ops/shop-collectors/hot-offer-verifier-shanghai.env.example",
+  "ops/shop-collectors/systemd/priceai-hot-offer-verifier.service",
+  "ops/shop-collectors/systemd/priceai-hot-offer-verifier-hangzhou.timer",
+  "ops/shop-collectors/systemd/priceai-hot-offer-verifier-heyuan.timer",
+  "ops/shop-collectors/systemd/priceai-hot-offer-verifier-shanghai.timer",
 ];
 
 export const COLLECTOR_RUNTIME_WATCHLIST = uniqueSorted([

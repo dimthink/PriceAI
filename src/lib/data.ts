@@ -23,6 +23,7 @@ import { isSupabaseConfigured } from "./env";
 import { getApiModelAdminData } from "./api-models-db";
 import { normalizeCollectorKind } from "./collector-registry";
 import { getOfficialSubscriptionAdminData } from "./official-prices-db";
+import { getEmptyOutboundAnalyticsSummary, getOutboundAnalyticsSummary } from "./outbound-analytics";
 import {
   buildOfferFilterFacets,
   deriveOfferFilterTags,
@@ -63,7 +64,7 @@ import {
   type ProductOfferFreshnessMinutes,
   type ProductOfferStockThreshold,
 } from "./product-offer-filters";
-import { PRICE_DATA_CACHE_TTL_MS } from "./public-cache-policy";
+import { PRICE_DATA_CACHE_TTL_MS, priceDataCacheTtlMsForProduct } from "./public-cache-policy";
 import { seedRawOffers, seedSources } from "./sample-data";
 import { getSupabaseServerClient } from "./supabase";
 import { API_CDK_PLATFORM, getPublicRiskPrecheck, isPublicCatalogProduct } from "./trust-risk";
@@ -97,13 +98,18 @@ import type {
   SourceQualitySource,
 } from "./types";
 import { publicOfferDedupeKey, stableId } from "./utils";
+import { PUBLIC_PRICE_CACHE_ONLY_MODE } from "./public-price-emergency";
+import {
+  inspectPublicSnapshotRefreshFailures,
+  mergePendingPublicSnapshotProductIds,
+} from "./public-snapshot-refresh";
 
 const SUPABASE_PAGE_SIZE = 1000;
 const PUBLIC_FALLBACK_MAX_ROWS = 5000;
 const PUBLIC_DATA_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const EXPLORER_DATA_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
-const PRODUCT_OFFERS_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const PUBLIC_SUPABASE_READ_TIMEOUT_MS = 2_500;
+const PUBLIC_SUPABASE_REFRESH_READ_TIMEOUT_MS = 15_000;
 const PUBLIC_SUPABASE_BUILD_READ_TIMEOUT_MS = 15_000;
 const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
 const DASHBOARD_DATA_CACHE_TTL_MS = 30_000;
@@ -172,6 +178,7 @@ const PRIMARY_COLLECTOR_NODE_IDS = new Set([
   "aliyun7-heyuan-shop-vip-scheduler-lane-1",
   "aliyun7-new-47-121-priceai-qxvx",
   "aliyun7-new-47-121-priceai-yunmao",
+  "shanghai-hot-1",
 ]);
 const PUBLIC_EXPLORER_SNAPSHOT_KEY = "default";
 const PUBLIC_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
@@ -179,6 +186,12 @@ const PUBLIC_OFFERS_SNAPSHOT_OFFSET = 0;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_LIMIT = PUBLIC_OFFER_DEFAULT_LIMIT;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_OFFSET = 0;
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_TAGS = OFFER_FILTER_TAGS.map((tag) => tag.id);
+const PUBLIC_PRICE_EMERGENCY_EXPLORER_PRODUCT_IDS = [
+  "chatgpt-plus",
+  "chatgpt-plus-recharge",
+  "claude-max-20x",
+  "gemini-pro-recharge",
+] as const;
 const PUBLIC_OFFERS_SNAPSHOT_KEY = `default:limit:${PUBLIC_OFFERS_SNAPSHOT_LIMIT}`;
 const PUBLIC_MERCHANTS_SNAPSHOT_KEY = "default:v6:compact";
 const PUBLIC_PRODUCT_OFFERS_SNAPSHOT_VERSION = "v5-plus-account-state-tags";
@@ -633,6 +646,7 @@ export async function refreshPublicApiSnapshotsIfDue({
         productIds: scope.productIds,
         refreshGlobal,
       });
+  const failures = inspectPublicSnapshotRefreshFailures(result, refreshGlobal);
   const completedAt = new Date().toISOString();
   const latestSnapshot = await readPublicApiSnapshot<PublicApiSnapshotRefreshState>(
     PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
@@ -647,22 +661,42 @@ export async function refreshPublicApiSnapshotsIfDue({
   const nextState = buildNextPublicApiSnapshotRefreshState({
     completedAt,
     dirtiedDuringRefresh,
-    globalRefreshed: mustRunFullRefresh || refreshGlobal,
+    globalRefreshed: refreshGlobal && failures.failedGlobalKinds.length === 0,
     fullRefreshAttempted: mustRunFullRefresh,
     latestState,
     minIntervalMs,
     previousState: state,
-    processedProductIds: result.productIds,
-    remainingProductIds: result.remainingProductIds || [],
+    processedProductIds: result.productIds.filter((id) => !failures.failedProductIds.includes(id)),
+    remainingProductIds: normalizePublicSnapshotIdList([
+      ...(result.remainingProductIds || []),
+      ...failures.failedProductIds,
+    ]),
     startedAt,
   });
+  if (!failures.ok) {
+    nextState.dirty = true;
+    nextState.dirtyAt = nextState.dirtyAt || state.dirtyAt || completedAt;
+    nextState.reason = "snapshot refresh failed";
+    nextState.lastRefreshCompletedAt = state.lastRefreshCompletedAt;
+    nextState.lastGlobalRefreshCompletedAt = state.lastGlobalRefreshCompletedAt;
+    nextState.lastFullRefreshCompletedAt = state.lastFullRefreshCompletedAt;
+    nextState.globalDirty = nextState.globalDirty || failures.failedGlobalKinds.length > 0;
+  }
 
-  await writePublicApiSnapshot({
+  const refreshStateWritten = await writePublicApiSnapshot({
     kind: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KIND,
     key: PUBLIC_API_SNAPSHOT_REFRESH_STATE_KEY,
     payload: nextState,
     generatedAt: completedAt,
   });
+  if (!refreshStateWritten) {
+    throw new Error("Public API snapshot refresh state write failed.");
+  }
+  if (!failures.ok) {
+    throw new Error(
+      `Public API snapshot refresh incomplete: global=${failures.failedGlobalKinds.join(",") || "ok"}; products=${failures.failedProductIds.length}.`,
+    );
+  }
 
   return {
     refreshed: true,
@@ -859,7 +893,6 @@ function productIdFromRawOfferScopeRow(row: Record<string, unknown>): string | n
   const tags = Array.isArray(row.tags) ? row.tags.map(String) : [];
   return classifyOffer(String(row.source_title || ""), {
     tags,
-    price: typeof row.price === "number" ? row.price : null,
   }).id;
 }
 
@@ -905,12 +938,13 @@ function buildNextPublicApiSnapshotRefreshState({
     };
   }
 
-  const processed = new Set(processedProductIds);
-  const affectedProductIds = fullRefreshAttempted
-    ? remainingProductIds
-    : previousState.fullRefreshRequired
-      ? previousState.affectedProductIds
-      : previousState.affectedProductIds.filter((id) => !processed.has(id));
+  const affectedProductIds = mergePendingPublicSnapshotProductIds({
+    fullRefreshAttempted,
+    previousAffectedProductIds: previousState.affectedProductIds,
+    previousFullRefreshRequired: previousState.fullRefreshRequired,
+    processedProductIds,
+    remainingProductIds,
+  });
   const globalDirty = !globalRefreshed && previousState.globalDirty;
   const fullRefreshRequired = fullRefreshAttempted
     ? false
@@ -961,6 +995,7 @@ function comparePublicSnapshotProductRefreshPriority(
 }
 
 export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefreshResult> {
+  const readModelReady = await refreshPublicOfferReadModel();
   const explorerData = await buildExplorerData({ skipSnapshot: true });
   const explorer = !explorerData.degraded && await writePublicApiSnapshot({
     kind: "explorer",
@@ -969,11 +1004,14 @@ export async function refreshPublicApiSnapshots(): Promise<PublicApiSnapshotRefr
     generatedAt: explorerData.generatedAt,
   });
 
-  const offersData = await loadPublicOffers({
-    limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
-    offset: PUBLIC_OFFERS_SNAPSHOT_OFFSET,
-    skipSnapshot: true,
-  });
+  const offersData = await loadPublicOffers(
+    {
+      limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+      offset: PUBLIC_OFFERS_SNAPSHOT_OFFSET,
+      skipSnapshot: true,
+    },
+    { background: true, useLegacyRpc: !readModelReady },
+  );
   const offers = !offersData.degraded && await writePublicApiSnapshot({
     kind: "offers",
     key: PUBLIC_OFFERS_SNAPSHOT_KEY,
@@ -1018,6 +1056,7 @@ async function refreshPublicApiSnapshotsForScope({
   let offers: boolean | undefined;
   let merchants: boolean | undefined;
   let explorerProducts: Array<{ id: string; slug?: string | null }> = [];
+  const readModelReady = await refreshPublicOfferReadModel();
 
   if (refreshGlobal) {
     const explorerData = await buildExplorerData({ skipSnapshot: true });
@@ -1029,11 +1068,14 @@ async function refreshPublicApiSnapshotsForScope({
     });
     explorerProducts = explorerData.products.map((product) => ({ id: product.id, slug: product.slug }));
 
-    const offersData = await loadPublicOffers({
-      limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
-      offset: PUBLIC_OFFERS_SNAPSHOT_OFFSET,
-      skipSnapshot: true,
-    });
+    const offersData = await loadPublicOffers(
+      {
+        limit: PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+        offset: PUBLIC_OFFERS_SNAPSHOT_OFFSET,
+        skipSnapshot: true,
+      },
+      { background: true, useLegacyRpc: !readModelReady },
+    );
     offers = !offersData.degraded && await writePublicApiSnapshot({
       kind: "offers",
       key: PUBLIC_OFFERS_SNAPSHOT_KEY,
@@ -1394,6 +1436,21 @@ async function buildExplorerData(options: { skipSnapshot?: boolean } = {}): Prom
     }
   }
 
+  if (PUBLIC_PRICE_CACHE_ONLY_MODE && !options.skipSnapshot) {
+    const emergencySnapshotValue = await buildEmergencyExplorerDataFromProductSnapshots();
+    if (emergencySnapshotValue) return emergencySnapshotValue;
+
+    return {
+      configured: isSupabaseConfigured(),
+      degraded: true,
+      message: STALE_PUBLIC_DATA_MESSAGE,
+      generatedAt: new Date().toISOString(),
+      products: [],
+      sources: [],
+      offerTotal: 0,
+    };
+  }
+
   const value = await buildExplorerDataFromSource();
   const publicValue = sanitizeExplorerDataForPublicCatalog(value);
   const nextValue = staleSnapshotValue ? preferStaleExplorerData(staleSnapshotValue, publicValue) : publicValue;
@@ -1409,9 +1466,50 @@ async function buildExplorerData(options: { skipSnapshot?: boolean } = {}): Prom
   return nextValue;
 }
 
+async function buildEmergencyExplorerDataFromProductSnapshots(): Promise<ExplorerData | null> {
+  const snapshots = await Promise.all(
+    PUBLIC_PRICE_EMERGENCY_EXPLORER_PRODUCT_IDS.map(async (productId) => {
+      const snapshot = await readPublicApiSnapshot<PublicProductOffersResult>(
+        "product_offers",
+        publicProductOffersSnapshotKey(productId),
+      );
+      if (!snapshot || !isProductOffersSnapshot(snapshot.value) || !snapshot.value.offers.length) return null;
+      return { productId, snapshot };
+    }),
+  );
+  const availableSnapshots = snapshots.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+  if (!availableSnapshots.length) return null;
+
+  const productIds = new Set<string>(availableSnapshots.map((entry) => entry.productId));
+  const offers = dedupePublicOffers(availableSnapshots.flatMap((entry) => entry.snapshot.value.offers));
+  const products = buildProductGroups(offers, canonicalCatalog)
+    .filter((product) => productIds.has(product.id))
+    .map(toExplorerProductSummary)
+    .map((product) => {
+      const source = availableSnapshots.find((entry) => entry.productId === product.id);
+      return source ? { ...product, offerCount: source.snapshot.value.total } : product;
+    });
+  if (!products.length) return null;
+
+  return {
+    configured: true,
+    degraded: false,
+    message: null,
+    generatedAt: availableSnapshots.reduce(
+      (latest, entry) => latest > entry.snapshot.generatedAt ? latest : entry.snapshot.generatedAt,
+      "",
+    ) || new Date().toISOString(),
+    products,
+    sources: [],
+    offerTotal: availableSnapshots.reduce((sum, entry) => sum + entry.snapshot.value.total, 0),
+  };
+}
+
 async function buildExplorerDataFromSource(): Promise<ExplorerData> {
   const rpcData = await getExplorerDataFromDatabase();
   if (rpcData) return rpcData;
+
+  if (isSupabaseConfigured()) return emptyDegradedExplorerData();
 
   const publicData = await readPublicOfferData();
   const products = buildProductGroups(dedupePublicOffers(publicData.offers), publicData.products);
@@ -1424,6 +1522,18 @@ async function buildExplorerDataFromSource(): Promise<ExplorerData> {
     products: products.map(toExplorerProductSummary),
     sources: [],
     offerTotal: publicData.offers.length,
+  };
+}
+
+function emptyDegradedExplorerData(): ExplorerData {
+  return {
+    generatedAt: new Date().toISOString(),
+    configured: isSupabaseConfigured(),
+    degraded: true,
+    message: STALE_PUBLIC_DATA_MESSAGE,
+    products: [],
+    sources: [],
+    offerTotal: 0,
   };
 }
 
@@ -1506,6 +1616,7 @@ export function getEmptyAdminSummary(isAuthenticated = false): AdminSummary {
     feedbackRawOffers: [],
     riskReviewSettings: getFallbackRiskReviewSettingsSummary("尚未加载风险预审配置。"),
     sponsorSettings: getFallbackSponsorSettingsSummary("尚未加载赞助位配置。"),
+    outboundAnalytics: getEmptyOutboundAnalyticsSummary("尚未加载点击归因数据。"),
     communitySettings: getFallbackCommunitySettingsSummary("尚未加载社群配置。"),
     passwordStatus: {
       configured: false,
@@ -1789,10 +1900,11 @@ async function readAdminSummary(): Promise<AdminSummary> {
   if (!supabase) {
     const dashboard = await getDashboardData();
     const adminDashboard = toAdminDashboardData(dashboard, dashboard.rawOffers.length);
-    const [officialPrices, apiModels, apiTransit, communitySettings, passwordStatus] = await Promise.all([
+    const [officialPrices, apiModels, apiTransit, outboundAnalytics, communitySettings, passwordStatus] = await Promise.all([
       getOfficialSubscriptionAdminData(),
       getApiModelAdminData(),
       getApiTransitAdminData({ isAuthenticated: true }),
+      getOutboundAnalyticsSummary(),
       getCommunitySettingsSummary(),
       getAdminPasswordStatus(),
     ]);
@@ -1819,6 +1931,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       feedbackRawOffers: [],
       riskReviewSettings: getFallbackRiskReviewSettingsSummary(),
       sponsorSettings: getFallbackSponsorSettingsSummary(),
+      outboundAnalytics,
       communitySettings,
       passwordStatus,
     };
@@ -1844,6 +1957,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     apiTransit,
     riskReviewSettings,
     sponsorSettings,
+    outboundAnalytics,
     communitySettings,
     passwordStatus,
   ] = await Promise.all([
@@ -1894,6 +2008,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     adminLoad("api-transit", "中转 API", getApiTransitAdminData({ isAuthenticated: true }), getEmptyApiTransitAdminData(true, "读取中转 API 后台数据失败。"), loadErrors),
     adminLoad("risk-review-settings", "风险预审配置", getRiskReviewSettingsSummary(), getFallbackRiskReviewSettingsSummary(), loadErrors),
     adminLoad("sponsor-settings", "赞助位配置", getSponsorSettingsSummary(), getFallbackSponsorSettingsSummary(), loadErrors),
+    adminLoad("outbound-analytics", "数据分析", getOutboundAnalyticsSummary(), getEmptyOutboundAnalyticsSummary("读取点击归因数据失败。"), loadErrors),
     adminLoad("community-settings", "社群配置", getCommunitySettingsSummary(), getFallbackCommunitySettingsSummary(), loadErrors),
     adminLoad("admin-password", "后台密码状态", getAdminPasswordStatus(), {
       configured: false,
@@ -1991,6 +2106,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
       feedbackRawOffers,
       riskReviewSettings,
       sponsorSettings,
+      outboundAnalytics,
       communitySettings,
       passwordStatus,
     };
@@ -2019,6 +2135,7 @@ async function readAdminSummary(): Promise<AdminSummary> {
     feedbackRawOffers,
     riskReviewSettings,
     sponsorSettings,
+    outboundAnalytics,
     communitySettings,
     passwordStatus,
   };
@@ -2100,6 +2217,10 @@ function publicSupabaseReadSignal(): AbortSignal {
   return AbortSignal.timeout(publicSupabaseReadTimeoutMs());
 }
 
+function publicSupabaseRefreshReadSignal(): AbortSignal {
+  return AbortSignal.timeout(PUBLIC_SUPABASE_REFRESH_READ_TIMEOUT_MS);
+}
+
 function publicSupabaseReadTimeoutMs(): number {
   return process.env.NEXT_PHASE === NEXT_PRODUCTION_BUILD_PHASE
     ? PUBLIC_SUPABASE_BUILD_READ_TIMEOUT_MS
@@ -2169,6 +2290,7 @@ function hydrateGeneratedAt<T extends { generatedAt: string }>(snapshot: PublicA
 }
 
 function isPublicApiSnapshotFresh<T extends { generatedAt: string }>(snapshot: PublicApiSnapshotPayload<T>): boolean {
+  if (PUBLIC_PRICE_CACHE_ONLY_MODE) return true;
   return isGeneratedAtFresh(snapshot.generatedAt || snapshot.value.generatedAt);
 }
 
@@ -2263,6 +2385,7 @@ function publicMerchantListSnapshotKeyForRequest(filters: MerchantListFilters): 
   const collector = normalizePublicSnapshotMerchantCollector(filters.collector);
   const signal = normalizePublicSnapshotMerchantSignal(filters.signal);
 
+  if (!platform && !stock && !collector && !signal) return PUBLIC_MERCHANTS_SNAPSHOT_KEY;
   if (!isAllowedMerchantListSnapshotView({ platform, stock, collector, signal })) return null;
 
   return publicListViewSnapshotKey("merchants", {
@@ -2297,9 +2420,7 @@ function publicProductOffersSnapshotKeyForRequest(
     filters.excludeQuery ||
     filters.collector !== "all" ||
     filters.minPrice !== null ||
-    filters.maxPrice !== null ||
-    filters.minStock !== null ||
-    filters.freshWithinMinutes !== null
+    filters.maxPrice !== null
   ) {
     return null;
   }
@@ -3703,7 +3824,7 @@ function buildSampleFrontRankOfferCounts(offers: RawOffer[]): Map<string, number
     const productId =
       offer.canonicalProductId ||
       offer.storedCanonicalProductId ||
-      classifyOffer(offer.sourceTitle, { tags: offer.tags, price: offer.price }).id;
+      classifyOffer(offer.sourceTitle, { tags: offer.tags }).id;
     const rows = byProduct.get(productId) || [];
     rows.push(offer);
     byProduct.set(productId, rows);
@@ -4573,8 +4694,10 @@ export async function getPublicProductSummary(id: string) {
   const product = explorerData.products.find((item) => item.id === id || item.slug === id);
   if (product) return product;
 
-  const summary = await getPublicProductSummaryFromDatabase(id);
-  if (summary) return summary;
+  if (!PUBLIC_PRICE_CACHE_ONLY_MODE) {
+    const summary = await getPublicProductSummaryFromDatabase(id);
+    if (summary) return summary;
+  }
 
   const catalogProduct = canonicalCatalog.find((item) => item.id === id || item.slug === id);
   if (catalogProduct && !isPublicCatalogProduct(catalogProduct)) return null;
@@ -4640,7 +4763,7 @@ export async function listPublicProductOffers(id: string, filters: ProductOfferL
   const nextValue = sanitizePublicProductOffersResultForProduct(filterProductId, preferStaleProductOffers(staleValue, value));
   if (!nextValue.degraded) {
     productOffersCache.set(cacheKey, {
-      expiresAt: Date.now() + PRODUCT_OFFERS_CACHE_TTL_MS,
+      expiresAt: Date.now() + priceDataCacheTtlMsForProduct(filterProductId),
       value: nextValue,
     });
   }
@@ -4680,15 +4803,38 @@ async function loadPublicProductOffers(
       snapshotKey,
     );
     if (snapshot && isProductOffersSnapshot(snapshot.value)) {
-      const value = sanitizePublicProductOffersResultForProduct(filters.filterProductId, hydrateGeneratedAt(snapshot));
+      const value = filterPublicProductOffersSnapshot(
+        sanitizePublicProductOffersResultForProduct(filters.filterProductId, hydrateGeneratedAt(snapshot)),
+        filters.minStock,
+        filters.freshWithinMinutes,
+      );
       if (isPublicApiSnapshotFresh(snapshot)) return value;
       staleSnapshotValue = value;
     }
   }
 
+  if (PUBLIC_PRICE_CACHE_ONLY_MODE && !filters.skipSnapshot) {
+    return {
+      offers: [],
+      total: 0,
+      filterFacets: [],
+      activeFilterTags: filters.filterTags,
+      limited: false,
+      generatedAt: new Date().toISOString(),
+      degraded: true,
+      message: STALE_PUBLIC_DATA_MESSAGE,
+    };
+  }
+
   const rpcData = await getPublicProductOffersFromDatabase(id, filters);
   if (rpcData) {
-    if (snapshotKey && !filters.skipSnapshot && !rpcData.degraded) {
+    if (
+      snapshotKey &&
+      !filters.skipSnapshot &&
+      filters.minStock === null &&
+      filters.freshWithinMinutes === null &&
+      !rpcData.degraded
+    ) {
       await writePublicApiSnapshot({
         kind: "product_offers",
         key: snapshotKey,
@@ -4697,6 +4843,20 @@ async function loadPublicProductOffers(
       });
     }
     return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, rpcData) : rpcData;
+  }
+
+  if (isSupabaseConfigured()) {
+    const degradedValue: PublicProductOffersResult = {
+      offers: [],
+      total: 0,
+      filterFacets: [],
+      activeFilterTags: filters.filterTags,
+      limited: false,
+      generatedAt: new Date().toISOString(),
+      degraded: true,
+      message: STALE_PUBLIC_DATA_MESSAGE,
+    };
+    return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, degradedValue) : degradedValue;
   }
 
   const { limit, offset, filterTags, query, excludeQuery, collector, minPrice, maxPrice, minStock, freshWithinMinutes } = filters;
@@ -4756,6 +4916,23 @@ async function loadPublicProductOffers(
   }
 
   return staleSnapshotValue ? preferStaleProductOffers(staleSnapshotValue, fallbackValue) : fallbackValue;
+}
+
+function filterPublicProductOffersSnapshot(
+  value: PublicProductOffersResult,
+  minStock: ProductOfferStockThreshold | null,
+  freshWithinMinutes: ProductOfferFreshnessMinutes | null,
+): PublicProductOffersResult {
+  if (minStock === null && freshWithinMinutes === null) return value;
+
+  const offers = value.offers.filter((offer) =>
+    offerMatchesProductOperationalFilters(offer, minStock, freshWithinMinutes));
+  return {
+    ...value,
+    offers,
+    total: offers.length,
+    limited: false,
+  };
 }
 
 async function getPublicProductOffersFromDatabase(
@@ -4879,7 +5056,7 @@ async function getPublicProductOfferFilterFacetsFromDatabase(id: string, filterP
 
   const facets = filterOfferFilterFacetsForProduct(filterProductId, buildOfferFilterFacetsFromCounts(counts));
   productOfferFacetsCache.set(cacheKey, {
-    expiresAt: Date.now() + PRODUCT_OFFERS_CACHE_TTL_MS,
+    expiresAt: Date.now() + priceDataCacheTtlMsForProduct(filterProductId),
     value: facets,
   });
   if (productOfferFacetsCache.size > 120) {
@@ -4915,7 +5092,9 @@ function sanitizePublicProductOffersResultForProduct(
 
   const filterFacets = filterOfferFilterFacetsForProduct(productId, result.filterFacets);
   const activeFilterTags = parseOfferFilterTagsForProduct(productId, result.activeFilterTags);
-  const offers = result.offers.filter((offer) => (offer.canonicalProductId || offer.storedCanonicalProductId) === productId);
+  const offers = result.offers
+    .map(withInferredMerchantShopUrl)
+    .filter((offer) => (offer.canonicalProductId || offer.storedCanonicalProductId) === productId);
   const removedOfferCount = result.offers.length - offers.length;
   const total = removedOfferCount > 0 ? Math.max(0, result.total - removedOfferCount) : result.total;
 
@@ -5045,6 +5224,17 @@ export async function listPublicOffers(filters: OfferListFilters = {}) {
     }
   }
 
+  if (PUBLIC_PRICE_CACHE_ONLY_MODE && !normalizedFilters.skipSnapshot) {
+    return {
+      rows: [],
+      total: 0,
+      limited: false,
+      generatedAt: new Date().toISOString(),
+      degraded: true,
+      message: STALE_PUBLIC_DATA_MESSAGE,
+    };
+  }
+
   const value = await loadPublicOffers(normalizedFilters);
   const publicValue = sanitizePublicOffersResultForPublicCatalog(value);
   const nextValue = snapshotEligible
@@ -5092,7 +5282,12 @@ export async function listPublicMerchants(filters: MerchantListFilters = {}): Pr
     let staleSnapshotValue = cached?.value || null;
     const snapshot = await readPublicApiSnapshot<PublicMerchantsResult>("merchants", snapshotKey);
     if (snapshot && isPublicMerchantsSnapshot(snapshot.value)) {
-      const value = hydrateGeneratedAt(snapshot);
+      const hydratedValue = hydrateGeneratedAt(snapshot);
+      const needsDefaultCatalogPagination = snapshotKey === PUBLIC_MERCHANTS_SNAPSHOT_KEY &&
+        (hydratedValue.limit == null || hydratedValue.offset == null);
+      const value = needsDefaultCatalogPagination
+        ? paginatePublicMerchants(hydratedValue, normalizedFilters)
+        : hydratedValue;
       if (isPublicApiSnapshotFresh(snapshot)) {
         publicMerchantViewCache.set(snapshotKey, {
           expiresAt: Date.now() + PUBLIC_DATA_CACHE_TTL_MS,
@@ -5101,6 +5296,10 @@ export async function listPublicMerchants(filters: MerchantListFilters = {}): Pr
         return value;
       }
       staleSnapshotValue = value;
+    }
+
+    if (PUBLIC_PRICE_CACHE_ONLY_MODE) {
+      return emptyCacheOnlyPublicMerchantsResult(normalizedFilters.limit, normalizedFilters.offset);
     }
 
     const catalog = await loadPublicMerchantCatalog();
@@ -5121,6 +5320,10 @@ export async function listPublicMerchants(filters: MerchantListFilters = {}): Pr
       });
     }
     return nextValue;
+  }
+
+  if (PUBLIC_PRICE_CACHE_ONLY_MODE) {
+    return emptyCacheOnlyPublicMerchantsResult(normalizedFilters.limit, normalizedFilters.offset);
   }
 
   const catalog = await loadPublicMerchantCatalog();
@@ -5169,6 +5372,10 @@ async function buildPublicMerchants(options: { skipSnapshot?: boolean } = {}): P
     }
   }
 
+  if (PUBLIC_PRICE_CACHE_ONLY_MODE && !options.skipSnapshot) {
+    return emptyCacheOnlyPublicMerchantsResult(PUBLIC_OFFERS_SNAPSHOT_LIMIT, PUBLIC_OFFERS_SNAPSHOT_OFFSET);
+  }
+
   const rpcData = await listPublicMerchantsFromDatabase();
   if (rpcData) {
     const compactRpcData = compactPublicMerchantsResult(rpcData);
@@ -5181,6 +5388,14 @@ async function buildPublicMerchants(options: { skipSnapshot?: boolean } = {}): P
       });
     }
     return staleSnapshotValue ? preferStalePublicMerchants(staleSnapshotValue, compactRpcData) : compactRpcData;
+  }
+
+  if (isSupabaseConfigured()) {
+    const degradedValue = emptyCacheOnlyPublicMerchantsResult(
+      PUBLIC_OFFERS_SNAPSHOT_LIMIT,
+      PUBLIC_OFFERS_SNAPSHOT_OFFSET,
+    );
+    return staleSnapshotValue ? preferStalePublicMerchants(staleSnapshotValue, degradedValue) : degradedValue;
   }
 
   const publicData = await readPublicOfferData();
@@ -5210,6 +5425,19 @@ async function buildPublicMerchants(options: { skipSnapshot?: boolean } = {}): P
   }
 
   return staleSnapshotValue ? preferStalePublicMerchants(staleSnapshotValue, value) : value;
+}
+
+function emptyCacheOnlyPublicMerchantsResult(limit: number, offset: number): PublicMerchantsResult {
+  return {
+    rows: [],
+    total: 0,
+    limited: false,
+    limit,
+    offset,
+    generatedAt: new Date().toISOString(),
+    degraded: true,
+    message: STALE_PUBLIC_DATA_MESSAGE,
+  };
 }
 
 function paginatePublicMerchants(value: PublicMerchantsResult, filters: MerchantListFilters): PublicMerchantsResult {
@@ -5386,9 +5614,23 @@ function comparePublicMerchantsBySort(a: PublicMerchantSummary, b: PublicMerchan
   return comparePublicMerchants(a, b);
 }
 
-async function loadPublicOffers(filters: OfferListFilters & { skipSnapshot?: boolean } = {}): Promise<PublicOffersResult> {
-  const rpcData = await listPublicOffersFromDatabase(filters);
+async function loadPublicOffers(
+  filters: OfferListFilters & { skipSnapshot?: boolean } = {},
+  options: { background?: boolean; useLegacyRpc?: boolean } = {},
+): Promise<PublicOffersResult> {
+  const rpcData = await listPublicOffersFromDatabase(filters, options);
   if (rpcData) return rpcData;
+
+  if (isSupabaseConfigured()) {
+    return {
+      rows: [],
+      total: 0,
+      limited: false,
+      generatedAt: new Date().toISOString(),
+      degraded: true,
+      message: STALE_PUBLIC_DATA_MESSAGE,
+    };
+  }
 
   const publicData = await readPublicOfferData();
   const productGroups = buildProductGroups(publicData.offers, publicData.products).map(toExplorerProductSummary);
@@ -5466,25 +5708,39 @@ async function loadPublicOffers(filters: OfferListFilters & { skipSnapshot?: boo
   };
 }
 
-async function listPublicOffersFromDatabase(filters: OfferListFilters = {}) {
+async function listPublicOffersFromDatabase(
+  filters: OfferListFilters = {},
+  options: { background?: boolean; useLegacyRpc?: boolean } = {},
+) {
   const supabase = getSupabaseServerClient();
   if (!supabase) return null;
 
   const limit = normalizePublicOfferLimit(filters.limit);
   const offset = normalizePublicOfferOffset(filters.offset);
-  const { data, error } = await supabase
-    .rpc("list_public_offers_page", {
-      p_query: filters.query || null,
-      p_platform: filters.platform || null,
-      p_product_type: filters.productType || null,
-      p_stock: filters.stock || null,
-      p_sort: filters.sort || null,
-      p_min_price: filters.minPrice ?? null,
-      p_max_price: filters.maxPrice ?? null,
-      p_limit: limit,
-      p_offset: offset,
-    })
-    .abortSignal(publicSupabaseReadSignal());
+  const rpcParams = {
+    p_query: filters.query || null,
+    p_platform: filters.platform || null,
+    p_product_type: filters.productType || null,
+    p_stock: filters.stock || null,
+    p_sort: filters.sort || null,
+    p_min_price: filters.minPrice ?? null,
+    p_max_price: filters.maxPrice ?? null,
+    p_limit: limit,
+    p_offset: offset,
+  };
+  const useLegacyRpc = options.useLegacyRpc === true;
+
+  let { data, error } = await supabase
+    .rpc(useLegacyRpc ? "list_public_offers_page" : "list_public_offers_page_v2", rpcParams)
+    .abortSignal(options.background ? publicSupabaseRefreshReadSignal() : publicSupabaseReadSignal());
+
+  if (error && !useLegacyRpc && isMissingPublicOfferReadModelRpc(error)) {
+    const legacyResult = await supabase
+      .rpc("list_public_offers_page", rpcParams)
+      .abortSignal(options.background ? publicSupabaseRefreshReadSignal() : publicSupabaseReadSignal());
+    data = legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error) {
     console.error("Public offers RPC failed:", error.message);
@@ -5517,6 +5773,25 @@ async function listPublicOffersFromDatabase(filters: OfferListFilters = {}) {
     degraded: false,
     message: null,
   };
+}
+
+async function refreshPublicOfferReadModel(): Promise<boolean> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return false;
+
+  const { error } = await supabase
+    .rpc("refresh_public_offer_read_model")
+    .abortSignal(publicSupabaseRefreshReadSignal());
+  if (!error) return true;
+  if (isMissingPublicOfferReadModelRpc(error)) return false;
+
+  throw new Error(`Public offer read model refresh failed: ${error.message}`);
+}
+
+function isMissingPublicOfferReadModelRpc(error: { code?: string; message?: string }): boolean {
+  const message = error.message || "";
+  return error.code === "PGRST202" ||
+    /refresh_public_offer_read_model|list_public_offers_page_v2|schema cache/i.test(message);
 }
 
 async function listPublicMerchantsFromDatabase(): Promise<PublicMerchantsResult | null> {
@@ -6062,6 +6337,7 @@ function compactPublicOffer(offer: RawOffer): RawOffer {
     currency: offer.currency,
     status: offer.status,
     url: offer.url,
+    shopUrl: withInferredMerchantShopUrl(offer).shopUrl,
     tags: [],
     filterTags: offer.filterTags,
     stockCount: offer.stockCount,
@@ -6075,6 +6351,20 @@ function compactPublicOffer(offer: RawOffer): RawOffer {
     effectiveStatus: offer.effectiveStatus,
     freshnessStatus: offer.freshnessStatus,
     riskFeedback: offer.riskFeedback,
+  };
+}
+
+function withInferredMerchantShopUrl(offer: RawOffer): RawOffer {
+  if (offer.shopUrl !== undefined) return offer;
+
+  return {
+    ...offer,
+    shopUrl: inferMerchantShopUrl({
+      sourceId: offer.sourceId,
+      sourceName: offer.sourceName,
+      entryUrl: offer.url,
+      host: offerHost(offer.url),
+    }),
   };
 }
 
@@ -6616,6 +6906,9 @@ function normalizeSourceCollectorKind(value: unknown): Source["collectorKind"] {
 
 export function mapRawOffer(row: Record<string, unknown>): RawOffer {
   const sourceTitle = String(row.source_title || "");
+  const sourceId = row.source_id ? String(row.source_id) : null;
+  const sourceName = String(row.source_name || "");
+  const url = String(row.url || "");
   const tags = Array.isArray(row.tags) ? row.tags.map(String) : [];
   const price = row.price === null || row.price === undefined ? null : Number(row.price);
   const storedCanonicalProductId = row.canonical_product_id ? String(row.canonical_product_id) : null;
@@ -6623,14 +6916,13 @@ export function mapRawOffer(row: Record<string, unknown>): RawOffer {
   const classified = classifyOffer(sourceTitle, {
     tags,
     categorySlug: storedCategorySlug,
-    price,
   });
   const filterTags = deriveOfferFilterTags({ sourceTitle, tags });
 
   return {
     id: String(row.id),
-    sourceId: row.source_id ? String(row.source_id) : null,
-    sourceName: String(row.source_name || ""),
+    sourceId,
+    sourceName,
     sourceStoreName: row.source_store_name ? String(row.source_store_name) : null,
     collectorKind: normalizeSourceCollectorKind(row.collector_kind),
     sourceTitle,
@@ -6640,7 +6932,13 @@ export function mapRawOffer(row: Record<string, unknown>): RawOffer {
     priceBasis: row.price_basis ? String(row.price_basis) as RawOffer["priceBasis"] : null,
     currency: String(row.currency || "CNY"),
     status: String(row.status || "unknown") as RawOffer["status"],
-    url: String(row.url || ""),
+    url,
+    shopUrl: inferMerchantShopUrl({
+      sourceId,
+      sourceName,
+      entryUrl: url,
+      host: offerHost(url),
+    }),
     tags,
     filterTags,
     stockCount: row.stock_count === null || row.stock_count === undefined ? null : Number(row.stock_count),

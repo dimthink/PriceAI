@@ -5,10 +5,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  buildOfficialAppRunHealth,
   buildOfficialFxRefreshRows,
   extractInAppPurchasePairs,
+  filterOfficialCurrentRowsForHealthyApps,
   loadFallbackFxSnapshot,
   officialCollectRunMode,
+  isRecoverableOfficialFetchStatus,
   parsePriceValue,
 } from "./collect-official-prices.mjs";
 
@@ -50,6 +53,21 @@ assert.deepEqual(
     ["ChatGPT Pro 20x", "Rp 3,499juta"],
   ],
 );
+
+assert.deepEqual(
+  filterOfficialCurrentRowsForHealthyApps(
+    [
+      { appSlug: "grok", planSlug: "supergrok" },
+      { appSlug: "chatgpt", planSlug: "plus-monthly" },
+    ],
+    [
+      { appSlug: "grok", publishCurrent: false },
+      { appSlug: "chatgpt", publishCurrent: true },
+    ],
+  ),
+  [{ appSlug: "chatgpt", planSlug: "plus-monthly" }],
+  "an all-failed app must not update current rows while healthy apps still publish",
+);
 assert.ok(pairs.every((item) => item.sourceUrl === "https://apps.apple.com/tr/app/chatgpt/id6448311069"));
 assert.ok(pairs.every((item) => item.rawSnippetHash.length === 16));
 assert.equal(parsePriceValue("￦29,000"), 29000);
@@ -63,6 +81,26 @@ assert.equal(officialCollectRunMode("ci"), "worker");
 assert.equal(officialCollectRunMode("worker"), "worker");
 assert.equal(officialCollectRunMode("cron"), "cron");
 assert.equal(officialCollectRunMode("unexpected"), "manual");
+assert.equal(isRecoverableOfficialFetchStatus(403), true);
+assert.equal(isRecoverableOfficialFetchStatus(429), true);
+assert.equal(isRecoverableOfficialFetchStatus(503), true);
+assert.equal(isRecoverableOfficialFetchStatus(404), false);
+
+assert.deepEqual(
+  buildOfficialAppRunHealth(
+    [
+      { appSlug: "grok", status: "failed" },
+      { appSlug: "grok", status: "parse_failed" },
+      { appSlug: "chatgpt", status: "success" },
+      { appSlug: "chatgpt", status: "failed" },
+    ],
+    ["grok", "chatgpt"],
+  ),
+  [
+    { appSlug: "grok", regionCount: 2, successfulRegions: 0, failedRegions: 2, publishCurrent: false },
+    { appSlug: "chatgpt", regionCount: 2, successfulRegions: 1, failedRegions: 1, publishCurrent: true },
+  ],
+);
 
 const fxRefreshRows = buildOfficialFxRefreshRows(
   [

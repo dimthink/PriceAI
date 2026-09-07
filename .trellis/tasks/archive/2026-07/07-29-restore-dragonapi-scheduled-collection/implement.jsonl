@@ -1,0 +1,4 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"API 中转完整快照、来源选择和定时采集约束"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"Huoshan2 runtime 与 Cloudflare 生产发布验收"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"采集后公开快照与缓存刷新"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"来源配置到 timer、数据库、缓存和页面的数据链路"}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ClipboardList, Copy, Mail, MessageCircle, Send, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ClipboardList, Copy, Mail, MessageCircle, Send, Store, X } from "lucide-react";
 
 type DialogMode = "submit" | "merchant";
 
@@ -29,7 +29,6 @@ export function TransitSubmissionActions({
   className = "flex flex-wrap gap-2.5",
   buttonClassName = "",
   buttonSizeClassName = "h-10 gap-2 px-4 text-sm",
-  compactLabels = false,
 }: {
   className?: string;
   buttonClassName?: string;
@@ -43,55 +42,43 @@ export function TransitSubmissionActions({
       <div className={className}>
         <button
           type="button"
-          onClick={() => setMode("submit")}
-          className={`inline-flex items-center justify-center rounded-full bg-[#dde4e5] font-semibold text-[#2d3435] transition hover:bg-[#cfd8d9] ${buttonSizeClassName} ${buttonClassName}`}
-        >
-          <Send className="h-4 w-4" />
-          {compactLabels ? (
-            <>
-              <span className="sm:hidden">提交</span>
-              <span className="hidden sm:inline">提交渠道</span>
-            </>
-          ) : (
-            "提交渠道"
-          )}
-        </button>
-        <button
-          type="button"
           onClick={() => setMode("merchant")}
-          className={`inline-flex items-center justify-center rounded-full bg-[#2d3435] font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526] ${buttonSizeClassName} ${buttonClassName}`}
+          className={`inline-flex items-center justify-center whitespace-nowrap rounded-full bg-[#e8f3ec] font-semibold text-[#2f7a4b] ring-1 ring-[#2f7a4b]/20 transition hover:bg-[#ddefe4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7a4b]/45 ${buttonSizeClassName} ${buttonClassName}`}
         >
-          {compactLabels ? (
-            <>
-              <span className="sm:hidden">合作</span>
-              <span className="hidden sm:inline">合作入驻</span>
-            </>
-          ) : (
-            "合作入驻"
-          )}
+          <Store className="h-4 w-4" />
+          申请收录
         </button>
       </div>
-      {mode ? <TransitSubmissionModal mode={mode} onClose={() => setMode(null)} /> : null}
+      {mode ? <TransitSubmissionModal mode={mode} onModeChange={setMode} onClose={() => setMode(null)} /> : null}
     </>
   );
 }
 
 function TransitSubmissionModal({
   mode,
+  onModeChange,
   onClose,
 }: {
   mode: DialogMode;
+  onModeChange: (mode: DialogMode) => void;
   onClose: () => void;
 }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const title = mode === "submit" ? "提交一个 API 中转站" : "合作入驻 / 补充站点资料";
+  const title = mode === "submit" ? "提交一个 API 中转站线索" : "申请收录 API 中转站";
   const description =
     mode === "submit"
       ? "适合普通用户补充线索。填站点、看到的倍率和少量主流模型即可，PriceAI 会先做基础核验。"
-      : "基础收录不收费。请把站点资料发到 PriceAI 邮箱，我们会先核验公开价格、倍率、来源和稳定性信息。";
+      : "面向中转站站长和运营方，基础收录不收费。请把站点资料发到 PriceAI 邮箱，我们会先核验公开价格、倍率、来源和稳定性信息。";
+
+  function changeMode(nextMode: DialogMode) {
+    setSubmitted(false);
+    setSubmitting(false);
+    setError(null);
+    onModeChange(nextMode);
+  }
 
   useEffect(() => {
     const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -141,7 +128,7 @@ function TransitSubmissionModal({
         </div>
 
         {mode === "merchant" ? (
-          <MerchantContactPanel />
+          <MerchantContactPanel onSubmitLead={() => changeMode("submit")} />
         ) : submitted ? (
           <div className="mt-5 rounded-lg bg-[#e8f3ec] p-4 text-sm leading-7 text-[#2f7a4b]">
             <p className="flex items-center gap-2 font-semibold">
@@ -181,6 +168,14 @@ function TransitSubmissionModal({
               }
             }}
           >
+            <button
+              type="button"
+              onClick={() => changeMode("merchant")}
+              className="inline-flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-semibold text-[#47657a] transition hover:bg-[#eef3f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#47657a]/35"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              返回站长申请
+            </button>
             <SubmitFields />
             {error ? (
               <p className="rounded-lg bg-[#fbe9e7] px-3 py-2 text-xs leading-5 text-[#9b3328]">
@@ -242,7 +237,7 @@ function SubmitFields() {
   );
 }
 
-function MerchantContactPanel() {
+function MerchantContactPanel({ onSubmitLead }: { onSubmitLead: () => void }) {
   const [copied, setCopied] = useState(false);
 
   async function copyTemplate() {
@@ -320,6 +315,17 @@ function MerchantContactPanel() {
         <span className="inline-flex items-center rounded-full bg-[#eef3f8] px-3 py-1 text-[#47657a]">
           邮箱: {merchantEmail}
         </span>
+      </div>
+      <div className="flex flex-col gap-2 border-t border-[#dfe4e5] pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm leading-6 text-[#5a6061]">只是发现了一个站点，不代表站方申请？</p>
+        <button
+          type="button"
+          onClick={onSubmitLead}
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-[#eef3f8] px-4 text-sm font-semibold text-[#47657a] transition hover:bg-[#e2ebf3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#47657a]/35"
+        >
+          <Send className="h-4 w-4" />
+          提交普通线索
+        </button>
       </div>
     </div>
   );

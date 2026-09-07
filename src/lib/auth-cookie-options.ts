@@ -1,4 +1,8 @@
 import type { CookieOptions } from "@supabase/ssr";
+import {
+  ACCOUNT_AUTH_HINT_MAX_AGE_SECONDS,
+  type AccountAuthHint,
+} from "@/lib/account-auth-hint";
 
 const AUTH_CODE_VERIFIER_MAX_AGE_SECONDS = 10 * 60;
 
@@ -21,6 +25,20 @@ export function getAuthCookieWriteOptions(name: string, options: CookieOptions =
       : {}),
     ...(isRemoval ? { maxAge: 0 } : {}),
   };
+}
+
+export function getAccountAuthHintCookieOptions(): CookieOptions {
+  return {
+    path: "/",
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: false,
+    maxAge: ACCOUNT_AUTH_HINT_MAX_AGE_SECONDS,
+  };
+}
+
+export function getAccountAuthHintCookieValue(isAuthenticated: boolean): AccountAuthHint {
+  return isAuthenticated ? "authenticated" : "anonymous";
 }
 
 export function isAuthCodeVerifierCookieName(name: string): boolean {

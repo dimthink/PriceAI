@@ -278,8 +278,9 @@ function OfficialPlanMobileList({
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-[#5a6061]">
                   <span>最低地区：<strong className="font-semibold text-[#202829]">{summary.lowestRow?.countryLabel || "暂无"}</strong></span>
                   {summary.lowestRow ? <span>{summary.lowestRow.priceText}</span> : null}
+                  {summary.lowestRow?.status === "stale" ? <HistoricalPriceBadge /> : null}
                   <span>{summary.sampleCount} 个地区</span>
-                  <span>{formatRelativeTime(summary.latestFetchedAt)}</span>
+                  <span>{priceTimeLabel(summary.lowestRow)}</span>
                 </div>
               </div>
               <ChevronRight size={17} className="mt-3 shrink-0 text-[#adb3b4]" />
@@ -337,6 +338,7 @@ function OfficialPlanTable({
                     <span className="text-lg font-bold text-[#202829]">
                       {summary.lowestRow ? formatCurrency(summary.lowestRow.cnyPrice, "CNY") : "待确认"}
                     </span>
+                    {summary.lowestRow?.status === "stale" ? <HistoricalPriceBadge className="ml-2" /> : null}
                   </td>
                   <td className="px-5 py-4">
                     <span className="font-semibold text-[#202829]">{summary.lowestRow?.countryLabel || "暂无"}</span>
@@ -345,7 +347,7 @@ function OfficialPlanTable({
                     ) : null}
                   </td>
                   <td className="px-5 py-4 text-[#2d3435]">{summary.sampleCount}</td>
-                  <td className="px-5 py-4 text-[#5a6061]">{formatRelativeTime(summary.latestFetchedAt)}</td>
+                  <td className="px-5 py-4 text-[#5a6061]">{priceTimeLabel(summary.lowestRow)}</td>
                   <td className="w-[120px] px-5 py-4 text-center">
                     <Link
                       href={href}
@@ -416,8 +418,9 @@ function OfficialOfferMobileCard({ row, returnQuery }: { row: OfficialPriceOffer
               <strong className="font-semibold text-[#202829]">{row.countryLabel}</strong> {row.countryCode}
             </span>
             <span>{row.priceText} · {row.currencyCode}</span>
+            {row.status === "stale" ? <HistoricalPriceBadge /> : null}
             <span>1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}</span>
-            <span>{formatRelativeTime(row.fetchedAt)}</span>
+            <span>{priceTimeLabel(row)}</span>
           </div>
           <a
             href={row.sourceUrl}
@@ -492,7 +495,10 @@ function OfficialOfferTable({
                   <td className="px-5 py-4 text-[#5a6061]">
                     1 {row.currencyCode} ≈ {formatCurrency(row.fxRateToCny, "CNY")}
                   </td>
-                  <td className="px-5 py-4 text-[#5a6061]">{formatRelativeTime(row.fetchedAt)}</td>
+                  <td className="px-5 py-4 text-[#5a6061]">
+                    <span>{priceTimeLabel(row)}</span>
+                    {row.status === "stale" ? <HistoricalPriceBadge className="ml-2" /> : null}
+                  </td>
                   <td className="px-5 py-4">
                     <a
                       href={row.sourceUrl}
@@ -562,6 +568,20 @@ function EmptyState({ text }: { text: string }) {
 
 function TableHead({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <th className={`px-5 py-3 font-semibold ${className}`}>{children}</th>;
+}
+
+function HistoricalPriceBadge({ className = "" }: { className?: string }) {
+  return (
+    <span className={`inline-flex rounded-full bg-[#fff1d6] px-2 py-0.5 text-[0.68rem] font-semibold text-[#805b16] ${className}`}>
+      历史价
+    </span>
+  );
+}
+
+function priceTimeLabel(row: OfficialPriceOfferRow | OfficialPricePlanSummary["lowestRow"]) {
+  if (!row) return "暂无记录";
+  const relative = formatRelativeTime(row.lastSuccessAt);
+  return row.status === "stale" ? `最后成功：${relative}` : relative;
 }
 
 function billingPeriodLabel(period: OfficialPricePlanSummary["billingPeriod"]) {

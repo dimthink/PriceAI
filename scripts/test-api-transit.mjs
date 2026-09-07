@@ -9,6 +9,25 @@ import { __test } from "./collect-api-transit.mjs";
 import { COLLECTOR_RUNTIME_SOURCE_FILES } from "./collector-runtime-policy.mjs";
 
 const collectorRuntimeSources = new Set(COLLECTOR_RUNTIME_SOURCE_FILES);
+const collectorRuntimeSourceSync = readFileSync(
+  new URL("./sync-collector-runtime-source.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(
+  collectorRuntimeSourceSync,
+  /current_real=.*readlink -f .*\/current/,
+  "Source sync must resolve the active artifact release behind current/.",
+);
+assert.match(
+  collectorRuntimeSourceSync,
+  /target_roots=.*remote_root[\s\S]*target_roots\+=.*active_root/,
+  "Source sync must update both the runtime root fallback and active artifact release.",
+);
+assert.match(
+  collectorRuntimeSourceSync,
+  /for target_root in .*target_roots/,
+  "Source sync must checksum every runtime target after copying source files.",
+);
 for (const sourceFile of COLLECTOR_RUNTIME_SOURCE_FILES.filter((file) => file.endsWith(".mjs"))) {
   const source = readFileSync(new URL(`../${sourceFile}`, import.meta.url), "utf8");
   for (const match of source.matchAll(/from\s+["'](\.\/[^"']+\.mjs)["']/g)) {
@@ -19,6 +38,46 @@ for (const sourceFile of COLLECTOR_RUNTIME_SOURCE_FILES.filter((file) => file.en
     );
   }
 }
+
+const stationWithOfferEvidenceFields = {
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+  availability_scope: "model",
+  availability_match_level: "family",
+  monitoring_scope_id: "monitoring-scope",
+};
+assert.deepEqual(__test.removeAvailabilityEvidenceFields([stationWithOfferEvidenceFields]), [{
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+}]);
+assert.deepEqual(stationWithOfferEvidenceFields, {
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+  availability_scope: "model",
+  availability_match_level: "family",
+  monitoring_scope_id: "monitoring-scope",
+}, "Station compatibility fallback must not mutate the original collector payload.");
+
+const stationUpsertAttempts = [];
+await __test.upsertRows({
+  from(table) {
+    assert.equal(table, "api_transit_stations");
+    return {
+      async upsert(rows) {
+        stationUpsertAttempts.push(rows);
+        return stationUpsertAttempts.length === 1
+          ? { error: { code: "PGRST204", message: "Could not find the 'availability_match_level' column of 'api_transit_stations' in the schema cache" } }
+          : { error: null };
+      },
+    };
+  },
+}, "api_transit_stations", [stationWithOfferEvidenceFields], { onConflict: "id" });
+assert.equal(stationUpsertAttempts.length, 2);
+assert.deepEqual(stationUpsertAttempts[0], [stationWithOfferEvidenceFields]);
+assert.deepEqual(stationUpsertAttempts[1], [{
+  id: "station-schema-compatibility",
+  name: "Station schema compatibility",
+}]);
 
 const leaseCliSmoke = spawnSync(process.execPath, [fileURLToPath(new URL("./collect-api-transit.mjs", import.meta.url)), "--post", "--source", "__lease_smoke__"], {
   cwd: fileURLToPath(new URL("..", import.meta.url)),
@@ -231,6 +290,98 @@ assert.ok(
 assert.ok(
   configuredUmapisSource.adminNote.includes("充值倍率"),
   "悠米AI中转后台备注必须列出正式上架前需要补充的充值倍率。",
+);
+const configuredDragonapiSource = transitSourceConfig.find((source) => source.id === "newapi-dragon3api-com");
+assert.ok(configuredDragonapiSource, "DragonAPI must stay saved as an API transit draft source.");
+assert.equal(configuredDragonapiSource.name, "DragonAPI");
+assert.equal(configuredDragonapiSource.collectorKind, "new_api_pricing");
+assert.equal(configuredDragonapiSource.stationSystem, "new_api");
+assert.equal(configuredDragonapiSource.websiteUrl, "https://newapi.dragon3api.com/");
+assert.equal(configuredDragonapiSource.apiBaseUrl, "https://newapi.dragon3api.com/v1");
+assert.equal(configuredDragonapiSource.pricingUrl, "https://newapi.dragon3api.com/pricing");
+assert.equal(configuredDragonapiSource.pricingEndpointUrl, "https://newapi.dragon3api.com/api/pricing");
+assert.equal(
+  configuredDragonapiSource.discoveryUrl,
+  "https://newapi.dragon3api.com/.well-known/ai-transit.json",
+);
+assert.equal(
+  configuredDragonapiSource.snapshotEndpointUrl,
+  "https://newapi.dragon3api.com/api/public/transit/v1/snapshot",
+);
+assert.equal(configuredDragonapiSource.monitorUrl, "https://newapi.dragon3api.com/status");
+assert.equal(
+  configuredDragonapiSource.monitorEndpointUrl,
+  "https://newapi.dragon3api.com/api/perf-metrics/summary?period=24",
+);
+assert.equal(configuredDragonapiSource.rechargeRatio, "1:1");
+assert.equal(configuredDragonapiSource.autoPublish, false);
+assert.equal(configuredDragonapiSource.commercialRelation, "none");
+assert.equal(configuredDragonapiSource.operatorType, "company");
+assert.equal(configuredDragonapiSource.invoiceSupport, "supported");
+assert.equal(configuredDragonapiSource.refundPolicy, "可退余额，需联系客服处理。");
+assert.ok(
+  configuredDragonapiSource.adminNote.includes("Codex 0.045") &&
+    configuredDragonapiSource.adminNote.includes("CCMax 0.75"),
+  "DragonAPI 后台备注必须保留站长提交的主流模型倍率。",
+);
+assert.ok(
+  configuredDragonapiSource.adminNote.includes("gpt-特惠 0.08") &&
+    configuredDragonapiSource.adminNote.includes("claude max 号池 0.85"),
+  "DragonAPI 后台备注必须保留公开价格与站长提交口径的差异。",
+);
+assert.ok(
+  configuredDragonapiSource.adminNote.includes("schema_version=1.0") &&
+    configuredDragonapiSource.adminNote.includes("兼容层"),
+  "DragonAPI 后台备注必须说明补充快照协议方言与兼容边界。",
+);
+assert.ok(
+  configuredDragonapiSource.adminNote.includes("autoPublish=false"),
+  "DragonAPI 后台备注必须明确保持待审核草稿，不自动上前台。",
+);
+
+const configuredJuapiSource = transitSourceConfig.find((source) => source.id === "hejuapi-com");
+assert.ok(configuredJuapiSource, "JuAPI must stay saved as an API transit draft source.");
+assert.equal(configuredJuapiSource.name, "JuAPI");
+assert.equal(configuredJuapiSource.collectorKind, "new_api_pricing");
+assert.equal(configuredJuapiSource.stationSystem, "new_api");
+assert.equal(configuredJuapiSource.websiteUrl, "https://www.hejuapi.com/");
+assert.equal(configuredJuapiSource.apiBaseUrl, "https://www.hejuapi.com/v1");
+assert.equal(configuredJuapiSource.pricingUrl, "https://www.hejuapi.com/pricing");
+assert.equal(configuredJuapiSource.pricingEndpointUrl, "https://www.hejuapi.com/api/pricing");
+assert.equal(configuredJuapiSource.monitorUrl, "https://www.hejuapi.com/status");
+assert.equal(
+  configuredJuapiSource.monitorEndpointUrl,
+  "https://www.hejuapi.com/api/perf-metrics/summary?period=24",
+);
+assert.equal(configuredJuapiSource.autoPublish, false);
+assert.equal(configuredJuapiSource.commercialRelation, "none");
+assert.equal(configuredJuapiSource.operatorType, "unknown");
+assert.equal(configuredJuapiSource.invoiceSupport, "unknown");
+assert.equal(Boolean(configuredJuapiSource.rechargeRatio), false);
+assert.ok(
+  configuredJuapiSource.adminNote.includes("19 个模型") &&
+    configuredJuapiSource.adminNote.includes("6 个已披露分组倍率") &&
+    configuredJuapiSource.adminNote.includes("11 个站方监测项"),
+  "JuAPI 后台备注必须保留公开价格与监测采集规模。",
+);
+assert.ok(
+  configuredJuapiSource.adminNote.includes("自研Claude满血") &&
+    configuredJuapiSource.adminNote.includes("充值倍率") &&
+    configuredJuapiSource.adminNote.includes("autoPublish=false"),
+  "JuAPI 后台备注必须保留价格口径缺口、待补资料和不自动上前台约束。",
+);
+
+const scheduledPublishedDragonapiSources = __test.selectSources(
+  __test.filterSourcesByPublishedStationIds(
+    transitSourceConfig,
+    new Set(["newapi-dragon3api-com"]),
+  ),
+  { post: true },
+);
+assert.deepEqual(
+  scheduledPublishedDragonapiSources.map((source) => source.id),
+  ["newapi-dragon3api-com"],
+  "DragonAPI must be eligible for scheduled pricing and monitoring refresh once published.",
 );
 
 const scheduledPublishedRtocSources = __test.selectSources(
@@ -632,6 +783,25 @@ const preservedManualStationSummary = __test.mergeStationForRefresh(
 );
 assert.equal(preservedManualStationSummary.summary, "站长已补充人工说明，保留该说明。");
 
+const preservedManualStationName = __test.mergeStationForRefresh(
+  {
+    id: "manual-name",
+    name: "A6-API",
+    auto_publish: true,
+    published: true,
+    collection_status: "success",
+    created_at: "new",
+  },
+  {
+    id: "manual-name",
+    name: "AA",
+    published: true,
+    created_at: "old",
+  },
+  {},
+);
+assert.equal(preservedManualStationName.name, "AA");
+
 const preservedManualStationLabels = __test.mergeStationForRefresh(
   {
     id: "manual-labels",
@@ -751,6 +921,58 @@ const customAdminNoteParsedStation = __test.parsePricingPayload(
 ).station;
 assert.equal(customAdminNoteParsedStation.admin_note, "保留来源配置中的人工备注。");
 assert.equal(customAdminNoteParsedStation.published, false);
+
+const explicitMissingGroupRatioRows = __test.parsePricingPayload(
+  {
+    id: "explicit-missing-group-ratio",
+    name: "Explicit Missing Group Ratio",
+    websiteUrl: "https://example.com/",
+    apiBaseUrl: "https://example.com/v1",
+    pricingUrl: "https://example.com/pricing",
+    pricingEndpointUrl: "https://example.com/api/pricing",
+    collectorKind: "new_api_pricing",
+    rechargeRatio: "1:1",
+  },
+  {
+    data: [
+      {
+        model_name: "gpt-5.5",
+        model_ratio: 1,
+        completion_ratio: 2,
+        enable_groups: ["gpt-plus", "plus"],
+      },
+    ],
+    group_ratio: { "gpt-plus": 0.08 },
+  },
+  "2026-07-28T00:00:00.000Z",
+);
+assert.deepEqual(explicitMissingGroupRatioRows.offers.map((offer) => offer.group_name), ["gpt-plus"]);
+assert.equal(explicitMissingGroupRatioRows.offers[0].raw_payload.group.groupRatio, 0.08);
+
+const legacyImplicitGroupRatioRows = __test.parsePricingPayload(
+  {
+    id: "legacy-implicit-group-ratio",
+    name: "Legacy Implicit Group Ratio",
+    websiteUrl: "https://example.com/",
+    apiBaseUrl: "https://example.com/v1",
+    pricingUrl: "https://example.com/pricing",
+    pricingEndpointUrl: "https://example.com/api/pricing",
+    collectorKind: "new_api_pricing",
+  },
+  {
+    data: [
+      {
+        model_name: "gpt-5.5",
+        model_ratio: 1,
+        completion_ratio: 2,
+        enable_groups: ["default"],
+      },
+    ],
+  },
+  "2026-07-28T00:00:00.000Z",
+);
+assert.equal(legacyImplicitGroupRatioRows.offers.length, 1);
+assert.equal(legacyImplicitGroupRatioRows.offers[0].raw_payload.group.groupRatio, null);
 assert.equal(__test.standardizeModelName("anthropic/claude-sonnet-5"), "Claude Sonnet 5");
 assert.equal(__test.standardizeModelName("Claude Sonnet 5"), "Claude Sonnet 5");
 assert.equal(__test.standardizeModelName("claude-sonnet-5-0"), "Claude Sonnet 5");
@@ -758,6 +980,10 @@ assert.equal(__test.standardizeModelName("anthropic/claude-fable-5"), "Claude Fa
 assert.equal(__test.standardizeModelName("Claude Fable 5"), "Claude Fable 5");
 assert.equal(__test.standardizeModelName("claude-fable-5-0"), "Claude Fable 5");
 assert.equal(__test.standardizeModelName("claude-haiku-4-5-20251001"), "Claude Haiku 4.5");
+assert.equal(__test.standardizeModelName("anthropic/claude-opus-5"), "Claude Opus 5");
+assert.equal(__test.standardizeModelName("claude-opus-5-20260724"), "Claude Opus 5");
+assert.equal(__test.standardizeModelName("claude-5-opus"), "Claude Opus 5");
+assert.equal(__test.standardizeModelName("claude-opus-50"), null);
 assert.equal(__test.standardizeModelName("claude-opus-4-5-20251101"), "Claude Opus 4.5");
 assert.equal(__test.standardizeModelName("claude-sonnet-4-5-20250929-thinking"), "Claude Sonnet 4.5");
 assert.equal(__test.standardizeModelName("openai/gpt-image-2"), "GPT Image 2");
@@ -973,6 +1199,140 @@ assert.match(legacyNewApiGptOffer.availability_note, /performance summary 近 24
 assert.equal(legacyNewApiParsed.station.availability_seven_day_rate, 0.9744);
 assert.equal(legacyNewApiParsed.station.availability_seven_day_samples, 6);
 assert.match(legacyNewApiParsed.station.availability_note, /2 个标准模型/);
+
+const dragonPrimaryPricingFixture = {
+  data: [
+    {
+      model_name: "gpt-5.5",
+      model_ratio: 2.5,
+      completion_ratio: 6,
+      model_price: 0,
+      cache_ratio: 0.1,
+      create_cache_ratio: 1.25,
+      enable_groups: ["gpt-plus", "gpt-pro"],
+      supported_endpoint_types: ["openai"],
+    },
+  ],
+  group_ratio: {
+    "gpt-plus": 0.12,
+    "gpt-pro": 0.2,
+  },
+};
+const dragonTransitSnapshotFixture = {
+  schema_version: "1.0",
+  generated_at: "2026-08-03T05:50:02Z",
+  site: {
+    name: "Dragon3 API",
+    url: "https://newapi.dragon3api.com",
+    system: "new-api",
+  },
+  channel_source: {
+    type: "self_hosted",
+    label: "自建",
+  },
+  groups: {
+    "gpt-plus": { ratio: 0.12, source: "self_hosted", model_count: 1 },
+    "gpt-pro": { ratio: 0.2, source: "self_hosted", model_count: 1 },
+  },
+  models: [
+    {
+      name: "gpt-5.5",
+      vendor: "OpenAI",
+      billing_type: "per_token",
+      model_ratio: 2.5,
+      completion_ratio: 6,
+      model_price: 0,
+      cache_read_ratio: 0.1,
+      cache_write_ratio: 1.25,
+      groups: ["gpt-plus", "gpt-pro"],
+      endpoint_types: ["openai"],
+    },
+  ],
+  monitoring: {
+    window_hours: 24,
+    source: "real_traffic_aggregation",
+    models: {
+      "gpt-5.5": {
+        requests: 1000,
+        success_rate: 0.95,
+        avg_latency_ms: 28000,
+        avg_ttft_ms: 13000,
+        by_group: {
+          "gpt-plus": { requests: 700, success_rate: 0.98 },
+          "gpt-pro": { requests: 300, success_rate: 0.999 },
+        },
+      },
+      "gpt-5.5-openai-compact": {
+        requests: 10,
+        success_rate: 0.1,
+        avg_latency_ms: 1000,
+        avg_ttft_ms: null,
+        by_group: {
+          "gpt-plus": { requests: 10, success_rate: 0.1 },
+        },
+      },
+    },
+  },
+};
+const adaptedDragonTransitSnapshot = __test.adaptNewApiTransitSnapshot(dragonTransitSnapshotFixture);
+assert.equal(adaptedDragonTransitSnapshot.schemaVersion, "1.0");
+assert.equal(adaptedDragonTransitSnapshot.pricing.data.length, 1);
+assert.equal(adaptedDragonTransitSnapshot.pricing.group_ratio["gpt-plus"], 0.12);
+assert.equal(adaptedDragonTransitSnapshot.pricing.data[0].cache_ratio, 0.1);
+assert.equal(adaptedDragonTransitSnapshot.pricing.data[0].create_cache_ratio, 1.25);
+const matchingDragonSnapshot = __test.compareNewApiPricingWithTransitSnapshot(
+  dragonPrimaryPricingFixture,
+  adaptedDragonTransitSnapshot.pricing,
+);
+assert.equal(matchingDragonSnapshot.status, "match");
+assert.equal(matchingDragonSnapshot.mismatchCount, 0);
+const mismatchedDragonSnapshot = __test.compareNewApiPricingWithTransitSnapshot(
+  dragonPrimaryPricingFixture,
+  {
+    ...adaptedDragonTransitSnapshot.pricing,
+    group_ratio: { ...adaptedDragonTransitSnapshot.pricing.group_ratio, "gpt-plus": 0.13 },
+  },
+);
+assert.equal(mismatchedDragonSnapshot.status, "mismatch");
+assert.ok(mismatchedDragonSnapshot.mismatches.some((message) => message.includes("gpt-plus")));
+const refreshWindowDriftSnapshot = __test.compareNewApiPricingWithTransitSnapshot(
+  dragonPrimaryPricingFixture,
+  {
+    ...adaptedDragonTransitSnapshot.pricing,
+    data: [
+      ...adaptedDragonTransitSnapshot.pricing.data,
+      {
+        ...adaptedDragonTransitSnapshot.pricing.data[0],
+        model_name: "snapshot-refresh-window-model",
+      },
+    ],
+  },
+);
+assert.equal(refreshWindowDriftSnapshot.status, "mismatch");
+assert.equal(refreshWindowDriftSnapshot.primaryModelCount, 1);
+assert.equal(refreshWindowDriftSnapshot.snapshotModelCount, 2);
+assert.ok(refreshWindowDriftSnapshot.mismatches.some((message) => message.includes("模型数量不一致")));
+
+const dragonPricingParsed = __test.parsePricingPayload(
+  configuredDragonapiSource,
+  dragonPrimaryPricingFixture,
+  "2026-08-03T05:50:02Z",
+);
+assert.equal(dragonPricingParsed.offers.length, 2);
+__test.applyNewApiTransitSnapshotAvailability(
+  configuredDragonapiSource,
+  dragonPricingParsed,
+  adaptedDragonTransitSnapshot,
+  "2026-08-03T05:50:02Z",
+);
+const dragonPlusOffer = dragonPricingParsed.offers.find((offer) => offer.group_name === "gpt-plus");
+assert.equal(dragonPlusOffer.availability_seven_day_rate, 0.98);
+assert.equal(dragonPlusOffer.availability_seven_day_samples, 1);
+assert.equal(dragonPlusOffer.availability_match_level, "exact");
+assert.equal(dragonPlusOffer.availability_source_label, "公开 transit 快照");
+assert.equal(dragonPlusOffer.availability_source_url, configuredDragonapiSource.snapshotEndpointUrl);
+assert.equal(dragonPlusOffer.raw_payload.supplemental_transit_snapshot.requests, 700);
+assert.match(dragonPlusOffer.availability_note, /聚合值按 1 个公开状态样本记录/);
 
 const rtocSnapshotParsed = __test.parsePricingPayload(
   configuredRtocSource,
@@ -1257,6 +1617,7 @@ const apinodeGpt55Economy = apinode.offers.find(
 );
 assert.equal(apinodeGpt55Economy.model_multiplier, 0.3);
 assert.equal(apinodeGpt55Economy.availability_seven_day_rate, 0.976494);
+assert.equal(apinodeGpt55Economy.last_verified_at, "2026-06-30T07:11:17Z");
 assert.match(apinodeGpt55Economy.availability_note, /非 PriceAI API Key 实测/);
 
 const aiTransitSnapshot = __test.parsePricingPayload(
@@ -1485,6 +1846,7 @@ assert.equal(longAiTransitStationSamples.length, 60);
 assert.equal(longAiTransitStationSamples[0].checked_at, longAiTransitTimeline[3].checked_at);
 assert.equal(longAiTransitStationSamples.at(-1).checked_at, longAiTransitTimeline.at(-1).checked_at);
 assert.equal(longAiTransitOffer.availability_seven_day_samples, 60);
+assert.equal(longAiTransitOffer.last_verified_at, "2026-07-05T09:00:00.000Z");
 assert.equal(longAiTransitSnapshot.station.availability_seven_day_samples, 60);
 
 const aiTransitGroupRateSnapshot = __test.parsePricingPayload(
@@ -2277,6 +2639,9 @@ const onehop = __test.parseOneHopPublicModelsPayload(
           officialInputPricePer1m: "1.40000000",
           officialOutputPricePer1m: "4.40000000",
           available: true,
+          displayMetrics: {
+            uptime14d: [{ day: "2026-06-30", rate: 0.99 }],
+          },
         },
         {
           fullSlug: "deepseek/deepseek-v4-flash",
@@ -2298,6 +2663,7 @@ const onehopGlm = onehop.offers.find((offer) => offer.standard_model === "GLM-5.
 assert.equal(onehopGlm.model_multiplier, 0.0875);
 assert.equal(onehopGlm.input_price, 0.0875);
 assert.equal(onehopGlm.output_price, 0.078571);
+assert.equal(onehopGlm.last_verified_at, "2026-07-02T07:30:00.000Z");
 const onehopDeepSeek = onehop.offers.find((offer) => offer.standard_model === "DeepSeek V4 Flash");
 assert.equal(onehopDeepSeek.model_multiplier, 0.112);
 assert.equal(onehopDeepSeek.output_price, 0.112);

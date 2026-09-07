@@ -226,7 +226,8 @@ async function loadAdminUserMetrics(): Promise<AdminUserMetrics> {
     supabase
       .from("transit_detector_jobs")
       .select("id", { count: "exact", head: true })
-      .in("status", ["queued", "running"]),
+      .in("status", ["queued", "running"])
+      .gt("lease_expires_at", new Date().toISOString()),
   ]);
 
   if (totalResult.error) throw totalResult.error;

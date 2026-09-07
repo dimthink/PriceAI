@@ -1,0 +1,3 @@
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"定义 PriceAI Cloudflare/OpenNext 生产发布、分支、环境和验收边界。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"定义前端公开路径的 lint/build 和 UI 质量要求。"}
+{"file":".trellis/spec/guides/index.md","reason":"遵守项目共享思维指南和修改前检查约定。"}

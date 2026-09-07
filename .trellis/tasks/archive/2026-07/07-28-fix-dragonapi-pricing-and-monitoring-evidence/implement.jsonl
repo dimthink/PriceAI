@@ -1,0 +1,6 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"New API 报价完整快照、失效报价和监测证据采集"}
+{"file":".trellis/spec/priceai/data-contracts.md","reason":"可用性证据、公开 DTO 和快照边界"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"生产数据、快照和公开页面验证"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"公开快照刷新与缓存验证"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"扩展既有 New API 与证据选择逻辑"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"源接口到采集、数据库、快照和页面的数据流"}

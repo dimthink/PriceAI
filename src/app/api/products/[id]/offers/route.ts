@@ -7,9 +7,13 @@ import { withCloudflarePublicCache } from "@/lib/cloudflare-edge-cache";
 import { cacheSearchParams } from "@/lib/cloudflare-cache-key";
 import { parseMerchantCollectorFilter } from "@/lib/merchant-collectors";
 import { parseOfferFilterTags } from "@/lib/offer-filter-tags";
-import { PRICE_DATA_EDGE_SECONDS } from "@/lib/public-cache-policy";
+import {
+  priceDataEdgeSecondsForProduct,
+  priceDataStaleSecondsForProduct,
+} from "@/lib/public-cache-policy";
 import { normalizePublicOfferQuery, PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import { parseProductOfferFreshnessMinutes, parseProductOfferStockThreshold } from "@/lib/product-offer-filters";
+import { withPriceRadarMigrationHeaders } from "@/lib/price-radar-migration";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,10 +35,12 @@ export async function GET(
     freshWithinMinutes: parseProductOfferFreshnessMinutes(searchParams.get("freshWithin")),
   };
   const cachePagination = cachePaginationParams(searchParams);
+  const edgeSeconds = priceDataEdgeSecondsForProduct(id);
+  const staleSeconds = priceDataStaleSecondsForProduct(id);
 
-  return withCloudflarePublicCache(request, {
-    namespace: "product-offers-v2",
-    ttlSeconds: PRICE_DATA_EDGE_SECONDS,
+  const response = await withCloudflarePublicCache(request, {
+    namespace: "product-offers-v4-read-model",
+    ttlSeconds: edgeSeconds,
     cacheKeySearchParams: cacheSearchParams({
       tags: normalized.filterTags.join(","),
       q: normalized.query,
@@ -65,13 +71,15 @@ export async function GET(
         });
 
         return NextResponse.json(result, {
-          headers: priceDataCacheHeadersForResult(result),
+          headers: priceDataCacheHeadersForResult(result, { edgeSeconds, staleSeconds }),
         });
       } catch (error) {
         return publicPriceApiErrorResponse("public product offers API", error);
       }
     },
   });
+
+  return withPriceRadarMigrationHeaders(response);
 }
 
 function parseNumberParam(value: string | null): number | null {

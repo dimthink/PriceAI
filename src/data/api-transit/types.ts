@@ -2,6 +2,7 @@ export type TransitStationStatus = "active" | "limited" | "unavailable" | "unkno
 export type TransitSourceType = "manual_collected" | "user_submitted" | "merchant_submitted";
 export type TransitCommercialRelation = "none" | "listed" | "partner" | "affiliate" | "sponsored" | "unknown";
 export type TransitDataStatus = "sample" | "pending_review" | "verified";
+export type TransitCollectionStatus = "pending" | "success" | "partial" | "failed" | "manual_review";
 export type TransitModelFamily =
   | "gpt"
   | "claude"
@@ -103,6 +104,7 @@ export interface TransitMultiplierHistoryPoint {
 }
 
 export type TransitStandardModel =
+  | "Claude Opus 5"
   | "Claude Fable 5"
   | "Claude Sonnet 5"
   | "Claude Sonnet 4.5"
@@ -248,6 +250,9 @@ export interface TransitStation {
   riskLabels: TransitRiskLabel[];
   usageAdvice: TransitUsageAdvice;
   lastUpdatedAt: string;
+  collectionStatus?: TransitCollectionStatus;
+  collectionError?: string | null;
+  lastCollectedAt?: string | null;
   dataStatus: TransitDataStatus;
   availability: TransitAvailability;
   modelDetection?: TransitModelDetectionSummary;
@@ -285,6 +290,17 @@ export const TRANSIT_MODEL_FAMILY_ORDER = [
   "video",
 ] as const satisfies readonly TransitModelFamily[];
 
+export const TRANSIT_TEXT_MODEL_FAMILY_ORDER = TRANSIT_MODEL_FAMILY_ORDER.filter(
+  (family): family is Exclude<TransitModelFamily, "image" | "video"> =>
+    family !== "image" && family !== "video",
+);
+
+export function isTransitTextModelFamily(
+  family: TransitModelFamily,
+): family is Exclude<TransitModelFamily, "image" | "video"> {
+  return family !== "image" && family !== "video";
+}
+
 export const TRANSIT_MODEL_FAMILY_OPTIONS: { id: TransitModelFamily; label: string }[] = [
   ...TRANSIT_MODEL_FAMILY_ORDER.map((id) => ({
     id,
@@ -312,6 +328,7 @@ export const TRANSIT_INVOICE_SUPPORT_LABELS: Record<TransitInvoiceSupport, strin
 };
 
 export const TRANSIT_STANDARD_MODELS = [
+  "Claude Opus 5",
   "Claude Fable 5",
   "Claude Sonnet 5",
   "Claude Sonnet 4.5",
@@ -360,6 +377,7 @@ export const TRANSIT_STANDARD_MODELS = [
 ] as const satisfies readonly TransitStandardModel[];
 
 export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, TransitModelFamily> = {
+  "Claude Opus 5": "claude",
   "Claude Fable 5": "claude",
   "Claude Sonnet 5": "claude",
   "Claude Sonnet 4.5": "claude",
@@ -408,6 +426,7 @@ export const TRANSIT_STANDARD_MODEL_FAMILY: Record<TransitStandardModel, Transit
 };
 
 export const TRANSIT_STANDARD_MODEL_MODALITY: Record<TransitStandardModel, TransitModelModality> = {
+  "Claude Opus 5": "text",
   "Claude Fable 5": "text",
   "Claude Sonnet 5": "text",
   "Claude Sonnet 4.5": "text",

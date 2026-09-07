@@ -7,14 +7,16 @@ import { CommunityPrompt } from "@/components/FeedbackLink";
 import { FeedbackEvidenceUploader } from "@/components/FeedbackEvidenceUploader";
 import { MobileFilterSheet } from "@/components/ComparisonUi";
 import { CollectorSourceLogo } from "@/components/MerchantCollectorSource";
-import { buildGoogleAuthHref } from "@/lib/auth-paths";
+import { buildLoginHref as buildAuthLoginHref } from "@/lib/auth-paths";
 import { useAccountUser } from "@/lib/account-client";
 import { canonicalCatalog, compareProductDisplayOrder, isAvailable, isSharedAccessOffer } from "@/lib/catalog";
 import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestUsableGeneratedDataset } from "@/lib/client-refresh";
+import { safeExternalShopUrl } from "@/lib/external-url";
 import { rewriteLdxpUrlHost } from "@/lib/ldxp-domain-settings-shared";
+import { withPriceAiUtm } from "@/lib/outbound-analytics-client";
 import {
   MERCHANT_COLLECTOR_FILTERS,
   merchantCollectorFilterLogo,
@@ -25,8 +27,11 @@ import {
   parseMerchantCollectorFilter,
 } from "@/lib/merchant-collectors";
 import {
+  OFFER_FILTER_TAGS,
   OFFER_FILTER_TAG_BY_ID,
+  deriveOfferFilterTags,
   isChatGptPlusChannelFilterTag,
+  offerFilterTagAppliesToProduct,
   parseOfferFilterTagsForProduct,
   toggleOfferFilterTag,
   type OfferFilterTagFacet,
@@ -52,16 +57,14 @@ import {
   readFeedbackDraft,
   writeFeedbackDraft,
 } from "@/lib/feedback-draft";
-import { PRICE_DATA_CACHE_TTL_MS } from "@/lib/public-cache-policy";
+import { priceDataCacheTtlMsForProduct } from "@/lib/public-cache-policy";
 import { PUBLIC_OFFER_DEFAULT_LIMIT } from "@/lib/public-offer-query";
 import {
-  PRODUCT_OFFER_FRESHNESS_MINUTES,
-  PRODUCT_OFFER_STOCK_THRESHOLDS,
+  PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES,
+  PRODUCT_OFFER_QUICK_STOCK_THRESHOLD,
   parseProductOfferFreshnessMinutes,
   parseProductOfferStockThreshold,
-  productOfferFreshnessFilterLabel,
   productOfferPublicTimestamp,
-  productOfferStockFilterLabel,
   type ProductOfferFreshnessMinutes,
   type ProductOfferStockThreshold,
 } from "@/lib/product-offer-filters";
@@ -83,7 +86,6 @@ type ProductOffersResponse = {
 };
 
 const OFFER_PAGE_SIZE = PUBLIC_OFFER_DEFAULT_LIMIT;
-const PRODUCT_OFFERS_CACHE_TTL_MS = PRICE_DATA_CACHE_TTL_MS;
 const PRODUCT_OFFERS_REFRESH_TIMEOUT_MS = 10_000;
 const PRODUCT_OFFERS_MEMORY_CACHE_LIMIT = 40;
 const FEEDBACK_EVIDENCE_MAX_IMAGES = 5;
@@ -244,6 +246,7 @@ export function ProductOffersPanel({
   }, [productId]);
 
   useEffect(() => {
+    const productOffersCacheTtlMs = priceDataCacheTtlMsForProduct(productId);
     const filterTags = parseOfferFilterTagsForProduct(productId, selectedFilterKey);
     const query = normalizeOfferSearchQuery(offerQuery);
     const excludeQuery = normalizeOfferSearchQuery(offerExcludeQuery, 160);
@@ -278,7 +281,7 @@ export function ProductOffersPanel({
       const cachedData = newestUsableGeneratedDataset(
         productOffersMemoryCache.get(cacheKey),
         shouldUseInitialData ? initialData : null,
-        readSessionCache<ProductOffersResponse>(cacheKey, PRODUCT_OFFERS_CACHE_TTL_MS),
+        readSessionCache<ProductOffersResponse>(cacheKey, productOffersCacheTtlMs),
       );
 
       if (cachedData) {
@@ -288,7 +291,7 @@ export function ProductOffersPanel({
         setLoading(false);
         setError(null);
 
-        if (!isGeneratedDatasetStale(cachedData, PRODUCT_OFFERS_CACHE_TTL_MS)) return;
+        if (!isGeneratedDatasetStale(cachedData, productOffersCacheTtlMs)) return;
       } else {
         setLoading(true);
       }
@@ -1004,20 +1007,16 @@ function OfferFilterBar({
       })
     : [];
   const advancedTagIds = new Set(plusChannelFacets.map((facet) => facet.id));
-  const stockQuickActive = selectedMinStock === 50;
-  const freshnessQuickActive = selectedFreshWithinMinutes === 60;
-  const activeAdvancedChips = [
-    ...buildOfferActiveFilterChips({
-      selectedTags: selectedTags.filter((tagId) => advancedTagIds.has(tagId)),
-      selectedCollector,
-      queryInput: activeQuery,
-      excludeInput: activeExcludeQuery,
-      minPriceInput: activeMinPrice,
-      maxPriceInput: activeMaxPrice,
-    }),
-    selectedMinStock !== null && !stockQuickActive ? productOfferStockFilterLabel(selectedMinStock) : null,
-    selectedFreshWithinMinutes !== null && !freshnessQuickActive ? productOfferFreshnessFilterLabel(selectedFreshWithinMinutes) : null,
-  ].filter((chip): chip is string => Boolean(chip));
+  const stockQuickActive = selectedMinStock === PRODUCT_OFFER_QUICK_STOCK_THRESHOLD;
+  const freshnessQuickActive = selectedFreshWithinMinutes === PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES;
+  const activeAdvancedChips = buildOfferActiveFilterChips({
+    selectedTags: selectedTags.filter((tagId) => advancedTagIds.has(tagId)),
+    selectedCollector,
+    queryInput: activeQuery,
+    excludeInput: activeExcludeQuery,
+    minPriceInput: activeMinPrice,
+    maxPriceInput: activeMaxPrice,
+  });
   const advancedFilterCount = activeAdvancedChips.length + Number(stockQuickActive) + Number(freshnessQuickActive);
 
   return (
@@ -1043,7 +1042,7 @@ function OfferFilterBar({
           <div className="flex shrink-0 items-center gap-2" aria-label="库存与更新时间快捷筛选">
             <button
               type="button"
-              onClick={() => onMinStockChange(stockQuickActive ? null : 50)}
+              onClick={() => onMinStockChange(stockQuickActive ? null : PRODUCT_OFFER_QUICK_STOCK_THRESHOLD)}
               aria-pressed={stockQuickActive}
               title="只看库存数量达到所选下限的报价；库存未知不会进入结果"
               className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
@@ -1057,7 +1056,7 @@ function OfferFilterBar({
             </button>
             <button
               type="button"
-              onClick={() => onFreshWithinChange(freshnessQuickActive ? null : 60)}
+              onClick={() => onFreshWithinChange(freshnessQuickActive ? null : PRODUCT_OFFER_QUICK_FRESHNESS_MINUTES)}
               aria-pressed={freshnessQuickActive}
               title="按 PriceAI 最近成功确认时间筛选"
               className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
@@ -1122,8 +1121,6 @@ function OfferFilterBar({
             plusChannelFacets={plusChannelFacets}
             selectedTags={selectedTags}
             selectedCollector={selectedCollector}
-            selectedMinStock={selectedMinStock}
-            selectedFreshWithinMinutes={selectedFreshWithinMinutes}
             excludeInput={excludeInput}
             maxPriceInput={maxPriceInput}
             minPriceInput={minPriceInput}
@@ -1132,8 +1129,6 @@ function OfferFilterBar({
             onExcludeInputChange={onExcludeInputChange}
             onMaxPriceInputChange={onMaxPriceInputChange}
             onMinPriceInputChange={onMinPriceInputChange}
-            onMinStockChange={onMinStockChange}
-            onFreshWithinChange={onFreshWithinChange}
             onClearTags={onClearTags}
             onSearchInputChange={onSearchInputChange}
             onToggleTag={onToggle}
@@ -1144,7 +1139,7 @@ function OfferFilterBar({
       <MobileFilterSheet
         open={filterOpen}
         title="筛选渠道报价"
-        description="库存、更新时间、来源、价格和关键词都可组合筛选。"
+        description="来源、价格和关键词可组合筛选；库存与更新时间使用顶部快捷标签。"
         resultCount={total}
         onClose={() => onFilterOpenChange(false)}
         onReset={onClear}
@@ -1156,8 +1151,6 @@ function OfferFilterBar({
           plusChannelFacets={plusChannelFacets}
           selectedTags={selectedTags}
           selectedCollector={selectedCollector}
-          selectedMinStock={selectedMinStock}
-          selectedFreshWithinMinutes={selectedFreshWithinMinutes}
           excludeInput={excludeInput}
           maxPriceInput={maxPriceInput}
           minPriceInput={minPriceInput}
@@ -1166,8 +1159,6 @@ function OfferFilterBar({
           onExcludeInputChange={onExcludeInputChange}
           onMaxPriceInputChange={onMaxPriceInputChange}
           onMinPriceInputChange={onMinPriceInputChange}
-          onMinStockChange={onMinStockChange}
-          onFreshWithinChange={onFreshWithinChange}
           onClearTags={onClearTags}
           onSearchInputChange={onSearchInputChange}
           onToggleTag={onToggle}
@@ -1182,8 +1173,6 @@ function OfferAdvancedFilterFields({
   plusChannelFacets = [],
   selectedTags,
   selectedCollector,
-  selectedMinStock,
-  selectedFreshWithinMinutes,
   excludeInput,
   maxPriceInput,
   minPriceInput,
@@ -1193,8 +1182,6 @@ function OfferAdvancedFilterFields({
   onClearTags,
   onMaxPriceInputChange,
   onMinPriceInputChange,
-  onMinStockChange,
-  onFreshWithinChange,
   onSearchInputChange,
   onToggleTag,
 }: {
@@ -1202,8 +1189,6 @@ function OfferAdvancedFilterFields({
   plusChannelFacets?: OfferFilterTagFacet[];
   selectedTags: OfferFilterTagId[];
   selectedCollector: MerchantCollectorFilter;
-  selectedMinStock: ProductOfferStockThreshold | null;
-  selectedFreshWithinMinutes: ProductOfferFreshnessMinutes | null;
   excludeInput: string;
   maxPriceInput: string;
   minPriceInput: string;
@@ -1213,8 +1198,6 @@ function OfferAdvancedFilterFields({
   onClearTags: (tagIds: OfferFilterTagId[]) => void;
   onMaxPriceInputChange: (value: string) => void;
   onMinPriceInputChange: (value: string) => void;
-  onMinStockChange: (value: ProductOfferStockThreshold | null) => void;
-  onFreshWithinChange: (value: ProductOfferFreshnessMinutes | null) => void;
   onSearchInputChange: (value: string) => void;
   onToggleTag: (tagId: OfferFilterTagId) => void;
 }) {
@@ -1287,76 +1270,6 @@ function OfferAdvancedFilterFields({
           </div>
         </fieldset>
       ) : null}
-
-      <div className={`grid gap-4 border-t border-[#edf0f1] pt-4 ${compact ? "" : "md:grid-cols-2"}`}>
-        <fieldset className="min-w-0">
-          <legend className="text-xs font-semibold text-[#5a6061]">库存数量</legend>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onMinStockChange(null)}
-              aria-pressed={selectedMinStock === null}
-              className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                selectedMinStock === null
-                  ? "bg-[#202829] text-white"
-                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-              }`}
-            >
-              不限
-            </button>
-            {PRODUCT_OFFER_STOCK_THRESHOLDS.map((threshold) => (
-              <button
-                key={threshold}
-                type="button"
-                onClick={() => onMinStockChange(threshold)}
-                aria-pressed={selectedMinStock === threshold}
-                className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                  selectedMinStock === threshold
-                    ? "bg-[#202829] text-white"
-                    : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-                }`}
-              >
-                ≥{threshold}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-xs leading-5 text-[#5a6061]">库存未知的报价不会进入结果。</p>
-        </fieldset>
-
-        <fieldset className="min-w-0">
-          <legend className="text-xs font-semibold text-[#5a6061]">更新时间</legend>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onFreshWithinChange(null)}
-              aria-pressed={selectedFreshWithinMinutes === null}
-              className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                selectedFreshWithinMinutes === null
-                  ? "bg-[#202829] text-white"
-                  : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-              }`}
-            >
-              不限
-            </button>
-            {PRODUCT_OFFER_FRESHNESS_MINUTES.map((minutes) => (
-              <button
-                key={minutes}
-                type="button"
-                onClick={() => onFreshWithinChange(minutes)}
-                aria-pressed={selectedFreshWithinMinutes === minutes}
-                className={`inline-flex h-9 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#adb3b4]/50 ${
-                  selectedFreshWithinMinutes === minutes
-                    ? "bg-[#202829] text-white"
-                    : "bg-[#eef1f1] text-[#4d5657] hover:bg-[#e3e9e9] hover:text-[#202829]"
-                }`}
-              >
-                {productOfferFreshnessFilterLabel(minutes).replace("内更新", "内")}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-xs leading-5 text-[#5a6061]">按 PriceAI 最近成功确认时间计算。</p>
-        </fieldset>
-      </div>
 
       <div className={compact ? "space-y-4 border-t border-[#edf0f1] pt-4" : "grid gap-4 border-t border-[#edf0f1] pt-3 lg:grid-cols-[minmax(260px,0.8fr)_minmax(360px,1.15fr)_auto] lg:items-end"}>
         <fieldset className="min-w-0">
@@ -1596,9 +1509,7 @@ function OfferTable({
                     <span className="flex min-w-0 items-center gap-2">
                       <CollectorSourceLogo group={collectorGroup} platformId={sourcePlatform.id} size="compact" />
                       <span className="min-w-0 max-w-full">
-                        <span className="block truncate font-semibold text-[#202829]">
-                          {sourceLabel(offer)}
-                        </span>
+                        <OfferMerchantLink offer={offer} mode="table" />
                         {sourceSecondaryLabel(offer) ? (
                           <span className="mt-1 block truncate text-xs text-[#5a6061]">{sourceSecondaryLabel(offer)}</span>
                         ) : null}
@@ -1665,7 +1576,7 @@ function OfferListItem({
         <div className="flex min-w-0 items-start gap-2">
           <CollectorSourceLogo group={collectorGroup} platformId={sourcePlatform.id} size="compact" />
           <div className="min-w-0">
-            <p className="truncate font-semibold text-[#202829]">{sourceLabel(offer)}</p>
+            <OfferMerchantLink offer={offer} mode="card" />
             <OfferSourceTitle title={offer.sourceTitle} mode="card" sharedAccess={sharedAccess} />
             <OfferMerchantTimeSummary offer={offer} />
             {hasRisk ? (
@@ -1969,7 +1880,7 @@ function OfferExitNoticeDialog({ offer, onClose }: { offer: RawOffer; onClose: (
 
   function continueToOffer() {
     if (muteToday) muteOfferExitNoticeToday();
-    window.open(rewriteLdxpUrlHost(offer.url) || offer.url, "_blank", "noopener,noreferrer");
+    window.open(cardOfferOutboundUrl(offer), "_blank", "noopener,noreferrer");
     onClose();
   }
 
@@ -2257,7 +2168,7 @@ export function OfferLink({
   onRequestPurchase?: (offer: RawOffer) => void;
 }) {
   const [localOutboundOffer, setLocalOutboundOffer] = useState<RawOffer | null>(null);
-  const outboundUrl = rewriteLdxpUrlHost(offer.url) || offer.url;
+  const outboundUrl = cardOfferOutboundUrl(offer);
 
   return (
     <>
@@ -2270,7 +2181,9 @@ export function OfferLink({
             source_id: offer.sourceId || "unknown",
             available,
           });
-          if (isOfferExitNoticeMutedToday()) return;
+          if (isOfferExitNoticeMutedToday()) {
+            return;
+          }
           event.preventDefault();
           if (onRequestPurchase) {
             onRequestPurchase(offer);
@@ -2294,6 +2207,14 @@ export function OfferLink({
       ) : null}
     </>
   );
+}
+
+function cardOfferOutboundUrl(offer: RawOffer): string {
+  return withPriceAiUtm(rewriteLdxpUrlHost(offer.url) || offer.url, {
+    medium: "card_offer",
+    campaign: "priceai_card_shop",
+    content: offer.id,
+  });
 }
 
 export function OfferActions({
@@ -2358,6 +2279,8 @@ export function OfferFeedbackDialog({
   const [reason, setReason] = useState<OfferFeedbackReason | "">("");
   const [issueDimension, setIssueDimension] = useState<OfferFeedbackIssueDimension | "">("");
   const [expectedProductId, setExpectedProductId] = useState("");
+  const [reportedFilterTagId, setReportedFilterTagId] = useState<OfferFilterTagId | "">("");
+  const [expectedFilterTagId, setExpectedFilterTagId] = useState<OfferFilterTagId | "">("");
   const [userExpectedAction, setUserExpectedAction] = useState<OfferFeedbackUserExpectedAction>("unsure");
   const [notes, setNotes] = useState("");
   const [evidenceText, setEvidenceText] = useState("");
@@ -2389,6 +2312,19 @@ export function OfferFeedbackDialog({
     uploadedEvidence.length > 0 ||
     extractEvidenceUrls(evidenceText).length > 0 ||
     evidenceText.trim().length >= 8;
+  const currentFilterTagIds = useMemo(
+    () => parseOfferFilterTagsForProduct(
+      productId,
+      offer.filterTags?.length ? offer.filterTags : deriveOfferFilterTags({ sourceTitle: offer.sourceTitle, tags: offer.tags }),
+    ),
+    [offer.filterTags, offer.sourceTitle, offer.tags, productId],
+  );
+  const expectedFilterTagOptions = useMemo(
+    () => OFFER_FILTER_TAGS.filter(
+      (tag) => offerFilterTagAppliesToProduct(productId, tag.id) && !currentFilterTagIds.includes(tag.id),
+    ),
+    [currentFilterTagIds, productId],
+  );
 
   useEffect(() => {
     const draft = readFeedbackDraft("offer", offer.id);
@@ -2399,6 +2335,16 @@ export function OfferFeedbackDialog({
       }
       if (typeof draft.userExpectedAction === "string" && expectedActionOptions.some((option) => option.value === draft.userExpectedAction)) {
         setUserExpectedAction(draft.userExpectedAction as OfferFeedbackUserExpectedAction);
+      }
+      if (typeof draft.issueDimension === "string" && categoryIssueDimensionOptions.some((option) => option.value === draft.issueDimension)) {
+        setIssueDimension(draft.issueDimension as OfferFeedbackIssueDimension);
+      }
+      if (typeof draft.expectedProductId === "string") setExpectedProductId(draft.expectedProductId);
+      if (typeof draft.reportedFilterTagId === "string" && OFFER_FILTER_TAG_BY_ID.has(draft.reportedFilterTagId as OfferFilterTagId)) {
+        setReportedFilterTagId(draft.reportedFilterTagId as OfferFilterTagId);
+      }
+      if (typeof draft.expectedFilterTagId === "string" && OFFER_FILTER_TAG_BY_ID.has(draft.expectedFilterTagId as OfferFilterTagId)) {
+        setExpectedFilterTagId(draft.expectedFilterTagId as OfferFilterTagId);
       }
       if (typeof draft.notes === "string") setNotes(draft.notes.slice(0, 500));
     });
@@ -2433,8 +2379,38 @@ export function OfferFeedbackDialog({
       setLoading(false);
       return;
     }
-    if (reason === "wrong_category" && issueDimension === "product_category" && !expectedProductId && notes.trim().length < 4) {
-      setMessage({ type: "error", text: "请选择正确分类，或在补充说明中写明应该如何归类。" });
+    if (reason === "wrong_category" && issueDimension === "product_category" && !expectedProductId) {
+      setMessage({ type: "error", text: "请选择正确分类。" });
+      setLoading(false);
+      return;
+    }
+    if (reason === "wrong_category" && issueDimension === "product_category" && expectedProductId === productId) {
+      setMessage({ type: "error", text: "所选分类与当前分类相同；如果是标签不对，请选择“筛选标签错误”。" });
+      setLoading(false);
+      return;
+    }
+    if (reason === "wrong_category" && issueDimension === "filter_tag" && !reportedFilterTagId && !expectedFilterTagId) {
+      setMessage({ type: "error", text: "请选择错误标签，或选择应该补充的标签。" });
+      setLoading(false);
+      return;
+    }
+    if (
+      reason === "wrong_category" &&
+      issueDimension === "filter_tag" &&
+      reportedFilterTagId &&
+      reportedFilterTagId === expectedFilterTagId
+    ) {
+      setMessage({ type: "error", text: "错误标签与期望标签不能相同。" });
+      setLoading(false);
+      return;
+    }
+    if (
+      reason === "wrong_category" &&
+      issueDimension === "filter_tag" &&
+      expectedFilterTagId &&
+      currentFilterTagIds.includes(expectedFilterTagId)
+    ) {
+      setMessage({ type: "error", text: "期望标签已经存在，请选择其他标签。" });
       setLoading(false);
       return;
     }
@@ -2488,6 +2464,8 @@ export function OfferFeedbackDialog({
           reason,
           issueDimension: reason === "wrong_category" ? issueDimension : null,
           expectedProductId: reason === "wrong_category" && issueDimension === "product_category" ? expectedProductId || null : null,
+          reportedFilterTagId: reason === "wrong_category" && issueDimension === "filter_tag" ? reportedFilterTagId || null : null,
+          expectedFilterTagId: reason === "wrong_category" && issueDimension === "filter_tag" ? expectedFilterTagId || null : null,
           userExpectedAction,
           evidenceText: evidenceText || null,
           evidenceUrls,
@@ -2512,11 +2490,19 @@ export function OfferFeedbackDialog({
   }
 
   function buildLoginHref() {
-    return buildGoogleAuthHref(buildFeedbackResumePath("offer", offer.id));
+    return buildAuthLoginHref(buildFeedbackResumePath("offer", offer.id));
   }
 
   function persistOfferDraft() {
-    writeFeedbackDraft("offer", offer.id, { reason, userExpectedAction, notes });
+    writeFeedbackDraft("offer", offer.id, {
+      reason,
+      issueDimension,
+      expectedProductId,
+      reportedFilterTagId,
+      expectedFilterTagId,
+      userExpectedAction,
+      notes,
+    });
   }
 
   return (
@@ -2555,6 +2541,8 @@ export function OfferFeedbackDialog({
                 if (nextReason !== "wrong_category") {
                   setIssueDimension("");
                   setExpectedProductId("");
+                  setReportedFilterTagId("");
+                  setExpectedFilterTagId("");
                 }
               }}
               required
@@ -2576,6 +2564,10 @@ export function OfferFeedbackDialog({
                     const nextDimension = event.target.value as OfferFeedbackIssueDimension | "";
                     setIssueDimension(nextDimension);
                     if (nextDimension !== "product_category") setExpectedProductId("");
+                    if (nextDimension !== "filter_tag") {
+                      setReportedFilterTagId("");
+                      setExpectedFilterTagId("");
+                    }
                   }}
                   required
                   className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
@@ -2588,18 +2580,48 @@ export function OfferFeedbackDialog({
               </label>
               {issueDimension === "product_category" ? (
                 <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-[#5a6061]">应该归入</span>
+                  <span className="mb-1 block text-xs font-medium text-[#5a6061]">应该归入（必选）</span>
                   <select
                     value={expectedProductId}
                     onChange={(event) => setExpectedProductId(event.target.value)}
                     className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
                   >
-                    <option value="">不确定，在说明中填写</option>
-                    {feedbackExpectedProductOptions.map((option) => (
+                    <option value="">请选择正确分类</option>
+                    {feedbackExpectedProductOptions.filter((option) => option.id !== productId).map((option) => (
                       <option key={option.id} value={option.id}>{option.platform} · {option.displayName}</option>
                     ))}
                   </select>
                 </label>
+              ) : null}
+              {issueDimension === "filter_tag" ? (
+                <>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-[#5a6061]">当前哪个标签不对</span>
+                    <select
+                      value={reportedFilterTagId}
+                      onChange={(event) => setReportedFilterTagId(event.target.value as OfferFilterTagId | "")}
+                      className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
+                    >
+                      <option value="">没有错误标签</option>
+                      {currentFilterTagIds.map((tagId) => (
+                        <option key={tagId} value={tagId}>{OFFER_FILTER_TAG_BY_ID.get(tagId)?.label || tagId}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-[#5a6061]">应该补充哪个标签</span>
+                    <select
+                      value={expectedFilterTagId}
+                      onChange={(event) => setExpectedFilterTagId(event.target.value as OfferFilterTagId | "")}
+                      className="h-10 w-full rounded-lg border border-[#adb3b4]/40 bg-white px-3 text-sm outline-none transition focus:border-[#2d3435]"
+                    >
+                      <option value="">不需要补充标签</option>
+                      {expectedFilterTagOptions.map((tag) => (
+                        <option key={tag.id} value={tag.id}>{tag.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
               ) : null}
             </div>
           ) : null}
@@ -2867,7 +2889,7 @@ export function MerchantFeedbackDialog({
   }
 
   function buildLoginHref() {
-    return buildGoogleAuthHref(buildFeedbackResumePath("merchant", merchant.id));
+    return buildAuthLoginHref(buildFeedbackResumePath("merchant", merchant.id));
   }
 
   function persistMerchantDraft() {
@@ -3194,4 +3216,43 @@ function sourceSecondaryLabel(offer: RawOffer): string | null {
   const sourceName = merchantSourceDisplayName(offer.sourceName);
   if (!sourceName || sourceName === sourceLabel(offer)) return null;
   return sourceName;
+}
+
+function OfferMerchantLink({ offer, mode }: { offer: RawOffer; mode: "table" | "card" }) {
+  const label = sourceLabel(offer);
+  const shopUrl = safeExternalShopUrl(rewriteLdxpUrlHost(offer.shopUrl) || offer.shopUrl);
+  const className = mode === "table"
+    ? "flex w-full items-center gap-1 truncate font-semibold text-[#202829] hover:text-[#47657a] hover:underline focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#47657a]"
+    : "flex items-center gap-1 truncate font-semibold text-[#202829] hover:text-[#47657a] hover:underline focus-visible:rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#47657a]";
+
+  if (!shopUrl) {
+    return mode === "table"
+      ? <span className="block truncate font-semibold text-[#202829]">{label}</span>
+      : <p className="truncate font-semibold text-[#202829]">{label}</p>;
+  }
+
+  const outboundUrl = withPriceAiUtm(shopUrl, {
+    medium: "merchant_shop",
+    campaign: "priceai_merchant",
+    content: offer.sourceId || offer.id,
+  });
+
+  return (
+    <a
+      href={outboundUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`前往${label}店铺主页`}
+      aria-label={`前往${label}店铺主页（新标签页打开）`}
+      onClick={() => {
+        trackAnalyticsEvent("merchant_shop_click", {
+          source_id: offer.sourceId || "unknown",
+        });
+      }}
+      className={className}
+    >
+      <span className="truncate">{label}</span>
+      <ExternalLink aria-hidden="true" size={13} className="shrink-0" />
+    </a>
+  );
 }

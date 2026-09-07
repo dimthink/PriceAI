@@ -6,7 +6,7 @@ import { AccountSignOutControls } from "@/components/AccountSignOutControls";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { getActiveAccountDeletionRequest } from "@/lib/account-data";
-import { buildGoogleAuthHref } from "@/lib/auth-paths";
+import { buildLoginHref } from "@/lib/auth-paths";
 
 export const metadata: Metadata = {
   title: "账户与隐私设置",
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default async function AccountSettingsPage() {
   const user = await getCurrentUser();
-  if (!user) redirect(buildGoogleAuthHref("/account/settings"));
+  if (!user) redirect(buildLoginHref("/account/settings"));
 
   const deletionRequest = await getActiveAccountDeletionRequest(user.id).catch(() => null);
 

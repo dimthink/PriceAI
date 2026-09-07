@@ -55,6 +55,7 @@ const AVAILABILITY_SOURCES = {
 };
 const STALE_UNKNOWN_AVAILABILITY_NOTE_PATTERN = /PriceAI API Key 探测|PriceAI 临时 Key|单轮准入抽样|近 7 日 .*样本成功/;
 const officialTransitPrices = {
+  "Claude Opus 5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, imageOutput: null, currency: "USD" },
   "Claude Fable 5": { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, imageOutput: null, currency: "USD" },
   "Claude Sonnet 5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5, imageOutput: null, currency: "USD" },
   "Claude Sonnet 4.5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75, imageOutput: null, currency: "USD" },
@@ -102,6 +103,7 @@ const officialTransitPrices = {
   "Kling 2.5 Turbo": { input: null, output: null, cacheRead: null, cacheWrite: null, imageOutput: null, currency: "USD" },
 };
 const modelFamilyByStandard = {
+  "Claude Opus 5": "claude",
   "Claude Fable 5": "claude",
   "Claude Sonnet 5": "claude",
   "Claude Sonnet 4.5": "claude",
@@ -257,13 +259,33 @@ export async function collectApiTransitPrices(options = {}) {
       const parsed = parsePricingPayload(source, payload, runStartedAt);
       let availabilityPayload = null;
       let availabilityError = null;
+      let supplementalSnapshotPayload = null;
+      let supplementalSnapshotError = null;
+      let supplementalSnapshotConsistency = null;
       try {
         availabilityPayload = await fetchAvailabilityPayload(source, sourceOptions);
         applyAvailabilityPayloadToParsedRows(source, parsed, availabilityPayload, runStartedAt);
       } catch (error) {
         availabilityError = errorMessage(error);
       }
+      try {
+        supplementalSnapshotPayload = await fetchSupplementalSnapshotPayload(source, sourceOptions);
+        if (supplementalSnapshotPayload) {
+          const adaptedSnapshot = adaptNewApiTransitSnapshot(supplementalSnapshotPayload);
+          supplementalSnapshotConsistency = compareNewApiPricingWithTransitSnapshot(payload, adaptedSnapshot.pricing);
+          applyNewApiTransitSnapshotAvailability(source, parsed, adaptedSnapshot, runStartedAt);
+          if (supplementalSnapshotConsistency.status === "mismatch") {
+            const warning = newApiTransitSnapshotMismatchMessage(supplementalSnapshotConsistency);
+            parsed.collectionError = warning;
+            parsed.station.collection_status = "partial";
+            parsed.station.collection_error = warning;
+          }
+        }
+      } catch (error) {
+        supplementalSnapshotError = errorMessage(error);
+      }
       const runId = stableId("api-transit-run", source.id, runStartedAt);
+      const runHasSnapshotMismatch = supplementalSnapshotConsistency?.status === "mismatch";
       parsed.offers = parsed.offers.map(clearUnpricedPreviewModelRates);
       stations.push(parsed.station);
       offers.push(...parsed.offers);
@@ -271,23 +293,33 @@ export async function collectApiTransitPrices(options = {}) {
         id: runId,
         station_id: source.id,
         run_type: "public_pricing",
-        status: parsed.offers.length ? "success" : "partial",
+        status: parsed.offers.length && !runHasSnapshotMismatch ? "success" : "partial",
         model_count: parsed.modelCount,
         offer_count: parsed.offers.length,
-        error_message: parsed.offers.length ? null : parsed.collectionError || "未识别到已支持的标准模型。",
+        error_message: parsed.offers.length && !runHasSnapshotMismatch
+          ? null
+          : parsed.collectionError || "未识别到已支持的标准模型。",
         source_url: source.pricingEndpointUrl,
         started_at: runStartedAt,
         finished_at: new Date().toISOString(),
-        raw_snapshot: compactSnapshot(availabilityPayload ? {
-          pricing: payload,
-          availability: availabilityPayload,
-        } : payload),
+        raw_snapshot: compactSnapshot(
+          availabilityPayload || supplementalSnapshotPayload
+            ? {
+                pricing: payload,
+                availability: availabilityPayload,
+                supplemental_snapshot: supplementalSnapshotPayload,
+              }
+            : payload,
+        ),
         logs: {
           collectorKind: source.collectorKind,
           selectedModels: parsed.offers.map((offer) => offer.raw_model_name),
           availabilitySourceUrl: source.monitorEndpointUrl || null,
           availabilitySamples: parsed.availabilitySamples?.length || 0,
           availabilityError,
+          supplementalSnapshotUrl: source.snapshotEndpointUrl || null,
+          supplementalSnapshotConsistency,
+          supplementalSnapshotError,
         },
       });
       availabilitySamples.push(
@@ -492,6 +524,31 @@ async function fetchAvailabilityPayload(source, options) {
   }
 }
 
+async function fetchSupplementalSnapshotPayload(source, options) {
+  if (!source.snapshotEndpointUrl || !isNewApiPricingSource(source)) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs || DEFAULT_TIMEOUT_MS));
+  try {
+    const response = await safeFetch(source.snapshotEndpointUrl, {
+      signal: controller.signal,
+      headers: {
+        "accept": "application/json,text/plain;q=0.9,*/*;q=0.8",
+        "user-agent": userAgent,
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("公开补充快照接口没有返回 JSON。");
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function applyAvailabilityPayloadToParsedRows(source, parsed, payload, collectedAt) {
   if (!payload) return;
   if (isZivvModelHubSource(source)) {
@@ -521,14 +578,14 @@ function parsePricingPayload(source, payload, collectedAt) {
   }
 
   const items = normalizePricingItems(payload);
-  const groupRatios = normalizeGroupRatios(payload);
+  const groupRatioState = normalizeGroupRatios(payload);
   const selected = [];
 
   for (const item of items) {
     const standard = standardizeModelName(item.model_name || item.name || "");
     if (!standard) continue;
 
-    const groups = normalizeItemGroups(item, groupRatios);
+    const groups = normalizeItemGroups(item, groupRatioState);
     for (const group of groups) {
       const offer = buildOfferRow(source, item, group, standard, collectedAt);
       if (offer) selected.push(offer);
@@ -991,7 +1048,7 @@ function buildAiTransitSnapshotOfferRow({
     availability_scope: availabilitySource.availability_scope || null,
     availability_match_level: availabilitySource.availability_match_level || null,
     monitoring_scope_id: availabilitySource.monitoring_scope_id || null,
-    last_verified_at: availabilitySource.lastCheckedAt || generatedAt || collectedAt,
+    last_verified_at: generatedAt || collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
     raw_payload: {
@@ -1508,7 +1565,6 @@ function applyAiTransitTimelineAvailability(offers, availabilitySamples) {
     if (offer.availability_seven_day_rate === null || offer.availability_seven_day_rate === undefined) {
       offer.availability_seven_day_rate = round(okSamples / samples.length, 6);
     }
-    offer.last_verified_at = offer.availability_last_checked_at || offer.last_verified_at;
   }
 }
 
@@ -1953,6 +2009,209 @@ function isNewApiPerformanceSummaryPayload(payload) {
   });
 }
 
+function adaptNewApiTransitSnapshot(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("New API transit 补充快照不是对象。");
+  }
+
+  const groupEntries = payload.groups && typeof payload.groups === "object" && !Array.isArray(payload.groups)
+    ? Object.entries(payload.groups)
+    : [];
+  const models = Array.isArray(payload.models) ? payload.models : [];
+  const monitoringEntries = payload?.monitoring?.models && typeof payload.monitoring.models === "object"
+    ? Object.entries(payload.monitoring.models)
+    : [];
+  if (!groupEntries.length || !models.length) {
+    throw new Error("New API transit 补充快照缺少对象型 groups 或顶层 models。" );
+  }
+
+  return {
+    schemaVersion: stringOrNull(payload.schema_version),
+    generatedAt: stringOrNull(payload.generated_at),
+    site: payload.site && typeof payload.site === "object" ? payload.site : null,
+    channelSource: payload.channel_source && typeof payload.channel_source === "object" ? payload.channel_source : null,
+    monitoringWindowHours: numberValue(payload?.monitoring?.window_hours),
+    monitoringSource: stringOrNull(payload?.monitoring?.source),
+    pricing: {
+      data: models.map((model) => ({
+        model_name: stringOrNull(model?.name),
+        vendor: stringOrNull(model?.vendor),
+        quota_type: model?.billing_type === "per_request" ? 1 : 0,
+        model_ratio: numberValue(model?.model_ratio),
+        completion_ratio: numberValue(model?.completion_ratio),
+        model_price: numberValue(model?.model_price),
+        cache_ratio: numberValue(model?.cache_read_ratio),
+        create_cache_ratio: numberValue(model?.cache_write_ratio),
+        enable_groups: Array.isArray(model?.groups) ? model.groups.map(stringOrNull).filter(Boolean) : [],
+        supported_endpoint_types: Array.isArray(model?.endpoint_types)
+          ? model.endpoint_types.map(stringOrNull).filter(Boolean)
+          : [],
+      })),
+      group_ratio: Object.fromEntries(
+        groupEntries.map(([name, group]) => [name, numberValue(group?.ratio)]),
+      ),
+    },
+    monitoringModels: monitoringEntries.map(([name, model]) => ({
+      name,
+      requests: integerValue(model?.requests),
+      successRate: numberValue(model?.success_rate),
+      avgLatencyMs: numberValue(model?.avg_latency_ms),
+      avgTtftMs: numberValue(model?.avg_ttft_ms),
+      byGroup: model?.by_group && typeof model.by_group === "object" ? model.by_group : {},
+      raw: model,
+    })),
+    raw: payload,
+  };
+}
+
+function compareNewApiPricingWithTransitSnapshot(primaryPayload, snapshotPricing) {
+  const primaryItems = normalizePricingItems(primaryPayload);
+  const snapshotItems = normalizePricingItems(snapshotPricing);
+  const primaryGroups = normalizeGroupRatios(primaryPayload).groups;
+  const snapshotGroups = normalizeGroupRatios(snapshotPricing).groups;
+  const mismatches = [];
+
+  if (primaryItems.length !== snapshotItems.length) {
+    mismatches.push(`模型数量不一致：主价格 ${primaryItems.length}，补充快照 ${snapshotItems.length}`);
+  }
+  if (primaryGroups.size !== snapshotGroups.size) {
+    mismatches.push(`分组数量不一致：主价格 ${primaryGroups.size}，补充快照 ${snapshotGroups.size}`);
+  }
+
+  for (const [name, primaryGroup] of primaryGroups) {
+    const snapshotGroup = snapshotGroups.get(name);
+    if (!snapshotGroup) {
+      mismatches.push(`补充快照缺少分组 ${name}`);
+      continue;
+    }
+    if (!sameNullableNumber(primaryGroup.ratio, snapshotGroup.ratio)) {
+      mismatches.push(`分组 ${name} 倍率不一致：${primaryGroup.ratio} / ${snapshotGroup.ratio}`);
+    }
+  }
+
+  const snapshotItemsByName = new Map(
+    snapshotItems.map((item) => [stringOrNull(item?.model_name || item?.name), item]).filter(([name]) => name),
+  );
+  const comparedFields = ["model_ratio", "completion_ratio", "model_price", "cache_ratio", "create_cache_ratio"];
+  for (const primaryItem of primaryItems) {
+    const name = stringOrNull(primaryItem?.model_name || primaryItem?.name);
+    if (!name) continue;
+    const snapshotItem = snapshotItemsByName.get(name);
+    if (!snapshotItem) {
+      mismatches.push(`补充快照缺少模型 ${name}`);
+      continue;
+    }
+    for (const field of comparedFields) {
+      if (!sameNullableNumber(primaryItem?.[field], snapshotItem?.[field])) {
+        mismatches.push(`模型 ${name} 的 ${field} 不一致`);
+      }
+    }
+    const primaryModelGroups = normalizedTextList(primaryItem?.enable_groups);
+    const snapshotModelGroups = normalizedTextList(snapshotItem?.enable_groups);
+    if (primaryModelGroups.join("|") !== snapshotModelGroups.join("|")) {
+      mismatches.push(`模型 ${name} 的可用分组不一致`);
+    }
+  }
+
+  return {
+    status: mismatches.length ? "mismatch" : "match",
+    primaryModelCount: primaryItems.length,
+    snapshotModelCount: snapshotItems.length,
+    primaryGroupCount: primaryGroups.size,
+    snapshotGroupCount: snapshotGroups.size,
+    mismatchCount: mismatches.length,
+    mismatches: mismatches.slice(0, 20),
+  };
+}
+
+function applyNewApiTransitSnapshotAvailability(source, parsed, adaptedSnapshot, collectedAt) {
+  const generatedAt = adaptedSnapshot.generatedAt || collectedAt;
+  const windowHours = adaptedSnapshot.monitoringWindowHours || 24;
+  const availabilityByRawModelKey = new Map();
+  const availabilityCandidatesByOfferKey = new Map();
+
+  for (const model of adaptedSnapshot.monitoringModels || []) {
+    const standard = standardizeModelName(model.name);
+    if (!standard) continue;
+    for (const [rawGroupName, groupMetrics] of Object.entries(model.byGroup || {})) {
+      const groupName = normalizeSourceGroupName(source, rawGroupName);
+      const rate = percentValueToRate(groupMetrics?.success_rate);
+      if (rate === null) continue;
+      const requests = integerValue(groupMetrics?.requests);
+      const requestNote = requests === null ? "请求量未公开" : `请求 ${requests.toLocaleString("en-US")} 次`;
+      const availability = {
+          rate,
+          samples: 1,
+          firstCheckedAt: generatedAt,
+          lastCheckedAt: generatedAt,
+          latestLatencyMs: null,
+          avgLatency7dMs: null,
+          note: `${source.name} 公开 transit 快照近 ${formatNumberValue(windowHours)} 小时真实流量聚合：${model.name} / ${rawGroupName} ${requestNote}，成功率 ${formatPercentValue(groupMetrics?.success_rate)}；聚合值按 1 个公开状态样本记录，非 PriceAI API Key 实测。`,
+          raw: {
+            schema_version: adaptedSnapshot.schemaVersion,
+            generated_at: generatedAt,
+            monitoring_source: adaptedSnapshot.monitoringSource,
+            model: model.name,
+            group: rawGroupName,
+            requests,
+            success_rate: rate,
+            model_avg_latency_ms: model.avgLatencyMs,
+            model_avg_ttft_ms: model.avgTtftMs,
+          },
+          availability_source_type: AVAILABILITY_SOURCES.publicStatus.type,
+          availability_source_label: "公开 transit 快照",
+          availability_source_url: source.snapshotEndpointUrl,
+          availability_scope: "offer",
+          availability_match_level: "exact",
+          monitoring_scope_id: stableId("api-transit-monitoring", source.id, "offer", groupName, standard, model.name),
+        };
+      availabilityByRawModelKey.set(
+        newApiTransitRawModelAvailabilityKey(model.name, groupName),
+        availability,
+      );
+      const standardizedKey = offerKey({ station_id: source.id, standard_model: standard, group_name: groupName });
+      availabilityCandidatesByOfferKey.set(
+        standardizedKey,
+        [...(availabilityCandidatesByOfferKey.get(standardizedKey) || []), availability],
+      );
+    }
+  }
+
+  for (const offer of parsed.offers || []) {
+    const directAvailability = availabilityByRawModelKey.get(
+      newApiTransitRawModelAvailabilityKey(offer.raw_model_name, offer.group_name),
+    );
+    const standardizedCandidates = availabilityCandidatesByOfferKey.get(offerKey(offer)) || [];
+    const availability = directAvailability || (standardizedCandidates.length === 1 ? standardizedCandidates[0] : null);
+    if (!availability) continue;
+    applyAvailabilityToOffer(offer, availability);
+    offer.raw_payload = {
+      ...(offer.raw_payload || {}),
+      supplemental_transit_snapshot: availability.raw,
+    };
+  }
+}
+
+function newApiTransitRawModelAvailabilityKey(rawModelName, groupName) {
+  return `${String(rawModelName || "").trim().toLowerCase()}|${String(groupName || "").trim().toLowerCase()}`;
+}
+
+function newApiTransitSnapshotMismatchMessage(consistency) {
+  const details = consistency.mismatches.slice(0, 3).join("；");
+  return `New API 主价格与公开 transit 补充快照存在 ${consistency.mismatchCount} 项差异${details ? `：${details}` : ""}。已保留主价格并标记待复核。`;
+}
+
+function sameNullableNumber(left, right) {
+  const leftValue = numberValue(left);
+  const rightValue = numberValue(right);
+  if (leftValue === null || rightValue === null) return leftValue === rightValue;
+  return Math.abs(leftValue - rightValue) <= 1e-9;
+}
+
+function normalizedTextList(value) {
+  return Array.isArray(value) ? value.map(stringOrNull).filter(Boolean).sort() : [];
+}
+
 function applyNewApiPerformanceSummaryAvailability(source, parsed, payload, collectedAt) {
   const availabilityByStandard = new Map();
 
@@ -2179,7 +2438,6 @@ function applyAvailabilityToOffer(offer, availability) {
   offer.availability_scope = availability.availability_scope ?? offer.availability_scope ?? null;
   offer.availability_match_level = availability.availability_match_level ?? offer.availability_match_level ?? null;
   offer.monitoring_scope_id = availability.monitoring_scope_id ?? offer.monitoring_scope_id ?? null;
-  offer.last_verified_at = availability.lastCheckedAt || offer.last_verified_at;
 }
 
 function buildAvailabilitySampleRow(input) {
@@ -2251,9 +2509,10 @@ function normalizePricingItems(payload) {
 }
 
 function normalizeGroupRatios(payload) {
-  const raw = payload?.group_ratio || payload?.data?.group_info || payload?.group_info || {};
+  const candidates = [payload?.group_ratio, payload?.data?.group_info, payload?.group_info];
+  const raw = candidates.find((value) => value && typeof value === "object" && !Array.isArray(value));
   const groups = new Map();
-  if (!raw || typeof raw !== "object") return groups;
+  if (!raw) return { groups, declared: false };
 
   for (const [key, value] of Object.entries(raw)) {
     if (typeof value === "number") {
@@ -2266,10 +2525,11 @@ function normalizeGroupRatios(payload) {
       });
     }
   }
-  return groups;
+  return { groups, declared: true };
 }
 
-function normalizeItemGroups(item, groupRatios) {
+function normalizeItemGroups(item, groupRatioState) {
+  const { groups: groupRatios, declared: groupRatiosDeclared } = groupRatioState;
   if (item.price_info && typeof item.price_info === "object") {
     const groups = [];
     for (const [groupName, groupPayload] of Object.entries(item.price_info)) {
@@ -2279,6 +2539,7 @@ function normalizeItemGroups(item, groupRatios) {
         key: groupName,
         name: meta.name || groupName,
         groupRatio: meta.ratio,
+        groupRatioMissing: groupRatiosDeclared && (!groupRatios.has(groupName) || meta.ratio === null),
         description: meta.description,
         modelRatio: numberValue(defaultPayload?.model_ratio),
         completionRatio: numberValue(defaultPayload?.model_completion_ratio ?? defaultPayload?.completion_ratio),
@@ -2296,6 +2557,7 @@ function normalizeItemGroups(item, groupRatios) {
       key: groupName,
       name: meta.name || groupName,
       groupRatio: meta.ratio,
+      groupRatioMissing: groupRatiosDeclared && (!groupRatios.has(groupName) || meta.ratio === null),
       description: meta.description,
       modelRatio: numberValue(item.model_ratio),
       completionRatio: numberValue(item.completion_ratio),
@@ -2364,7 +2626,7 @@ function buildOneHopPublicModelOfferRow(source, item, standard, collectedAt) {
     availability_last_checked_at: availability.lastCheckedAt,
     availability_note: availability.note,
     ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicModelCatalog),
-    last_verified_at: availability.lastCheckedAt || collectedAt,
+    last_verified_at: collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
     raw_payload: {
@@ -2431,7 +2693,7 @@ function buildApinodePublicSiteInfoOfferRow({
     availability_last_checked_at: availability?.lastCheckedAt ?? generatedAt,
     availability_note: apinodeAvailabilityNote(standard, availability),
     ...availabilitySourceFields(source, AVAILABILITY_SOURCES.publicStatus),
-    last_verified_at: availability?.lastCheckedAt || generatedAt || collectedAt,
+    last_verified_at: generatedAt || collectedAt,
     status: autoPublish ? "active" : "needs_review",
     auto_publish: autoPublish,
     raw_payload: {
@@ -2964,6 +3226,7 @@ function buildStationRow(source, collectedAt, collection = {}) {
 
 function buildOfferRow(source, item, group, standard, collectedAt) {
   const family = familyForStandardModel(standard);
+  if (group.groupRatioMissing) return null;
   const groupMultiplier = group.groupRatio ?? 1;
   const rechargeRatio = source.rechargeRatio || DEFAULT_RECHARGE_RATIO;
   const splitMultipliers = getSplitMultipliers(item, group, standard, groupMultiplier, rechargeRatio);
@@ -3309,6 +3572,7 @@ function standardizeModelName(name) {
     return null;
   }
   if (value.includes("claude") && value.includes("opus")) {
+    if (hasExplicitModelVersion(value, "opus", "5")) return "Claude Opus 5";
     if (hasExplicitModelVersion(value, "opus", "4.8")) return "Claude Opus 4.8";
     if (hasExplicitModelVersion(value, "opus", "4.7")) return "Claude Opus 4.7";
     if (hasExplicitModelVersion(value, "opus", "4.6")) return "Claude Opus 4.6";
@@ -4019,6 +4283,7 @@ function mergeStationForRefresh(station, existing, options) {
 
   return normalizeUnknownAvailability(mergeExistingAvailability({
     ...row,
+    name: existing.name || station.name,
     status: manuallyRemoved ? existing.status || "unknown" : refreshFailed ? existing.status || station.status : row.status,
     source_type: existing.source_type || station.source_type,
     commercial_relation: existing.commercial_relation || station.commercial_relation,
@@ -4215,6 +4480,13 @@ async function upsertRows(supabase, table, rows, options = {}) {
     }
     if (error && table === "api_transit_stations" && isAvailabilitySourceColumnError(error)) {
       const compatibleChunk = removeAvailabilitySourceFields(removeLatencyFields(chunk));
+      const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
+      if (!fallbackError) continue;
+      fallbackError.table = table;
+      throw fallbackError;
+    }
+    if (error && table === "api_transit_stations" && isAvailabilityEvidenceColumnError(error)) {
+      const compatibleChunk = removeAvailabilityEvidenceFields(chunk);
       const { error: fallbackError } = await supabase.from(table).upsert(compatibleChunk, options);
       if (!fallbackError) continue;
       fallbackError.table = table;
@@ -4663,6 +4935,7 @@ function errorMessage(error) {
 }
 
 export const __test = {
+  adaptNewApiTransitSnapshot,
   buildAvailabilitySampleRow,
   collectSuccessfulRefreshStationIds,
   collectRefreshedOfferKeys,
@@ -4673,13 +4946,17 @@ export const __test = {
   findStaleRefreshedOfferIds,
   mergeStationForRefresh,
   applyNewApiPerformanceSummaryAvailability,
+  applyNewApiTransitSnapshotAvailability,
   applyZivvStatusAvailability,
   mergeOfferForRefresh,
+  removeAvailabilityEvidenceFields,
   parseApinodePublicSiteInfoPayload,
   parseOneHopPublicModelsPayload,
   parsePricingPayload,
+  compareNewApiPricingWithTransitSnapshot,
   parseZivvModelHubPayload,
   selectSources,
   standardizeModelName,
   shouldRestrictToPublishedStations,
+  upsertRows,
 };

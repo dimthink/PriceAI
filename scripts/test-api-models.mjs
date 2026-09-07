@@ -24,6 +24,35 @@ const modelIds = new Set(dataset.models.map((model) => model.id));
 const providerIds = new Set(dataset.providers.map((provider) => provider.id));
 const planIds = new Set(dataset.plans.map((plan) => plan.id));
 
+const claudeOpus5 = dataset.models.find((model) => model.id === "claude-opus-5");
+assert.ok(claudeOpus5, "Claude Opus 5 should be included in the official API model dataset.");
+assert.equal(claudeOpus5.modelId, "claude-opus-5", "Claude Opus 5 should use the official Anthropic model id.");
+assert.equal(claudeOpus5.updatedAt, "2026-07-24", "Claude Opus 5 should use its official release date.");
+assert.equal(
+  claudeOpus5.sourceUrl,
+  "https://www.anthropic.com/news/claude-opus-5",
+  "Claude Opus 5 should link to the Anthropic announcement.",
+);
+
+const claudeOpus5Offer = dataset.offers.find((offer) => offer.id === "anthropic-claude-opus-5");
+assert.ok(claudeOpus5Offer, "Claude Opus 5 should include an Anthropic official API offer.");
+assert.equal(claudeOpus5Offer.routeModelId, "claude-opus-5", "Claude Opus 5 offer should use the official route id.");
+assert.deepEqual(
+  {
+    input: claudeOpus5Offer.inputPrice,
+    output: claudeOpus5Offer.outputPrice,
+    cacheWrite: claudeOpus5Offer.cacheWritePrice,
+    cacheRead: claudeOpus5Offer.cacheReadPrice,
+  },
+  {
+    input: { kind: "numeric", usdPerMTokens: 5 },
+    output: { kind: "numeric", usdPerMTokens: 25 },
+    cacheWrite: { kind: "numeric", usdPerMTokens: 6.25 },
+    cacheRead: { kind: "numeric", usdPerMTokens: 0.5 },
+  },
+  "Claude Opus 5 official prices should match Anthropic pricing.",
+);
+
 for (const model of dataset.models) {
   assert.ok(model.id, "Model id is required.");
   assert.ok(model.displayName, `${model.id} displayName is required.`);

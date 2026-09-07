@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import { ProxyAgent } from "undici";
 import { createClient } from "@supabase/supabase-js";
 import { safeFetch } from "./safe-fetch.mjs";
+import {
+  DAILY_PROBE_INTERVAL_MINUTES,
+  WEEKLY_PROBE_INTERVAL_MINUTES,
+  legacyFailureObservationInterval,
+  outOfStockObservationSchedule,
+} from "./out-of-stock-observation.mjs";
 import collectorRegistry from "../config/collectors.json" with { type: "json" };
 
 const env = readEnvFile(".env.local");
@@ -41,9 +47,6 @@ const SHOP_API_FIXED_FEE_RATE = 0.03;
 const SHOP_API_CENT_TOLERANCE = 0.011;
 const SHOP_API_PRODUCT_LEVEL_FEE_HOSTS = new Set(["catfk.com"]);
 const SHOP_API_FULL_SNAPSHOT_MIN_COVERAGE = 0.8;
-const OBSERVATION_PROBE_FAILURE_THRESHOLD = 3;
-const DAILY_PROBE_INTERVAL_MINUTES = 24 * 60;
-const WEEKLY_PROBE_INTERVAL_MINUTES = 7 * DAILY_PROBE_INTERVAL_MINUTES;
 const DEFAULT_SHOP_API_PROXY_HOSTS = ["www.ldxp.cn", "pay.ldxp.cn", "ldxp.cn"];
 const LDXP_WWW_HOST = "www.ldxp.cn";
 const LDXP_PAY_HOST = "pay.ldxp.cn";
@@ -58,6 +61,7 @@ let ldxpRuntimeSettings = {
 const SHOP_API_PROXY_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_SHOP_API_PROXY_REUSE_LIMIT = 0;
 const DEFAULT_SHOP_API_PROXY_REUSE_TTL_MS = 55_000;
+const DEFAULT_SHOP_API_PROXY_MAX_RUNS = 1;
 const SHOP_API_PROXY_EXPIRY_SAFETY_MS = 45_000;
 const SHOP_API_PROXY_ROTATION_WINDOW_MS = 10 * 60 * 1000;
 const SHOP_API_PROXY_MAX_ROTATIONS_PER_WINDOW = 2;
@@ -69,6 +73,8 @@ const DEFAULT_SHOP_API_EXIT_ERROR_FAMILY_PAUSE = false;
 const SHOP_COLLECTION_SCHEDULER_CRAWL_RUN_SELECT =
   "id,source_id,source_name,mode,status,started_at,finished_at,success_count,failure_count,message,details";
 const SHOP_COLLECTION_SCHEDULER_SOURCE_SELECT =
+  "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,availability_status,out_of_stock_since,consecutive_out_of_stock_snapshots,created_at,shop_created_at,updated_at,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy,collection_group";
+const SHOP_COLLECTION_SCHEDULER_SOURCE_NO_AVAILABILITY_SELECT =
   "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,shop_created_at,updated_at,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy,collection_group";
 const SHOP_COLLECTION_SCHEDULER_SOURCE_NO_GROUP_SELECT =
   "id,name,base_url,entry_url,collection_method,collector_kind,enabled,notes,health_status,last_success_at,last_checked_at,consecutive_failures,last_error,created_at,shop_created_at,updated_at,buyer_fee_rate,buyer_fee_payment_method,buyer_fee_strategy";
@@ -94,6 +100,9 @@ const SHOP_COLLECTION_TIER_DEFINITIONS = [
   { tier: "low_3h", label: "3h 低频", intervalMinutes: 180, requestWeight: 1 },
   { tier: "retry_priority", label: "优先重试", intervalMinutes: 60, requestWeight: 1 },
   { tier: "retry_cooldown", label: "冷却重试", intervalMinutes: 180, requestWeight: 1 },
+  { tier: "out_of_stock_watch_1h", label: "缺货观察 1h", intervalMinutes: 60, requestWeight: 1 },
+  { tier: "out_of_stock_watch_3h", label: "缺货观察 3h", intervalMinutes: 180, requestWeight: 1 },
+  { tier: "out_of_stock_watch_6h", label: "缺货观察 6h", intervalMinutes: 360, requestWeight: 1 },
   { tier: "daily_probe", label: "每日复检", intervalMinutes: DAILY_PROBE_INTERVAL_MINUTES, requestWeight: 1 },
   { tier: "weekly_probe", label: "每周复检", intervalMinutes: WEEKLY_PROBE_INTERVAL_MINUTES, requestWeight: 1 },
 ];
@@ -257,13 +266,19 @@ export async function runPriceCollection(options = {}) {
         await writeQueue.flush("final", { persistOnFailure: true });
       } catch (error) {
         if (options.post) {
-          await postCollectorHeartbeat("failed", options, {
+          const heartbeat = collectorHeartbeatForWritebackFailure(summary, error);
+          await postCollectorHeartbeat(heartbeat.status, options, {
             startedAt,
             finishedAt: new Date().toISOString(),
-            failureCount: 1,
-            message: errorMessage(error),
+            successCount: heartbeat.successCount,
+            failureCount: heartbeat.failureCount,
+            offerCount: heartbeat.offerCount,
+            message: heartbeat.message,
             details: {
               phase: "crawl-log-final-flush",
+              collectionCompleted: heartbeat.collectionCompleted,
+              writebackPending: heartbeat.spoolPersisted,
+              spoolPersisted: heartbeat.spoolPersisted,
               targetCount: selectedTargets.length,
               groupCount: groups.length,
               shopScheduler: shopSchedule.summary,
@@ -281,13 +296,19 @@ export async function runPriceCollection(options = {}) {
     if (writeQueue) writeQueue.throwIfFailed();
   } catch (error) {
     if (options.post) {
-      await postCollectorHeartbeat("failed", options, {
+      const heartbeat = collectorHeartbeatForWritebackFailure(summary, error);
+      await postCollectorHeartbeat(heartbeat.status, options, {
         startedAt,
         finishedAt: new Date().toISOString(),
-        failureCount: 1,
-        message: errorMessage(error),
+        successCount: heartbeat.successCount,
+        failureCount: heartbeat.failureCount,
+        offerCount: heartbeat.offerCount,
+        message: heartbeat.message,
         details: {
           phase: "crawl-log-flush",
+          collectionCompleted: heartbeat.collectionCompleted,
+          writebackPending: heartbeat.spoolPersisted,
+          spoolPersisted: heartbeat.spoolPersisted,
           targetCount: selectedTargets.length,
           groupCount: groups.length,
           shopScheduler: shopSchedule.summary,
@@ -390,12 +411,14 @@ async function collectOneTarget(target, options, logger, lockOwner, familyState,
   markCollectionFamilyStarted(target, familyState);
 
   logger?.log(`\n==> ${target.sourceName} [${target.kind}]`);
+  let releaseDeferred = false;
+  const deferReleaseUntilWriteback = target.collectionGroup === "vip_15m";
 
   try {
     const collection = await collectTargetWithRetries(target, options, logger);
     const collectedAt = new Date().toISOString();
     const offers = collection.offers;
-    const emptyFullSnapshot = !offers.length && isEmptyResultFullSnapshotTarget(target);
+    const emptyFullSnapshot = !offers.length && isEmptyResultFullSnapshotTarget(target, collection.details);
     const status = offers.length || emptyFullSnapshot ? "success" : "failed";
     const message = offers.length
       ? `HTTP collector found ${offers.length} offers after ${collection.attempts.length} attempt(s).`
@@ -412,8 +435,11 @@ async function collectOneTarget(target, options, logger, lockOwner, familyState,
         attempts: collection.attempts,
         maxAttempts: collection.maxAttempts,
         ...(collection.details || {}),
-      }, writeQueue);
+      }, writeQueue, deferReleaseUntilWriteback
+        ? async () => { await releaseCollectionLock(target, lockOwner, logger); }
+        : null);
       if (posted.queued) {
+        releaseDeferred = deferReleaseUntilWriteback;
         logger?.log(`Queued ${posted.successCount} offers for batched write.`);
       } else {
         logger?.log(
@@ -464,7 +490,7 @@ async function collectOneTarget(target, options, logger, lockOwner, familyState,
       message,
     };
   } finally {
-    await releaseCollectionLock(target, lockOwner, logger);
+    if (!releaseDeferred) await releaseCollectionLock(target, lockOwner, logger);
   }
 }
 
@@ -641,8 +667,18 @@ export {
   blackcatWholesaleActionIdFromChunk,
   blockShopApiDirectExitForTarget,
   calculateShopApiBuyerAdjustment,
+  collectorHeartbeatForWritebackFailure,
+  postCollectorHeartbeat,
   cooldownSkipReason,
   createShopApiProxyReusePool,
+  createShopApiVisitorId,
+  closeShopApiProxyReusePool,
+  discardShopApiProxyReuseForTarget,
+  collectDujiaoProducts,
+  collectGenericHtml,
+  collectGenericHtmlProductCards,
+  collectKamiItems,
+  collectTargetWithRetries,
   extractProxyLeaseFromPayload,
   isDailyProbeFailure,
   isWeeklyProbeFailure,
@@ -650,24 +686,37 @@ export {
   isShopApiExitErrorMessage,
   isShopApiProxyTransportErrorMessage,
   isLdxpFailoverErrorMessage,
+  isGenericProductDetailHref,
+  isEmptyResultFullSnapshotTarget,
+  kamiInventoryFromStock,
   normalizeLdxpRuntimeSettings,
   normalizeShopApiItemOfferUrl,
+  nextStorefrontLowestAvailableSpec,
   latestShopCollectionCrawlRunBySource,
   listShopCollectionPriceStats,
   rewriteLdxpUrlHost,
   resolveShopApiFeeModel,
   alternateLdxpHost,
   shopApiFullSnapshotEvidenceReliable,
+  shopApiProxyContextFromReusePool,
+  restoreShopApiProxyReusePool,
   shopApiSnapshotReportedGoodsCount,
   shopApiProductLevelFeeModel,
   loadTargets,
+  acquireCollectionLock,
+  releaseCollectionLock,
+  postCrawlLog,
   selectBuiltinTargets,
   selectTargets,
   shopApiFeeModelFromChannelRate,
   shopApiProxyParallelismFor,
   shopApiStoredFeePolicy,
+  shopCollectionScheduleTiming,
   shopCollectionSchedulerGroupMatches,
+  shopCollectionScheduleReferenceAt,
   selectShopApiPreferredChannel,
+  stableHashInt,
+  stableOfferInputId,
 };
 
 if (isCli()) {
@@ -710,7 +759,7 @@ async function collectTarget(target, options = {}) {
   if (target.kind === "unicornHtml") return collectUnicornHtml(target, options);
   if (target.kind === "mooncakeCatalog") return collectMooncakeCatalog(target);
   if (target.kind === "blackcatWholesale") return collectBlackcatWholesale(target);
-  if (target.kind === "genericHtml") return collectGenericHtml(target);
+  if (target.kind === "genericHtml") return collectGenericHtml(target, options);
 
   throw new Error(`Unsupported collector kind: ${target.kind}`);
 }
@@ -748,7 +797,7 @@ async function collectTargetWithRetries(target, options = {}, logger = null) {
         message,
       });
 
-      if (offers.length || isEmptyResultFullSnapshotTarget(target)) {
+      if (offers.length || isEmptyResultFullSnapshotTarget(target, collectionDetails)) {
         return { offers, attempts, maxAttempts, details: collectionDetails };
       }
 
@@ -810,32 +859,7 @@ async function collectKamiLike(target, options = {}) {
     const items = Array.isArray(payload.data) ? payload.data : [];
     if (!items.length) break;
 
-    for (const item of items) {
-      const title = cleanText(item.name);
-      const price = numberOrNull(item.user_price ?? item.price);
-      if (!title || price === null || isNonComparableTitle(title)) continue;
-
-      const stockCount = numberOrNull(item.stock);
-      const hidden = Number(item.hide || 0) !== 0;
-      const disabled = Number(item.status ?? 1) !== 1 || hidden;
-      const status = disabled ? "out_of_stock" : statusFromStock(stockCount);
-      const categoryName = cleanText(item.category?.name || "");
-
-      offers.push(
-        makeOffer(target, {
-          title,
-          price,
-          status,
-          stockCount,
-          url: kamiCommodityUrl(target, item.id),
-          tags: compact([
-            categoryName,
-            item.delivery_way === 0 ? "自动发货" : null,
-            hidden ? "隐藏商品" : null,
-          ]),
-        }),
-      );
-    }
+    offers.push(...collectKamiItems(target, items));
 
     if (items.length < 100) break;
   }
@@ -843,9 +867,55 @@ async function collectKamiLike(target, options = {}) {
   return offers;
 }
 
+function collectKamiItems(target, items) {
+  const offers = [];
+
+  for (const item of items) {
+    const title = cleanText(item.name);
+    const price = numberOrNull(item.user_price ?? item.price);
+    if (!title || price === null || isNonComparableTitle(title)) continue;
+
+    const inventory = kamiInventoryFromStock(item.stock);
+    const hidden = Number(item.hide || 0) !== 0;
+    const disabled = Number(item.status ?? 1) !== 1 || hidden;
+    const status = disabled ? "out_of_stock" : inventory.status;
+    const categoryName = cleanText(item.category?.name || "");
+
+    offers.push(
+      makeOffer(target, {
+        title,
+        price,
+        status,
+        stockCount: disabled && inventory.stockCount === null ? 0 : inventory.stockCount,
+        url: kamiCommodityUrl(target, item.id),
+        tags: compact([
+          categoryName,
+          item.delivery_way === 0 ? "自动发货" : null,
+          hidden ? "隐藏商品" : null,
+        ]),
+      }),
+    );
+  }
+
+  return offers;
+}
+
+function kamiInventoryFromStock(value) {
+  const text = cleanText(value);
+  const stockCount = numberOrNull(value);
+  if (stockCount !== null) return { stockCount, status: statusFromStock(stockCount) };
+  if (/即将售罄|库存紧张|库存较少/.test(text)) return { stockCount: null, status: "low_stock" };
+  if (/已售罄|^售罄$|缺货|无货/.test(text)) return { stockCount: 0, status: "out_of_stock" };
+  return { stockCount: null, status: "in_stock" };
+}
+
 async function collectDujiaoNext(target) {
   const payload = await fetchJson(`${target.baseUrl}/api/v1/public/products`);
   const products = Array.isArray(payload.data) ? payload.data : [];
+  return collectDujiaoProducts(target, products);
+}
+
+function collectDujiaoProducts(target, products) {
   const offers = [];
 
   for (const product of products) {
@@ -921,6 +991,214 @@ async function collectShopApi(target, options = {}) {
     };
     return collected;
   }
+}
+
+export async function verifyShopApiOffer(target, currentOffer, options = {}) {
+  const itemUrl = normalizeShopApiItemOfferUrl(currentOffer?.url) || currentOffer?.url;
+  const goodsKey = goodsKeyFromUrl(itemUrl);
+  if (!goodsKey) {
+    return {
+      status: "inconclusive",
+      route: "none",
+      message: "未能从报价链接识别 ShopApi 商品编号。",
+      offer: null,
+    };
+  }
+
+  const activeTarget = {
+    ...target,
+    baseUrl: deriveBaseUrl(itemUrl) || target.baseUrl,
+  };
+  const proxyMode = shopApiProxyModeFor(options);
+  let useProxy = proxyMode !== "on_exit" || isShopApiDirectExitBlockedForTarget(activeTarget, options);
+  const attempts = [];
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const attemptOptions = {
+      ...options,
+      shopApiProxyLogger: options.shopApiProxyLogger || console,
+      ...(useProxy ? {} : { shopApiProxyDisabled: true }),
+    };
+    try {
+      const result = await verifyShopApiOfferOnce(activeTarget, currentOffer, goodsKey, itemUrl, attemptOptions);
+      return { ...result, attempts };
+    } catch (error) {
+      const message = errorMessage(error);
+      attempts.push({ attempt, route: useProxy ? "proxy" : "direct", message });
+      if (
+        !useProxy &&
+        proxyMode === "on_exit" &&
+        hasShopApiProxyConfigured(options) &&
+        isShopApiExitErrorMessage(message)
+      ) {
+        useProxy = true;
+        blockShopApiDirectExitForTarget(activeTarget, options);
+        options.shopApiProxyLogger?.log?.("Hot verifier direct exit failed; retrying through the shared proxy pool.");
+        continue;
+      }
+      if (useProxy && (isShopApiExitErrorMessage(message) || isShopApiProxyTransportErrorMessage(message))) {
+        await discardShopApiProxyReuseForTarget(activeTarget, options, {
+          logger: options.shopApiProxyLogger,
+          reason: isShopApiExitErrorMessage(message) ? "upstream-exit-error" : "proxy-transport-error",
+        });
+      }
+      throw error;
+    }
+  }
+
+  return {
+    status: "inconclusive",
+    route: useProxy ? "proxy" : "direct",
+    message: "单链接核验未得到明确结果。",
+    offer: null,
+    attempts,
+  };
+}
+
+async function verifyShopApiOfferOnce(target, currentOffer, goodsKey, itemUrl, options = {}) {
+  const proxyContext = await createShopApiProxyContext(target, options);
+  const requestOptions = proxyContext ? { dispatcher: proxyContext.dispatcher } : null;
+  const route = proxyContext ? "proxy" : "direct";
+
+  try {
+    const requestJson = options.shopApiRequestJson || postJson;
+    const payload = await requestJson(
+      `${target.baseUrl}/shopApi/Shop/goodsInfo`,
+      { goods_key: goodsKey, trade_no: "" },
+      itemUrl,
+      requestOptions,
+    );
+    const message = cleanText(payload?.msg || payload?.message || "");
+    const data = payload?.data?.goods || payload?.data?.item || payload?.data || null;
+
+    if (!data) {
+      if (isShopApiExitErrorMessage(message)) throw new Error(message);
+      if (isShopApiClosedMessage(message) || isShopApiRemovedMessage(message)) {
+        return {
+          status: "verified",
+          route,
+          message: message || "源站明确返回商品不可购买。",
+          offer: hotShopApiUnavailableOffer(target, currentOffer, itemUrl, message || "商品未上架"),
+        };
+      }
+      return {
+        status: "inconclusive",
+        route,
+        message: message || "商品接口未返回详情，暂不改变公开状态。",
+        offer: null,
+      };
+    }
+
+    const listedPrice = numberOrNull(data.price ?? data.real_price ?? currentOffer?.listedPrice ?? currentOffer?.price);
+    const stockCount = numberOrNull(data.extend?.stock_count ?? data.stock ?? data.inventory);
+    const itemStatus = numberOrNull(data.status ?? data.state);
+    const explicitlyUnavailable = itemStatus !== null && itemStatus !== 1;
+    const closed = isShopApiClosedMessage(message);
+    const outOfStock = explicitlyUnavailable || stockCount === 0 || isShopApiRemovedMessage(message);
+    const pricing = hotShopApiPricing(target, currentOffer, listedPrice);
+    const title = cleanText(data.name || data.goods_name || currentOffer?.sourceTitle || "");
+
+    if (!title || pricing.price === null) {
+      return {
+        status: "inconclusive",
+        route,
+        message: "商品详情缺少可验证的标题或价格，暂不改变公开状态。",
+        offer: null,
+      };
+    }
+
+    return {
+      status: "verified",
+      route,
+      message: closed
+        ? message || "店铺已打烊。"
+        : outOfStock
+          ? message || "源站明确返回无库存或未上架。"
+          : "源站商品详情核验成功。",
+      offer: makeOffer(target, {
+        title,
+        price: pricing.price,
+        listedPrice: pricing.listedPrice,
+        feeAmount: pricing.feeAmount,
+        priceBasis: pricing.priceBasis,
+        status: outOfStock ? "out_of_stock" : statusFromStock(stockCount),
+        effectiveStatus: closed || outOfStock ? "unavailable" : "available",
+        freshnessStatus: "fresh",
+        failureReason: closed || outOfStock ? `热门报价核验：${message || "源站明确不可购买"}` : null,
+        stockCount,
+        minOrderQuantity: shopApiMinOrderQuantity(data.extend?.limit_count ?? data.limit_count),
+        bulkPricingTiers: Array.isArray(data.multipleoffers)
+          ? shopApiBulkPricingTiers(data.multipleoffers)
+          : currentOffer?.bulkPricingTiers || [],
+        url: itemUrl,
+        tags: Array.isArray(currentOffer?.tags) ? currentOffer.tags : [],
+      }),
+    };
+  } finally {
+    if (!proxyContext?.shared && proxyContext?.dispatcher?.close) {
+      await proxyContext.dispatcher.close().catch(() => {});
+    }
+  }
+}
+
+function hotShopApiUnavailableOffer(target, currentOffer, itemUrl, reason) {
+  return makeOffer(target, {
+    title: currentOffer?.sourceTitle || "已下架商品",
+    price: numberOrNull(currentOffer?.price),
+    listedPrice: numberOrNull(currentOffer?.listedPrice),
+    feeAmount: numberOrNull(currentOffer?.feeAmount),
+    priceBasis: currentOffer?.priceBasis || null,
+    status: "out_of_stock",
+    effectiveStatus: "unavailable",
+    freshnessStatus: "fresh",
+    failureReason: `热门报价核验：${reason}`,
+    stockCount: 0,
+    minOrderQuantity: currentOffer?.minOrderQuantity ?? null,
+    bulkPricingTiers: currentOffer?.bulkPricingTiers || [],
+    url: itemUrl,
+    tags: Array.isArray(currentOffer?.tags) ? currentOffer.tags : [],
+  });
+}
+
+function hotShopApiPricing(target, currentOffer, listedPrice) {
+  if (listedPrice === null) {
+    return {
+      price: numberOrNull(currentOffer?.price),
+      listedPrice: numberOrNull(currentOffer?.listedPrice),
+      feeAmount: numberOrNull(currentOffer?.feeAmount),
+      priceBasis: currentOffer?.priceBasis || null,
+    };
+  }
+
+  if (String(target?.buyerFeeStrategy || "") === "manual_verified") {
+    return { price: listedPrice, listedPrice, feeAmount: 0, priceBasis: "listed" };
+  }
+
+  const previousListedPrice = numberOrNull(currentOffer?.listedPrice);
+  const previousPrice = numberOrNull(currentOffer?.price);
+  const priorBasis = String(currentOffer?.priceBasis || "");
+  if (previousListedPrice && previousPrice !== null && ["modeled", "settled"].includes(priorBasis)) {
+    const feeRate = (previousPrice - previousListedPrice) / previousListedPrice;
+    if (feeRate >= 0 && feeRate <= 0.2) {
+      const feeAmount = roundCurrency(listedPrice * feeRate);
+      return {
+        price: roundCurrency(listedPrice + feeAmount),
+        listedPrice,
+        feeAmount,
+        priceBasis: priorBasis,
+      };
+    }
+  }
+
+  return { price: listedPrice, listedPrice, feeAmount: 0, priceBasis: "listed" };
+}
+
+function isShopApiClosedMessage(value) {
+  return /店铺已打烊|店铺打烊|已打烊|暂停营业|停止营业|暂不营业/.test(String(value || ""));
+}
+
+function isShopApiRemovedMessage(value) {
+  return /未上架|已下架|商品不存在|不存在该商品|已删除|停售|无此商品/.test(String(value || ""));
 }
 
 async function collectShopApiOnce(target, options = {}) {
@@ -2354,11 +2632,15 @@ function decodeKnownEncryptedHtml(html) {
   }
 }
 
-async function collectGenericHtml(target) {
-  const rawHtml = await fetchText(target.sourceUrl);
+async function collectGenericHtml(target, options = {}) {
+  const requestText = options.fetchText || fetchText;
+  const rawHtml = await requestText(target.sourceUrl);
   const html = decodeKnownEncryptedHtml(rawHtml) || rawHtml;
   const cardOffers = collectGenericHtmlProductCards(target, html);
-  if (cardOffers.length >= 2) return dedupeOffers(cardOffers).slice(0, 200);
+  if (cardOffers.length) {
+    const enrichedOffers = await enrichGenericStartingPriceOffers(target, cardOffers, requestText);
+    return dedupeOffers(enrichedOffers).slice(0, 200);
+  }
 
   const pageTitle = cleanPageTitle(html);
   const text = stripHtml(html)
@@ -2396,7 +2678,7 @@ async function collectGenericHtml(target) {
         price,
         status: soldOut ? "out_of_stock" : statusFromStock(stockCount),
         stockCount: soldOut ? 0 : stockCount,
-        url: `${target.sourceUrl.replace(/#.*$/, "")}#offer-${offers.length + 1}`,
+        url: target.sourceUrl.replace(/#.*$/, ""),
         tags: compact([
           /自动发货/.test(context) ? "自动发货" : null,
           /人工/.test(context) ? "人工处理" : null,
@@ -2407,7 +2689,7 @@ async function collectGenericHtml(target) {
     if (singleProductPage) break;
   }
 
-  return dedupeOffers(offers).slice(0, 200);
+  return singleProductPage ? dedupeOffers(offers).slice(0, 1) : [];
 }
 
 function collectGenericHtmlProductCards(target, html) {
@@ -2425,6 +2707,7 @@ function collectGenericHtmlProductCards(target, html) {
     const stockCount = stockFromGenericContext(context);
     const soldOut = /缺货|已售罄|售罄|无货/.test(context) || stockCount === 0;
     const detailUrl = genericProductCardUrl(card, target);
+    if (!detailUrl) continue;
 
     offers.push(
       makeOffer(target, {
@@ -2433,12 +2716,12 @@ function collectGenericHtmlProductCards(target, html) {
         status: soldOut ? "out_of_stock" : statusFromStock(stockCount),
         stockCount: soldOut ? 0 : stockCount,
         url: detailUrl,
-        tags: compact([
+        tags: Array.from(new Set(compact([
           ...genericProductCardTags(card),
           /自动发货/.test(context) ? "自动发货" : null,
           /人工/.test(context) ? "人工处理" : null,
           "商品卡片解析",
-        ]),
+        ]))),
       }),
     );
   }
@@ -2464,7 +2747,73 @@ function extractGenericProductCards(html) {
     }
   }
 
+  for (const card of extractBalancedHtmlElementsByClass(source, "div", ["group/card"])) {
+    if (seen.has(card)) continue;
+    seen.add(card);
+    cards.push(card);
+  }
+
+  for (const match of source.matchAll(/<a\b([^>]*)>[\s\S]*?<\/a>/gi)) {
+    const card = match[0];
+    const href = match[1].match(/\bhref=["']([^"']+)["']/i)?.[1] || "";
+    if (!isGenericProductDetailHref(href) || priceFromGenericProductCard(card) === null || seen.has(card)) continue;
+    seen.add(card);
+    cards.push(card);
+  }
+
   return cards;
+}
+
+function extractBalancedHtmlElementsByClass(html, tagName, requiredClassFragments) {
+  const source = String(html || "");
+  const tagPattern = new RegExp(`<\\/?${escapeRegExp(tagName)}\\b[^>]*>`, "gi");
+  const output = [];
+  let start = -1;
+  let depth = 0;
+
+  for (const match of source.matchAll(tagPattern)) {
+    const tag = match[0];
+    const closing = /^<\//.test(tag);
+    if (start < 0) {
+      if (closing) continue;
+      const className = tag.match(/\bclass=["']([^"']+)["']/i)?.[1] || "";
+      if (!requiredClassFragments.some((fragment) => className.includes(fragment))) continue;
+      start = match.index;
+      depth = 1;
+      continue;
+    }
+
+    depth += closing ? -1 : 1;
+    if (depth !== 0) continue;
+    output.push(source.slice(start, match.index + tag.length));
+    start = -1;
+  }
+
+  return output;
+}
+
+function isGenericProductDetailHref(value, baseUrl = "https://priceai.invalid") {
+  const href = decodeHtmlEntities(value).trim();
+  if (!href || /^(?:javascript:|#)/i.test(href)) return false;
+
+  try {
+    const parsed = new URL(href, baseUrl);
+    if (/\/(?:product|products|checkout|buy|item|goods|post)\/[^/?#]+/i.test(parsed.pathname)) return true;
+    if (/\/(?:product|products|checkout|buy|item|goods|post)\/?$/i.test(parsed.pathname) && parsed.searchParams.get("id")) {
+      return true;
+    }
+    if (
+      normalizeHostname(parsed.href) === "woaimaihao.com" &&
+      /^\/[a-z0-9]+(?:-[a-z0-9]+)*\/?$/i.test(parsed.pathname) &&
+      !/^\/(?:login|products?|orders?|blog|tutorials?|redeem|accounts?|cart|checkout|chatgpt|claude|gemini|grok)\/?$/i.test(parsed.pathname)
+    ) {
+      return true;
+    }
+    return ["post", "product", "product_id", "goods", "goods_id", "item", "item_id"]
+      .some((key) => Boolean(parsed.searchParams.get(key)));
+  } catch {
+    return false;
+  }
 }
 
 function priceFromGenericProductCard(card) {
@@ -2505,8 +2854,47 @@ function titleFromGenericProductCard(card) {
     card.match(/<p[^>]+class=["'][^"']*(?:highlight|subtitle|summary|description)[^"']*["'][^>]*>([\s\S]*?)<\/p>/i)?.[1],
   );
   const description = genericProductCardParagraphs(card).find((paragraph) => paragraph !== highlight) || "";
+  const fallback = titleFromGenericProductCardText(card);
+  const parts = compact([namedTitle || titleAttr || heading || imageAlt || fallback, highlight, description]);
+  const uniqueParts = [];
 
-  return compact([namedTitle || titleAttr || heading || imageAlt, highlight, description]).join(" ").slice(0, 180);
+  for (const part of parts) {
+    const key = genericProductTitlePartKey(part);
+    if (!key || uniqueParts.some((existing) => {
+      const existingKey = genericProductTitlePartKey(existing);
+      return existingKey === key || existingKey.includes(key) || key.includes(existingKey);
+    })) continue;
+    uniqueParts.push(part);
+  }
+
+  return uniqueParts.join(" ").slice(0, 180);
+}
+
+function genericProductTitlePartKey(value) {
+  return cleanText(value)
+    .replace(/[（(]\s*购买\s*[）)]/g, "")
+    .replace(/(?:立即购买|查看详情|购买)/g, "")
+    .replace(/[\s|｜·,，。.!！?？:：;；_-]+/g, "")
+    .toLowerCase();
+}
+
+function titleFromGenericProductCardText(card) {
+  const text = stripHtml(card);
+  const priceIndexCandidates = [
+    text.search(CURRENCY_PRICE_RE),
+    text.search(SUFFIX_PRICE_RE),
+    text.search(/\bPRICE\s+\d/i),
+  ].filter((index) => index >= 0);
+  const priceIndex = priceIndexCandidates.length ? Math.min(...priceIndexCandidates) : text.length;
+
+  return cleanText(text.slice(0, priceIndex))
+    .split(/\s+(?:库存|销量|已售)\s*[:：]?/)[0]
+    .replace(/^(?:缺货|已售罄|售罄|自动发货|人工发货|手工发货)\s*/g, "")
+    .replace(/\s*(?:自动发货|人工发货|手工发货)\s*$/g, "")
+    .replace(/[（(]\s*购买\s*[）)]\s*$/g, "")
+    .replace(/\s*(?:立即购买|查看详情|购买)\s*$/g, "")
+    .trim()
+    .slice(0, 180);
 }
 
 function genericClassText(card, classNames) {
@@ -2526,20 +2914,139 @@ function genericProductCardParagraphs(card) {
 
 function genericProductCardTags(card) {
   const tagBlock = card.match(/<div[^>]+class=["'][^"']*(?:tags|category|badge)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1] || "";
-  return [...tagBlock.matchAll(/<span[^>]*>([\s\S]*?)<\/span>/gi)]
+  const tags = [...tagBlock.matchAll(/<span[^>]*>([\s\S]*?)<\/span>/gi)]
     .map((match) => cleanText(match[1]))
     .filter(Boolean)
     .slice(0, 4);
+  if (/>(?:\s|<!--.*?-->)*起(?:\s|<!--.*?-->)*</is.test(card)) tags.push("起售价");
+  return tags;
+}
+
+async function enrichGenericStartingPriceOffers(target, offers, requestText) {
+  const output = [];
+
+  for (const offer of offers) {
+    if (!offer.tags?.includes("起售价")) {
+      output.push(offer);
+      continue;
+    }
+
+    try {
+      const detailHtml = await requestText(offer.url);
+      const inventory = nextStorefrontLowestAvailableSpec(detailHtml);
+      if (!inventory) continue;
+
+      const pricing = applySourceBuyerFeePolicy(target, { price: inventory.price });
+      output.push({
+        ...offer,
+        ...pricing,
+        stockCount: inventory.stockCount,
+        status: inventory.status,
+        tags: Array.from(new Set(compact([...offer.tags, "最低在售规格"]))),
+      });
+    } catch {
+      // A starting price without a confirmed purchasable spec is not safe to publish.
+    }
+  }
+
+  return output;
+}
+
+function nextStorefrontLowestAvailableSpec(html) {
+  const product = extractNextFlightJsonValue(html, "product");
+  const specs = Array.isArray(product?.specs) ? product.specs : [];
+  if (!specs.length) return null;
+
+  const available = specs
+    .map((spec) => ({
+      price: numberOrNull(spec?.price),
+      stockCount: numberOrNull(spec?.stock_available),
+    }))
+    .filter((spec) => spec.price !== null && spec.stockCount !== null && spec.stockCount > 0)
+    .sort((left, right) => left.price - right.price);
+
+  if (available.length) {
+    return {
+      price: available[0].price,
+      stockCount: available[0].stockCount,
+      status: statusFromStock(available[0].stockCount),
+    };
+  }
+
+  const prices = specs.map((spec) => numberOrNull(spec?.price)).filter((price) => price !== null);
+  if (!prices.length) return null;
+  return { price: Math.min(...prices), stockCount: 0, status: "out_of_stock" };
+}
+
+function extractNextFlightJsonValue(html, key) {
+  const payload = [...String(html || "").matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match) => {
+      try {
+        const argument = match[1].match(/^\s*self\.__next_f\.push\(([\s\S]*)\)\s*$/)?.[1];
+        if (!argument) return "";
+        const chunk = JSON.parse(argument);
+        return typeof chunk?.[1] === "string" ? chunk[1] : "";
+      } catch {
+        return "";
+      }
+    })
+    .join("\n");
+  const marker = `"${key}":`;
+  let offset = 0;
+
+  while (offset < payload.length) {
+    const markerIndex = payload.indexOf(marker, offset);
+    if (markerIndex < 0) return null;
+    const start = payload.slice(markerIndex + marker.length).search(/[\[{]/);
+    if (start < 0) return null;
+    const valueStart = markerIndex + marker.length + start;
+    const valueText = balancedJsonValueAt(payload, valueStart);
+    if (valueText) {
+      try {
+        return JSON.parse(valueText);
+      } catch {
+        // Continue to the next matching key in the Flight payload.
+      }
+    }
+    offset = markerIndex + marker.length;
+  }
+
+  return null;
+}
+
+function balancedJsonValueAt(text, start) {
+  const opening = text[start];
+  const closing = opening === "{" ? "}" : opening === "[" ? "]" : null;
+  if (!closing) return null;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') {
+      quoted = true;
+      continue;
+    }
+    if (character === opening) depth += 1;
+    if (character === closing) depth -= 1;
+    if (depth === 0) return text.slice(start, index + 1);
+  }
+
+  return null;
 }
 
 function genericProductCardUrl(card, target) {
   const hrefs = [...card.matchAll(/href=["']([^"']+)["']/gi)].map((match) => match[1]);
-  const preferred =
-    hrefs.find((href) => /\/products?\//i.test(href)) ||
-    hrefs.find((href) => /\/(?:checkout|buy|item|goods)\//i.test(href)) ||
-    hrefs.find(Boolean);
+  const preferred = hrefs.find((href) => isGenericProductDetailHref(href, target.baseUrl));
 
-  return absolutize(preferred || `${target.sourceUrl.replace(/#.*$/, "")}#offer-${Math.max(1, hrefs.length)}`, target.baseUrl);
+  return preferred ? absolutize(preferred, target.baseUrl) : null;
 }
 
 function titleFromGenericSegment(value, price = null) {
@@ -2762,6 +3269,7 @@ function rewriteLdxpUrlHost(value, host) {
     url.protocol = "https:";
     url.hostname = host;
     url.port = "";
+    if (url.pathname === "/" && !url.search && !url.hash) return url.origin;
     return url.toString();
   } catch {
     return value;
@@ -2826,6 +3334,28 @@ async function selectCollectorSourceRows(supabase) {
     .select(SHOP_COLLECTION_SCHEDULER_SOURCE_SELECT)
     .eq("enabled", true);
   if (!result.error) return result;
+  if (
+    isMissingColumnError(result.error, "availability_status") ||
+    isMissingColumnError(result.error, "out_of_stock_since") ||
+    isMissingColumnError(result.error, "consecutive_out_of_stock_snapshots")
+  ) {
+    const compatibilityResult = await supabase
+      .from("sources")
+      .select(SHOP_COLLECTION_SCHEDULER_SOURCE_NO_AVAILABILITY_SELECT)
+      .eq("enabled", true);
+    if (!compatibilityResult.error || (!isMissingColumnError(compatibilityResult.error, "collection_group") && !isMissingColumnError(compatibilityResult.error, "shop_created_at"))) return compatibilityResult;
+
+    const noGroupResult = await supabase
+      .from("sources")
+      .select(SHOP_COLLECTION_SCHEDULER_SOURCE_NO_GROUP_SELECT)
+      .eq("enabled", true);
+    if (!noGroupResult.error || !isMissingColumnError(noGroupResult.error, "shop_created_at")) return noGroupResult;
+
+    return supabase
+      .from("sources")
+      .select(SHOP_COLLECTION_SCHEDULER_SOURCE_LEGACY_SELECT)
+      .eq("enabled", true);
+  }
   if (!isMissingColumnError(result.error, "collection_group") && !isMissingColumnError(result.error, "shop_created_at")) {
     return result;
   }
@@ -2871,6 +3401,12 @@ function buildTarget(source, rawOffers) {
         ? null
         : Number(source.consecutive_failures),
     lastError: source.last_error || null,
+    availabilityStatus: source.availability_status || "unknown",
+    outOfStockSince: isoDateTimeOrNull(source.out_of_stock_since),
+    consecutiveOutOfStockSnapshots:
+      source.consecutive_out_of_stock_snapshots === null || source.consecutive_out_of_stock_snapshots === undefined
+        ? 0
+        : Number(source.consecutive_out_of_stock_snapshots),
     createdAt: isoDateTimeOrNull(source.created_at),
     sourceShopCreatedAt: isoDateTimeOrNull(source.shop_created_at),
     updatedAt: isoDateTimeOrNull(source.updated_at),
@@ -3077,6 +3613,8 @@ async function postCollectorHeartbeat(status, options = {}, input = {}) {
 }
 
 function collectorHeartbeatScopeForOptions(options = {}) {
+  if (options.heartbeatScope) return String(options.heartbeatScope);
+
   const selected = options.source || options.id || options.name;
   if (selected) return `source:${String(selected)}`;
 
@@ -3102,6 +3640,30 @@ function collectorHeartbeatStatusForResult(result = {}) {
   if (Number(result.failureCount || 0) > 0) return "failed";
   if (Number(result.targetCount || 0) === 0) return "idle";
   return "success";
+}
+
+function collectorHeartbeatForWritebackFailure(summary = [], error = null) {
+  const rows = Array.isArray(summary) ? summary : [];
+  const successCount = rows.filter((item) => item?.status === "success").length;
+  const sourceFailureCount = rows.filter((item) => item?.status !== "success" && item?.status !== "skipped").length;
+  const offerCount = rows.reduce((sum, item) => sum + Number(item?.offers || 0), 0);
+  const collectionCompleted = successCount > 0 && sourceFailureCount === 0;
+  const spoolPersisted = error?.spoolPersisted === true;
+  const writebackError = errorMessage(error);
+
+  return {
+    status: collectionCompleted && spoolPersisted ? "partial" : "failed",
+    successCount,
+    failureCount: sourceFailureCount,
+    offerCount,
+    collectionCompleted,
+    spoolPersisted,
+    message: collectionCompleted && spoolPersisted
+      ? `源站采集已完成，结果回传延迟并已进入本地 spool，等待下轮补写：${writebackError}`
+      : collectionCompleted
+        ? `源站采集已完成，但结果回传和本地 spool 持久化均失败：${writebackError}`
+        : `采集结果回传失败：${writebackError}`,
+  };
 }
 
 async function postCrawlLogPayload(payload, options = {}) {
@@ -3163,12 +3725,12 @@ async function postCrawlLog(target, offers, status, message, options = {}, detai
   return postCrawlLogPayload(crawlLogPayloadFor(target, offers, status, message, options, details), options);
 }
 
-async function postCrawlLogBatched(target, offers, status, message, options = {}, details = {}, writeQueue = null) {
+async function postCrawlLogBatched(target, offers, status, message, options = {}, details = {}, writeQueue = null, onSettled = null) {
   const runs = crawlLogPayloadsFor(target, offers, status, message, options, details);
 
   const canQueue = runs.every((run) => run.status === "success" || run.status === "partial");
   if (writeQueue && canQueue) {
-    writeQueue.enqueue(runs, { sourceId: target.sourceId, sourceName: target.sourceName });
+    writeQueue.enqueue(runs, { sourceId: target.sourceId, sourceName: target.sourceName, onSettled });
     return { ok: true, queued: true, successCount: offers.length };
   }
 
@@ -3214,6 +3776,7 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
   let pendingRuns = [];
   let pendingSourceCount = 0;
   let firstQueuedAt = 0;
+  let pendingSettlers = [];
   let timer = null;
   let flushChain = Promise.resolve();
   let lastError = null;
@@ -3242,9 +3805,11 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
     const runs = pendingRuns;
     const sourceCount = pendingSourceCount;
     const queuedAt = firstQueuedAt;
+    const settlers = pendingSettlers;
     pendingRuns = [];
     pendingSourceCount = 0;
     firstQueuedAt = 0;
+    pendingSettlers = [];
 
     let successCount = 0;
     let writtenCount = 0;
@@ -3269,16 +3834,28 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
       }
     } catch (error) {
       if (flushOptions.persistOnFailure) {
-        spool.write(runs, {
-          reason,
-          sourceCount,
-          queuedAt: queuedAt || Date.now(),
-          error: errorMessage(error),
-        });
+        try {
+          spool.write(runs, {
+            reason,
+            sourceCount,
+            queuedAt: queuedAt || Date.now(),
+            error: errorMessage(error),
+          });
+          error.spoolPersisted = true;
+          await settleCrawlLogQueue(settlers, logger);
+        } catch (spoolError) {
+          const combinedError = new Error(
+            `${errorMessage(error)}; spool persistence failed: ${errorMessage(spoolError)}`,
+            { cause: error },
+          );
+          combinedError.spoolPersisted = false;
+          throw combinedError;
+        }
       } else {
         pendingRuns = [...runs, ...pendingRuns];
         pendingSourceCount += sourceCount;
         firstQueuedAt = firstQueuedAt || queuedAt || Date.now();
+        pendingSettlers = [...settlers, ...pendingSettlers];
         scheduleTimer();
       }
       throw error;
@@ -3288,6 +3865,7 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
       `Flushed ${runs.length} crawl log run(s) from ${sourceCount} source(s) via ${requestCount} request(s).`,
     );
     lastError = null;
+    await settleCrawlLogQueue(settlers, logger);
 
     return { ok: true, runCount: runs.length, successCount, writtenCount, unchangedCount, refreshedCount };
   };
@@ -3305,6 +3883,7 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
 
       pendingRuns.push(...items);
       pendingSourceCount++;
+      if (typeof source.onSettled === "function") pendingSettlers.push(source.onSettled);
       if (!firstQueuedAt) firstQueuedAt = Date.now();
       scheduleTimer();
 
@@ -3343,6 +3922,16 @@ function createCrawlLogWriteQueue(options = {}, logger = null) {
       if (lastError) throw lastError;
     },
   };
+}
+
+async function settleCrawlLogQueue(settlers, logger = null) {
+  for (const settle of settlers) {
+    try {
+      await settle();
+    } catch (error) {
+      logger?.error(`Failed to settle crawl log queue source: ${errorMessage(error)}`);
+    }
+  }
 }
 
 function createCrawlLogSpool(options = {}, logger = null) {
@@ -3500,6 +4089,7 @@ function shouldIncludeFullSnapshot(target, offers, status, options = {}, details
 }
 
 function shopApiFullSnapshotEvidenceReliable(offers, details = {}) {
+  if (details.fullSnapshot === false) return false;
   const fetchedItemCount = nonNegativeInteger(details.fetchedItemCount);
   const rawSeenOfferCount = nonNegativeInteger(details.rawSeenOfferCount);
   const publishedItemCount = nonNegativeInteger(details.publishedItemCount);
@@ -3548,8 +4138,9 @@ function nonNegativeInteger(value) {
   return number;
 }
 
-function isEmptyResultFullSnapshotTarget(target) {
-  return EMPTY_FULL_SNAPSHOT_COLLECTORS.has(target.kind);
+function isEmptyResultFullSnapshotTarget(target, details = {}) {
+  if (EMPTY_FULL_SNAPSHOT_COLLECTORS.has(target.kind)) return true;
+  return target.kind === "shopApi" && shopApiFullSnapshotEvidenceReliable([], details);
 }
 
 function flushSourceCountFor(options = {}) {
@@ -4105,7 +4696,7 @@ async function applyShopCollectionScheduler(targets, options = {}, logger = null
     const contextLoader = typeof options.shopSchedulerContextLoader === "function"
       ? options.shopSchedulerContextLoader
       : loadShopCollectionSchedulerContext;
-    const context = await contextLoader(supabase, shopTargets);
+    const context = await contextLoader(supabase, shopTargets, options);
     const nowMs = Date.now();
     const schedulerOptions = shopCollectionSchedulerOptionsFor(options);
     const shardConfig = shopCollectionSchedulerShardConfig(options);
@@ -4228,11 +4819,11 @@ function isShopCollectionSchedulerPlanMode(options = {}) {
   return truthyFlag(options.shopSchedulerPlan) || truthyFlag(options["shop-scheduler-plan"]);
 }
 
-async function loadShopCollectionSchedulerContext(supabase, targets) {
+async function loadShopCollectionSchedulerContext(supabase, targets, options = {}) {
   const sourceIds = Array.from(new Set(targets.map((target) => target.sourceId).filter(Boolean)));
   const [offerStats, priceStats, crawlRuns, shardAssignments] = await Promise.all([
     listShopCollectionSourceOfferStats(supabase),
-    listShopCollectionPriceStats(supabase),
+    listShopCollectionPriceStats(supabase, { refresh: shopCollectionSchedulerGroupFor(options) !== "vip_15m" }),
     listShopCollectionRecentCrawlRuns(supabase, sourceIds),
     listShopCollectionShardAssignments(supabase, sourceIds),
   ]);
@@ -4274,12 +4865,14 @@ async function listShopCollectionSourceOfferStats(supabase) {
   })).filter((row) => row.sourceId);
 }
 
-async function listShopCollectionPriceStats(supabase) {
-  const refreshResult = await supabase.rpc("refresh_source_quality_price_benchmarks_if_stale", {
-    p_max_age_minutes: 15,
-  });
-  if (refreshResult.error) {
-    console.warn(`Shop scheduler benchmark refresh skipped: ${errorMessage(refreshResult.error)}`);
+async function listShopCollectionPriceStats(supabase, options = {}) {
+  if (options.refresh !== false) {
+    const refreshResult = await supabase.rpc("refresh_source_quality_price_benchmarks_if_stale", {
+      p_max_age_minutes: 15,
+    });
+    if (refreshResult.error) {
+      console.warn(`Shop scheduler benchmark refresh skipped: ${errorMessage(refreshResult.error)}`);
+    }
   }
 
   const { data, error } = await supabase.rpc("list_source_quality_price_benchmarks");
@@ -4332,6 +4925,7 @@ function latestShopCollectionCrawlRunBySource(runs) {
   const latestGroups = new Map();
   for (const run of runs) {
     if (!run.sourceId) continue;
+    if (run.details?.hotVerification === true) continue;
     const observedAt = shopCollectionCrawlRunObservedAt(run);
     const current = latestGroups.get(run.sourceId);
     if (!current || observedAt > current.observedAt) {
@@ -4465,6 +5059,12 @@ function classifyShopCollectionScheduleTier(input) {
     return { tier: "new_source_bootstrap", reasons };
   }
 
+  const outOfStockSchedule = outOfStockObservationSchedule(input.target);
+  if (outOfStockSchedule) {
+    reasons.push(outOfStockSchedule.reason);
+    return { tier: outOfStockSchedule.tier, reasons };
+  }
+
   if (hasFailure) {
     reasons.push(runtimeIssue ? `最近失败：${runtimeIssue}` : consecutiveFailures ? `连续失败 ${consecutiveFailures} 次` : "最近采集失败");
     if (isDailyProbeFailure(input.target.lastError, consecutiveFailures)) {
@@ -4474,6 +5074,10 @@ function classifyShopCollectionScheduleTier(input) {
     if (isWeeklyProbeFailure(input.target.lastError, consecutiveFailures)) {
       reasons.push("连续站点异常，保留原因并降为每周复检");
       return { tier: "weekly_probe", reasons };
+    }
+    if (input.target.collectionGroup === "vip_15m" && runtimeIssue) {
+      reasons.push("VIP 来源发生可恢复运行错误，保持 1h 恢复重试");
+      return { tier: "retry_priority", reasons };
     }
     if (strongLowPrice || hotLowPrice || hasHotProduct) {
       reasons.push("仍有低价或重点商品价值，冷却后优先重试");
@@ -4516,21 +5120,19 @@ function classifyShopCollectionScheduleTier(input) {
 }
 
 function isDailyProbeFailure(lastError, consecutiveFailures) {
-  if (Number(consecutiveFailures || 0) < OBSERVATION_PROBE_FAILURE_THRESHOLD) return false;
-  return /(?:店铺接口正常[^。\n]*(?:完整)?商品快照为空|店铺正常[^。\n]*(?:没有商品|无商品|商品为空)|shop (?:api )?(?:reachable|healthy)[^\n]*(?:0 goods|empty (?:goods )?snapshot)|goods_count\s*[=:]\s*0)/i.test(String(lastError || ""));
+  return legacyFailureObservationInterval(lastError, consecutiveFailures) === DAILY_PROBE_INTERVAL_MINUTES;
 }
 
 function isWeeklyProbeFailure(lastError, consecutiveFailures) {
-  if (Number(consecutiveFailures || 0) < OBSERVATION_PROBE_FAILURE_THRESHOLD) return false;
-  return !isDailyProbeFailure(lastError, consecutiveFailures);
+  return legacyFailureObservationInterval(lastError, consecutiveFailures) === WEEKLY_PROBE_INTERVAL_MINUTES;
 }
 
 function shopCollectionScheduleReferenceAt(target, latestRun, tier) {
   const latestRunAt = latestRun ? shopCollectionCrawlRunObservedAt(latestRun) : null;
-  if (tier === "retry_priority" || tier === "retry_cooldown" || tier === "daily_probe" || tier === "weekly_probe") {
+  if (tier === "retry_priority" || tier === "retry_cooldown" || tier.startsWith("out_of_stock_watch_") || tier === "daily_probe" || tier === "weekly_probe") {
     return target.lastCheckedAt || latestRunAt || target.lastSuccessAt || null;
   }
-  return target.lastSuccessAt || latestRunAt || target.lastCheckedAt || null;
+  return latestRunAt || target.lastSuccessAt || target.lastCheckedAt || null;
 }
 
 function shopCollectionSchedulerOptionsFor(options = {}) {
@@ -4607,16 +5209,11 @@ function shopCollectionScheduleTiming({
   const bucketMatches = immediate || bucketCount <= 1 || positiveModulo(currentBucketNumber, bucketCount) === bucketIndex;
   const earliestMs = lastRunMs + intervalMs;
   const ageDue = nowMs >= earliestMs;
-  const due = ageDue && bucketMatches;
-  const nextWindowStart = due
-    ? nowMs
-    : nextShopCollectionScheduleBucketWindowStart({
-        fromMs: ageDue ? nowMs : earliestMs,
-        bucketMs,
-        bucketCount,
-        bucketIndex,
-      });
-  const nextRunMs = Math.max(earliestMs, nextWindowStart);
+  // Once the interval has elapsed, the next scheduler tick must be allowed to
+  // run. Requiring the stable bucket as well can miss a window by seconds and
+  // defer the source for another full interval (for example, 3h becoming 6h).
+  const due = ageDue;
+  const nextRunMs = due ? nowMs : earliestMs;
 
   return {
     due,
@@ -4626,18 +5223,6 @@ function shopCollectionScheduleTiming({
     bucketCount,
     bucketMatches,
   };
-}
-
-function nextShopCollectionScheduleBucketWindowStart({ fromMs, bucketMs, bucketCount, bucketIndex }) {
-  const firstBucketNumber = Math.floor(fromMs / bucketMs);
-  for (let offset = 0; offset <= bucketCount; offset += 1) {
-    const candidate = firstBucketNumber + offset;
-    const start = candidate * bucketMs;
-    const end = start + bucketMs;
-    if (fromMs >= end) continue;
-    if (bucketCount <= 1 || positiveModulo(candidate, bucketCount) === bucketIndex) return start;
-  }
-  return (firstBucketNumber + bucketCount) * bucketMs;
 }
 
 function buildShopCollectionScheduleTierStats(rows) {
@@ -4865,19 +5450,24 @@ function optionList(value) {
 function cooldownSkipReason(target, options = {}) {
   if (!shouldUseCollectionCooldown(options)) return null;
 
-  const observationIntervalMinutes = isDailyProbeFailure(target.lastError, target.consecutiveFailures)
+  const outOfStockSchedule = outOfStockObservationSchedule(target);
+  const observationIntervalMinutes = outOfStockSchedule?.intervalMinutes ?? (isDailyProbeFailure(target.lastError, target.consecutiveFailures)
     ? DAILY_PROBE_INTERVAL_MINUTES
     : isWeeklyProbeFailure(target.lastError, target.consecutiveFailures)
       ? WEEKLY_PROBE_INTERVAL_MINUTES
-      : null;
+      : null);
   if (observationIntervalMinutes && target.lastCheckedAt) {
     const lastCheckedMs = new Date(target.lastCheckedAt).getTime();
     const ageMs = Date.now() - lastCheckedMs;
     const observationMs = observationIntervalMinutes * 60_000;
     if (Number.isFinite(lastCheckedMs) && ageMs >= 0 && ageMs < observationMs) {
       const remainingMinutes = Math.max(1, Math.ceil((observationMs - ageMs) / 60_000));
-      const label = observationIntervalMinutes === DAILY_PROBE_INTERVAL_MINUTES ? "每日" : "每周";
-      return { message: `连续失败已记录，进入${label}复检；约 ${remainingMinutes} 分钟后重试。` };
+      const label = outOfStockSchedule
+        ? outOfStockSchedule.reason
+        : observationIntervalMinutes === DAILY_PROBE_INTERVAL_MINUTES
+          ? "连续失败已记录，进入每日复检"
+          : "连续失败已记录，进入每周复检";
+      return { message: `${label}；约 ${remainingMinutes} 分钟后重试。` };
     }
   }
 
@@ -5416,7 +6006,7 @@ async function postJson(url, body, referer, requestOptions = null) {
       ...defaultHeaders(referer || url),
       "content-type": "application/json",
       accept: "application/json, text/plain, */*",
-      visitorid: `probe${Math.random().toString(36).slice(2, 10)}`,
+      visitorid: createShopApiVisitorId(),
       referer: referer || url,
     },
     body: JSON.stringify(body),
@@ -5449,6 +6039,10 @@ function defaultHeaders(url) {
   };
 }
 
+function createShopApiVisitorId() {
+  return crypto.randomBytes(12).toString("hex");
+}
+
 async function createShopApiProxyContext(target, options = {}) {
   if (truthyFlag(options.shopApiProxyDisabled)) return null;
 
@@ -5474,11 +6068,67 @@ function createShopApiProxyReusePool(options = {}) {
     enabled: true,
     limit: shopApiProxyReuseLimitFor(options),
     ttlMs: shopApiProxyReuseTtlMsFor(options),
+    statePath: String(optionValue(options, "shopApiProxyStatePath", "shop-api-proxy-state-path") || "").trim() || null,
+    maxRuns: integerInRange(
+      optionValue(options, "shopApiProxyMaxRuns", "shop-api-proxy-max-runs"),
+      1,
+      10,
+      DEFAULT_SHOP_API_PROXY_MAX_RUNS,
+    ),
+    logger: options.shopApiProxyLogger || null,
     entries: new Map(),
     blockedDirectExits: new Set(),
     rotationStates: new Map(),
     nextAcquireReasons: new Map(),
   };
+}
+
+async function restoreShopApiProxyReusePool(pool) {
+  if (!pool?.enabled || !pool.statePath || !existsSync(pool.statePath)) return 0;
+
+  let stored;
+  try {
+    stored = JSON.parse(readFileSync(pool.statePath, "utf8"));
+  } catch {
+    removeShopApiProxyReuseState(pool);
+    pool.logger?.log("Shop API proxy lease state was invalid and has been cleared.");
+    return 0;
+  }
+
+  const now = Date.now();
+  let restoredCount = 0;
+  for (const [poolKey, lease] of Object.entries(stored?.version === 1 && stored?.leases ? stored.leases : {})) {
+    const proxyUrl = String(lease?.proxyUrl || "").trim();
+    const expiresAt = Number(lease?.expiresAt || 0);
+    const usedRuns = Math.max(1, Math.trunc(Number(lease?.usedRuns) || 1));
+    if (
+      !poolKey ||
+      !proxyUrl ||
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= now + SHOP_API_PROXY_EXPIRY_SAFETY_MS ||
+      usedRuns >= pool.maxRuns
+    ) {
+      continue;
+    }
+
+    const nextUsedRuns = usedRuns + 1;
+    pool.entries.set(poolKey, {
+      context: {
+        proxyUrl,
+        dispatcher: new ProxyAgent(proxyUrl),
+      },
+      expiresAt,
+      remaining: pool.limit > 0 ? pool.limit : null,
+      usedRuns: nextUsedRuns,
+    });
+    restoredCount += 1;
+    pool.logger?.log(
+      `Shop API proxy lease restored for ${poolKey}; run ${nextUsedRuns}/${pool.maxRuns}; expires at ${new Date(expiresAt).toISOString()}.`,
+    );
+  }
+
+  persistShopApiProxyReusePool(pool);
+  return restoredCount;
 }
 
 function isShopApiDirectExitBlockedForTarget(target, options = {}) {
@@ -5525,6 +6175,7 @@ async function shopApiProxyContextFromReusePool(poolKey, options = {}) {
     await closeShopApiProxyReuseEntry(existing);
     pool.entries.delete(poolKey);
     pool.nextAcquireReasons.set(poolKey, "lease-expired");
+    persistShopApiProxyReusePool(pool);
   }
 
   const proxyLease = await resolveShopApiProxyUrl(options);
@@ -5538,8 +6189,10 @@ async function shopApiProxyContextFromReusePool(poolKey, options = {}) {
     },
     expiresAt: proxyLease.expiresAt || now + pool.ttlMs,
     remaining: limit === null ? null : limit - 1,
+    usedRuns: 1,
   };
   pool.entries.set(poolKey, entry);
+  persistShopApiProxyReusePool(pool);
   const acquireReason = pool.nextAcquireReasons.get(poolKey) || "initial";
   pool.nextAcquireReasons.delete(poolKey);
   logger?.log(`Shop API proxy lease acquired for ${poolKey}; reason=${acquireReason}; expires at ${new Date(entry.expiresAt).toISOString()}.`);
@@ -5563,6 +6216,7 @@ async function discardShopApiProxyReuseForTarget(target, options = {}, details =
 
   await closeShopApiProxyReuseEntry(entry);
   pool.entries.delete(poolKey);
+  persistShopApiProxyReusePool(pool);
 
   if (rotationState.count >= SHOP_API_PROXY_MAX_ROTATIONS_PER_WINDOW) {
     rotationState.cooldownUntil = rotationState.windowStartedAt + SHOP_API_PROXY_ROTATION_WINDOW_MS;
@@ -5603,6 +6257,50 @@ async function closeShopApiProxyReusePool(pool) {
 
 async function closeShopApiProxyReuseEntry(entry) {
   await entry?.context?.dispatcher?.close?.().catch(() => {});
+}
+
+function persistShopApiProxyReusePool(pool) {
+  if (!pool?.statePath) return;
+
+  const now = Date.now();
+  const leases = {};
+  for (const [poolKey, entry] of pool.entries || []) {
+    if (!entry?.context?.proxyUrl || entry.expiresAt <= now + SHOP_API_PROXY_EXPIRY_SAFETY_MS) continue;
+    leases[poolKey] = {
+      proxyUrl: entry.context.proxyUrl,
+      expiresAt: entry.expiresAt,
+      usedRuns: Math.max(1, Math.trunc(Number(entry.usedRuns) || 1)),
+    };
+  }
+
+  if (!Object.keys(leases).length) {
+    removeShopApiProxyReuseState(pool);
+    return;
+  }
+
+  const temporaryPath = `${pool.statePath}.${process.pid}.tmp`;
+  try {
+    const stateDirectory = dirname(pool.statePath);
+    mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
+    writeFileSync(temporaryPath, `${JSON.stringify({ version: 1, leases })}\n`, { mode: 0o600 });
+    chmodSync(temporaryPath, 0o600);
+    renameSync(temporaryPath, pool.statePath);
+    chmodSync(pool.statePath, 0o600);
+  } catch (error) {
+    try {
+      rmSync(temporaryPath, { force: true });
+    } catch {}
+    pool.logger?.log(`Shop API proxy lease state could not be persisted: ${errorMessage(error)}`);
+  }
+}
+
+function removeShopApiProxyReuseState(pool) {
+  if (!pool?.statePath) return;
+  try {
+    rmSync(pool.statePath, { force: true });
+  } catch (error) {
+    pool.logger?.log(`Shop API proxy lease state could not be cleared: ${errorMessage(error)}`);
+  }
 }
 
 function shopApiProxyReuseLimitFor(options = {}) {
@@ -5931,6 +6629,7 @@ function decodeHtmlEntities(value) {
     .replace(/&#039;/g, `'`)
     .replace(/&apos;/gi, `'`)
     .replace(/&amp;/gi, "&")
+    .replace(/&yen;/gi, "¥")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">");
 }

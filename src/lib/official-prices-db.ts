@@ -228,13 +228,16 @@ async function readOfficialPricesDataset(): Promise<OfficialPricesDataset> {
         const planKey = planKeyById.get(String(row.plan_id));
         const region = regionById.get(String(row.region_id));
         if (!planKey || !region) return null;
-        if (row.status !== "available") return null;
+        if (row.status !== "available" && row.status !== "stale") return null;
 
         const priceText = nullableString(row.price_text);
         const priceValue = numberValue(row.price_value);
         const cnyPrice = numberValue(row.cny_price);
         const fxRateToCny = numberValue(row.fx_rate_to_cny);
         if (!priceText || priceValue == null || cnyPrice == null || fxRateToCny == null) return null;
+
+        const lastSuccessAt = nullableString(row.last_success_at);
+        if (!lastSuccessAt) return null;
 
         return {
           ...region,
@@ -244,8 +247,9 @@ async function readOfficialPricesDataset(): Promise<OfficialPricesDataset> {
           priceValue,
           sourceUrl: stringValue(row.source_url),
           evidenceSource: "app_store_html",
-          fetchedAt: stringValue(row.last_success_at || row.last_checked_at || row.updated_at),
-          status: "available",
+          fetchedAt: lastSuccessAt,
+          lastSuccessAt,
+          status: row.status === "stale" ? "stale" : "available",
           cnyPrice,
           fxRateToCny,
           fxDate: stringValue(row.fx_date),
@@ -338,7 +342,8 @@ async function readCurrentPriceRows(): Promise<DbRow[]> {
         "updated_at",
       ].join(","),
     )
-    .eq("status", "available")
+    .in("status", ["available", "stale"])
+    .not("last_success_at", "is", null)
     .not("cny_price", "is", null)
     .order("cny_price", { ascending: true })
     .abortSignal(publicOfficialPriceReadSignal());

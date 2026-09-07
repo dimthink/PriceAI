@@ -2,9 +2,8 @@ name: Collect Official Prices
 
 on:
   schedule:
-    # 与历史官方价 UTC 调度保持同频：每日汇率刷新、每周全量刷新。
+    # 每日触发；脚本按 UTC 日期在每 3 天全量刷新，其余日期只刷新汇率。
     - cron: "10 18 * * *"
-    - cron: "30 18 * * 0"
   workflow_dispatch:
     inputs:
       mode:
@@ -36,7 +35,6 @@ jobs:
           COLLECT_PRICES_URL: ${{ secrets.COLLECT_PRICES_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           REQUESTED_MODE: ${{ github.event.inputs.mode }}
-          SCHEDULE: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
 
@@ -56,9 +54,6 @@ jobs:
           )
 
           MODE="${REQUESTED_MODE:-fx_only}"
-          if [ "$SCHEDULE" = "30 18 * * 0" ]; then
-            MODE="weekly_full"
-          fi
 
           curl --fail --silent --show-error \
             --request POST \
@@ -107,17 +102,14 @@ jobs:
       - name: Collect and write official prices
         env:
           REQUESTED_MODE: ${{ github.event.inputs.mode }}
-          SCHEDULE: ${{ github.event.schedule }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
 
-          MODE="${REQUESTED_MODE:-fx_only}"
-          if [ "$SCHEDULE" = "30 18 * * 0" ]; then
-            MODE="weekly_full"
-          fi
+          MODE=$(node scripts/resolve-official-price-collection-mode.mjs "$EVENT_NAME" "${REQUESTED_MODE:-}")
 
           if [ "$MODE" = "fx_only" ]; then
             npm run collect:official -- --fx-only --post --mode=worker

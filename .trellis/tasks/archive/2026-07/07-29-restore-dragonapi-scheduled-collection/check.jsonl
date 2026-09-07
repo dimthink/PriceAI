@@ -1,0 +1,3 @@
+{"file":".trellis/spec/priceai/collector-freshness.md","reason":"检查来源纳入范围与连续定时采集"}
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"检查 runtime、GitHub、Cloudflare 与真实业务状态"}
+{"file":".trellis/spec/priceai/public-api-cache.md","reason":"检查生产详情 API 与页面缓存已刷新"}

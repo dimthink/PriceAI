@@ -1439,6 +1439,7 @@ function offerText(offer: ApiTransitAdminOffer): string {
 
 function modelSortValue(value: string): number {
   const order = [
+    "Claude Opus 5",
     "Claude Fable 5",
     "Claude Sonnet 5",
     "Claude Sonnet 4.5",

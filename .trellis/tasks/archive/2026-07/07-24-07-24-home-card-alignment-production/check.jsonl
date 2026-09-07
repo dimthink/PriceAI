@@ -1,0 +1,2 @@
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"按生产验收清单验证首页、部署版本、Cloudflare/OpenNext 响应头和关键 API。"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"确认 lint/build 和 UI 回归检查符合前端质量规范。"}

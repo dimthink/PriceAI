@@ -1,0 +1,2 @@
+{"file":".trellis/spec/priceai/deployment-verification.md","reason":"Cloudflare/OpenNext 发布、验证和回滚契约"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"前端改动发布前的 lint 与 build 质量要求"}

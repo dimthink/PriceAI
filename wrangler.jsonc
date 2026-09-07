@@ -62,6 +62,10 @@
       "bucket_name": "priceai-cloudflare-poc-opennext-cache"
     },
     {
+      "binding": "PRICE_RADAR_BUCKET",
+      "bucket_name": "priceai-price-radar"
+    },
+    {
       "binding": "FEEDBACK_EVIDENCE_BUCKET",
       "bucket_name": "priceai-feedback-evidence"
     }

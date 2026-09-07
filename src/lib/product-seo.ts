@@ -48,8 +48,8 @@ const productSeoProfiles: Record<string, ProductSeoProfile> = {
     metadataDescription: "查看 ChatGPT Pro 20x 有货最低价、Pro 高额度、代开、卡密、渠道报价、官方参考价和更新时间。",
   }),
   "chatgpt-codex-service": profile({
-    metadataTitle: "Codex / ChatGPT 周边服务价格对比：额度重置、长链提取和服务包",
-    metadataDescription: "查看 Codex 与 ChatGPT 周边辅助服务的有货最低价、额度重置、长链提取、服务包、渠道报价和更新时间。",
+    metadataTitle: "Codex / ChatGPT 周边与自助服务价格对比：提链、扫码和自助充值",
+    metadataDescription: "查看 Codex 与 ChatGPT 周边及自助服务的有货最低价、提链、扫码、自助充值、额度重置、渠道报价和更新时间。",
   }),
   "gemini-pro-year": profile({
     metadataTitle: "Gemini Pro 成品号价格对比：Google AI Pro 账号、年卡和渠道报价",

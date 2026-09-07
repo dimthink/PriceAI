@@ -11,7 +11,6 @@ import {
   LayoutGrid,
   Layers3,
   PackageCheck,
-  Plus,
   Search,
   Store,
   Table2,
@@ -29,6 +28,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { clearFeedbackResumeRequest, getFeedbackResumeRequest } from "@/lib/feedback-draft";
 import { listDetailNavigationHref, shouldHandleListDetailClick } from "@/lib/list-return";
 import { rewriteLdxpUrlHost } from "@/lib/ldxp-domain-settings-shared";
+import { safeExternalShopUrl } from "@/lib/external-url";
 import { saveCurrentListScrollPosition, useListScrollRestoration } from "@/lib/list-scroll-restoration";
 import {
   compareProductDisplayOrder,
@@ -40,6 +40,7 @@ import { trackAnalyticsEvent } from "@/lib/analytics";
 import { readSessionCache, writeSessionCache } from "@/lib/client-cache";
 import { useMediaQuery } from "@/lib/client-hooks";
 import { createTimeoutSignal, isGeneratedDatasetStale, newestGeneratedDataset, newestUsableGeneratedDataset } from "@/lib/client-refresh";
+import { withPriceAiUtm } from "@/lib/outbound-analytics-client";
 import {
   MERCHANT_COLLECTOR_FILTERS,
   merchantCollectorLabel,
@@ -843,11 +844,11 @@ export function PriceExplorer({
                 <button
                   type="button"
                   onClick={openSubmission}
-                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#2d3435] px-3 text-sm font-semibold text-[#f8f8f8] md:hidden"
-                  aria-label="提交新的卡网订阅渠道"
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#e8f3ec] px-3 text-sm font-semibold text-[#2f7a4b] ring-1 ring-[#2f7a4b]/20 transition hover:bg-[#ddefe4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7a4b]/45 md:hidden"
+                  aria-label="申请收录自营店铺"
                 >
-                  <Plus size={15} />
-                  <span className="hidden min-[380px]:inline">提交</span>
+                  <Store size={15} />
+                  <span>申请收录</span>
                 </button>
               </div>
               <p className="mt-3 hidden max-w-[78ch] text-sm leading-7 text-[#5a6061] md:block">
@@ -1002,11 +1003,11 @@ export function PriceExplorer({
             <button
               type="button"
               onClick={openSubmission}
-              aria-label="提交新的卡网订阅渠道"
-              className="hidden h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[#2d3435] px-5 text-sm font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526] md:inline-flex"
+              aria-label="申请收录自营店铺"
+              className="hidden h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[#e8f3ec] px-5 text-sm font-semibold text-[#2f7a4b] ring-1 ring-[#2f7a4b]/20 transition hover:bg-[#ddefe4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7a4b]/45 md:inline-flex"
             >
-              <Plus size={16} />
-              提交渠道
+              <Store size={16} />
+              申请收录
             </button>
           </div>
           {activeFilterChips.length ? (
@@ -1947,7 +1948,7 @@ function MobileMerchantMetric({ label, value }: { label: string; value: number }
 
 function MerchantSourceLink({ merchant }: { merchant: PublicMerchantSummary }) {
   const href = rewriteLdxpUrlHost(merchant.shopUrl || merchant.entryUrl) || merchant.shopUrl || merchant.entryUrl;
-  const usableHref = isMerchantShopUrl(href) ? href : null;
+  const usableHref = safeExternalShopUrl(href);
 
   if (!usableHref) {
     return (
@@ -1957,9 +1958,15 @@ function MerchantSourceLink({ merchant }: { merchant: PublicMerchantSummary }) {
     );
   }
 
+  const outboundUrl = withPriceAiUtm(usableHref, {
+    medium: "merchant_shop",
+    campaign: "priceai_merchant",
+    content: merchant.sourceId || merchant.id,
+  });
+
   return (
     <a
-      href={usableHref}
+      href={outboundUrl}
       target="_blank"
       rel="noreferrer"
       className="inline-flex h-9 min-w-[72px] items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-[#2d3435] px-3 text-xs font-semibold text-[#f8f8f8] transition hover:bg-[#1f2526]"
@@ -1968,18 +1975,6 @@ function MerchantSourceLink({ merchant }: { merchant: PublicMerchantSummary }) {
       <ChevronRight size={14} />
     </a>
   );
-}
-
-function isMerchantShopUrl(value: string | null | undefined): value is string {
-  const raw = String(value || "").trim();
-  if (!raw) return false;
-  try {
-    const url = new URL(raw);
-    const path = url.pathname.replace(/\/+$/, "");
-    return !/\/item\//i.test(path);
-  } catch {
-    return false;
-  }
 }
 
 function OfferStatusBadge({ available }: { available: boolean }) {

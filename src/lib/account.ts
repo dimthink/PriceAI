@@ -202,17 +202,18 @@ export async function updateUserDetectorJob(input: {
   jsonUrl?: string | null;
   imageUrl?: string | null;
   errorMessage?: string | null;
-}): Promise<void> {
+  allowedCurrentStatuses?: TransitDetectorJobStatus[];
+}): Promise<TransitDetectorJobStatus | null> {
   const supabase = getRequiredSupabase();
   const patch: Record<string, unknown> = {
     status: input.status,
-    detector_job_id: input.detectorJobId ?? null,
-    status_url: input.statusUrl ?? null,
-    result_url: input.resultUrl ?? null,
-    json_url: input.jsonUrl ?? null,
-    image_url: input.imageUrl ?? null,
-    error_message: input.errorMessage ?? null,
   };
+  if (input.detectorJobId !== undefined) patch.detector_job_id = input.detectorJobId;
+  if (input.statusUrl !== undefined) patch.status_url = input.statusUrl;
+  if (input.resultUrl !== undefined) patch.result_url = input.resultUrl;
+  if (input.jsonUrl !== undefined) patch.json_url = input.jsonUrl;
+  if (input.imageUrl !== undefined) patch.image_url = input.imageUrl;
+  if (input.errorMessage !== undefined) patch.error_message = input.errorMessage;
   if (input.status === "queued" || input.status === "running") {
     const now = new Date();
     patch.last_heartbeat_at = now.toISOString();
@@ -222,12 +223,29 @@ export async function updateUserDetectorJob(input: {
     patch.lease_expires_at = null;
   }
 
-  const { error } = await supabase
+  let query = supabase
     .from("transit_detector_jobs")
     .update(patch)
     .eq("id", input.id)
     .eq("user_id", input.userId);
+  if (input.allowedCurrentStatuses?.length) {
+    query = query.in("status", input.allowedCurrentStatuses);
+  }
+  const { data, error } = await query.select("status").maybeSingle();
   if (error) throw error;
+  if (data?.status) return data.status as TransitDetectorJobStatus;
+
+  if (input.allowedCurrentStatuses?.length) {
+    const { data: current, error: currentError } = await supabase
+      .from("transit_detector_jobs")
+      .select("status")
+      .eq("id", input.id)
+      .eq("user_id", input.userId)
+      .maybeSingle();
+    if (currentError) throw currentError;
+    return current?.status ? current.status as TransitDetectorJobStatus : null;
+  }
+  return null;
 }
 
 export type DetectorJobClaimResult = {

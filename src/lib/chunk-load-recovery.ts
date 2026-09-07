@@ -1,5 +1,5 @@
 const CHUNK_LOAD_PATTERN =
-  /ChunkLoadError|Loading chunk \d+ failed|CSS_CHUNK_LOAD_FAILED|failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module|\/_next\/static\/chunks\//i;
+  /ChunkLoadError|Loading chunk \d+ failed|CSS_CHUNK_LOAD_FAILED|failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module|\/_next\/static\/(?:chunks|css)\//i;
 
 const RELOAD_GUARD_KEY = "priceai:chunk-load-reload";
 const RELOAD_GUARD_MS = 10_000;

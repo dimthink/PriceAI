@@ -132,7 +132,7 @@ export function buildSubmissionPriceEvidence(
     if (offer.currency && offer.currency.toUpperCase() !== "CNY") continue;
     if (typeof offer.price !== "number" || !Number.isFinite(offer.price) || offer.price <= 0) continue;
 
-    const product = classifyOffer(offer.sourceTitle, { tags: offer.tags, price: offer.price });
+    const product = classifyOffer(offer.sourceTitle, { tags: offer.tags });
     if (product.id === "other-product") continue;
     const benchmark = benchmarks.get(product.id);
     if (!benchmark || benchmark.minPrice <= 0 || benchmark.top5Price <= 0) continue;

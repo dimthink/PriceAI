@@ -797,6 +797,144 @@
     "adminNote": "用户提交口径：New API 系统 / 官网: http://www.umapis.com。PriceAI 2026-07-12 核验：站点公开名为 悠米AI中转，/api/status 显示 New API v1.0.0-rc.21，/api/pricing 可读取 16 个模型；当前公开分组倍率包含 GPT-Pro 0.15、GPT混合 0.05、自研Claude满血 0.7、Claude Max 1.2、GPT-IMAGE-2 1；/api/perf-metrics/summary?period=24 可读取站方公开稳定性，但非 PriceAI API Key 实测。未接入 PriceAI 公共快照标准，/v1/models 需要 API Key。正式上架前需补充或确认：充值倍率、主流模型倍率口径、号池/上游来源、主体类型、发票、售后/退款、AFF、测试 Key。"
   },
   {
+    "id": "newapi-dragon3api-com",
+    "name": "DragonAPI",
+    "websiteUrl": "https://newapi.dragon3api.com/",
+    "apiBaseUrl": "https://newapi.dragon3api.com/v1",
+    "pricingUrl": "https://newapi.dragon3api.com/pricing",
+    "pricingEndpointUrl": "https://newapi.dragon3api.com/api/pricing",
+    "discoveryUrl": "https://newapi.dragon3api.com/.well-known/ai-transit.json",
+    "snapshotEndpointUrl": "https://newapi.dragon3api.com/api/public/transit/v1/snapshot",
+    "monitorUrl": "https://newapi.dragon3api.com/status",
+    "monitorEndpointUrl": "https://newapi.dragon3api.com/api/perf-metrics/summary?period=24",
+    "collectorKind": "new_api_pricing",
+    "stationSystem": "new_api",
+    "commercialRelation": "none",
+    "rechargeRatio": "1:1",
+    "autoPublish": false,
+    "operatorType": "company",
+    "invoiceSupport": "supported",
+    "channelTypes": ["first_party_pool"],
+    "accountPools": ["pro", "plus", "max", "kiro", "mixed"],
+    "paymentMethods": ["人民币支付"],
+    "supportChannels": ["联系客服"],
+    "refundPolicy": "可退余额，需联系客服处理。",
+    "riskLabels": ["insufficient_samples", "pending_feedback"],
+    "summary": "DragonAPI 使用 New API 系统，公开价格、站方监测、发现文档与 transit 补充快照可读取；站长提交口径为 1:1 充值、自建号池、公司主体、支持普票及余额退款。PriceAI 保留 New API 主价格采集，并用补充快照校验价格和补充分组级公开监测。",
+    "strengths": [
+      "2026-08-03 公开 /api/pricing 与 transit 补充快照的模型全集和 9 个分组倍率一致，价格页可直接核验；模型数量会随站方上下架动态变化。",
+      "公开 transit 补充快照返回模型与分组维度的近 24 小时请求量、成功率、平均延迟和 TTFT，并明确声明全部分组由本站自建号池供给。",
+      "公开 /api/perf-metrics/summary?period=24 与独立 /status 监测页可读取，PriceAI 可保留现有模型级监测作为主链路。",
+      "站长提交了运营时长、使用规模、充值倍率、模型来源、退款、公司主体和发票规则，后台资料完整度较高。"
+    ],
+    "cautions": [
+      "站长提交 Codex 0.045、CCMax 0.75；2026-08-03 公开接口当前显示 gpt-特惠 0.08、gpt-plus 0.12、gpt-pro 0.20、claude max 号池 0.85，需继续区分活动价、专属分组和模型倍率口径。",
+      "站长自报已运营 1 个月、每日 30b，但本次未附截图，运营规模与单位仍待人工核验。",
+      "公开监测为站方 performance summary 与真实流量聚合快照，非 PriceAI API Key 实测；/v1/models 需要 API Key。",
+      "transit 补充快照数据完整，但 schema_version=1.0、对象型 groups、顶层 models 和对象型 monitoring.models 不符合 PriceAI 现有 ai-transit.v1 数组契约；当前通过显式兼容层读取，不伪装成标准快照。"
+    ],
+    "verificationEvents": [
+      {
+        "id": "dragonapi-merchant-submitted-2026-07-28",
+        "source": "merchant",
+        "status": "info",
+        "title": "站长提交待审核资料",
+        "description": "用户以 DraonAPI 名称提交：New API 系统，已运营 1 个月、每日 30b、1:1 充值、Codex 0.045、CCMax 0.75、自建号池、公司主体、支持普票（4%，约一个月）、可退余额并联系客服；本次未附截图。",
+        "happenedAt": "2026-07-28T10:35:23.000Z"
+      },
+      {
+        "id": "dragonapi-public-newapi-2026-07-28",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开接口确认为 New API",
+        "description": "2026-07-28 检查官网与 /api/status：公开前端为 New API，/api/status 返回系统名 DragonAPI 和 server_address https://newapi.dragon3api.com。",
+        "happenedAt": "2026-07-28T10:35:23.000Z"
+      },
+      {
+        "id": "dragonapi-public-pricing-2026-07-28",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开 New API 价格接口可读取",
+        "description": "2026-07-28 检查 /api/pricing 返回 83 个模型和 8 个分组倍率；当前包含 gpt-特惠 0.05、gpt-plus 0.08、gpt-pro 0.2、claude max 号池 0.85。",
+        "happenedAt": "2026-07-28T10:35:23.000Z"
+      },
+      {
+        "id": "dragonapi-public-performance-2026-07-28",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开 performance summary 可读取",
+        "description": "2026-07-28 检查 /api/perf-metrics/summary?period=24 返回 15 个模型的成功率、平均延迟和 TPS；该数据为站方公开监测口径，非 PriceAI API Key 实测。",
+        "happenedAt": "2026-07-28T10:35:23.000Z"
+      },
+      {
+        "id": "dragonapi-public-transit-snapshot-2026-08-03",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开 transit 发现文档与补充快照可读取",
+        "description": "2026-08-03 检查 /.well-known/ai-transit.json 与 /api/public/transit/v1/snapshot 均返回 200，核验时快照与 /api/pricing 的模型全集及 9 个分组一致，另含模型级近 24 小时真实流量聚合监测；模型和监测项数量会随站方上下架与流量窗口动态变化。该 schema 为站方 1.0 方言，PriceAI 通过兼容层读取，不视为标准 ai-transit.v1 或 API Key 实测。",
+        "happenedAt": "2026-08-03T05:50:02.000Z"
+      }
+    ],
+    "adminNote": "用户提交名称为 DraonAPI；PriceAI 按 /api/status 与域名核验后以 DragonAPI 作为标准站点名。用户提交口径：New API 系统 / 官网 https://newapi.dragon3api.com / 公开价格页 https://newapi.dragon3api.com/pricing / 公开监测页 https://newapi.dragon3api.com/status / 已运营 1 个月 / 每日 30b / 1:1 充值 / Codex 0.045 / CCMax 0.75 / 自建号池 / 余额可退、联系客服 / 公司主体 / 支持普票、4% 税点、约一个月；本次未附运营与规模截图。PriceAI 2026-08-03 核验：/api/pricing 与 transit 补充快照的模型全集和 9 个分组一致，当前 gpt-特惠 0.08、gpt-plus 0.12、gpt-pro 0.20、claude max 号池 0.85；快照另含模型级近 24 小时真实流量聚合监测和 self_hosted 自建号池声明，具体模型与监测项数量会动态变化。发现文档与快照使用站方 schema_version=1.0 方言，PriceAI 保留 /api/pricing 主链路并通过兼容层补充分组级监测；站方监测非 API Key 实测，/v1/models 仍需 API Key。当前 autoPublish=false，不自动改变既有人工审核与展示状态；仍需确认倍率差异、30b 的统计单位及截图、公司与开票资料、售后入口和测试 Key。"
+  },
+  {
+    "id": "hejuapi-com",
+    "name": "JuAPI",
+    "websiteUrl": "https://www.hejuapi.com/",
+    "apiBaseUrl": "https://www.hejuapi.com/v1",
+    "pricingUrl": "https://www.hejuapi.com/pricing",
+    "pricingEndpointUrl": "https://www.hejuapi.com/api/pricing",
+    "monitorUrl": "https://www.hejuapi.com/status",
+    "monitorEndpointUrl": "https://www.hejuapi.com/api/perf-metrics/summary?period=24",
+    "collectorKind": "new_api_pricing",
+    "stationSystem": "new_api",
+    "commercialRelation": "none",
+    "autoPublish": false,
+    "operatorType": "unknown",
+    "invoiceSupport": "unknown",
+    "accountPools": ["max", "pro", "kiro", "mixed", "undisclosed"],
+    "riskLabels": ["insufficient_samples", "mixed_pool", "undisclosed_upstream", "pending_feedback"],
+    "summary": "JuAPI 使用 New API 系统，公开价格页、价格接口、状态页和站方性能监测接口均可读取；当前仅作为后台待审核草稿保存，不进入前台公开展示。",
+    "strengths": [
+      "公开 /api/pricing 当前可读取 19 个模型和 6 个已披露分组倍率，价格页可直接核验。",
+      "公开 /api/perf-metrics/summary?period=24 当前返回 11 个模型的成功率、平均延迟和 TPS，站方提供独立 /status 监测页。"
+    ],
+    "cautions": [
+      "充值倍率未公开确认，PriceAI 暂按 New API 原始倍率保存并标记待审核；正式上架前需确认充值与额度换算口径。",
+      "模型 enable_groups 还引用“自研Claude满血(可外接/可蒸馏)”，但公开 group_ratio 未提供该分组倍率，相关价格不能视为已完整核验。",
+      "公开监测为站方 performance summary，非 PriceAI API Key 实测；/v1/models 需要 API Key。",
+      "未接入 PriceAI 公共快照标准：/api/public/transit/v1/snapshot 返回 404，/.well-known/ai-transit.json 当前返回前端壳。",
+      "主体类型、发票、售后/退款、AFF、运营时长、使用规模和模型上游来源尚未提供。"
+    ],
+    "verificationEvents": [
+      {
+        "id": "juapi-public-newapi-2026-07-29",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开接口确认为 New API",
+        "description": "2026-07-29 检查官网与 /api/status：公开前端为 New API，系统名 JuAPI，版本 v1.0.0-rc.22，server_address 为 https://www.hejuapi.com。",
+        "happenedAt": "2026-07-29T09:24:36.000Z"
+      },
+      {
+        "id": "juapi-public-pricing-2026-07-29",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开 New API 价格接口可读取",
+        "description": "2026-07-29 检查 /api/pricing 返回 19 个模型和 6 个已披露分组倍率：ClaudeMax 2、GPT-IMAGE-2 1、GPTPro 0.3、Kiro-Claude 低缓存 0.15、高缓存 0.3、Seedance 0.93。",
+        "happenedAt": "2026-07-29T09:24:36.000Z"
+      },
+      {
+        "id": "juapi-public-performance-2026-07-29",
+        "source": "priceai",
+        "status": "success",
+        "title": "公开 performance summary 可读取",
+        "description": "2026-07-29 检查 /api/perf-metrics/summary?period=24 返回 11 个模型监测项；该数据为站方公开监测口径，非 PriceAI API Key 实测。",
+        "happenedAt": "2026-07-29T09:24:36.000Z"
+      }
+    ],
+    "adminNote": "用户仅提交官网 https://www.hejuapi.com/ 和 New API 系统信息。PriceAI 2026-07-29 核验：公开名 JuAPI，/api/status 显示 New API v1.0.0-rc.22；/api/pricing 返回 19 个模型和 6 个已披露分组倍率，分别为 ClaudeMax 2、GPT-IMAGE-2 1、GPTPro 0.3、Kiro-Claude 低缓存 0.15、高缓存 0.3、Seedance 0.93；模型还引用未披露 group_ratio 的“自研Claude满血(可外接/可蒸馏)”分组；/api/perf-metrics/summary?period=24 返回 11 个站方监测项，非 PriceAI API Key 实测；/v1/models 需要 API Key。充值倍率、主体类型、发票、售后/退款、AFF、运营时长、使用规模和模型上游来源待补充。当前 autoPublish=false，仅进入后台待审核草稿，不上前台。"
+  },
+  {
     "id": "kksj-org",
     "name": "KK API",
     "websiteUrl": "https://api.kksj.org/",

@@ -1,5 +1,6 @@
 import {
   buildLoginHref,
+  getAuthCancelPath,
   getCanonicalAuthOrigin,
   safeAuthNextPath,
 } from "../src/lib/auth-paths.js";
@@ -43,6 +44,10 @@ assertEqual(safeAuthNextPath("/%2f%2fevil.example"), "/account", "rejects encode
 assertEqual(safeAuthNextPath(" /account"), "/account", "rejects surrounding whitespace");
 assertEqual(safeAuthNextPath("/products/%E0%A4%A"), "/account", "rejects malformed encoding");
 assertEqual(buildLoginHref("/products/chatgpt-plus", "oauth_cancelled"), "/login?next=%2Fproducts%2Fchatgpt-plus&error=oauth_cancelled", "builds stable login error URL");
+assertEqual(getAuthCancelPath("/products/chatgpt-plus?feedback=offer"), "/products/chatgpt-plus?feedback=offer", "keeps public login cancel path");
+assertEqual(getAuthCancelPath("/account/feedback"), "/", "avoids protected account cancel loop");
+assertEqual(getAuthCancelPath("/login?next=%2Faccount"), "/", "avoids login cancel loop");
+assertEqual(getAuthCancelPath("https://evil.example"), "/", "rejects unsafe login cancel path");
 assertEqual(getCanonicalAuthOrigin(new URL("https://www.priceai.cc/auth/google")), "https://priceai.cc", "canonicalizes www auth origin");
 assertEqual(getCanonicalAuthOrigin(new URL("http://localhost:3000/auth/google")), "http://localhost:3000", "preserves local auth origin");
 

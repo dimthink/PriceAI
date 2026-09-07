@@ -25,6 +25,15 @@ export function buildLoginHref(next?: string | null, error?: string | null): str
   return `/login?${search.toString()}`;
 }
 
+export function getAuthCancelPath(next?: string | null): string {
+  const safeNext = safeAuthNextPath(next, "/");
+  const pathname = safeNext.split(/[?#]/, 1)[0];
+  if (pathname === "/login" || pathname.startsWith("/auth/") || pathname === "/account" || pathname.startsWith("/account/")) {
+    return "/";
+  }
+  return safeNext;
+}
+
 export function getCanonicalAuthOrigin(requestUrl: URL): string {
   return requestUrl.hostname.toLowerCase() === "www.priceai.cc" ? priceAiCanonicalOrigin : requestUrl.origin;
 }

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run PriceAI Heyuan primary VIP shopApi collector every 15 minutes
+
+[Timer]
+OnCalendar=*-*-* *:08,23,38,53:00
+AccuracySec=15s
+RandomizedDelaySec=20s
+Persistent=false
+Unit=priceai-shop-vip-scheduler.service
+
+[Install]
+WantedBy=timers.target

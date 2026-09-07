@@ -1,8 +1,8 @@
 "use client";
 
 import { BookOpenText, Handshake, HeartHandshake, type LucideIcon } from "lucide-react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { IntentPrefetchLink } from "@/components/IntentPrefetchLink";
 import { supportPagePath } from "@/lib/support";
 
 type FooterLink = {
@@ -46,7 +46,7 @@ export function GlobalSiteFooter() {
             const isCurrent = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
             return (
-              <Link
+              <IntentPrefetchLink
                 key={item.href}
                 href={item.href}
                 className={`inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-text-primary)] sm:min-h-9 sm:px-3 ${
@@ -66,7 +66,7 @@ export function GlobalSiteFooter() {
                   <Icon size={13} strokeWidth={2.2} aria-hidden="true" />
                 </span>
                 {item.label}
-              </Link>
+              </IntentPrefetchLink>
             );
           })}
         </nav>

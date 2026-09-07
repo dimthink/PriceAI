@@ -1,5 +1,6 @@
 export const OFFER_FILTER_TAG_GROUPS = {
   access: "交付方式",
+  chatgptPeripheral: "周边服务",
   geminiRecharge: "Gemini 开通",
   plusChannel: "Plus 渠道",
   plusRecharge: "Plus 代充",
@@ -24,6 +25,9 @@ export type OfferFilterTagId =
   | "delivery_account"
   | "account_verified"
   | "account_unverified"
+  | "chatgpt_service_link"
+  | "chatgpt_service_scan"
+  | "chatgpt_service_self_recharge"
   | "gemini_12_month_link"
   | "gemini_12_month_card_binding"
   | "gemini_18_month_link"
@@ -114,6 +118,24 @@ export const OFFER_FILTER_TAGS: OfferFilterTagDefinition[] = [
     label: "未接码成品号",
     group: "access",
     description: "未接码、未绑定手机或需要自行接码的 ChatGPT Plus 成品号。",
+  },
+  {
+    id: "chatgpt_service_link",
+    label: "提链",
+    group: "chatgptPeripheral",
+    description: "提链、链接提取、长链提取或支付链接提取服务。",
+  },
+  {
+    id: "chatgpt_service_scan",
+    label: "扫码",
+    group: "chatgptPeripheral",
+    description: "扫码对接、代扫或支付二维码生成与提取服务。",
+  },
+  {
+    id: "chatgpt_service_self_recharge",
+    label: "自助充值",
+    group: "chatgptPeripheral",
+    description: "自助充值、自助开通、卡密自助或自动激活服务。",
   },
   {
     id: "gemini_12_month_link",
@@ -382,6 +404,11 @@ const CHATGPT_PLUS_ACCOUNT_STATE_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "account_verified",
   "account_unverified",
 ]);
+const CHATGPT_PERIPHERAL_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
+  "chatgpt_service_link",
+  "chatgpt_service_scan",
+  "chatgpt_service_self_recharge",
+]);
 const CHATGPT_PLUS_RECHARGE_FILTER_TAG_IDS = new Set<OfferFilterTagId>([
   "chatgpt_plus_recharge_ph_card",
   "chatgpt_plus_recharge_us_ios",
@@ -504,6 +531,7 @@ export function offerFilterTagAppliesToProduct(productId: string, tagId: OfferFi
   if (tagId === "delivery_recharge") return AI_SUBSCRIPTION_RECHARGE_FILTER_PRODUCT_IDS.has(productId);
   if (tagId === "delivery_account") return productId !== "chatgpt-plus" && AI_SUBSCRIPTION_ACCOUNT_DELIVERY_FILTER_PRODUCT_IDS.has(productId);
   if (CHATGPT_PLUS_ACCOUNT_STATE_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-plus";
+  if (CHATGPT_PERIPHERAL_FILTER_TAG_IDS.has(tagId)) return productId === "chatgpt-codex-service";
   if (DURATION_FILTER_TAG_IDS.has(tagId)) return DURATION_FILTER_PRODUCT_IDS.has(productId);
   if (VERIFICATION_FILTER_TAG_IDS.has(tagId)) return VERIFICATION_FILTER_PRODUCT_IDS.has(productId);
   if (TELEGRAM_ACCOUNT_FILTER_TAG_IDS.has(tagId)) return productId === "telegram-account";
@@ -550,6 +578,15 @@ export function deriveOfferFilterTags(input: {
 
   if (hasSelfServiceDeliverySignal(titleText) || hasSpecificDeliveryTagSignal(sourceTagsText)) {
     output.add("delivery_recharge");
+  }
+  if (hasChatGptServiceLinkSignal(text)) {
+    output.add("chatgpt_service_link");
+  }
+  if (hasChatGptServiceScanSignal(text)) {
+    output.add("chatgpt_service_scan");
+  }
+  if (hasChatGptServiceSelfRechargeSignal(text)) {
+    output.add("chatgpt_service_self_recharge");
   }
   if (hasAccountUnverifiedSignal(text)) {
     output.add("account_unverified");
@@ -720,6 +757,19 @@ function hasSpecificDeliveryTagSignal(text: string): boolean {
   return /自助充值|自助开通|自助卡密|卡密自助|自助激活|自动充值|自动开通|自动激活|全自动激活|全自动开通|直充|代充|卡充|充值|续费|代开|内购|激活码|兑换码|cdk|提链|提取链接|支付二维码|扫码对接|upi扫码|pix渠道|ideal渠道|i deal渠道/.test(text);
 }
 
+function hasChatGptServiceLinkSignal(text: string): boolean {
+  return /提链|提炼|链接提取|提取链接|长链提取|长链接提取|支付链接提取|提取支付链接/.test(text);
+}
+
+function hasChatGptServiceScanSignal(text: string): boolean {
+  if (/不包括扫码|不含扫码|无需扫码|不用扫码|非扫码服务/.test(text)) return false;
+  return /扫码对接|代付代扫|代扫服务|支付二维码生成|二维码生成率|提取支付二维码|支付二维码提取/.test(text);
+}
+
+function hasChatGptServiceSelfRechargeSignal(text: string): boolean {
+  return /自助充值|自助开通|自助卡密|卡密自助|自助激活|自动充值|自动开通|自动激活|全自动充值|全自动开通|全自动激活/.test(text);
+}
+
 function hasAccountDeliveryNegativeSignal(text: string): boolean {
   return /非成品|不是成品|非账号|不是账号|非账户|不是账户|不交付账号|不发账号|不提供账号|不含账号|无需账号|自备账号|自备号|自己账号|自己的账号|到自己账号|冲自己号|充值自己号|给自己号/.test(text);
 }
@@ -888,8 +938,8 @@ function hasChatGptPlusRechargeUsIosSignal(text: string): boolean {
   return hasUsRegionSignal(text) && hasIosPaymentSignal(text);
 }
 
-function hasChatGptPlusRechargeOfficialDirectSignal(text: string): boolean {
-  return /官方直充|官方充值|官方代充|官方订阅|正价代充|正规充值|正规官方|官网直充|官网代充|人工直充|自动直充|带账单|质保订阅/.test(text);
+export function hasChatGptPlusRechargeOfficialDirectSignal(text: string): boolean {
+  return /官方直充|官方充值|官方代充|官方订阅|正价(?:代充|充值|直充|实付)?|正规充值|正规官方|正规卡付|正规卡冲|官网直充|官网直冲|官网代充|真实付费(?:开通|充值)?/i.test(text);
 }
 
 function addProMaxSubtypeFilterTags(output: Set<OfferFilterTagId>, text: string): void {
