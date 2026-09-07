@@ -1,8 +1,8 @@
 {
   "version": 1,
   "schemaPath": "supabase/schema.sql",
-  "schemaSha256": "611c24a85fa04073230b4900375ca91800b366966d9b22885a482e2b8130e618",
+  "schemaSha256": "79fc33e86dde90864cc8a32d6da252098a6d543bd4f80414d51407b60ea025aa",
   "includesMigrationsThrough": "20260729203000",
-  "includedMigrationCount": 146,
-  "createdAt": "2026-07-29T12:35:24.000Z"
+  "includedMigrationCount": 147,
+  "createdAt": "2026-09-07T08:50:16.386Z"
 }

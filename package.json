@@ -30,7 +30,7 @@
     "start": "node_modules/node/bin/node node_modules/next/dist/bin/next start",
     "lint": "node_modules/node/bin/node node_modules/eslint/bin/eslint.js",
     "typecheck": "node_modules/node/bin/node node_modules/next/dist/bin/next typegen && node_modules/node/bin/node node_modules/typescript/bin/tsc --noEmit",
-    "test": "npm run test:auth-security && npm run test:feedback && npm run test:wholesale && npm run test:channel-submissions && npm run test:api-transit && npm run test:product-offer-pagination && npm run test:price-radar && npm run test:outbound-analytics && npm run test:catalog && npm run test:api-models && npm run test:official-parser && npm run test:deployment-recovery && npm run test:buyer-fee",
+    "test": "npm run test:auth-security && npm run test:feedback && npm run test:wholesale && npm run test:channel-submissions && npm run test:api-transit && npm run test:product-offer-pagination && npm run test:price-history && npm run test:price-radar && npm run test:outbound-analytics && npm run test:catalog && npm run test:api-models && npm run test:official-parser && npm run test:deployment-recovery && npm run test:buyer-fee",
     "collect:prices": "node scripts/collect-prices.mjs",
     "collect:shop-vip": "node scripts/collect-prices.mjs --all --kind shopApi --shop-scheduler --shop-scheduler-group vip_15m --post",
     "verify:hot-offers": "node scripts/verify-hot-offers.mjs",
@@ -72,12 +72,16 @@
     "filter:ldxp-sqlite": "node scripts/filter-ldxp-sqlite-candidates.mjs",
     "export:yunmao-source-square": "node scripts/export-yunmao-source-square.mjs",
     "probe:yunmao-candidates": "node scripts/probe-yunmao-candidates.mjs",
-    "update:star-history": "node scripts/update-star-history.mjs"
+    "update:star-history": "node scripts/update-star-history.mjs",
+    "test:price-history": "node scripts/run-ts-test.mjs scripts/test-price-history.ts",
+    "test:price-history-db": "node scripts/test-price-history-db.mjs",
+    "test:price-history-api": "node scripts/test-price-history-api.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.105.3",
     "html-to-image": "^1.11.13",
+    "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.14.0",
     "next": "16.2.9",
     "next-mdx-remote": "^6.0.0",
